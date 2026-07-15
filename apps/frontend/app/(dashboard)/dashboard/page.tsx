@@ -1,13 +1,14 @@
 import type { Metadata } from 'next';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { ProfileSummary } from './_components/profile-summary';
 
 export const metadata: Metadata = {
   title: 'Dashboard',
 };
 
 /**
- * Trang Dashboard — PLACEHOLDER (chỉ layout, chưa có nghiệp vụ).
- * Nội dung thống kê/báo cáo sẽ triển khai theo Sprint tương ứng.
+ * Trang Dashboard — chỉ layout + tóm tắt phiên (Avatar/Fullname/Organization/Role).
+ * KHÔNG có nghiệp vụ (thống kê/báo cáo) — sẽ triển khai theo Sprint tương ứng.
  */
 export default function DashboardPage() {
   return (
@@ -19,6 +20,8 @@ export default function DashboardPage() {
         </p>
       </div>
 
+      <ProfileSummary />
+
       <Card>
         <CardHeader>
           <CardTitle className="text-lg">Layout sẵn sàng</CardTitle>
@@ -28,7 +31,7 @@ export default function DashboardPage() {
           </CardDescription>
         </CardHeader>
         <CardContent className="text-sm text-muted-foreground">
-          Bạn đã đăng nhập thành công; khu vực này được bảo vệ bởi guard phía client.
+          Bạn đã đăng nhập thành công; khu vực này được bảo vệ bởi middleware + AuthProvider.
         </CardContent>
       </Card>
     </div>

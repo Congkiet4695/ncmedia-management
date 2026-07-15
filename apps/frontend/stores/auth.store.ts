@@ -1,45 +1,58 @@
 import { create } from 'zustand';
-import { persist } from 'zustand/middleware';
-import { clearAuthCookies, setAuthCookies } from '@/lib/auth-cookies';
-import type { AuthOrganization, AuthUser, SessionPayload } from '@/features/auth/types';
+import { clearAuthCookies } from '@/lib/auth-cookies';
+import type { MeOrganization, MeProfile, MeRole, MeUser } from '@/features/auth/types';
 
 /**
- * auth.store — trạng thái phiên đăng nhập.
- * - user/organization/isAuthenticated: persist vào localStorage (hiển thị lại sau reload).
- * - Token: lưu ở cookie (không đưa vào state persist).
+ * auth.store — trạng thái phiên đăng nhập (nguồn: GET /auth/me).
+ *
+ * - Không persist: phiên được thiết lập lại mỗi lần khởi động app qua AuthProvider (gọi /me).
+ * - Token lưu ở cookie (lib/auth-cookies), KHÔNG nằm trong store.
+ * - `isLoading` bắt đầu `true` cho tới khi AuthProvider hoàn tất /me.
  */
 interface AuthState {
-  user: AuthUser | null;
-  organization: AuthOrganization | null;
+  user: MeUser | null;
+  organization: MeOrganization | null;
+  role: MeRole | null;
   isAuthenticated: boolean;
-  setSession: (payload: SessionPayload) => void;
+  isLoading: boolean;
+
+  setSession: (profile: MeProfile) => void;
   clearSession: () => void;
+  setLoading: (loading: boolean) => void;
 }
 
-export const useAuthStore = create<AuthState>()(
-  persist(
-    (set) => ({
+export const useAuthStore = create<AuthState>((set) => ({
+  user: null,
+  organization: null,
+  role: null,
+  isAuthenticated: false,
+  isLoading: true,
+
+  setSession: (profile) =>
+    set({
+      user: {
+        id: profile.id,
+        email: profile.email,
+        fullName: profile.fullName,
+        avatar: profile.avatar,
+        dateOfBirth: profile.dateOfBirth,
+      },
+      organization: profile.organization,
+      role: profile.role,
+      isAuthenticated: true,
+      isLoading: false,
+    }),
+
+  clearSession: () => {
+    clearAuthCookies();
+    set({
       user: null,
       organization: null,
+      role: null,
       isAuthenticated: false,
+      isLoading: false,
+    });
+  },
 
-      setSession: ({ user, organization, tokens }) => {
-        setAuthCookies(tokens);
-        set({ user, organization: organization ?? null, isAuthenticated: true });
-      },
-
-      clearSession: () => {
-        clearAuthCookies();
-        set({ user: null, organization: null, isAuthenticated: false });
-      },
-    }),
-    {
-      name: 'ncmedia-auth',
-      partialize: (state) => ({
-        user: state.user,
-        organization: state.organization,
-        isAuthenticated: state.isAuthenticated,
-      }),
-    },
-  ),
-);
+  setLoading: (loading) => set({ isLoading: loading }),
+}));

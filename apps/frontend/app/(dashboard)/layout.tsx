@@ -4,15 +4,21 @@ import { useEffect, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import { Building2, LayoutDashboard, Loader2, LogOut, Menu, X } from 'lucide-react';
-import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
-import { getAccessToken } from '@/lib/auth-cookies';
-import { useMounted } from '@/hooks/use-mounted';
-import { useAuthStore } from '@/stores/auth.store';
+import { useAuth } from '@/hooks/use-auth';
 import { useUiStore } from '@/stores/ui.store';
 
 const NAV_ITEMS = [{ label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard }] as const;
+
+/** Chữ cái đầu của họ tên cho avatar fallback. */
+function initialsOf(name?: string): string {
+  if (!name) return 'U';
+  const parts = name.trim().split(/\s+/);
+  const first = parts[0]?.[0] ?? '';
+  const last = parts.length > 1 ? (parts[parts.length - 1][0] ?? '') : '';
+  return (first + last).toUpperCase() || 'U';
+}
 
 function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   const pathname = usePathname();
@@ -42,33 +48,35 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
   );
 }
 
+/** Avatar: ảnh nếu có (Employee — S2), fallback chữ cái đầu. */
+function UserAvatar({ src, name }: { src: string | null; name?: string }) {
+  if (src) {
+    // eslint-disable-next-line @next/next/no-img-element
+    return <img src={src} alt={name ?? 'avatar'} className="size-8 rounded-full object-cover" />;
+  }
+  return (
+    <span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
+      {initialsOf(name)}
+    </span>
+  );
+}
+
 /**
  * Layout Dashboard (shell): sidebar + header + main.
- * Guard phía client: chưa có Access Token → điều hướng /login.
- * KHÔNG chứa nghiệp vụ Dashboard — chỉ layout.
+ * Guard phía client: đã qua AuthProvider (đợi /me) + middleware. Ở đây chỉ chốt lần cuối:
+ * hết loading mà không có user → về /login. KHÔNG chứa nghiệp vụ Dashboard.
  */
 export default function DashboardLayout({ children }: { children: ReactNode }) {
-  const mounted = useMounted();
   const router = useRouter();
-  const user = useAuthStore((state) => state.user);
-  const organization = useAuthStore((state) => state.organization);
-  const clearSession = useAuthStore((state) => state.clearSession);
+  const { user, organization, role, loading, logout } = useAuth();
   const sidebarOpen = useUiStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStore((state) => state.setSidebarOpen);
 
   useEffect(() => {
-    if (mounted && !getAccessToken()) {
-      router.replace('/login');
-    }
-  }, [mounted, router]);
+    if (!loading && !user) router.replace('/login');
+  }, [loading, user, router]);
 
-  const handleLogout = () => {
-    clearSession();
-    toast.success('Đã đăng xuất');
-    router.replace('/login');
-  };
-
-  if (!mounted) {
+  if (loading || !user) {
     return (
       <div className="flex min-h-screen items-center justify-center">
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -133,10 +141,13 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
 
           <div className="ml-auto flex items-center gap-3">
             <div className="hidden text-right sm:block">
-              <p className="text-sm font-medium leading-none">{user?.fullName ?? 'Người dùng'}</p>
-              <p className="text-xs text-muted-foreground">{user?.email ?? ''}</p>
+              <p className="text-sm font-medium leading-none">{user.fullName}</p>
+              <p className="text-xs text-muted-foreground">
+                {role?.name ?? role?.code ?? 'Thành viên'}
+              </p>
             </div>
-            <Button variant="outline" size="sm" onClick={handleLogout}>
+            <UserAvatar src={user.avatar} name={user.fullName} />
+            <Button variant="outline" size="sm" onClick={logout}>
               <LogOut className="size-4" />
               <span className="hidden sm:inline">Đăng xuất</span>
             </Button>

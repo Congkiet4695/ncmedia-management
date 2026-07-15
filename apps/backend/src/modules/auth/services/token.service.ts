@@ -38,6 +38,56 @@ export class TokenService {
     private readonly prisma: PrismaService,
   ) {}
 
+  /**
+   * Ký Access Token (JWT HS256 — ADR-021), TTL 15m (ADR-006).
+   * Payload: sub, organizationId, role, jti (+ iat/exp tự thêm bởi jsonwebtoken).
+   * KHÔNG đưa permissions vào JWT (login.md Mục 9).
+   */
+  async createAccessToken(subject: TokenSubject): Promise<{ token: string; expiresIn: number }> {
+    const accessSecret = this.config.getOrThrow<string>('jwt.accessSecret');
+    const accessTtl = this.config.get<string>('jwt.accessTtl', '15m');
+    const expiresIn = Math.floor(this.parseDurationToMs(accessTtl) / 1000);
+
+    const token = await this.jwt.signAsync(
+      {
+        sub: subject.userId,
+        organizationId: subject.organizationId,
+        role: subject.roleCode,
+        jti: randomUUID(),
+      },
+      { secret: accessSecret, algorithm: 'HS256', expiresIn },
+    );
+
+    return { token, expiresIn };
+  }
+
+  /**
+   * Ký Refresh Token (JWT HS256 — ADR-021), TTL 7 ngày (ADR-006).
+   * Payload: sub, organizationId, role, jti (+ iat/exp). `jti` dùng làm khóa cache Redis.
+   * Chỉ SINH token — việc hash + lưu trữ (DB/Redis) do RefreshTokenService đảm nhận.
+   * KHÔNG verify / rotate / revoke (Refresh Flow — ngoài phạm vi Login).
+   */
+  async createRefreshToken(
+    subject: TokenSubject,
+  ): Promise<{ token: string; jti: string; expiresAt: Date }> {
+    const refreshSecret = this.config.getOrThrow<string>('jwt.refreshSecret');
+    const refreshTtl = this.config.get<string>('jwt.refreshTtl', '7d');
+    const ttlMs = this.parseDurationToMs(refreshTtl);
+    const jti = randomUUID();
+
+    const token = await this.jwt.signAsync(
+      {
+        sub: subject.userId,
+        organizationId: subject.organizationId,
+        role: subject.roleCode,
+        jti,
+      },
+      { secret: refreshSecret, algorithm: 'HS256', expiresIn: Math.floor(ttlMs / 1000) },
+    );
+
+    return { token, jti, expiresAt: new Date(Date.now() + ttlMs) };
+  }
+
   async issueTokens(subject: TokenSubject, meta: TokenMeta = {}): Promise<AuthTokens> {
     const accessSecret = this.config.getOrThrow<string>('jwt.accessSecret');
     const accessTtl = this.config.get<string>('jwt.accessTtl', '15m');

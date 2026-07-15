@@ -1,19 +1,46 @@
-import { NextResponse } from 'next/server';
+import { NextResponse, type NextRequest } from 'next/server';
 
 /**
- * Next.js Middleware — khung sẵn sàng (passthrough).
+ * Next.js Middleware — Route Guard dựa trên sự hiện diện Access Token (cookie).
  *
- * Ở giai đoạn bootstrap, middleware KHÔNG chứa logic auth/route-guard
- * (thuộc feature Authentication — chưa implement). Khi tích hợp Auth sau này,
- * đây là nơi kiểm tra Access Token (cookie) và redirect route được bảo vệ.
+ * - Route bảo vệ (/dashboard/*) mà KHÔNG có token → redirect /login (kèm ?redirect=).
+ * - Đang có token mà vào /login|/register → redirect /dashboard.
+ *
+ * Chỉ kiểm tra sự tồn tại cookie (không verify chữ ký ở edge). Tính hợp lệ thực sự do
+ * GET /auth/me phía client xác nhận (AuthProvider). Access token hết hạn thì cookie cũng
+ * đã hết hạn (TTL = expiresIn), nên coi như không có token.
  */
-export function middleware() {
+
+// Tên cookie khớp lib/auth-cookies.ts — khai báo lại để tránh bundle js-cookie vào edge runtime.
+const ACCESS_TOKEN_COOKIE = 'ncmedia_access_token';
+const PROTECTED_PREFIXES = ['/dashboard'];
+const AUTH_ROUTES = ['/login', '/register'];
+
+export function middleware(request: NextRequest) {
+  const token = request.cookies.get(ACCESS_TOKEN_COOKIE)?.value;
+  const { pathname } = request.nextUrl;
+
+  const isProtected = PROTECTED_PREFIXES.some(
+    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
+  );
+
+  if (isProtected && !token) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/login';
+    url.searchParams.set('redirect', pathname);
+    return NextResponse.redirect(url);
+  }
+
+  if (AUTH_ROUTES.includes(pathname) && token) {
+    const url = request.nextUrl.clone();
+    url.pathname = '/dashboard';
+    url.search = '';
+    return NextResponse.redirect(url);
+  }
+
   return NextResponse.next();
 }
 
-/**
- * Matcher: chạy trên mọi route trừ static asset & file hệ thống của Next.
- */
 export const config = {
-  matcher: ['/((?!_next/static|_next/image|favicon.ico|.*\\..*).*)'],
+  matcher: ['/dashboard/:path*', '/login', '/register'],
 };

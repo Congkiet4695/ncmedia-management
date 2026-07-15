@@ -1,29 +1,41 @@
 'use client';
 
-import { useMutation } from '@tanstack/react-query';
+import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import { clearAuthCookies, setAuthCookies } from '@/lib/auth-cookies';
 import { useAuthStore } from '@/stores/auth.store';
 import { authService } from '../services/auth.service';
+import { ME_QUERY_KEY } from './use-me';
 import type { LoginInput } from '../schemas/auth.schema';
+import type { MeProfile } from '../types';
 
 /**
- * useLogin — đăng nhập bằng email + password.
- * Thành công: lưu token + phiên, toast, redirect /dashboard.
- * Lỗi (401 trung tính / validate) do form xử lý.
+ * useLogin — luồng bắt buộc (login.md): POST /login → Save Token → GET /me → Save Session → Redirect.
+ * KHÔNG redirect ngay sau /login; chỉ redirect sau khi /me thành công.
+ * Lỗi (401 trung tính / validate) do LoginForm xử lý.
  */
 export function useLogin() {
   const router = useRouter();
+  const queryClient = useQueryClient();
   const setSession = useAuthStore((state) => state.setSession);
 
-  return useMutation({
-    mutationFn: (input: LoginInput) => authService.login(input),
-    onSuccess: (data) => {
-      setSession({ user: data.user, organization: data.organization, tokens: data.tokens });
-      toast.success('Đăng nhập thành công', {
-        description: `Xin chào ${data.user.fullName}`,
-      });
-      router.replace('/dashboard');
+  return useMutation<MeProfile, unknown, LoginInput>({
+    mutationFn: async (input) => {
+      const data = await authService.login(input); // POST /login
+      setAuthCookies(data.tokens); // Save Token
+      try {
+        return await authService.getMe(); // GET /me
+      } catch (err) {
+        clearAuthCookies(); // rollback token nếu /me lỗi
+        throw err;
+      }
+    },
+    onSuccess: (profile) => {
+      setSession(profile); // Save Session
+      queryClient.setQueryData(ME_QUERY_KEY, profile);
+      toast.success('Đăng nhập thành công', { description: `Xin chào ${profile.fullName}` });
+      router.replace('/dashboard'); // Redirect Dashboard
     },
   });
 }

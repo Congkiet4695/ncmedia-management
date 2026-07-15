@@ -6,7 +6,8 @@
       "Bash(npm install *)",
       "Bash(DATABASE_URL=\"postgresql://u:u@localhost:5432/db?schema=public\" npx prisma generate)",
       "Bash(docker version *)",
-      "Bash(npx prisma *)"
+      "Bash(npx prisma *)",
+      "Bash(npm test *)"
     ]
   }
 }

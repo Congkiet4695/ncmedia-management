@@ -1,5 +1,5 @@
 /**
- * Kiểu dữ liệu domain Auth — khớp hợp đồng Backend (auth.md Mục 16).
+ * Kiểu dữ liệu domain Auth — khớp hợp đồng Backend (auth.md Mục 16, login.md).
  */
 export interface AuthUser {
   id: string;
@@ -36,9 +36,31 @@ export interface LoginResponse {
   organization?: AuthOrganization;
 }
 
-/** Payload thiết lập phiên đăng nhập cho store. */
-export interface SessionPayload {
-  user: AuthUser;
-  organization?: AuthOrganization;
-  tokens: AuthTokens;
+// --- GET /auth/me ---------------------------------------------------------
+
+export interface MeRole {
+  id: string;
+  code: string;
+  name: string;
+}
+
+export interface MeOrganization {
+  id: string;
+  name: string;
+  slug: string;
+}
+
+/** Phần "user" trong hồ sơ /me (avatar/dateOfBirth là Employee field — null ở Sprint 1). */
+export interface MeUser {
+  id: string;
+  email: string;
+  fullName: string;
+  avatar: string | null;
+  dateOfBirth: string | null;
+}
+
+/** Response đầy đủ của GET /auth/me. */
+export interface MeProfile extends MeUser {
+  organization: MeOrganization;
+  role: MeRole;
 }
