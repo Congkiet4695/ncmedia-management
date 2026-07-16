@@ -223,7 +223,7 @@ export class EmployeeService {
   private mapWriteError(err: unknown): Error {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
       const target = err.meta?.target;
-      const fields = Array.isArray(target) ? target.join(',') : String(target ?? '');
+      const fields = Array.isArray(target) ? target.join(',') : typeof target === 'string' ? target : '';
       if (fields.includes('email')) return new EmployeeEmailExistsException();
       if (fields.includes('cccd')) return new EmployeeCccdExistsException();
     }

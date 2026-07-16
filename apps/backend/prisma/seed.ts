@@ -15,7 +15,10 @@
 
 import { PrismaClient, UserStatus, OrganizationStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
-import { EMPLOYEE_DEFAULT_PERMISSIONS } from '../src/modules/auth/constants/default-roles';
+import {
+  EMPLOYEE_DEFAULT_PERMISSIONS,
+  FULFILLMENT_DEFAULT_PERMISSIONS,
+} from '../src/modules/auth/constants/default-roles';
 
 const prisma = new PrismaClient();
 
@@ -63,10 +66,13 @@ const PERMISSIONS: Array<{
   { code: 'employee.update', module: 'EMPLOYEE', resource: 'employee', action: 'update', description: 'Cập nhật Employee' },
   { code: 'employee.delete', module: 'EMPLOYEE', resource: 'employee', action: 'delete', description: 'Xóa Employee' },
   // Order module (permission phục vụ RBAC/sidebar — module Order triển khai sau)
-  { code: 'order.read',   module: 'ORDER', resource: 'order', action: 'read',   description: 'Xem Order' },
-  { code: 'order.create', module: 'ORDER', resource: 'order', action: 'create', description: 'Tạo Order' },
-  { code: 'order.update', module: 'ORDER', resource: 'order', action: 'update', description: 'Cập nhật Order' },
-  { code: 'order.delete', module: 'ORDER', resource: 'order', action: 'delete', description: 'Xóa Order' },
+  { code: 'order.read',    module: 'ORDER', resource: 'order', action: 'read',    description: 'Xem Order' },
+  { code: 'order.create',  module: 'ORDER', resource: 'order', action: 'create',  description: 'Tạo Order' },
+  { code: 'order.update',  module: 'ORDER', resource: 'order', action: 'update',  description: 'Cập nhật Order' },
+  { code: 'order.delete',  module: 'ORDER', resource: 'order', action: 'delete',  description: 'Xóa Order' },
+  { code: 'order.claim',   module: 'ORDER', resource: 'order', action: 'claim',   description: 'Nhận xử lý (claim) Order — Fulfillment' },
+  { code: 'order.fulfill', module: 'ORDER', resource: 'order', action: 'fulfill', description: 'Cập nhật fulfillment (tracking/status/warehouse note)' },
+  { code: 'order.release', module: 'ORDER', resource: 'order', action: 'release', description: 'Release Order đã claim (Admin)' },
   // Profile module (self-service)
   { code: 'profile.read',   module: 'PROFILE', resource: 'profile', action: 'read',   description: 'Xem hồ sơ của mình' },
   { code: 'profile.update', module: 'PROFILE', resource: 'profile', action: 'update', description: 'Cập nhật hồ sơ của mình' },
@@ -74,6 +80,8 @@ const PERMISSIONS: Array<{
 
 /** Permission mặc định cho Role EMPLOYEE — dùng chung với register.service (default-roles.ts). */
 const EMPLOYEE_PERMISSION_CODES = [...EMPLOYEE_DEFAULT_PERMISSIONS];
+/** Permission mặc định cho Role FULFILLMENT. */
+const FULFILLMENT_PERMISSION_CODES = [...FULFILLMENT_DEFAULT_PERMISSIONS];
 
 // --- Platform Catalog (Global — ADR-011) ---
 const PLATFORMS: Array<{ code: string; name: string }> = [
@@ -188,6 +196,28 @@ async function main() {
   }
   console.log(
     `  ✓ RolePermission: ${allEmployeeRoles.length} EMPLOYEE role(s) ← ${employeePerms.length} permissions (${EMPLOYEE_PERMISSION_CODES.join(', ')})`,
+  );
+
+  // 4c) FULFILLMENT role — gán permission (order.read/claim/fulfill + profile) cho MỌI Org (backfill).
+  const fulfillmentPerms = await prisma.permission.findMany({
+    where: { code: { in: FULFILLMENT_PERMISSION_CODES } },
+    select: { id: true },
+  });
+  const allFulfillmentRoles = await prisma.role.findMany({
+    where: { code: 'FULFILLMENT', deletedAt: null },
+    select: { id: true },
+  });
+  for (const role of allFulfillmentRoles) {
+    for (const perm of fulfillmentPerms) {
+      await prisma.rolePermission.upsert({
+        where: { roleId_permissionId: { roleId: role.id, permissionId: perm.id } },
+        update: {},
+        create: { roleId: role.id, permissionId: perm.id },
+      });
+    }
+  }
+  console.log(
+    `  ✓ RolePermission: ${allFulfillmentRoles.length} FULFILLMENT role(s) ← ${fulfillmentPerms.length} permissions (${FULFILLMENT_PERMISSION_CODES.join(', ')})`,
   );
 
   // 5) Admin User — upsert theo email (global unique)

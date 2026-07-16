@@ -74,6 +74,29 @@ enum AccountStatus {
   @@map("account_status")
 }
 
+/// Trạng thái đơn hàng — nhãn hiển thị lấy từ sheet "Đơn hàng" (docs/business/NcMedia.xlsx, order.jpg).
+/// WAITING=waiting · URGENT=Ưu tiên làm gấp · TRACK_AVAILABLE=Có track · PED=ped · REDO=Đã Làm Lại
+/// TRACK_PENDING=Chờ track · TAX=thuế · TRACK_IMPORTED=đã nhập track · REFUND=refund · CANCELLED=cancel
+enum OrderStatus {
+  WAITING
+  URGENT
+  TRACK_AVAILABLE
+  PED
+  REDO
+  TRACK_PENDING
+  TAX
+  TRACK_IMPORTED
+  REFUND
+  CANCELLED
+  // Fulfillment workflow (bổ sung — additive, không phá enum cũ)
+  IN_PROGRESS
+  HAS_TRACKING
+  SHIPPED
+  COMPLETED
+
+  @@map("order_status")
+}
+
 // ---------------------------------------------------------------------------
 // Organization — Tenant root
 // ---------------------------------------------------------------------------
@@ -97,6 +120,7 @@ model Organization {
   roles     Role[]
   employees Employee[]
   accounts  Account[]
+  orders    Order[]
 
   @@map("organizations")
 }
@@ -138,6 +162,8 @@ model User {
   employee       Employee?
   // Account (ShopAccount) do User này quản lý với vai trò Seller (docs/account.md D-05).
   sellerAccounts Account[]      @relation("AccountSeller")
+  // Order mà User này (role FULFILLMENT/ADMIN) đã "Nhận xử lý" (claim).
+  fulfilledOrders Order[]      @relation("OrderFulfiller")
 
   @@index([organizationId])
   @@index([roleId])
@@ -395,6 +421,7 @@ model Account {
 
   credential           AccountCredential?
   credentialAccessLogs AccountCredentialAccessLog[]
+  orders               Order[]
 
   @@unique([organizationId, idNormalize])
   @@index([organizationId])
@@ -455,4 +482,135 @@ model AccountCredentialAccessLog {
   @@index([accountId])
   @@index([organizationId])
   @@map("account_credential_access_logs")
+}
+
+// ---------------------------------------------------------------------------
+// Order — Đơn hàng (nhập thủ công — ADR-012). Tenant-scoped, soft delete (ADR-015).
+// Order → Account → Seller (User quản lý). KHÔNG lưu manager_id trong Order:
+// quyền row-level suy ra qua account.sellerUserId (docs "account.manager_id").
+// Order 1 — N OrderItem. Profit/metric KHÔNG lưu (ADR-014).
+// ---------------------------------------------------------------------------
+
+model Order {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+
+  orderNumber String @map("order_number") @db.VarChar(120)
+  /// Nền tảng (code) — denormalize từ account.platform để khoá unique (org, platform, order_number).
+  platform    String? @db.VarChar(50)
+
+  // Thông tin khách hàng
+  customerName    String? @map("customer_name") @db.VarChar(255)
+  customerPhone   String? @map("customer_phone") @db.VarChar(50)
+  shippingAddress String? @map("shipping_address") @db.Text
+
+  sellerNote     String? @map("seller_note") @db.Text
+  warehouseNote  String? @map("warehouse_note") @db.Text
+  warehouseNote2 String? @map("warehouse_note_2") @db.Text
+  tracking       String? @db.VarChar(255)
+
+  status    OrderStatus @default(WAITING)
+  orderedAt DateTime?   @map("ordered_at") @db.Timestamptz(6)
+
+  // Fulfillment workflow — Fulfillment "Nhận xử lý" (claim) 1 đơn; khoá cho Fulfillment khác.
+  fulfilledById String?   @map("fulfilled_by_id") @db.Uuid
+  claimedAt     DateTime? @map("claimed_at") @db.Timestamptz(6)
+
+  // Audit + soft delete (ADR-015)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  account         Account              @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  fulfilledBy     User?                @relation("OrderFulfiller", fields: [fulfilledById], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  items           OrderItem[]
+  statusHistories OrderStatusHistory[]
+  logs            OrderLog[]
+
+  // Unique theo (organization_id, platform, order_number) — BR: order_number không trùng trong 1 nền tảng.
+  @@unique([organizationId, platform, orderNumber])
+  @@index([organizationId])
+  @@index([accountId])
+  @@index([status])
+  @@index([orderedAt])
+  @@index([fulfilledById])
+  @@map("orders")
+}
+
+// ---------------------------------------------------------------------------
+// OrderItem — Sản phẩm trong đơn (Order 1 — N OrderItem). Không tenant/soft-delete
+// (thuộc vòng đời Order — Cascade khi Order bị xóa cứng; soft delete ở Order).
+// ---------------------------------------------------------------------------
+
+model OrderItem {
+  id      String @id @default(uuid()) @db.Uuid
+  orderId String @map("order_id") @db.Uuid
+
+  productName String  @map("product_name") @db.VarChar(1024)
+  productLink String? @map("product_link") @db.VarChar(2048)
+  supplier    String? @db.VarChar(255)
+  sku         String? @db.VarChar(255)
+  variant     String? @db.VarChar(255)
+  color       String? @db.VarChar(255)
+  size        String? @db.VarChar(255)
+  quantity    Int     @default(1)
+  /// Giá đơn vị (VND/USD tuỳ nền tảng) — Decimal cho chính xác. Profit tính runtime (ADR-014).
+  unitPrice   Decimal @default(0) @map("unit_price") @db.Decimal(15, 2)
+  image       String? @db.VarChar(2048)
+  remark      String? @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([orderId])
+  @@map("order_items")
+}
+
+// ---------------------------------------------------------------------------
+// OrderStatusHistory — Timeline chuyển trạng thái đơn (mỗi lần đổi status ghi 1 dòng).
+// ---------------------------------------------------------------------------
+
+model OrderStatusHistory {
+  id        String       @id @default(uuid()) @db.Uuid
+  orderId   String       @map("order_id") @db.Uuid
+  oldStatus OrderStatus? @map("old_status")
+  newStatus OrderStatus  @map("new_status")
+  changedBy String       @map("changed_by") @db.Uuid
+  note      String?      @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([orderId])
+  @@map("order_status_histories")
+}
+
+// ---------------------------------------------------------------------------
+// OrderLog — Nhật ký thay đổi đơn (create/update/delete/tracking/status/address/item).
+// ---------------------------------------------------------------------------
+
+model OrderLog {
+  id          String  @id @default(uuid()) @db.Uuid
+  orderId     String  @map("order_id") @db.Uuid
+  action      String  @db.VarChar(50)
+  field       String? @db.VarChar(100)
+  oldValue    String? @map("old_value") @db.Text
+  newValue    String? @map("new_value") @db.Text
+  performedBy String  @map("performed_by") @db.Uuid
+  /// IP của actor khi thao tác (audit — Requirement 9). Hỗ trợ IPv6.
+  ipAddress   String? @map("ip_address") @db.VarChar(45)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([orderId])
+  @@map("order_logs")
 }

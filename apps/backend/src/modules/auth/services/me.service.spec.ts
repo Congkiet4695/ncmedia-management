@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment */
 import { Test, TestingModule } from '@nestjs/testing';
 import { PrismaService } from '../../../database/prisma.service';
 import { TokenInvalidException } from '../exceptions/token-invalid.exception';

@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-unsafe-assignment, @typescript-eslint/unbound-method */
 import { Test, TestingModule } from '@nestjs/testing';
 import { EmployeeStatus, Prisma, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';

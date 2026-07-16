@@ -46,7 +46,7 @@ function buildNavItems(has: (code: string) => boolean): NavItem[] {
     items.push({ label: 'Account', href: '/dashboard/accounts', icon: ShoppingBag });
   }
   if (has('order.read')) {
-    items.push({ label: 'Order', href: '/dashboard/order', icon: ClipboardList });
+    items.push({ label: 'Order', href: '/dashboard/orders', icon: ClipboardList });
   }
   if (has('profile.read') && !has('employee.read')) {
     items.push({ label: 'Hồ sơ của tôi', href: '/dashboard/profile', icon: UserRound });

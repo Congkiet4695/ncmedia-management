@@ -10,6 +10,7 @@ export const DEFAULT_ROLES = [
 
 export const ADMIN_ROLE_CODE = 'ADMIN';
 export const EMPLOYEE_ROLE_CODE = 'EMPLOYEE';
+export const FULFILLMENT_ROLE_CODE = 'FULFILLMENT';
 
 /**
  * Permission mặc định của Role EMPLOYEE khi tạo Organization:
@@ -23,6 +24,20 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   'order.create',
   'order.update',
   'order.delete',
+  'profile.read',
+  'profile.update',
+] as const;
+
+/**
+ * Permission mặc định của Role FULFILLMENT:
+ * xem TẤT CẢ Order (order.read + scope role-based), Nhận xử lý (claim) và cập nhật
+ * fulfillment (tracking/status/warehouse-note) trên đơn mình đã claim. KHÔNG order.create/update/delete
+ * (không sửa thông tin bán hàng). Profile self-service.
+ */
+export const FULFILLMENT_DEFAULT_PERMISSIONS = [
+  'order.read',
+  'order.claim',
+  'order.fulfill',
   'profile.read',
   'profile.update',
 ] as const;

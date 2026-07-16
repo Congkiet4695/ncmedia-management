@@ -12,6 +12,19 @@ export function formatVnd(value: number): string {
   return `${new Intl.NumberFormat('vi-VN').format(value)} ₫`;
 }
 
+/**
+ * Định dạng số tiền USD — dùng CHUNG cho Order (Unit Price / Line Total / Order Total).
+ * VD: 19.9 → "$19.90", 1250.5 → "$1,250.50". Không format tiền tệ rải rác nơi khác.
+ */
+export function formatUSD(value: number | null | undefined): string {
+  return new Intl.NumberFormat('en-US', {
+    style: 'currency',
+    currency: 'USD',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value ?? 0);
+}
+
 /** Định dạng ISO datetime → dd/MM/yyyy (theo vi-VN). */
 export function formatDate(iso: string | null): string {
   if (!iso) return '—';

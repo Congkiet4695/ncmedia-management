@@ -15,6 +15,7 @@ import { EmployeeModule } from './modules/employee/employee.module';
 import { ProfileModule } from './modules/profile/profile.module';
 import { PlatformModule } from './modules/platform/platform.module';
 import { AccountModule } from './modules/account/account.module';
+import { OrderModule } from './modules/order/order.module';
 
 @Module({
   imports: [
@@ -74,6 +75,7 @@ import { AccountModule } from './modules/account/account.module';
     ProfileModule,
     PlatformModule,
     AccountModule,
+    OrderModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

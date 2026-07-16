@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/no-require-imports */
 import { Test, TestingModule } from '@nestjs/testing';
 import { UserStatus } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
@@ -17,7 +18,7 @@ jest.mock('bcrypt', () => ({
   hashSync: jest.fn(() => '$2b$12$dummydummydummydummydummydummydummydummydummy'),
   compare: jest.fn(),
 }));
-// eslint-disable-next-line @typescript-eslint/no-var-requires
+ 
 const bcrypt = require('bcrypt') as { compare: jest.Mock };
 
 /**

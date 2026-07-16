@@ -5,6 +5,8 @@ import {
   ADMIN_ROLE_CODE,
   EMPLOYEE_DEFAULT_PERMISSIONS,
   EMPLOYEE_ROLE_CODE,
+  FULFILLMENT_DEFAULT_PERMISSIONS,
+  FULFILLMENT_ROLE_CODE,
 } from '../constants/default-roles';
 import { RegisterOrganizationDto } from '../dto/register-organization.dto';
 import { RegisterResponseDto } from '../dto/register-response.dto';
@@ -118,6 +120,17 @@ export class RegisterService {
       tx,
       roles[EMPLOYEE_ROLE_CODE].id,
       employeePermissionIds,
+    );
+
+    // Gán permission mặc định cho FULFILLMENT (xem tất cả Order + claim + fulfill).
+    const fulfillmentPermissionIds = await this.permissionService.findIdsByCodesInTransaction(
+      tx,
+      FULFILLMENT_DEFAULT_PERMISSIONS,
+    );
+    await this.roleService.assignPermissionsInTransaction(
+      tx,
+      roles[FULFILLMENT_ROLE_CODE].id,
+      fulfillmentPermissionIds,
     );
 
     // Create Admin User

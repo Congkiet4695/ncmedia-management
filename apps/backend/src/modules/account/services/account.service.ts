@@ -23,11 +23,7 @@ import {
   SellerInvalidException,
 } from '../exceptions/account.exceptions';
 import { AccountMapper } from '../mappers/account.mapper';
-import {
-  AccountRepository,
-  AccountWriteData,
-  OverviewRow,
-} from '../repositories/account.repository';
+import { AccountRepository, AccountWriteData } from '../repositories/account.repository';
 
 type CipherMap = Partial<Record<(typeof ACCOUNT_CREDENTIAL_FIELDS)[number], string | null>>;
 
@@ -323,7 +319,7 @@ export class AccountService {
   private mapWriteError(err: unknown): Error {
     if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
       const target = err.meta?.target;
-      const fields = Array.isArray(target) ? target.join(',') : String(target ?? '');
+      const fields = Array.isArray(target) ? target.join(',') : typeof target === 'string' ? target : '';
       if (fields.includes('id_normalize') || fields.includes('organization_id')) {
         return new AccountDuplicateException();
       }
