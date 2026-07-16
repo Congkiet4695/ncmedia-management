@@ -25,7 +25,15 @@ describe('MeService', () => {
     lockedUntil: new Date(),
     deletedAt: null,
     organization: { id: 'org-1', name: 'NCMedia Co.', slug: 'ncmedia-co' },
-    role: { id: 'role-1', code: 'ADMIN', displayName: 'Administrator' },
+    role: {
+      id: 'role-1',
+      code: 'ADMIN',
+      displayName: 'Administrator',
+      rolePermissions: [
+        { permission: { code: 'employee.read' } },
+        { permission: { code: 'account.read' } },
+      ],
+    },
   };
 
   beforeEach(async () => {
@@ -53,6 +61,7 @@ describe('MeService', () => {
       dateOfBirth: null,
       organization: { id: 'org-1', name: 'NCMedia Co.', slug: 'ncmedia-co' },
       role: { id: 'role-1', code: 'ADMIN', name: 'Administrator' },
+      permissions: ['account.read', 'employee.read'],
     });
     // Không rò rỉ dữ liệu nhạy cảm
     const raw = res as unknown as Record<string, unknown>;
@@ -70,7 +79,7 @@ describe('MeService', () => {
     expect(prisma.user.findFirst).toHaveBeenCalledWith(
       expect.objectContaining({
         where: { id: 'user-1', organizationId: 'org-1', deletedAt: null },
-        include: { organization: true, role: true },
+        include: expect.objectContaining({ organization: true }),
       }),
     );
   });

@@ -16,7 +16,18 @@
       "PowerShell(foreach \\($id in 8752, 15692, 2488\\) { try { Stop-Process -Id $id -Force -ErrorAction Stop; \"Killed $id\" } catch { \"Skip $id \\($\\($_.Exception.Message\\)\\)\" } }; Start-Sleep -Seconds 2; $c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { \"PORT 3000 STILL IN USE by $\\($c.OwningProcess\\)\" } else { \"PORT 3000 FREE\" })",
       "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000/api/v1/health\" -UseBasicParsing -TimeoutSec 5; \"HTTP $\\($r.StatusCode\\)\"; $r.Content } catch { \"Request failed: $\\($_.Exception.Message\\)\" })",
       "Bash(echo \"EXIT=$?\")",
-      "Bash(node *)"
+      "Bash(node *)",
+      "Bash(python -c \"import openpyxl; print\\('openpyxl OK'\\)\")",
+      "Bash(cat)",
+      "Bash(python /tmp/dump_xlsx.py)",
+      "Read(//tmp/**)",
+      "Bash(python *)",
+      "Bash(echo \"EXIT_BE=$?\")",
+      "Bash(npx tsc *)",
+      "Bash(powershell.exe -Command \"Get-NetTCPConnection -State Listen -LocalPort 3000 -ErrorAction SilentlyContinue | Select-Object LocalPort,OwningProcess\")",
+      "Bash(curl -s -o /dev/null -w \"root:%{http_code}\\\\n\" http://localhost:3000/)",
+      "Bash(curl -s -o /dev/null -w \"api-docs:%{http_code}\\\\n\" http://localhost:3000/api/docs)",
+      "Bash(curl -s -w \"\\\\nhealthcode:%{http_code}\\\\n\" http://localhost:3000/api/v1/health)"
     ]
   }
 }

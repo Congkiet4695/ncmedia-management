@@ -6,6 +6,7 @@ import { RegisterController } from './register.controller';
 import { RolesController } from './roles.controller';
 import { AdminGuard } from './guards/admin.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
+import { PermissionsGuard } from './guards/permissions.guard';
 import { LoginService } from './services/login.service';
 import { MeService } from './services/me.service';
 import { OrganizationService } from './services/organization.service';
@@ -42,10 +43,11 @@ import { UserService } from './services/user.service';
     // Guards (dùng chung)
     JwtAuthGuard,
     AdminGuard,
+    PermissionsGuard,
   ],
   // Export JwtModule kèm theo: JwtAuthGuard (dùng qua @UseGuards ở module khác) được
   // Nest khởi tạo trong injector của module tiêu dùng → cần JwtService trong scope đó.
   // Export UserService để module khác (Profile) tái sử dụng (không duplicate).
-  exports: [JwtAuthGuard, AdminGuard, JwtModule, UserService],
+  exports: [JwtAuthGuard, AdminGuard, PermissionsGuard, JwtModule, UserService],
 })
 export class AuthModule {}

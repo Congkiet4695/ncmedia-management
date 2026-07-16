@@ -25,7 +25,10 @@ describe('RegisterService', () => {
     seedDefaultRolesInTransaction: jest.fn(),
     assignPermissionsInTransaction: jest.fn(),
   };
-  const permissionServiceMock = { findAllIdsInTransaction: jest.fn() };
+  const permissionServiceMock = {
+    findAllIdsInTransaction: jest.fn().mockResolvedValue([]),
+    findIdsByCodesInTransaction: jest.fn().mockResolvedValue([]),
+  };
   const userServiceMock = {
     findByEmail: jest.fn(),
     hashPassword: jest.fn(),

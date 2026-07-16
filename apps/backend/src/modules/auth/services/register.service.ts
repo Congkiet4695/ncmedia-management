@@ -1,7 +1,11 @@
 import { ConflictException, Injectable } from '@nestjs/common';
 import { Organization, Prisma, User } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
-import { ADMIN_ROLE_CODE } from '../constants/default-roles';
+import {
+  ADMIN_ROLE_CODE,
+  EMPLOYEE_DEFAULT_PERMISSIONS,
+  EMPLOYEE_ROLE_CODE,
+} from '../constants/default-roles';
 import { RegisterOrganizationDto } from '../dto/register-organization.dto';
 import { RegisterResponseDto } from '../dto/register-response.dto';
 import { EmailAlreadyExistsException } from '../exceptions/email-already-exists.exception';
@@ -102,6 +106,18 @@ export class RegisterService {
       tx,
       roles[ADMIN_ROLE_CODE].id,
       permissionIds,
+    );
+
+    // Gán permission mặc định cho EMPLOYEE (Account của mình + Order + Profile) —
+    // để user role EMPLOYEE thấy đúng menu/thao tác theo permission ngay khi org được tạo.
+    const employeePermissionIds = await this.permissionService.findIdsByCodesInTransaction(
+      tx,
+      EMPLOYEE_DEFAULT_PERMISSIONS,
+    );
+    await this.roleService.assignPermissionsInTransaction(
+      tx,
+      roles[EMPLOYEE_ROLE_CODE].id,
+      employeePermissionIds,
     );
 
     // Create Admin User

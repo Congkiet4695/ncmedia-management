@@ -27,4 +27,7 @@ export const envValidationSchema = Joi.object({
 
   SWAGGER_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   SWAGGER_PATH: Joi.string().default('docs'),
+
+  // Khoá mã hoá secret Account (AES-256-GCM). Base64 của 32 byte (docs/account.md D-01).
+  ACCOUNT_ENCRYPTION_KEY: Joi.string().required(),
 });

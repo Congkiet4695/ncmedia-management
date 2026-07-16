@@ -63,4 +63,6 @@ export interface MeUser {
 export interface MeProfile extends MeUser {
   organization: MeOrganization;
   role: MeRole;
+  /** Mã permission `resource.action` của Role — để render UI/sidebar theo quyền. */
+  permissions: string[];
 }

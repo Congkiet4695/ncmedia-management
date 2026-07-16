@@ -5,10 +5,12 @@ import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
   Building2,
+  ClipboardList,
   LayoutDashboard,
   Loader2,
   LogOut,
   Menu,
+  ShoppingBag,
   UserRound,
   Users,
   X,
@@ -28,17 +30,28 @@ interface NavItem {
 }
 
 /**
- * Menu theo role:
- * - ADMIN  → Dashboard + Nhân viên (Employee Management).
- * - Khác (EMPLOYEE…) → Dashboard + Hồ sơ của tôi (Profile). KHÔNG hiển thị menu Nhân viên.
+ * Menu render theo PERMISSION (không hardcode role):
+ * - employee.read → Nhân viên · account.read → Account · order.read → Order · profile.read → Hồ sơ của tôi.
+ * - "Hồ sơ của tôi" chỉ hiện với người KHÔNG quản lý nhân viên (self-service); người có employee.read
+ *   (ADMIN/quản lý) dùng menu "Nhân viên".
+ *
+ * ⇒ ADMIN: Dashboard, Nhân viên, Account, Order. EMPLOYEE: Dashboard, Account, Order, Hồ sơ của tôi.
  */
-function buildNavItems(isAdmin: boolean): NavItem[] {
-  return [
-    { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-    isAdmin
-      ? { label: 'Nhân viên', href: '/dashboard/employees', icon: Users }
-      : { label: 'Hồ sơ của tôi', href: '/dashboard/profile', icon: UserRound },
-  ];
+function buildNavItems(has: (code: string) => boolean): NavItem[] {
+  const items: NavItem[] = [{ label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard }];
+  if (has('employee.read')) {
+    items.push({ label: 'Nhân viên', href: '/dashboard/employees', icon: Users });
+  }
+  if (has('account.read')) {
+    items.push({ label: 'Account', href: '/dashboard/accounts', icon: ShoppingBag });
+  }
+  if (has('order.read')) {
+    items.push({ label: 'Order', href: '/dashboard/order', icon: ClipboardList });
+  }
+  if (has('profile.read') && !has('employee.read')) {
+    items.push({ label: 'Hồ sơ của tôi', href: '/dashboard/profile', icon: UserRound });
+  }
+  return items;
 }
 
 function SidebarNav({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => void }) {
@@ -79,7 +92,7 @@ function SidebarNav({ items, onNavigate }: { items: NavItem[]; onNavigate?: () =
  */
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
-  const { user, organization, role, loading, logout } = useAuth();
+  const { user, organization, role, loading, logout, hasPermission } = useAuth();
   const sidebarOpen = useUiStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStore((state) => state.setSidebarOpen);
 
@@ -96,7 +109,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   }
 
   const orgName = organization?.name ?? 'NCMedia';
-  const navItems = buildNavItems(role?.code === 'ADMIN');
+  const navItems = buildNavItems(hasPermission);
 
   return (
     <div className="flex min-h-screen bg-muted/30">

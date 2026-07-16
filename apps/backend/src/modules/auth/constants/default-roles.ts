@@ -10,3 +10,19 @@ export const DEFAULT_ROLES = [
 
 export const ADMIN_ROLE_CODE = 'ADMIN';
 export const EMPLOYEE_ROLE_CODE = 'EMPLOYEE';
+
+/**
+ * Permission mặc định của Role EMPLOYEE khi tạo Organization:
+ * quản lý Account của mình (read/update), Order, và Profile self-service.
+ * ADMIN nhận toàn bộ catalog. Nguồn dùng chung cho register.service & prisma/seed.ts.
+ */
+export const EMPLOYEE_DEFAULT_PERMISSIONS = [
+  'account.read',
+  'account.update',
+  'order.read',
+  'order.create',
+  'order.update',
+  'order.delete',
+  'profile.read',
+  'profile.update',
+] as const;

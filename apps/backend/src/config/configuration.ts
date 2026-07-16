@@ -32,4 +32,9 @@ export default () => ({
     enabled: (process.env.SWAGGER_ENABLED ?? 'true') === 'true',
     path: process.env.SWAGGER_PATH ?? 'docs',
   },
+
+  // Mã hoá secret của Account (AES-256-GCM) — docs/account.md D-01. Khoá 32 byte (base64).
+  account: {
+    encryptionKey: process.env.ACCOUNT_ENCRYPTION_KEY,
+  },
 });

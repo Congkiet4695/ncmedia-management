@@ -21,11 +21,24 @@ export class MeService {
         organizationId: current.organizationId, // tenant isolation
         deletedAt: null,
       },
-      include: { organization: true, role: true },
+      include: {
+        organization: true,
+        role: {
+          include: {
+            rolePermissions: {
+              where: { deletedAt: null },
+              include: { permission: { select: { code: true } } },
+            },
+          },
+        },
+      },
     });
 
     // Token hợp lệ nhưng subject không còn (bị xóa / khác tenant) → 401.
     if (!user) throw new TokenInvalidException();
+
+    // Permissions của Role → Frontend render sidebar/UI theo quyền (không hardcode role).
+    const permissions = user.role.rolePermissions.map((rp) => rp.permission.code).sort();
 
     return {
       id: user.id,
@@ -44,6 +57,7 @@ export class MeService {
         code: user.role.code,
         name: user.role.displayName,
       },
+      permissions,
     };
   }
 }

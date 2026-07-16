@@ -63,6 +63,17 @@ enum EmployeeStatus {
   @@map("employee_status")
 }
 
+/// Trạng thái vòng đời Account bán hàng trên sàn (docs/account.md D-02).
+enum AccountStatus {
+  NEW
+  LIVE
+  DIE_TRANG
+  DIE
+  RETURNED
+
+  @@map("account_status")
+}
+
 // ---------------------------------------------------------------------------
 // Organization — Tenant root
 // ---------------------------------------------------------------------------
@@ -85,6 +96,7 @@ model Organization {
   users     User[]
   roles     Role[]
   employees Employee[]
+  accounts  Account[]
 
   @@map("organizations")
 }
@@ -119,11 +131,13 @@ model User {
   updatedBy String?   @map("updated_by") @db.Uuid
 
   // Quan hệ
-  organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  role          Role           @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  refreshTokens RefreshToken[]
+  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  role           Role           @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  refreshTokens  RefreshToken[]
   // User ↔ Employee: quan hệ 1-1 (ADR-007). Account đăng nhập tách khỏi hồ sơ nghiệp vụ.
-  employee      Employee?
+  employee       Employee?
+  // Account (ShopAccount) do User này quản lý với vai trò Seller (docs/account.md D-05).
+  sellerAccounts Account[]      @relation("AccountSeller")
 
   @@index([organizationId])
   @@index([roleId])
@@ -146,24 +160,24 @@ model Employee {
   status EmployeeStatus @default(ACTIVE)
 
   /// Tài khoản Lark nội bộ (nullable).
-  larkAccount String? @map("lark_account") @db.VarChar(255)
+  larkAccount String?   @map("lark_account") @db.VarChar(255)
   /// Ngày bắt đầu làm việc (nullable).
   startDate   DateTime? @map("start_date") @db.Date
   /// Ngày nghỉ việc (nullable).
   resignedAt  DateTime? @map("resigned_at") @db.Date
 
   /// CCCD (nullable, UNIQUE — cho phép nhiều NULL). Xem migration.
-  cccd         String? @unique @db.VarChar(20)
+  cccd         String?   @unique @db.VarChar(20)
   /// URL ảnh CCCD (nullable).
-  cccdImageUrl String? @map("cccd_image_url") @db.VarChar(1024)
+  cccdImageUrl String?   @map("cccd_image_url") @db.VarChar(1024)
   /// Số điện thoại (nullable).
-  phone   String? @db.VarChar(20)
+  phone        String?   @db.VarChar(20)
   /// Ngày sinh (nullable).
-  dateOfBirth DateTime? @map("date_of_birth") @db.Date
+  dateOfBirth  DateTime? @map("date_of_birth") @db.Date
   /// Địa chỉ (nullable).
-  address String? @db.VarChar(500)
+  address      String?   @db.VarChar(500)
   /// Phòng làm việc (nullable).
-  department String? @db.VarChar(255)
+  department   String?   @db.VarChar(255)
 
   /// Tài khoản ngân hàng (nullable).
   bankAccount String? @map("bank_account") @db.VarChar(100)
@@ -203,12 +217,12 @@ model RefreshToken {
 
   /// Hash HMAC-SHA256 của refresh token. KHÔNG lưu plain text.
   /// HMAC-SHA256 hex = 64 ký tự; VarChar(255) dư sức chứa và tương thích khi đổi thuật toán.
-  tokenHash String    @unique @map("token_hash") @db.VarChar(255)
-  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  tokenHash    String    @unique @map("token_hash") @db.VarChar(255)
+  expiresAt    DateTime  @map("expires_at") @db.Timestamptz(6)
   /// Thời điểm thu hồi (logout / rotation / reuse-detection). NULL = còn hiệu lực.
-  revokedAt DateTime? @map("revoked_at") @db.Timestamptz(6)
+  revokedAt    DateTime? @map("revoked_at") @db.Timestamptz(6)
   /// Trỏ tới token thay thế khi rotation (phục vụ reuse detection & truy vết chuỗi).
-  replacedById String? @map("replaced_by_id") @db.Uuid
+  replacedById String?   @map("replaced_by_id") @db.Uuid
 
   /// Metadata bảo mật (audit) — có thể không xác định được.
   ipAddress String? @map("ip_address") @db.VarChar(45) // hỗ trợ IPv6
@@ -267,9 +281,9 @@ model Role {
 // ---------------------------------------------------------------------------
 
 model Permission {
-  id String @id @default(uuid()) @db.Uuid
+  id          String  @id @default(uuid()) @db.Uuid
   /// Dạng resource.action, VD: "role.read" (ADR-010)
-  code String @unique @db.VarChar(100)
+  code        String  @unique @db.VarChar(100)
   /// Nhóm module (bổ sung PO #4): AUTH, EMPLOYEE, ORDER, REPORT, SHOP, PLATFORM...
   /// Lưu tường minh, KHÔNG parse từ resource.
   module      String  @db.VarChar(50)
@@ -315,4 +329,130 @@ model RolePermission {
   @@unique([roleId, permissionId])
   @@index([permissionId])
   @@map("role_permissions")
+}
+
+// ---------------------------------------------------------------------------
+// Platform — Danh mục nền tảng bán hàng (Global — ADR-011). KHÔNG organization_id.
+// ---------------------------------------------------------------------------
+
+model Platform {
+  id       String  @id @default(uuid()) @db.Uuid
+  code     String  @unique @db.VarChar(50)
+  name     String  @db.VarChar(100)
+  isActive Boolean @default(true) @map("is_active")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  accounts Account[]
+
+  @@map("platforms")
+}
+
+// ---------------------------------------------------------------------------
+// Account — Tài khoản bán hàng trên sàn (ShopAccount — ADR-011, tenant-scoped).
+// docs/account.md. Metric (đơn/doanh thu/balance) DERIVED từ Order — hoãn (D-08).
+// ---------------------------------------------------------------------------
+
+model Account {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  name         String  @db.VarChar(255)
+  /// Khoá chuẩn hoá phục vụ chống trùng (D-04). Unique theo (org, id_normalize) khi có.
+  idNormalize  String? @map("id_normalize") @db.VarChar(120)
+  platformId   String? @map("platform_id") @db.Uuid
+  loginTool    String? @map("login_tool") @db.VarChar(100)
+  /// Seller quản lý (User có role phù hợp — D-05).
+  sellerUserId String? @map("seller_user_id") @db.Uuid
+
+  status AccountStatus @default(NEW)
+
+  // Vòng đời
+  issuedAt        DateTime? @map("issued_at") @db.Date
+  activatedAt     DateTime? @map("activated_at") @db.Date
+  diedBlankAt     DateTime? @map("died_blank_at") @db.Date
+  diedAt          DateTime? @map("died_at") @db.Date
+  moneyReturnedAt DateTime? @map("money_returned_at") @db.Date
+  dieReason       String?   @map("die_reason") @db.Text
+
+  // Không nhạy cảm
+  proxy   String? @db.VarChar(255)
+  docsUrl String? @map("docs_url") @db.VarChar(1024)
+  note    String? @db.Text
+  note2   String? @db.Text
+
+  // Audit + soft delete (ADR-015)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  platform     Platform?    @relation(fields: [platformId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  seller       User?        @relation("AccountSeller", fields: [sellerUserId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  credential           AccountCredential?
+  credentialAccessLogs AccountCredentialAccessLog[]
+
+  @@unique([organizationId, idNormalize])
+  @@index([organizationId])
+  @@index([platformId])
+  @@index([sellerUserId])
+  @@index([status])
+  @@map("accounts")
+}
+
+// ---------------------------------------------------------------------------
+// AccountCredential — Thông tin đăng nhập/định danh (1-1). Secret MÃ HOÁ at-rest
+// (AES-256-GCM — D-01). KHÔNG lưu plaintext. Tách bảng để cô lập bảo mật (D-07).
+// ---------------------------------------------------------------------------
+
+model AccountCredential {
+  id        String @id @default(uuid()) @db.Uuid
+  accountId String @unique @map("account_id") @db.Uuid
+
+  // PII (mã hoá)
+  inf      String? @db.Text
+  ssn      String? @db.Text
+  phoneReg String? @map("phone_reg") @db.Text
+  gmail    String? @db.Text
+
+  // Secret (mã hoá AES-GCM)
+  gmailPassword     String? @map("gmail_password") @db.Text
+  recoveryMail      String? @map("recovery_mail") @db.Text
+  recoveryMail2fa   String? @map("recovery_mail_2fa") @db.Text
+  platformPassword  String? @map("platform_password") @db.Text
+  platform2faSecret String? @map("platform_2fa_secret") @db.Text
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  createdBy String?  @map("created_by") @db.Uuid
+  updatedBy String?  @map("updated_by") @db.Uuid
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("account_credentials")
+}
+
+// ---------------------------------------------------------------------------
+// AccountCredentialAccessLog — Audit mỗi lần reveal secret (BR-A12).
+// ---------------------------------------------------------------------------
+
+model AccountCredentialAccessLog {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  accountId      String  @map("account_id") @db.Uuid
+  accessedBy     String  @map("accessed_by") @db.Uuid
+  ipAddress      String? @map("ip_address") @db.VarChar(45)
+  userAgent      String? @map("user_agent") @db.VarChar(512)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account Account @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([accountId])
+  @@index([organizationId])
+  @@map("account_credential_access_logs")
 }

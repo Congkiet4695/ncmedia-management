@@ -17,10 +17,10 @@ export class MeRoleDto {
 /**
  * Response cho GET /auth/me.
  *
- * KHÔNG trả: passwordHash, failedLoginCount, lockedUntil, refreshToken, deletedAt, permissions.
+ * KHÔNG trả: passwordHash, failedLoginCount, lockedUntil, refreshToken, deletedAt.
+ * Trả `permissions[]` (mã `resource.action` của Role) để Frontend render UI/sidebar theo quyền.
  *
- * `avatar` và `dateOfBirth` thuộc hồ sơ **Employee** (ADR-007) — Employee CHƯA có ở Sprint 1,
- * nên luôn `null`. Giữ trong contract để Frontend ổn định; sẽ có giá trị khi module Employee ra đời.
+ * `avatar` và `dateOfBirth` thuộc hồ sơ **Employee** (ADR-007) — luôn `null` (contract ổn định).
  */
 export class MeResponseDto {
   @ApiProperty({ example: 'd290f1ee-6c54-4b01-90e6-d701748f0851' }) id!: string;
@@ -32,4 +32,6 @@ export class MeResponseDto {
   dateOfBirth!: string | null;
   @ApiProperty({ type: MeOrganizationDto }) organization!: MeOrganizationDto;
   @ApiProperty({ type: MeRoleDto }) role!: MeRoleDto;
+  @ApiProperty({ type: String, isArray: true, example: ['account.read', 'order.read'] })
+  permissions!: string[];
 }

@@ -16,6 +16,19 @@ export class PermissionService {
     return rows.map((r) => r.id);
   }
 
+  /** Lấy permission id theo danh sách code (để gán subset cho Role EMPLOYEE). */
+  async findIdsByCodesInTransaction(
+    tx: Prisma.TransactionClient,
+    codes: readonly string[],
+  ): Promise<string[]> {
+    if (codes.length === 0) return [];
+    const rows = await tx.permission.findMany({
+      where: { code: { in: [...codes] } },
+      select: { id: true },
+    });
+    return rows.map((r) => r.id);
+  }
+
   findAll() {
     return this.prisma.permission.findMany();
   }

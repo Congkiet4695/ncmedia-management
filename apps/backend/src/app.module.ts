@@ -13,6 +13,8 @@ import { HealthModule } from './health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { EmployeeModule } from './modules/employee/employee.module';
 import { ProfileModule } from './modules/profile/profile.module';
+import { PlatformModule } from './modules/platform/platform.module';
+import { AccountModule } from './modules/account/account.module';
 
 @Module({
   imports: [
@@ -70,6 +72,8 @@ import { ProfileModule } from './modules/profile/profile.module';
     AuthModule,
     EmployeeModule,
     ProfileModule,
+    PlatformModule,
+    AccountModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

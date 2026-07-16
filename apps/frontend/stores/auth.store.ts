@@ -13,6 +13,7 @@ interface AuthState {
   user: MeUser | null;
   organization: MeOrganization | null;
   role: MeRole | null;
+  permissions: string[];
   isAuthenticated: boolean;
   isLoading: boolean;
 
@@ -25,6 +26,7 @@ export const useAuthStore = create<AuthState>((set) => ({
   user: null,
   organization: null,
   role: null,
+  permissions: [],
   isAuthenticated: false,
   isLoading: true,
 
@@ -39,6 +41,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       },
       organization: profile.organization,
       role: profile.role,
+      permissions: profile.permissions ?? [],
       isAuthenticated: true,
       isLoading: false,
     }),
@@ -49,6 +52,7 @@ export const useAuthStore = create<AuthState>((set) => ({
       user: null,
       organization: null,
       role: null,
+      permissions: [],
       isAuthenticated: false,
       isLoading: false,
     });
