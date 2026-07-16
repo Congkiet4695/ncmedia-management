@@ -10,6 +10,14 @@ import { DEFAULT_ROLES } from '../constants/default-roles';
 export class RoleService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /** Danh sách Role của một Organization (tenant-scoped) — phục vụ chọn Role khi tạo Employee. */
+  findManyByOrganization(organizationId: string): Promise<Role[]> {
+    return this.prisma.role.findMany({
+      where: { organizationId, deletedAt: null },
+      orderBy: { code: 'asc' },
+    });
+  }
+
   /**
    * Seed 3 Role hệ thống (ADMIN/EMPLOYEE/FULFILLMENT) trong transaction.
    * Trả về map theo code để tra cứu (VD roles.ADMIN).

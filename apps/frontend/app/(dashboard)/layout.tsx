@@ -3,29 +3,53 @@
 import { useEffect, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import { Building2, LayoutDashboard, Loader2, LogOut, Menu, X } from 'lucide-react';
+import {
+  Building2,
+  LayoutDashboard,
+  Loader2,
+  LogOut,
+  Menu,
+  UserRound,
+  Users,
+  X,
+  type LucideIcon,
+} from 'lucide-react';
+import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { ThemeToggle } from '@/components/theme-toggle';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useUiStore } from '@/stores/ui.store';
 
-const NAV_ITEMS = [{ label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard }] as const;
-
-/** Chữ cái đầu của họ tên cho avatar fallback. */
-function initialsOf(name?: string): string {
-  if (!name) return 'U';
-  const parts = name.trim().split(/\s+/);
-  const first = parts[0]?.[0] ?? '';
-  const last = parts.length > 1 ? (parts[parts.length - 1][0] ?? '') : '';
-  return (first + last).toUpperCase() || 'U';
+interface NavItem {
+  label: string;
+  href: string;
+  icon: LucideIcon;
 }
 
-function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
+/**
+ * Menu theo role:
+ * - ADMIN  → Dashboard + Nhân viên (Employee Management).
+ * - Khác (EMPLOYEE…) → Dashboard + Hồ sơ của tôi (Profile). KHÔNG hiển thị menu Nhân viên.
+ */
+function buildNavItems(isAdmin: boolean): NavItem[] {
+  return [
+    { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+    isAdmin
+      ? { label: 'Nhân viên', href: '/dashboard/employees', icon: Users }
+      : { label: 'Hồ sơ của tôi', href: '/dashboard/profile', icon: UserRound },
+  ];
+}
+
+function SidebarNav({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => void }) {
   const pathname = usePathname();
   return (
     <nav className="flex-1 space-y-1 p-4">
-      {NAV_ITEMS.map((item) => {
-        const active = pathname === item.href;
+      {items.map((item) => {
+        const active =
+          item.href === '/dashboard'
+            ? pathname === item.href
+            : pathname === item.href || pathname.startsWith(`${item.href}/`);
         const Icon = item.icon;
         return (
           <Link
@@ -45,19 +69,6 @@ function SidebarNav({ onNavigate }: { onNavigate?: () => void }) {
         );
       })}
     </nav>
-  );
-}
-
-/** Avatar: ảnh nếu có (Employee — S2), fallback chữ cái đầu. */
-function UserAvatar({ src, name }: { src: string | null; name?: string }) {
-  if (src) {
-    // eslint-disable-next-line @next/next/no-img-element
-    return <img src={src} alt={name ?? 'avatar'} className="size-8 rounded-full object-cover" />;
-  }
-  return (
-    <span className="flex size-8 items-center justify-center rounded-full bg-primary/10 text-xs font-semibold text-primary">
-      {initialsOf(name)}
-    </span>
   );
 }
 
@@ -85,6 +96,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
   }
 
   const orgName = organization?.name ?? 'NCMedia';
+  const navItems = buildNavItems(role?.code === 'ADMIN');
 
   return (
     <div className="flex min-h-screen bg-muted/30">
@@ -94,7 +106,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           <Building2 className="size-5 text-primary" />
           <span className="truncate font-semibold">{orgName}</span>
         </div>
-        <SidebarNav />
+        <SidebarNav items={navItems} />
       </aside>
 
       {/* Drawer mobile */}
@@ -121,7 +133,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 <X className="size-4" />
               </Button>
             </div>
-            <SidebarNav onNavigate={() => setSidebarOpen(false)} />
+            <SidebarNav items={navItems} onNavigate={() => setSidebarOpen(false)} />
           </aside>
         </div>
       )}
@@ -140,13 +152,14 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </Button>
 
           <div className="ml-auto flex items-center gap-3">
+            <ThemeToggle />
             <div className="hidden text-right sm:block">
               <p className="text-sm font-medium leading-none">{user.fullName}</p>
               <p className="text-xs text-muted-foreground">
                 {role?.name ?? role?.code ?? 'Thành viên'}
               </p>
             </div>
-            <UserAvatar src={user.avatar} name={user.fullName} />
+            <Avatar src={user.avatar} name={user.fullName} className="size-8" />
             <Button variant="outline" size="sm" onClick={logout}>
               <LogOut className="size-4" />
               <span className="hidden sm:inline">Đăng xuất</span>

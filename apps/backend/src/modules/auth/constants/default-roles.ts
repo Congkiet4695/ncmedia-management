@@ -9,3 +9,4 @@ export const DEFAULT_ROLES = [
 ] as const;
 
 export const ADMIN_ROLE_CODE = 'ADMIN';
+export const EMPLOYEE_ROLE_CODE = 'EMPLOYEE';

@@ -603,3 +603,21 @@ Bảng ánh xạ quyết định ADR → vị trí trong CLAUDE.md.
 | ADR-018 | Backend | Mục 7 (Backend) |
 | ADR-019 | Development Workflow | Mục 17 |
 | ADR-020 | AI Development Rules | Mục 18 |
+
+---
+
+## Database Development Rule
+
+Bất kỳ thay đổi nào liên quan đến:
+
+- schema.prisma
+- migration
+- seed
+
+Claude phải:
+
+1. prisma generate
+2. prisma migrate dev
+3. prisma db seed
+4. Verify database bằng Prisma Studio hoặc truy vấn thực tế
+5. Chỉ kết thúc khi database local đã đồng bộ với schema.

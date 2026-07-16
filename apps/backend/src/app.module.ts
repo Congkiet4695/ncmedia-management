@@ -11,6 +11,8 @@ import { PrismaModule } from './database/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { EmployeeModule } from './modules/employee/employee.module';
+import { ProfileModule } from './modules/profile/profile.module';
 
 @Module({
   imports: [
@@ -47,6 +49,9 @@ import { AuthModule } from './modules/auth/auth.module';
               '*.tokenHash',
               '*.refreshToken',
               '*.accessToken',
+              '*.temporaryPassword',
+              '*.initialPassword',
+              '*.newPassword',
             ],
             censor: '[REDACTED]',
           },
@@ -61,8 +66,10 @@ import { AuthModule } from './modules/auth/auth.module';
     // Health check
     HealthModule,
 
-    // Business modules (Sprint 1)
+    // Business modules
     AuthModule,
+    EmployeeModule,
+    ProfileModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

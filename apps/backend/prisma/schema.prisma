@@ -52,6 +52,17 @@ enum OrganizationStatus {
   @@map("organization_status")
 }
 
+/// Trạng thái nhân sự của Employee (sheet "Nhân viên"). Tách khỏi UserStatus (auth) —
+/// RESIGNED là trạng thái nghiệp vụ; login vẫn theo User.status (đồng bộ ở tầng service).
+enum EmployeeStatus {
+  ACTIVE
+  INACTIVE
+  RESIGNED
+  SUSPENDED
+
+  @@map("employee_status")
+}
+
 // ---------------------------------------------------------------------------
 // Organization — Tenant root
 // ---------------------------------------------------------------------------
@@ -71,8 +82,9 @@ model Organization {
   updatedBy String?   @map("updated_by") @db.Uuid
 
   // Quan hệ
-  users User[]
-  roles Role[]
+  users     User[]
+  roles     Role[]
+  employees Employee[]
 
   @@map("organizations")
 }
@@ -110,16 +122,74 @@ model User {
   organization  Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   role          Role           @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   refreshTokens RefreshToken[]
-
-  // TODO(Sprint 2 — Employee module): Theo ADR-007, User ↔ Employee là quan hệ 1-1.
-  // Khi triển khai Sprint sau, chỉ cần thêm model Employee (chứa business info: salary,
-  // birthday, avatar...) và khai báo quan hệ tại đây, ví dụ:
-  //   employee Employee?
-  // KHÔNG implement Employee trong Sprint 1.
+  // User ↔ Employee: quan hệ 1-1 (ADR-007). Account đăng nhập tách khỏi hồ sơ nghiệp vụ.
+  employee      Employee?
 
   @@index([organizationId])
   @@index([roleId])
   @@map("users")
+}
+
+// ---------------------------------------------------------------------------
+// Employee — Hồ sơ nghiệp vụ của nhân viên (ADR-007)
+// Tách khỏi User: User giữ auth (email/password/status/role); Employee giữ business info.
+// fullName/email/status/role KHÔNG lặp lại ở đây — lấy từ User (nguồn duy nhất).
+// ---------------------------------------------------------------------------
+
+model Employee {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  /// 1-1 với User (mỗi Employee gắn đúng 1 tài khoản đăng nhập).
+  userId         String @unique @map("user_id") @db.Uuid
+
+  /// Trạng thái nhân sự (sheet). Mặc định ACTIVE. Đồng bộ User.status cho login ở service.
+  status EmployeeStatus @default(ACTIVE)
+
+  /// Tài khoản Lark nội bộ (nullable).
+  larkAccount String? @map("lark_account") @db.VarChar(255)
+  /// Ngày bắt đầu làm việc (nullable).
+  startDate   DateTime? @map("start_date") @db.Date
+  /// Ngày nghỉ việc (nullable).
+  resignedAt  DateTime? @map("resigned_at") @db.Date
+
+  /// CCCD (nullable, UNIQUE — cho phép nhiều NULL). Xem migration.
+  cccd         String? @unique @db.VarChar(20)
+  /// URL ảnh CCCD (nullable).
+  cccdImageUrl String? @map("cccd_image_url") @db.VarChar(1024)
+  /// Số điện thoại (nullable).
+  phone   String? @db.VarChar(20)
+  /// Ngày sinh (nullable).
+  dateOfBirth DateTime? @map("date_of_birth") @db.Date
+  /// Địa chỉ (nullable).
+  address String? @db.VarChar(500)
+  /// Phòng làm việc (nullable).
+  department String? @db.VarChar(255)
+
+  /// Tài khoản ngân hàng (nullable).
+  bankAccount String? @map("bank_account") @db.VarChar(100)
+  /// URL QR ngân hàng (nullable).
+  bankQrUrl   String? @map("bank_qr_url") @db.VarChar(1024)
+
+  /// Lương (VND). Mặc định 0, không âm (CHECK ở migration). Decimal để chính xác tiền tệ.
+  salary Decimal @default(0) @db.Decimal(15, 2)
+  /// URL avatar (nullable).
+  avatar String? @db.VarChar(1024)
+
+  // Audit (ADR-015) + soft delete
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  // Quan hệ
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user         User         @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([organizationId])
+  @@index([status])
+  @@index([department])
+  @@map("employees")
 }
 
 // ---------------------------------------------------------------------------

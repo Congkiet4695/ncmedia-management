@@ -3,6 +3,8 @@ import { JwtModule } from '@nestjs/jwt';
 import { LoginController } from './login.controller';
 import { MeController } from './me.controller';
 import { RegisterController } from './register.controller';
+import { RolesController } from './roles.controller';
+import { AdminGuard } from './guards/admin.guard';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import { LoginService } from './services/login.service';
 import { MeService } from './services/me.service';
@@ -16,14 +18,14 @@ import { TokenService } from './services/token.service';
 import { UserService } from './services/user.service';
 
 /**
- * AuthModule — Sprint 1.
- * Đã có: Register Organization, Login, GET /auth/me (JwtAuthGuard).
- * CHƯA implement: Refresh, Logout, RBAC/Permission Guard (ngoài phạm vi hiện tại).
- * JwtModule.register({}) — secret truyền tại thời điểm sign/verify trong TokenService/JwtAuthGuard.
+ * AuthModule — Sprint 1 + hạ tầng auth cho Sprint 2.
+ * Đã có: Register, Login, GET /auth/me, GET /roles, JwtAuthGuard, AdminGuard.
+ * Export JwtAuthGuard + AdminGuard để các module nghiệp vụ (Employee) tái sử dụng.
+ * CHƯA implement: Refresh, Logout, Permission RBAC đầy đủ (ngoài phạm vi hiện tại).
  */
 @Module({
   imports: [JwtModule.register({})],
-  controllers: [RegisterController, LoginController, MeController],
+  controllers: [RegisterController, LoginController, MeController, RolesController],
   providers: [
     OrganizationService,
     UserService,
@@ -37,7 +39,13 @@ import { UserService } from './services/user.service';
     RateLimitService,
     // Me
     MeService,
+    // Guards (dùng chung)
     JwtAuthGuard,
+    AdminGuard,
   ],
+  // Export JwtModule kèm theo: JwtAuthGuard (dùng qua @UseGuards ở module khác) được
+  // Nest khởi tạo trong injector của module tiêu dùng → cần JwtService trong scope đó.
+  // Export UserService để module khác (Profile) tái sử dụng (không duplicate).
+  exports: [JwtAuthGuard, AdminGuard, JwtModule, UserService],
 })
 export class AuthModule {}

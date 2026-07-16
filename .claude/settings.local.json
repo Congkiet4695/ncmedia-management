@@ -7,7 +7,16 @@
       "Bash(DATABASE_URL=\"postgresql://u:u@localhost:5432/db?schema=public\" npx prisma generate)",
       "Bash(docker version *)",
       "Bash(npx prisma *)",
-      "Bash(npm test *)"
+      "Bash(npm test *)",
+      "Bash(xargs wc -l)",
+      "Bash(echo \"EXIT_TYPECHECK=$?\")",
+      "Bash(echo \"TYPECHECK_EXIT=$?\")",
+      "PowerShell(Get-NetTCPConnection *)",
+      "PowerShell(Get-Process *)",
+      "PowerShell(foreach \\($id in 8752, 15692, 2488\\) { try { Stop-Process -Id $id -Force -ErrorAction Stop; \"Killed $id\" } catch { \"Skip $id \\($\\($_.Exception.Message\\)\\)\" } }; Start-Sleep -Seconds 2; $c = Get-NetTCPConnection -LocalPort 3000 -State Listen -ErrorAction SilentlyContinue; if \\($c\\) { \"PORT 3000 STILL IN USE by $\\($c.OwningProcess\\)\" } else { \"PORT 3000 FREE\" })",
+      "PowerShell(try { $r = Invoke-WebRequest -Uri \"http://localhost:3000/api/v1/health\" -UseBasicParsing -TimeoutSec 5; \"HTTP $\\($r.StatusCode\\)\"; $r.Content } catch { \"Request failed: $\\($_.Exception.Message\\)\" })",
+      "Bash(echo \"EXIT=$?\")",
+      "Bash(node *)"
     ]
   }
 }
