@@ -7,6 +7,9 @@ import type { NextConfig } from 'next';
 const nextConfig: NextConfig = {
   reactStrictMode: true,
   poweredByHeader: false,
+  // Standalone server cho Docker production (self-contained .next/standalone).
+  // `next dev` bỏ qua option này → KHÔNG ảnh hưởng môi trường Local Development.
+  output: 'standalone',
 };
 
 export default nextConfig;

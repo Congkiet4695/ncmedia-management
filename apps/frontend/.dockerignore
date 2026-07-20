@@ -1,6 +1,7 @@
-# Build context ignore — giữ image nhỏ & build sạch (không copy source thừa)
+# Build context ignore — giữ image nhỏ & build sạch
 node_modules
-dist
+.next
+out
 coverage
 .git
 .gitignore
@@ -8,10 +9,8 @@ coverage
 .env.*
 *.log
 npm-debug.log*
-.husky
 .eslintcache
-test
-**/*.spec.ts
+tsconfig.tsbuildinfo
 Dockerfile
 .dockerignore
 README.md

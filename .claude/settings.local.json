@@ -39,7 +39,14 @@
       "Bash(curl -s -o /dev/null -w \"health -> %{http_code}\\\\n\" http://localhost:3000/api/v1/health)",
       "Bash(curl -s -o /dev/null -w \"GET /orders \\(no auth\\) -> %{http_code}\\\\n\" http://localhost:3000/api/v1/orders)",
       "Bash(curl -s -X POST http://localhost:3000/api/v1/auth/register -H 'Content-Type: application/json' -d '{\"organizationName\":\"Grid __CMDSUB_OUTPUT__\",\"fullName\":\"A\",\"email\":\"grid__CMDSUB_OUTPUT__@t.local\",\"password\":\"ChangeMe123\"}')",
-      "Bash(grep -E \"error|\\\\.ts$\")"
+      "Bash(grep -E \"error|\\\\.ts$\")",
+      "Bash(docker --version)",
+      "Bash(docker compose *)",
+      "Bash(docker context *)",
+      "Bash(docker info *)",
+      "Bash(wsl.exe --status)",
+      "Bash(wsl.exe -l -v)",
+      "Bash(wsl.exe --update --web-download)"
     ]
   }
 }
