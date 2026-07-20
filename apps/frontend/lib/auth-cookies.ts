@@ -14,7 +14,12 @@ const REFRESH_TOKEN_DAYS = 7;
 
 const baseOptions: Cookies.CookieAttributes = {
   sameSite: 'lax',
-  secure: process.env.NODE_ENV === 'production',
+  // Gắn cờ `Secure` theo GIAO THỨC trang thực tế, KHÔNG theo NODE_ENV.
+  // Lý do: bản build production luôn có NODE_ENV='production' → trước đây secure=true cứng;
+  // khi trang production phục vụ qua HTTP thì trình duyệt ÂM THẦM loại bỏ cookie Secure
+  // → token không lưu được → /auth/me thiếu Authorization → AUTH_TOKEN_INVALID.
+  // Dùng protocol: HTTPS → Secure (an toàn); HTTP (local dev / prod chưa bật TLS) → cookie vẫn lưu được.
+  secure: typeof window !== 'undefined' && window.location.protocol === 'https:',
   path: '/',
 };
 
