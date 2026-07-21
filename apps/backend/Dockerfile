@@ -14,15 +14,17 @@ COPY package*.json ./
 COPY prisma ./prisma
 RUN npm ci
 
-# ---- Stage 2: build (generate client + nest build + prune dev) ----
+# ---- Stage 2: build (generate client + nest build) ----
+# GIỮ nguyên devDependencies (ts-node, typescript, prisma) — stage này cũng là image "tools"
+# cho `prisma db seed` (compose seed service dùng target: build). KHÔNG prune ở đây, nếu không
+# `ts-node` bị xoá → `prisma db seed` lỗi `spawn ts-node ENOENT`. Prune chuyển sang stage runtime.
 FROM node:22-alpine AS build
 WORKDIR /app
 RUN apk add --no-cache openssl
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
 RUN npx prisma generate \
- && npm run build \
- && npm prune --omit=dev
+ && npm run build
 
 # ---- Stage 3: runtime (chỉ file cần thiết, non-root) ----
 FROM node:22-alpine AS runtime
@@ -31,15 +33,16 @@ RUN apk add --no-cache openssl
 ENV NODE_ENV=production \
     PORT=3000
 
-# Copy artefact cần thiết: node_modules (đã prune) + dist + prisma + package.json
+# Copy artefact + prune dev NGAY TẠI runtime (image chạy app vẫn nhỏ; ts-node chỉ còn ở stage build/tools).
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
-COPY --from=build /app/package.json ./package.json
+COPY --from=build /app/package*.json ./
 
 # Prisma CLI (khớp version @prisma/client) để chạy `prisma migrate deploy` (deploy.sh),
 # offline — không fetch npm lúc deploy. build-deps chỉ tồn tại trong layer này rồi gỡ đi.
 RUN apk add --no-cache --virtual .build-deps python3 make g++ \
+ && npm prune --omit=dev \
  && PRISMA_VERSION="$(node -p "require('@prisma/client/package.json').version")" \
  && npm install --no-save --no-audit --no-fund "prisma@${PRISMA_VERSION}" \
  && npm cache clean --force \
