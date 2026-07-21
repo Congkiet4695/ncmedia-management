@@ -28,7 +28,7 @@
     "prepare": "husky"
   },
   "prisma": {
-    "seed": "ts-node prisma/seed.ts"
+    "seed": "node -r ts-node/register prisma/seed.ts"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
