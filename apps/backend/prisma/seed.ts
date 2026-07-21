@@ -102,7 +102,11 @@ const ROLES: Array<{ code: string; displayName: string; description: string }> =
 ];
 
 async function main() {
-  console.log('▶ Seeding NCMedia (Auth/RBAC) ...');
+  // Catalog (permission + platform) + backfill role_permissions: LUÔN chạy (idempotent, cần cho mọi env).
+  // Demo Organization + Admin demo (admin@demo.ncmedia.local): chỉ tạo khi KHÔNG tắt tường minh.
+  // Production đặt SEED_DEMO=false → KHÔNG tạo tài khoản demo mật khẩu mặc định.
+  const seedDemo = process.env.SEED_DEMO !== 'false';
+  console.log(`▶ Seeding NCMedia (Auth/RBAC) ... [demo=${seedDemo}]`);
 
   // 1) Permission Catalog (global) — upsert theo code
   for (const p of PERMISSIONS) {
@@ -124,35 +128,38 @@ async function main() {
   }
   console.log(`  ✓ Platforms: ${PLATFORMS.length}`);
 
-  // 2) Organization Demo — upsert theo slug (unique)
-  const org = await prisma.organization.upsert({
-    where: { slug: DEMO_ORG.slug },
-    update: {},
-    create: {
-      name: DEMO_ORG.name,
-      slug: DEMO_ORG.slug,
-      status: OrganizationStatus.ACTIVE,
-    },
-  });
-  console.log(`  ✓ Organization: ${org.name} (${org.slug})`);
-
-  // 3) Roles theo org — upsert theo (organization_id, code)
+  // 2+3) Demo Organization + Roles — CHỈ khi seedDemo (dev). Production bỏ qua.
+  let demoOrgId: string | null = null;
   const roleByCode: Record<string, string> = {};
-  for (const r of ROLES) {
-    const role = await prisma.role.upsert({
-      where: { organizationId_code: { organizationId: org.id, code: r.code } },
-      update: { displayName: r.displayName, description: r.description, isSystem: true },
+  if (seedDemo) {
+    const org = await prisma.organization.upsert({
+      where: { slug: DEMO_ORG.slug },
+      update: {},
       create: {
-        organizationId: org.id,
-        code: r.code,
-        displayName: r.displayName,
-        description: r.description,
-        isSystem: true,
+        name: DEMO_ORG.name,
+        slug: DEMO_ORG.slug,
+        status: OrganizationStatus.ACTIVE,
       },
     });
-    roleByCode[r.code] = role.id;
+    demoOrgId = org.id;
+    console.log(`  ✓ Organization: ${org.name} (${org.slug})`);
+
+    for (const r of ROLES) {
+      const role = await prisma.role.upsert({
+        where: { organizationId_code: { organizationId: org.id, code: r.code } },
+        update: { displayName: r.displayName, description: r.description, isSystem: true },
+        create: {
+          organizationId: org.id,
+          code: r.code,
+          displayName: r.displayName,
+          description: r.description,
+          isSystem: true,
+        },
+      });
+      roleByCode[r.code] = role.id;
+    }
+    console.log(`  ✓ Roles: ${ROLES.map((r) => r.code).join(', ')}`);
   }
-  console.log(`  ✓ Roles: ${ROLES.map((r) => r.code).join(', ')}`);
 
   // 4) RolePermission — gán TOÀN BỘ permission cho MỌI Role ADMIN (BR-18) + BACKFILL.
   //    Fix bug: Role ADMIN của Organization đăng ký TRƯỚC khi catalog permission được seed
@@ -220,21 +227,25 @@ async function main() {
     `  ✓ RolePermission: ${allFulfillmentRoles.length} FULFILLMENT role(s) ← ${fulfillmentPerms.length} permissions (${FULFILLMENT_PERMISSION_CODES.join(', ')})`,
   );
 
-  // 5) Admin User — upsert theo email (global unique)
-  const passwordHash = await bcrypt.hash(DEMO_ADMIN.password, BCRYPT_COST);
-  const admin = await prisma.user.upsert({
-    where: { email: DEMO_ADMIN.email },
-    update: {},
-    create: {
-      organizationId: org.id,
-      roleId: roleByCode['ADMIN'],
-      email: DEMO_ADMIN.email,
-      passwordHash,
-      fullName: DEMO_ADMIN.fullName,
-      status: UserStatus.ACTIVE,
-    },
-  });
-  console.log(`  ✓ Admin User: ${admin.email}`);
+  // 5) Admin User demo — CHỉ khi seedDemo. Production KHÔNG tạo tài khoản mật khẩu mặc định.
+  if (seedDemo && demoOrgId) {
+    const passwordHash = await bcrypt.hash(DEMO_ADMIN.password, BCRYPT_COST);
+    const admin = await prisma.user.upsert({
+      where: { email: DEMO_ADMIN.email },
+      update: {},
+      create: {
+        organizationId: demoOrgId,
+        roleId: roleByCode['ADMIN'],
+        email: DEMO_ADMIN.email,
+        passwordHash,
+        fullName: DEMO_ADMIN.fullName,
+        status: UserStatus.ACTIVE,
+      },
+    });
+    console.log(`  ✓ Admin User: ${admin.email}`);
+  } else {
+    console.log('  ⤳ Bỏ qua Demo Organization/Admin (SEED_DEMO=false) — production-safe.');
+  }
 
   console.log('✅ Seed hoàn tất.');
 }

@@ -79,6 +79,14 @@ wait_healthy ncmedia-redis    || rollback
 log "prisma migrate deploy…"
 $COMPOSE run --rm --no-deps backend npx prisma migrate deploy || rollback
 
+# Seed dữ liệu tham chiếu BẮT BUỘC: permission catalog + platform + backfill role_permissions.
+# Idempotent (upsert). Thiếu bước này → catalog trống → /auth/me trả permissions:[]. SEED_DEMO=false (không tạo admin demo).
+log "Seed catalog permission/platform + backfill role_permissions…"
+$COMPOSE --profile tools run --rm seed || {
+  err "Seed thất bại. Catalog permission có thể trống → /auth/me sẽ trả []. Chạy tay: $COMPOSE --profile tools run --rm seed"
+  rollback
+}
+
 # --- 6. Up toàn bộ stack ---
 log "Khởi động Backend + Frontend + Nginx…"
 $COMPOSE up -d || rollback

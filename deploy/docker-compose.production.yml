@@ -145,6 +145,8 @@ services:
     image: ncmedia-backend-tools:latest
     environment:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      # Production: KHÔNG tạo Demo Org/Admin (chỉ seed catalog + backfill role_permissions).
+      SEED_DEMO: ${SEED_DEMO:-false}
     depends_on:
       postgres:
         condition: service_healthy
