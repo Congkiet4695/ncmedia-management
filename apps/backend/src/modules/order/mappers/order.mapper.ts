@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { OrderNote, Prisma } from '@prisma/client';
+import { OrderNoteDto } from '../dto/order-note.dto';
 import {
   OrderItemDto,
   OrderListItemDto,
@@ -38,18 +39,14 @@ export class OrderMapper {
         sellerId: o.account.seller?.id ?? null,
         sellerName: o.account.seller?.fullName ?? null,
       },
-      customerName: o.customerName,
-      customerPhone: o.customerPhone,
       shippingAddress: o.shippingAddress,
-      sellerNote: o.sellerNote,
-      warehouseNote: o.warehouseNote,
-      warehouseNote2: o.warehouseNote2,
-      tracking: o.tracking,
+      currency: o.currency,
       fulfilledById: o.fulfilledById,
       fulfilledByName: o.fulfilledBy?.fullName ?? null,
       claimedAt: o.claimedAt ? o.claimedAt.toISOString() : null,
       isClaimed: o.fulfilledById != null,
       items,
+      notes: o.notes.map((n) => this.toNote(n)),
       statusHistories: o.statusHistories.map((h) => this.toHistory(h)),
       totalQuantity,
       totalAmount,
@@ -64,11 +61,12 @@ export class OrderMapper {
     const items = o.items.map((i) => ({
       id: i.id,
       productName: i.productName,
-      variant: i.variant,
       color: i.color,
       size: i.size,
       quantity: i.quantity,
       unitPrice: toNumber(i.unitPrice),
+      trackingNumber: i.trackingNumber,
+      fulfillmentStatus: i.fulfillmentStatus,
     }));
     const totalAmount = items.reduce((sum, i) => sum + i.quantity * i.unitPrice, 0);
     return {
@@ -77,11 +75,8 @@ export class OrderMapper {
       platformName: o.account.platform?.name ?? null,
       accountName: o.account.name,
       sellerName: o.account.seller?.fullName ?? null,
-      customerName: o.customerName,
       status: o.status,
-      tracking: o.tracking,
       productName: firstItem?.productName ?? null,
-      supplier: firstItem?.supplier ?? null,
       itemsCount: o.items.length,
       totalQuantity,
       totalAmount,
@@ -89,6 +84,7 @@ export class OrderMapper {
       fulfilledByName: o.fulfilledBy?.fullName ?? null,
       isClaimed: o.fulfilledById != null,
       items,
+      notes: o.notes.map((n) => this.toNote(n)),
       orderedAt: o.orderedAt ? o.orderedAt.toISOString() : null,
       createdAt: o.createdAt.toISOString(),
     };
@@ -99,15 +95,27 @@ export class OrderMapper {
       id: i.id,
       productName: i.productName,
       productLink: i.productLink,
-      supplier: i.supplier,
-      sku: i.sku,
-      variant: i.variant,
       color: i.color,
       size: i.size,
       quantity: i.quantity,
       unitPrice: toNumber(i.unitPrice),
+      trackingNumber: i.trackingNumber,
+      fulfillmentStatus: i.fulfillmentStatus,
       image: i.image,
       remark: i.remark,
+    };
+  }
+
+  /** OrderNote entity → DTO. */
+  toNote(n: OrderNote): OrderNoteDto {
+    return {
+      id: n.id,
+      orderId: n.orderId,
+      type: n.type,
+      content: n.content,
+      createdBy: n.createdBy,
+      createdAt: n.createdAt.toISOString(),
+      updatedAt: n.updatedAt.toISOString(),
     };
   }
 

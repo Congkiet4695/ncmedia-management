@@ -60,6 +60,8 @@ const PERMISSIONS: Array<{
   { code: 'account.assign',             module: 'ACCOUNT', resource: 'account',            action: 'assign', description: 'Gán Seller cho Account' },
   { code: 'account.credentials.read',   module: 'ACCOUNT', resource: 'account.credentials', action: 'read',   description: 'Xem (reveal) credentials Account' },
   { code: 'account.credentials.update', module: 'ACCOUNT', resource: 'account.credentials', action: 'update', description: 'Cập nhật credentials Account' },
+  { code: 'account.export',             module: 'ACCOUNT', resource: 'account',            action: 'export', description: 'Export Account ra Excel (Admin)' },
+  { code: 'account.import',             module: 'ACCOUNT', resource: 'account',            action: 'import', description: 'Import Account từ Excel (Admin)' },
   // Employee module (menu "Nhân viên" gate bằng employee.read)
   { code: 'employee.read',   module: 'EMPLOYEE', resource: 'employee', action: 'read',   description: 'Xem Employee' },
   { code: 'employee.create', module: 'EMPLOYEE', resource: 'employee', action: 'create', description: 'Tạo Employee' },
@@ -71,7 +73,8 @@ const PERMISSIONS: Array<{
   { code: 'order.update',  module: 'ORDER', resource: 'order', action: 'update',  description: 'Cập nhật Order' },
   { code: 'order.delete',  module: 'ORDER', resource: 'order', action: 'delete',  description: 'Xóa Order' },
   { code: 'order.claim',   module: 'ORDER', resource: 'order', action: 'claim',   description: 'Nhận xử lý (claim) Order — Fulfillment' },
-  { code: 'order.fulfill', module: 'ORDER', resource: 'order', action: 'fulfill', description: 'Cập nhật fulfillment (tracking/status/warehouse note)' },
+  { code: 'order.fulfill', module: 'ORDER', resource: 'order', action: 'fulfill', description: 'Cập nhật fulfillment (tracking/status theo Item)' },
+  { code: 'order.note',    module: 'ORDER', resource: 'order', action: 'note',    description: 'Quản lý ghi chú đơn (Seller/Warehouse)' },
   { code: 'order.release', module: 'ORDER', resource: 'order', action: 'release', description: 'Release Order đã claim (Admin)' },
   // Profile module (self-service)
   { code: 'profile.read',   module: 'PROFILE', resource: 'profile', action: 'read',   description: 'Xem hồ sơ của mình' },

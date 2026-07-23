@@ -15,12 +15,13 @@ import {
 import { cn } from '@/lib/utils';
 import { formatDate, formatUSD } from '@/lib/format';
 import { OrderItemGrid } from './order-item-grid';
+import { OrderNotesList } from './order-notes-list';
 import { OrderClaimAction, OrderFulfillmentBadge } from './order-fulfillment';
 import { OrderStatusBadge } from './order-status-badge';
 import type { OrderListItem } from '../types';
 
 /** Số cột của Order Grid (để colSpan cho dòng Detail). */
-const COL_SPAN = 12;
+const COL_SPAN = 11;
 
 interface OrderTableProps {
   orders: OrderListItem[];
@@ -86,7 +87,9 @@ const OrderRow = memo(function OrderRow({
         <TableCell>{order.platformName ?? '—'}</TableCell>
         <TableCell>{order.accountName ?? '—'}</TableCell>
         <TableCell>{order.sellerName ?? '—'}</TableCell>
-        <TableCell className="max-w-40 truncate">{order.customerName ?? '—'}</TableCell>
+        <TableCell className="max-w-56">
+          <OrderNotesList notes={order.notes} />
+        </TableCell>
         <TableCell className="whitespace-nowrap text-right font-medium tabular-nums">
           {formatUSD(order.totalAmount)}
         </TableCell>
@@ -109,9 +112,6 @@ const OrderRow = memo(function OrderRow({
               onRelease={onRelease}
             />
           </div>
-        </TableCell>
-        <TableCell className="max-w-32 truncate text-muted-foreground">
-          {order.tracking ?? '—'}
         </TableCell>
         <TableCell className="whitespace-nowrap text-muted-foreground">
           {formatDate(order.orderedAt)}
@@ -200,11 +200,10 @@ export function OrderTable({
             <TableHead>Nền tảng</TableHead>
             <TableHead>Account</TableHead>
             <TableHead>Seller</TableHead>
-            <TableHead>Khách hàng</TableHead>
+            <TableHead>Ghi chú</TableHead>
             <TableHead className="text-right">Total</TableHead>
             <TableHead>Trạng thái</TableHead>
             <TableHead>Fulfillment</TableHead>
-            <TableHead>Tracking</TableHead>
             <TableHead>Ngày order</TableHead>
             <TableHead className="text-right">Thao tác</TableHead>
           </TableRow>

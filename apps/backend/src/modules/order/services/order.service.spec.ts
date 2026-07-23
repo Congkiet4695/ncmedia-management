@@ -1,4 +1,4 @@
-import { OrderStatus } from '@prisma/client';
+import { OrderItemStatus, OrderStatus } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { CreateOrderDto } from '../dto/create-order.dto';
 import {
@@ -7,7 +7,6 @@ import {
   OrderDuplicateException,
   OrderLockedException,
   OrderNotFoundException,
-  OrderTrackingRequiredException,
 } from '../exceptions/order.exceptions';
 import { OrderMapper } from '../mappers/order.mapper';
 import { OrderRepository } from '../repositories/order.repository';
@@ -32,6 +31,13 @@ describe('OrderService', () => {
     listSellers: jest.fn(),
     claim: jest.fn(),
     release: jest.fn(),
+    listNotes: jest.fn(),
+    findNoteById: jest.fn(),
+    createNote: jest.fn(),
+    updateNote: jest.fn(),
+    softDeleteNote: jest.fn(),
+    findItemById: jest.fn(),
+    updateItemFulfillment: jest.fn(),
   };
   // $transaction chạy callback với tx giả.
   const prisma = { $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb({})) };
@@ -47,13 +53,8 @@ describe('OrderService', () => {
     platform: 'TIKTOK_SHOP',
     status: OrderStatus.WAITING,
     orderedAt: new Date('2026-07-16T00:00:00Z'),
-    customerName: 'John',
-    customerPhone: '+1',
     shippingAddress: 'addr',
-    sellerNote: null,
-    warehouseNote: null,
-    tracking: null,
-    warehouseNote2: null,
+    currency: 'USD',
     fulfilledById: null,
     fulfilledBy: null,
     claimedAt: null,
@@ -65,9 +66,11 @@ describe('OrderService', () => {
       seller: { id: SELLER, fullName: 'Seller One', email: 's1@x.com' },
     },
     items: [{
-      id: 'it-1', productName: 'P1', productLink: null, supplier: 'sup', sku: null,
-      variant: null, color: null, size: null, quantity: 2, unitPrice: 10, image: null, remark: null,
+      id: 'it-1', productName: 'P1', productLink: null, color: null, size: null,
+      quantity: 2, unitPrice: 10, trackingNumber: null, fulfillmentStatus: 'PENDING',
+      image: null, remark: null,
     }],
+    notes: [],
     statusHistories: [{
       id: 'h-1', oldStatus: null, newStatus: OrderStatus.WAITING, changedBy: ADMIN,
       note: 'Tạo đơn', createdAt: new Date('2026-07-16T00:00:00Z'),
@@ -190,18 +193,32 @@ describe('OrderService', () => {
     expect(repo.claim).not.toHaveBeenCalled();
   });
 
-  it('updateTracking: Fulfillment KHÔNG phải người claim → OrderLockedException (409)', async () => {
+  it('updateItemFulfillment: Fulfillment KHÔNG phải người claim → OrderLockedException (409)', async () => {
     repo.findById.mockResolvedValue({ ...orderRow, fulfilledById: 'other' });
     await expect(
-      service.updateTracking(ORG, actorFul, 'order-1', { tracking: 'X' }, undefined, {}),
+      service.updateItemFulfillment(ORG, actorFul, 'order-1', 'it-1', { trackingNumber: 'X' }, undefined, {}),
     ).rejects.toBeInstanceOf(OrderLockedException);
   });
 
-  it('fulfillStatus: SHIPPED mà chưa có tracking → OrderTrackingRequiredException (400)', async () => {
-    repo.findById.mockResolvedValue({ ...orderRow, fulfilledById: FUL, tracking: null });
-    await expect(
-      service.fulfillStatus(ORG, actorFul, 'order-1', { status: OrderStatus.SHIPPED }, undefined, {}),
-    ).rejects.toBeInstanceOf(OrderTrackingRequiredException);
+  it('updateItemFulfillment: người claim cập nhật tracking + status theo item', async () => {
+    repo.findById.mockResolvedValue({ ...orderRow, fulfilledById: FUL });
+    repo.findItemById.mockResolvedValue({ id: 'it-1', trackingNumber: null, fulfillmentStatus: 'PENDING' });
+    await service.updateItemFulfillment(
+      ORG, actorFul, 'order-1', 'it-1',
+      { trackingNumber: 'TRK-1', fulfillmentStatus: OrderItemStatus.SHIPPED }, undefined, {},
+    );
+    expect(repo.updateItemFulfillment).toHaveBeenCalledWith(
+      expect.anything(), 'it-1',
+      expect.objectContaining({ trackingNumber: 'TRK-1' }),
+    );
+  });
+
+  it('fulfillStatus: người claim đổi status → ghi history + log STATUS_CHANGE', async () => {
+    repo.findById.mockResolvedValue({ ...orderRow, fulfilledById: FUL });
+    await service.fulfillStatus(ORG, actorFul, 'order-1', { status: OrderStatus.SHIPPED }, undefined, {});
+    expect(repo.addStatusHistory).toHaveBeenCalledWith(
+      expect.anything(), 'order-1', OrderStatus.WAITING, OrderStatus.SHIPPED, FUL, undefined,
+    );
   });
 
   it('release: Admin xóa fulfilledById + status WAITING + log RELEASE', async () => {
@@ -216,7 +233,7 @@ describe('OrderService', () => {
   it('update (sales): đơn đã claim + actor EMPLOYEE → OrderLockedException (409)', async () => {
     repo.findById.mockResolvedValue({ ...orderRow, fulfilledById: FUL });
     await expect(
-      service.update(ORG, 'emp-1', 'order-1', { customerName: 'X' }, 'emp-1', 'EMPLOYEE'),
+      service.update(ORG, 'emp-1', 'order-1', { shippingAddress: 'X' }, 'emp-1', 'EMPLOYEE'),
     ).rejects.toBeInstanceOf(OrderLockedException);
   });
 });

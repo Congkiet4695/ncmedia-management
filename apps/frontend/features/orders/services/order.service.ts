@@ -1,15 +1,17 @@
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse } from '@/types/api';
 import type {
+  CreateOrderNotePayload,
   CreateOrderPayload,
   Order,
   OrderListResult,
+  OrderNote,
   OrderQuery,
   OrderSellerOption,
+  UpdateItemFulfillmentPayload,
+  UpdateOrderNotePayload,
   UpdateOrderPayload,
   UpdateStatusPayload,
-  UpdateTrackingPayload,
-  UpdateWarehouseNotePayload,
 } from '../types';
 
 function clean<T extends Record<string, unknown>>(obj: T): Partial<T> {
@@ -70,8 +72,16 @@ export const orderService = {
     return res.data.data;
   },
 
-  async updateTracking(id: string, payload: UpdateTrackingPayload): Promise<Order> {
-    const res = await apiClient.put<ApiResponse<Order>>(`/orders/${id}/tracking`, payload);
+  /** Cập nhật Tracking + Fulfillment Status theo TỪNG Item. */
+  async updateItemFulfillment(
+    id: string,
+    itemId: string,
+    payload: UpdateItemFulfillmentPayload,
+  ): Promise<Order> {
+    const res = await apiClient.put<ApiResponse<Order>>(
+      `/orders/${id}/items/${itemId}/fulfillment`,
+      payload,
+    );
     return res.data.data;
   },
 
@@ -80,8 +90,24 @@ export const orderService = {
     return res.data.data;
   },
 
-  async updateWarehouseNote(id: string, payload: UpdateWarehouseNotePayload): Promise<Order> {
-    const res = await apiClient.put<ApiResponse<Order>>(`/orders/${id}/warehouse-note`, payload);
+  // --- OrderNote (Seller / Warehouse) CRUD ---
+
+  async listNotes(id: string): Promise<OrderNote[]> {
+    const res = await apiClient.get<ApiResponse<OrderNote[]>>(`/orders/${id}/notes`);
     return res.data.data;
+  },
+
+  async createNote(id: string, payload: CreateOrderNotePayload): Promise<OrderNote> {
+    const res = await apiClient.post<ApiResponse<OrderNote>>(`/orders/${id}/notes`, payload);
+    return res.data.data;
+  },
+
+  async updateNote(noteId: string, payload: UpdateOrderNotePayload): Promise<OrderNote> {
+    const res = await apiClient.put<ApiResponse<OrderNote>>(`/orders/notes/${noteId}`, payload);
+    return res.data.data;
+  },
+
+  async deleteNote(noteId: string): Promise<void> {
+    await apiClient.delete<ApiResponse<null>>(`/orders/notes/${noteId}`);
   },
 };

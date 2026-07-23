@@ -21,7 +21,6 @@ interface OrderFilterProps {
   status?: OrderStatus;
   platformId?: string;
   accountId?: string;
-  supplier: string;
   sellerUserId?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -34,7 +33,6 @@ interface OrderFilterProps {
   onStatusChange: (value?: OrderStatus) => void;
   onPlatformChange: (value?: string) => void;
   onAccountChange: (value?: string) => void;
-  onSupplierChange: (value: string) => void;
   onSellerChange: (value?: string) => void;
   onDateFromChange: (value?: string) => void;
   onDateToChange: (value?: string) => void;
@@ -45,7 +43,6 @@ export function OrderFilter({
   status,
   platformId,
   accountId,
-  supplier,
   sellerUserId,
   dateFrom,
   dateTo,
@@ -57,7 +54,6 @@ export function OrderFilter({
   onStatusChange,
   onPlatformChange,
   onAccountChange,
-  onSupplierChange,
   onSellerChange,
   onDateFromChange,
   onDateToChange,
@@ -66,7 +62,7 @@ export function OrderFilter({
     <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
       <div className="flex-1 space-y-1.5 lg:min-w-56">
         <Label htmlFor="ord-search" className="text-xs text-muted-foreground">
-          Tìm kiếm (Order Number / Tracking / Khách / SĐT / Địa chỉ)
+          Tìm kiếm (Order Number / Tracking / Địa chỉ giao hàng)
         </Label>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
@@ -132,18 +128,6 @@ export function OrderFilter({
             </option>
           ))}
         </NativeSelect>
-      </div>
-
-      <div className="space-y-1.5 lg:w-40">
-        <Label htmlFor="ord-supplier" className="text-xs text-muted-foreground">
-          Supplier
-        </Label>
-        <Input
-          id="ord-supplier"
-          placeholder="Supplier…"
-          value={supplier}
-          onChange={(e) => onSupplierChange(e.target.value)}
-        />
       </div>
 
       <div className="space-y-1.5 lg:w-40">

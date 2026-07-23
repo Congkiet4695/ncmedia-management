@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module';
 import { AccountController } from './account.controller';
 import { AccountMapper } from './mappers/account.mapper';
 import { AccountRepository } from './repositories/account.repository';
+import { AccountExcelService } from './services/account-excel.service';
 import { AccountService } from './services/account.service';
 
 /**
@@ -13,6 +14,6 @@ import { AccountService } from './services/account.service';
 @Module({
   imports: [AuthModule],
   controllers: [AccountController],
-  providers: [AccountService, AccountRepository, AccountMapper, EncryptionService],
+  providers: [AccountService, AccountRepository, AccountMapper, AccountExcelService, EncryptionService],
 })
 export class AccountModule {}

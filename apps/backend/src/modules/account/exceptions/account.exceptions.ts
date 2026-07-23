@@ -1,16 +1,9 @@
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException, NotFoundException } from '@nestjs/common';
 
 /** Không tìm thấy Account trong Organization (hoặc ngoài phạm vi seller). */
 export class AccountNotFoundException extends NotFoundException {
   constructor() {
     super({ code: 'ACCOUNT_NOT_FOUND', message: 'Không tìm thấy Account' });
-  }
-}
-
-/** Trùng ID_Normalize trong Organization (BR-A04). */
-export class AccountDuplicateException extends ConflictException {
-  constructor() {
-    super({ code: 'ACCOUNT_DUPLICATE', message: 'ID chuẩn hoá đã tồn tại trong tổ chức' });
   }
 }
 

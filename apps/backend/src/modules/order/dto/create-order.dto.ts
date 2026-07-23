@@ -35,44 +35,18 @@ export class CreateOrderDto {
   @MaxLength(120)
   orderNumber!: string;
 
-  @ApiPropertyOptional({ maxLength: 255, description: 'Tên khách hàng' })
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MaxLength(255)
-  customerName?: string;
-
-  @ApiPropertyOptional({ maxLength: 50, description: 'SĐT khách hàng' })
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MaxLength(50)
-  customerPhone?: string;
-
   @ApiPropertyOptional({ maxLength: 2000, description: 'Địa chỉ giao hàng' })
   @IsOptional()
   @IsString()
   @MaxLength(2000)
   shippingAddress?: string;
 
-  @ApiPropertyOptional({ maxLength: 2000, description: 'Note của Seller' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  sellerNote?: string;
-
-  @ApiPropertyOptional({ maxLength: 2000, description: 'Note Kho' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  warehouseNote?: string;
-
-  @ApiPropertyOptional({ maxLength: 255, description: 'Mã tracking' })
+  @ApiPropertyOptional({ maxLength: 10, description: 'Đơn vị tiền tệ (VD USD)' })
   @IsOptional()
   @Transform(trim)
   @IsString()
-  @MaxLength(255)
-  tracking?: string;
+  @MaxLength(10)
+  currency?: string;
 
   @ApiPropertyOptional({ enum: OrderStatus, default: OrderStatus.WAITING })
   @IsOptional()

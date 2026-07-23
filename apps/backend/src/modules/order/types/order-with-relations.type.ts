@@ -13,6 +13,7 @@ export const ORDER_INCLUDE = {
   },
   fulfilledBy: { select: { id: true, fullName: true, email: true } },
   items: { orderBy: { createdAt: 'asc' } },
+  notes: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' } },
   statusHistories: { orderBy: { createdAt: 'asc' } },
 } as const satisfies Prisma.OrderInclude;
 
@@ -34,16 +35,17 @@ export const ORDER_LIST_INCLUDE = {
     select: {
       id: true,
       productName: true,
-      variant: true,
       color: true,
       size: true,
-      supplier: true,
       quantity: true,
       unitPrice: true,
       image: true,
+      trackingNumber: true,
+      fulfillmentStatus: true,
     },
     orderBy: { createdAt: 'asc' },
   },
+  notes: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' } },
 } as const satisfies Prisma.OrderInclude;
 
 export type OrderListRow = Prisma.OrderGetPayload<{ include: typeof ORDER_LIST_INCLUDE }>;

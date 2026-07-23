@@ -9,6 +9,8 @@ import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
 import {
   EMPTY_ORDER_ITEM,
+  ORDER_ITEM_STATUSES,
+  ORDER_ITEM_STATUS_LABELS,
   orderFormSchema,
   type OrderFormInput,
 } from '../schemas/order.schema';
@@ -31,12 +33,8 @@ interface OrderFormProps {
 const BASE_DEFAULTS: OrderFormInput = {
   accountId: '',
   orderNumber: '',
-  customerName: '',
-  customerPhone: '',
   shippingAddress: '',
-  sellerNote: '',
-  warehouseNote: '',
-  tracking: '',
+  currency: '',
   orderedAt: '',
   items: [EMPTY_ORDER_ITEM],
 };
@@ -103,41 +101,25 @@ export function OrderForm({
           <FieldError message={errors.orderNumber?.message} />
         </div>
 
-        <div className="space-y-2">
-          <Label htmlFor="customerName">Tên khách hàng</Label>
-          <Input id="customerName" disabled={submitting} {...register('customerName')} />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="customerPhone">SĐT khách hàng</Label>
-          <Input id="customerPhone" disabled={submitting} {...register('customerPhone')} />
-        </div>
-
         <div className="space-y-2 sm:col-span-2">
           <Label htmlFor="shippingAddress">Địa chỉ giao hàng</Label>
           <Input id="shippingAddress" disabled={submitting} {...register('shippingAddress')} />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="tracking">Tracking</Label>
-          <Input id="tracking" disabled={submitting} {...register('tracking')} />
+          <Label htmlFor="currency">Đơn vị tiền tệ</Label>
+          <Input id="currency" placeholder="USD" disabled={submitting} {...register('currency')} />
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="orderedAt">Ngày order</Label>
           <Input id="orderedAt" type="date" disabled={submitting} {...register('orderedAt')} />
         </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="sellerNote">Note của Seller</Label>
-          <Input id="sellerNote" disabled={submitting} {...register('sellerNote')} />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="warehouseNote">Note Kho</Label>
-          <Input id="warehouseNote" disabled={submitting} {...register('warehouseNote')} />
-        </div>
       </div>
+
+      <p className="text-xs text-muted-foreground">
+        Ghi chú Seller/Warehouse được quản lý riêng ở trang chi tiết đơn (Ghi chú).
+      </p>
 
       {/* Order Items */}
       <div className="space-y-3">
@@ -227,28 +209,6 @@ export function OrderForm({
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor={`items.${index}.supplier`} className="text-xs">
-                  Supplier
-                </Label>
-                <Input
-                  id={`items.${index}.supplier`}
-                  disabled={submitting}
-                  {...register(`items.${index}.supplier` as const)}
-                />
-              </div>
-
-              <div className="space-y-1.5">
-                <Label htmlFor={`items.${index}.sku`} className="text-xs">
-                  SKU
-                </Label>
-                <Input
-                  id={`items.${index}.sku`}
-                  disabled={submitting}
-                  {...register(`items.${index}.sku` as const)}
-                />
-              </div>
-
-              <div className="space-y-1.5">
                 <Label htmlFor={`items.${index}.color`} className="text-xs">
                   Color
                 </Label>
@@ -271,14 +231,31 @@ export function OrderForm({
               </div>
 
               <div className="space-y-1.5">
-                <Label htmlFor={`items.${index}.variant`} className="text-xs">
-                  Variant
+                <Label htmlFor={`items.${index}.trackingNumber`} className="text-xs">
+                  Tracking Number
                 </Label>
                 <Input
-                  id={`items.${index}.variant`}
+                  id={`items.${index}.trackingNumber`}
                   disabled={submitting}
-                  {...register(`items.${index}.variant` as const)}
+                  {...register(`items.${index}.trackingNumber` as const)}
                 />
+              </div>
+
+              <div className="space-y-1.5">
+                <Label htmlFor={`items.${index}.fulfillmentStatus`} className="text-xs">
+                  Fulfillment Status
+                </Label>
+                <NativeSelect
+                  id={`items.${index}.fulfillmentStatus`}
+                  disabled={submitting}
+                  {...register(`items.${index}.fulfillmentStatus` as const)}
+                >
+                  {ORDER_ITEM_STATUSES.map((s) => (
+                    <option key={s} value={s}>
+                      {ORDER_ITEM_STATUS_LABELS[s]}
+                    </option>
+                  ))}
+                </NativeSelect>
               </div>
 
               <div className="space-y-1.5 sm:col-span-2">

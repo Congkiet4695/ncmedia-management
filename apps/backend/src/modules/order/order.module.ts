@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { OrderController } from './order.controller';
 import { OrderMapper } from './mappers/order.mapper';
 import { OrderRepository } from './repositories/order.repository';
+import { OrderExcelService } from './services/order-excel.service';
 import { OrderService } from './services/order.service';
 
 /**
@@ -12,6 +13,6 @@ import { OrderService } from './services/order.service';
 @Module({
   imports: [AuthModule],
   controllers: [OrderController],
-  providers: [OrderService, OrderRepository, OrderMapper],
+  providers: [OrderService, OrderRepository, OrderMapper, OrderExcelService],
 })
 export class OrderModule {}

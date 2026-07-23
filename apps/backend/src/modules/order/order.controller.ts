@@ -12,11 +12,17 @@ import {
   Post,
   Put,
   Query,
+  StreamableFile,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
+  ApiBody,
   ApiConflictResponse,
+  ApiConsumes,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiOkResponse,
@@ -24,6 +30,9 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { ImportResultDto } from '../../common/excel/import-result.dto';
+import { requireXlsx, xlsxFile, xlsxUploadOptions } from '../../common/excel/excel.http';
+import { OrderExcelService } from './services/order-excel.service';
 import { ADMIN_ROLE_CODE, FULFILLMENT_ROLE_CODE } from '../auth/constants/default-roles';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
@@ -31,7 +40,8 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import { CreateOrderDto } from './dto/create-order.dto';
-import { UpdateTrackingDto, UpdateWarehouseNoteDto } from './dto/fulfillment.dto';
+import { UpdateOrderItemFulfillmentDto } from './dto/fulfillment.dto';
+import { CreateOrderNoteDto, OrderNoteDto, UpdateOrderNoteDto } from './dto/order-note.dto';
 import { OrderQueryDto } from './dto/order-query.dto';
 import {
   OrderResponseDto,
@@ -59,7 +69,10 @@ import { OrderActor, OrderService } from './services/order.service';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('orders')
 export class OrderController {
-  constructor(private readonly orderService: OrderService) {}
+  constructor(
+    private readonly orderService: OrderService,
+    private readonly excel: OrderExcelService,
+  ) {}
 
   /** Phạm vi ĐỌC: ADMIN/FULFILLMENT → undefined (toàn Org); EMPLOYEE → userId (đơn của mình). */
   private readScope(user: AuthenticatedUser): string | undefined {
@@ -108,6 +121,54 @@ export class OrderController {
     return this.orderService.listSellers(user.organizationId);
   }
 
+  // ---------- Import/Export Excel (Admin toàn bộ · Employee chỉ Account mình quản lý) ----------
+
+  @Get('export/example')
+  @RequirePermissions('order.read')
+  @ApiOperation({ summary: 'Tải file Excel mẫu để Import Order (Admin/Employee)' })
+  @ApiOkResponse({ description: 'File .xlsx (sheet: Orders + Order Items + Order Notes + Reference)' })
+  async exportExample(): Promise<StreamableFile> {
+    return xlsxFile(await this.excel.buildExample(), 'order-import-template.xlsx');
+  }
+
+  @Get('export')
+  @RequirePermissions('order.read')
+  @ApiOperation({ summary: 'Export Order + Order Items ra Excel (Admin all / Employee scoped)' })
+  @ApiOkResponse({ description: 'File .xlsx' })
+  async exportAll(@CurrentUser() user: AuthenticatedUser): Promise<StreamableFile> {
+    return xlsxFile(await this.excel.exportAll(user.organizationId, this.salesScope(user)), 'orders-export.xlsx');
+  }
+
+  @Post('import')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('order.create')
+  @UseInterceptors(FileInterceptor('file', xlsxUploadOptions))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
+  @ApiOperation({ summary: 'Import Order từ Excel — tạo mới, bỏ qua trùng (Employee: Account mình quản lý)' })
+  @ApiOkResponse({ type: ImportResultDto })
+  importCreate(
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<ImportResultDto> {
+    return this.excel.importCreate(user.organizationId, user.userId, requireXlsx(file), this.salesScope(user));
+  }
+
+  @Post('import/update')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('order.update')
+  @UseInterceptors(FileInterceptor('file', xlsxUploadOptions))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
+  @ApiOperation({ summary: 'Import file export để UPDATE theo ID (Employee: Account mình quản lý)' })
+  @ApiOkResponse({ type: ImportResultDto })
+  importUpdate(
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<ImportResultDto> {
+    return this.excel.importUpdate(user.organizationId, user.userId, requireXlsx(file), this.salesScope(user));
+  }
+
   // --- Fulfillment workflow ---
 
   @Post(':id/claim')
@@ -143,21 +204,23 @@ export class OrderController {
     return this.orderService.release(user.organizationId, this.actor(user), id, { ipAddress: ip });
   }
 
-  @Put(':id/tracking')
+  @Put(':id/items/:itemId/fulfillment')
   @RequirePermissions('order.fulfill')
-  @ApiOperation({ summary: 'Cập nhật Tracking (Fulfillment đã claim / Admin)' })
+  @ApiOperation({ summary: 'Cập nhật Tracking + Fulfillment Status theo TỪNG Item (Fulfillment đã claim / Admin)' })
   @ApiOkResponse({ type: OrderResponseDto })
   @ApiConflictResponse({ description: 'Không phải người xử lý đơn (ORDER_LOCKED)' })
-  updateTracking(
+  updateItemFulfillment(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateTrackingDto,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+    @Body() dto: UpdateOrderItemFulfillmentDto,
     @Ip() ip: string,
   ): Promise<OrderResponseDto> {
-    return this.orderService.updateTracking(
+    return this.orderService.updateItemFulfillment(
       user.organizationId,
       this.actor(user),
       id,
+      itemId,
       dto,
       this.readScope(user),
       { ipAddress: ip },
@@ -166,7 +229,7 @@ export class OrderController {
 
   @Put(':id/status')
   @RequirePermissions('order.fulfill')
-  @ApiOperation({ summary: 'Đổi trạng thái (Fulfillment) — ghi timeline. SHIPPED cần Tracking.' })
+  @ApiOperation({ summary: 'Đổi trạng thái đơn (Fulfillment) — ghi timeline' })
   @ApiOkResponse({ type: OrderResponseDto })
   @ApiConflictResponse({ description: 'Không phải người xử lý đơn (ORDER_LOCKED)' })
   fulfillStatus(
@@ -185,24 +248,70 @@ export class OrderController {
     );
   }
 
-  @Put(':id/warehouse-note')
-  @RequirePermissions('order.fulfill')
-  @ApiOperation({ summary: 'Cập nhật Warehouse Note / Note 2 (Fulfillment đã claim / Admin)' })
-  @ApiOkResponse({ type: OrderResponseDto })
-  @ApiConflictResponse({ description: 'Không phải người xử lý đơn (ORDER_LOCKED)' })
-  updateWarehouseNote(
+  // --- OrderNote (Seller / Warehouse) CRUD ---
+
+  @Get(':id/notes')
+  @RequirePermissions('order.read')
+  @ApiOperation({ summary: 'Danh sách ghi chú (Seller/Warehouse) của Order' })
+  @ApiOkResponse({ type: OrderNoteDto, isArray: true })
+  listNotes(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
-    @Body() dto: UpdateWarehouseNoteDto,
-    @Ip() ip: string,
-  ): Promise<OrderResponseDto> {
-    return this.orderService.updateWarehouseNote(
+  ): Promise<OrderNoteDto[]> {
+    return this.orderService.listNotes(user.organizationId, id, this.readScope(user));
+  }
+
+  @Post(':id/notes')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermissions('order.note')
+  @ApiOperation({ summary: 'Thêm ghi chú (SELLER/WAREHOUSE) cho Order' })
+  @ApiCreatedResponse({ type: OrderNoteDto })
+  createNote(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateOrderNoteDto,
+  ): Promise<OrderNoteDto> {
+    return this.orderService.createNote(
       user.organizationId,
-      this.actor(user),
+      user.userId,
       id,
       dto,
       this.readScope(user),
-      { ipAddress: ip },
+    );
+  }
+
+  @Put('notes/:noteId')
+  @RequirePermissions('order.note')
+  @ApiOperation({ summary: 'Cập nhật ghi chú Order' })
+  @ApiOkResponse({ type: OrderNoteDto })
+  updateNote(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('noteId', ParseUUIDPipe) noteId: string,
+    @Body() dto: UpdateOrderNoteDto,
+  ): Promise<OrderNoteDto> {
+    return this.orderService.updateNote(
+      user.organizationId,
+      user.userId,
+      noteId,
+      dto,
+      this.readScope(user),
+    );
+  }
+
+  @Delete('notes/:noteId')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('order.note')
+  @ApiOperation({ summary: 'Xóa mềm ghi chú Order' })
+  @ApiOkResponse({ description: 'Đã xóa; data = null' })
+  deleteNote(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('noteId', ParseUUIDPipe) noteId: string,
+  ): Promise<void> {
+    return this.orderService.deleteNote(
+      user.organizationId,
+      user.userId,
+      noteId,
+      this.readScope(user),
     );
   }
 

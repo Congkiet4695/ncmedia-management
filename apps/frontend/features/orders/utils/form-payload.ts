@@ -4,11 +4,9 @@ import type { CreateOrderPayload, OrderItemPayload, UpdateOrderPayload } from '.
 function toItemPayload(item: OrderItemInput): OrderItemPayload {
   const optionalKeys = [
     'productLink',
-    'supplier',
-    'sku',
-    'variant',
     'color',
     'size',
+    'trackingNumber',
     'image',
     'remark',
   ] as const;
@@ -21,21 +19,14 @@ function toItemPayload(item: OrderItemInput): OrderItemPayload {
     productName: item.productName,
     quantity: item.quantity,
     unitPrice: item.unitPrice,
+    fulfillmentStatus: item.fulfillmentStatus,
     ...optional,
   };
 }
 
 /** OrderFormInput → CreateOrderPayload (bỏ field rỗng). */
 export function toCreateOrderPayload(values: OrderFormInput): CreateOrderPayload {
-  const optionalKeys = [
-    'customerName',
-    'customerPhone',
-    'shippingAddress',
-    'sellerNote',
-    'warehouseNote',
-    'tracking',
-    'orderedAt',
-  ] as const;
+  const optionalKeys = ['shippingAddress', 'currency', 'orderedAt'] as const;
   const optional: Record<string, string> = {};
   for (const key of optionalKeys) {
     const value = values[key];

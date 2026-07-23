@@ -67,7 +67,6 @@ function EditAccountView() {
   const account = accountQuery.data;
   const defaultValues: Partial<AccountFormInput> = {
     name: account.name,
-    idNormalize: account.idNormalize ?? '',
     platformId: account.platform?.id ?? '',
     loginTool: account.loginTool ?? '',
     sellerUserId: account.seller?.id ?? '',

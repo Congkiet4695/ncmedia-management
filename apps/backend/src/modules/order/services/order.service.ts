@@ -1,10 +1,11 @@
 import { Injectable } from '@nestjs/common';
-import { OrderStatus, Prisma } from '@prisma/client';
+import { OrderItemStatus, OrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { ADMIN_ROLE_CODE } from '../../auth/constants/default-roles';
 import { ORDER_LOG_ACTION } from '../constants/order.constants';
 import { CreateOrderDto } from '../dto/create-order.dto';
-import { UpdateTrackingDto, UpdateWarehouseNoteDto } from '../dto/fulfillment.dto';
+import { UpdateOrderItemFulfillmentDto } from '../dto/fulfillment.dto';
+import { CreateOrderNoteDto, OrderNoteDto, UpdateOrderNoteDto } from '../dto/order-note.dto';
 import { OrderQueryDto } from '../dto/order-query.dto';
 import {
   OrderResponseDto,
@@ -17,10 +18,11 @@ import {
   OrderAccountForbiddenException,
   OrderAccountInvalidException,
   OrderDuplicateException,
+  OrderItemNotFoundException,
   OrderItemsRequiredException,
   OrderLockedException,
+  OrderNoteNotFoundException,
   OrderNotFoundException,
-  OrderTrackingRequiredException,
 } from '../exceptions/order.exceptions';
 import { OrderMapper } from '../mappers/order.mapper';
 import {
@@ -78,12 +80,8 @@ export class OrderService {
             accountId: account.id,
             platform,
             orderNumber: dto.orderNumber,
-            customerName: dto.customerName,
-            customerPhone: dto.customerPhone,
             shippingAddress: dto.shippingAddress,
-            sellerNote: dto.sellerNote,
-            warehouseNote: dto.warehouseNote,
-            tracking: dto.tracking,
+            currency: dto.currency,
             orderedAt: dto.orderedAt ? new Date(dto.orderedAt) : new Date(),
             status,
           },
@@ -119,7 +117,6 @@ export class OrderService {
         platformId: query.platformId,
         accountId: query.accountId,
         status: query.status,
-        supplier: query.supplier,
         sellerUserId: query.sellerUserId,
         dateFrom: query.dateFrom ? new Date(query.dateFrom) : undefined,
         dateTo: query.dateTo ? new Date(query.dateTo) : undefined,
@@ -338,37 +335,7 @@ export class OrderService {
     return this.findOne(organizationId, id);
   }
 
-  /** Fulfillment cập nhật Tracking (Requirement 6). Kiểm tra quyền sửa (claimed by self hoặc ADMIN). */
-  async updateTracking(
-    organizationId: string,
-    actor: OrderActor,
-    id: string,
-    dto: UpdateTrackingDto,
-    readScope: string | undefined,
-    meta: OrderRequestMeta,
-  ): Promise<OrderResponseDto> {
-    const existing = await this.repo.findById(organizationId, id, readScope);
-    if (!existing) throw new OrderNotFoundException();
-    this.assertCanFulfill(existing, actor);
-
-    const next = dto.tracking === '' ? null : dto.tracking;
-    if (next !== (existing.tracking ?? null)) {
-      await this.prisma.$transaction(async (tx) => {
-        await this.repo.updateScalar(tx, id, { tracking: next }, actor.userId);
-        await this.repo.addLog(tx, id, {
-          action: ORDER_LOG_ACTION.TRACKING_CHANGE,
-          field: 'tracking',
-          oldValue: existing.tracking ?? null,
-          newValue: next,
-          performedBy: actor.userId,
-          ipAddress: meta.ipAddress,
-        });
-      });
-    }
-    return this.findOne(organizationId, id, readScope);
-  }
-
-  /** Fulfillment đổi Status (Requirement 8). SHIPPED bắt buộc có Tracking (Requirement 6). */
+  /** Fulfillment đổi Status đơn (Requirement 8). Tracking nay theo từng Item (không kiểm ở đây). */
   async fulfillStatus(
     organizationId: string,
     actor: OrderActor,
@@ -380,10 +347,6 @@ export class OrderService {
     const existing = await this.repo.findById(organizationId, id, readScope);
     if (!existing) throw new OrderNotFoundException();
     this.assertCanFulfill(existing, actor);
-
-    if (dto.status === OrderStatus.SHIPPED && !existing.tracking) {
-      throw new OrderTrackingRequiredException();
-    }
 
     await this.prisma.$transaction(async (tx) => {
       await this.repo.updateScalar(tx, id, { status: dto.status }, actor.userId);
@@ -400,48 +363,137 @@ export class OrderService {
     return this.findOne(organizationId, id, readScope);
   }
 
-  /** Fulfillment cập nhật Warehouse Note / Note 2 (Requirement 7). Ghi audit từng field. */
-  async updateWarehouseNote(
+  /**
+   * Cập nhật Fulfillment theo TỪNG Item: Tracking Number + Fulfillment Status.
+   * Quyền: ADMIN hoặc Fulfillment đã claim đơn (assertCanFulfill).
+   */
+  async updateItemFulfillment(
     organizationId: string,
     actor: OrderActor,
-    id: string,
-    dto: UpdateWarehouseNoteDto,
+    orderId: string,
+    itemId: string,
+    dto: UpdateOrderItemFulfillmentDto,
     readScope: string | undefined,
     meta: OrderRequestMeta,
   ): Promise<OrderResponseDto> {
-    const existing = await this.repo.findById(organizationId, id, readScope);
+    const existing = await this.repo.findById(organizationId, orderId, readScope);
     if (!existing) throw new OrderNotFoundException();
     this.assertCanFulfill(existing, actor);
 
-    const data: OrderScalarWrite = {};
-    const logs: OrderLogWrite[] = [];
-    const fields: Array<{ key: 'warehouseNote' | 'warehouseNote2' }> = [
-      { key: 'warehouseNote' },
-      { key: 'warehouseNote2' },
-    ];
-    for (const f of fields) {
-      if (dto[f.key] === undefined) continue;
-      const next = dto[f.key] === '' ? null : (dto[f.key] as string);
-      const prev = (existing[f.key]) ?? null;
-      if (next === prev) continue;
-      data[f.key] = next;
-      logs.push({
-        action: ORDER_LOG_ACTION.WAREHOUSE_NOTE_CHANGE,
-        field: f.key,
-        oldValue: prev,
-        newValue: next,
-        performedBy: actor.userId,
-        ipAddress: meta.ipAddress,
-      });
-    }
+    const item = await this.repo.findItemById(orderId, itemId);
+    if (!item) throw new OrderItemNotFoundException();
 
-    if (Object.keys(data).length > 0) {
+    const patch: { trackingNumber?: string | null; fulfillmentStatus?: OrderItemStatus } = {};
+    if (dto.trackingNumber !== undefined) {
+      patch.trackingNumber = dto.trackingNumber === '' ? null : dto.trackingNumber;
+    }
+    if (dto.fulfillmentStatus !== undefined) patch.fulfillmentStatus = dto.fulfillmentStatus;
+
+    if (Object.keys(patch).length > 0) {
       await this.prisma.$transaction(async (tx) => {
-        await this.repo.updateScalar(tx, id, data, actor.userId);
-        for (const log of logs) await this.repo.addLog(tx, id, log);
+        await this.repo.updateItemFulfillment(tx, itemId, patch);
+        await this.repo.addLog(tx, orderId, {
+          action: ORDER_LOG_ACTION.ITEM_FULFILLMENT_CHANGE,
+          field: `item:${itemId}`,
+          oldValue: `${item.trackingNumber ?? ''}|${item.fulfillmentStatus}`,
+          newValue: `${patch.trackingNumber ?? item.trackingNumber ?? ''}|${patch.fulfillmentStatus ?? item.fulfillmentStatus}`,
+          performedBy: actor.userId,
+          ipAddress: meta.ipAddress,
+        });
       });
     }
-    return this.findOne(organizationId, id, readScope);
+    return this.findOne(organizationId, orderId, readScope);
+  }
+
+  // =========================================================================
+  // OrderNote (Seller / Warehouse) — CRUD (1..N theo Order)
+  // =========================================================================
+
+  /** Danh sách note của Order (đảm bảo Order thuộc scope). */
+  async listNotes(
+    organizationId: string,
+    orderId: string,
+    readScope?: string,
+  ): Promise<OrderNoteDto[]> {
+    const order = await this.repo.findById(organizationId, orderId, readScope);
+    if (!order) throw new OrderNotFoundException();
+    const notes = await this.repo.listNotes(orderId);
+    return notes.map((n) => this.mapper.toNote(n));
+  }
+
+  async createNote(
+    organizationId: string,
+    actorUserId: string,
+    orderId: string,
+    dto: CreateOrderNoteDto,
+    readScope?: string,
+  ): Promise<OrderNoteDto> {
+    const order = await this.repo.findById(organizationId, orderId, readScope);
+    if (!order) throw new OrderNotFoundException();
+
+    const id = await this.prisma.$transaction(async (tx) => {
+      const created = await this.repo.createNote(tx, orderId, dto.type, dto.content, actorUserId);
+      await this.repo.addLog(tx, orderId, {
+        action: ORDER_LOG_ACTION.NOTE_CREATE,
+        field: 'note',
+        newValue: dto.type,
+        performedBy: actorUserId,
+      });
+      return created.id;
+    });
+    const note = await this.repo.findNoteById(id);
+    if (!note) throw new OrderNoteNotFoundException();
+    return this.mapper.toNote(note);
+  }
+
+  async updateNote(
+    organizationId: string,
+    actorUserId: string,
+    noteId: string,
+    dto: UpdateOrderNoteDto,
+    readScope?: string,
+  ): Promise<OrderNoteDto> {
+    const note = await this.repo.findNoteById(noteId);
+    if (!note) throw new OrderNoteNotFoundException();
+    // Đảm bảo Order thuộc Org + scope của actor.
+    const order = await this.repo.findById(organizationId, note.orderId, readScope);
+    if (!order) throw new OrderNoteNotFoundException();
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.repo.updateNote(tx, noteId, { type: dto.type, content: dto.content });
+      await this.repo.addLog(tx, note.orderId, {
+        action: ORDER_LOG_ACTION.NOTE_UPDATE,
+        field: 'note',
+        oldValue: note.content,
+        newValue: dto.content ?? note.content,
+        performedBy: actorUserId,
+      });
+    });
+    const updated = await this.repo.findNoteById(noteId);
+    if (!updated) throw new OrderNoteNotFoundException();
+    return this.mapper.toNote(updated);
+  }
+
+  async deleteNote(
+    organizationId: string,
+    actorUserId: string,
+    noteId: string,
+    readScope?: string,
+  ): Promise<void> {
+    const note = await this.repo.findNoteById(noteId);
+    if (!note) throw new OrderNoteNotFoundException();
+    const order = await this.repo.findById(organizationId, note.orderId, readScope);
+    if (!order) throw new OrderNoteNotFoundException();
+
+    await this.prisma.$transaction(async (tx) => {
+      await this.repo.softDeleteNote(tx, noteId);
+      await this.repo.addLog(tx, note.orderId, {
+        action: ORDER_LOG_ACTION.NOTE_DELETE,
+        field: 'note',
+        oldValue: note.content,
+        performedBy: actorUserId,
+      });
+    });
   }
 
   // --- helpers ---
@@ -472,13 +524,12 @@ export class OrderService {
     return items.map((i) => ({
       productName: i.productName,
       productLink: i.productLink,
-      supplier: i.supplier,
-      sku: i.sku,
-      variant: i.variant,
       color: i.color,
       size: i.size,
       quantity: i.quantity,
       unitPrice: i.unitPrice,
+      trackingNumber: i.trackingNumber,
+      fulfillmentStatus: i.fulfillmentStatus,
       image: i.image,
       remark: i.remark,
     }));
@@ -502,12 +553,8 @@ export class OrderService {
       transform?: (v: string) => Date;
     }> = [
       { key: 'orderNumber', action: ORDER_LOG_ACTION.UPDATE },
-      { key: 'customerName', action: ORDER_LOG_ACTION.UPDATE },
-      { key: 'customerPhone', action: ORDER_LOG_ACTION.UPDATE },
       { key: 'shippingAddress', action: ORDER_LOG_ACTION.ADDRESS_CHANGE },
-      { key: 'sellerNote', action: ORDER_LOG_ACTION.UPDATE },
-      { key: 'warehouseNote', action: ORDER_LOG_ACTION.UPDATE },
-      { key: 'tracking', action: ORDER_LOG_ACTION.TRACKING_CHANGE },
+      { key: 'currency', action: ORDER_LOG_ACTION.UPDATE },
     ];
 
     for (const f of fields) {

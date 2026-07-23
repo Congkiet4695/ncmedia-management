@@ -39,7 +39,7 @@ export function AccountFilter({
     <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
       <div className="flex-1 space-y-1.5 lg:min-w-56">
         <Label htmlFor="acc-search" className="text-xs text-muted-foreground">
-          Tìm kiếm (tên / ID chuẩn hoá)
+          Tìm kiếm (tên Account)
         </Label>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

@@ -16,19 +16,37 @@ export type OrderStatus =
   | 'SHIPPED'
   | 'COMPLETED';
 
+export type OrderItemStatus =
+  | 'PENDING'
+  | 'PROCESSING'
+  | 'SHIPPED'
+  | 'DELIVERED'
+  | 'CANCELLED';
+
+export type OrderNoteType = 'SELLER' | 'WAREHOUSE';
+
 export interface OrderItem {
   id: string;
   productName: string;
   productLink: string | null;
-  supplier: string | null;
-  sku: string | null;
-  variant: string | null;
   color: string | null;
   size: string | null;
   quantity: number;
   unitPrice: number;
+  trackingNumber: string | null;
+  fulfillmentStatus: OrderItemStatus;
   image: string | null;
   remark: string | null;
+}
+
+export interface OrderNote {
+  id: string;
+  orderId: string;
+  type: OrderNoteType;
+  content: string;
+  createdBy: string | null;
+  createdAt: string;
+  updatedAt: string;
 }
 
 export interface OrderStatusHistory {
@@ -56,18 +74,14 @@ export interface Order {
   status: OrderStatus;
   orderedAt: string | null;
   account: OrderAccountRef;
-  customerName: string | null;
-  customerPhone: string | null;
   shippingAddress: string | null;
-  sellerNote: string | null;
-  warehouseNote: string | null;
-  warehouseNote2: string | null;
-  tracking: string | null;
+  currency: string | null;
   fulfilledById: string | null;
   fulfilledByName: string | null;
   claimedAt: string | null;
   isClaimed: boolean;
   items: OrderItem[];
+  notes: OrderNote[];
   statusHistories: OrderStatusHistory[];
   totalQuantity: number;
   totalAmount: number;
@@ -79,11 +93,12 @@ export interface Order {
 export interface OrderPreviewItem {
   id: string;
   productName: string;
-  variant: string | null;
   color: string | null;
   size: string | null;
   quantity: number;
   unitPrice: number;
+  trackingNumber: string | null;
+  fulfillmentStatus: OrderItemStatus;
 }
 
 export interface OrderListItem {
@@ -92,11 +107,8 @@ export interface OrderListItem {
   platformName: string | null;
   accountName: string | null;
   sellerName: string | null;
-  customerName: string | null;
   status: OrderStatus;
-  tracking: string | null;
   productName: string | null;
-  supplier: string | null;
   itemsCount: number;
   totalQuantity: number;
   totalAmount: number;
@@ -104,6 +116,7 @@ export interface OrderListItem {
   fulfilledByName: string | null;
   isClaimed: boolean;
   items: OrderPreviewItem[];
+  notes: OrderNote[];
   orderedAt: string | null;
   createdAt: string;
 }
@@ -120,7 +133,6 @@ export interface OrderQuery {
   platformId?: string;
   accountId?: string;
   status?: OrderStatus;
-  supplier?: string;
   sellerUserId?: string;
   dateFrom?: string;
   dateTo?: string;
@@ -131,13 +143,12 @@ export interface OrderQuery {
 export interface OrderItemPayload {
   productName: string;
   productLink?: string;
-  supplier?: string;
-  sku?: string;
-  variant?: string;
   color?: string;
   size?: string;
   quantity: number;
   unitPrice: number;
+  trackingNumber?: string;
+  fulfillmentStatus?: OrderItemStatus;
   image?: string;
   remark?: string;
 }
@@ -145,12 +156,8 @@ export interface OrderItemPayload {
 export interface CreateOrderPayload {
   accountId: string;
   orderNumber: string;
-  customerName?: string;
-  customerPhone?: string;
   shippingAddress?: string;
-  sellerNote?: string;
-  warehouseNote?: string;
-  tracking?: string;
+  currency?: string;
   status?: OrderStatus;
   orderedAt?: string;
   items: OrderItemPayload[];
@@ -163,13 +170,20 @@ export interface UpdateStatusPayload {
   note?: string;
 }
 
-export interface UpdateTrackingPayload {
-  tracking: string;
+/** Cập nhật fulfillment theo từng Item (Tracking + Status). */
+export interface UpdateItemFulfillmentPayload {
+  trackingNumber?: string;
+  fulfillmentStatus?: OrderItemStatus;
 }
 
-export interface UpdateWarehouseNotePayload {
-  warehouseNote?: string;
-  warehouseNote2?: string;
+export interface CreateOrderNotePayload {
+  type: OrderNoteType;
+  content: string;
+}
+
+export interface UpdateOrderNotePayload {
+  type?: OrderNoteType;
+  content?: string;
 }
 
 export interface OrderSellerOption {

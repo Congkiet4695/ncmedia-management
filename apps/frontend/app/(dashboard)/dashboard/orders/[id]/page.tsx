@@ -13,6 +13,7 @@ import { getApiErrorMessage } from '@/utils/http';
 import { RequirePermission } from '@/components/require-permission';
 import { OrderForm } from '@/features/orders/components/order-form';
 import { OrderFulfillmentPanel } from '@/features/orders/components/order-fulfillment-panel';
+import { OrderNotesPanel } from '@/features/orders/components/order-notes-panel';
 import { OrderStatusBadge } from '@/features/orders/components/order-status-badge';
 import { OrderStatusDialog } from '@/features/orders/components/order-status-dialog';
 import { OrderTimeline } from '@/features/orders/components/order-timeline';
@@ -70,23 +71,18 @@ function OrderDetailView() {
   const defaultValues: Partial<OrderFormInput> = {
     accountId: order.account.id,
     orderNumber: order.orderNumber,
-    customerName: order.customerName ?? '',
-    customerPhone: order.customerPhone ?? '',
     shippingAddress: order.shippingAddress ?? '',
-    sellerNote: order.sellerNote ?? '',
-    warehouseNote: order.warehouseNote ?? '',
-    tracking: order.tracking ?? '',
+    currency: order.currency ?? '',
     orderedAt: order.orderedAt ? order.orderedAt.slice(0, 10) : '',
     items: order.items.map((i) => ({
       productName: i.productName,
       productLink: i.productLink ?? '',
-      supplier: i.supplier ?? '',
-      sku: i.sku ?? '',
-      variant: i.variant ?? '',
       color: i.color ?? '',
       size: i.size ?? '',
       quantity: i.quantity,
       unitPrice: i.unitPrice,
+      trackingNumber: i.trackingNumber ?? '',
+      fulfillmentStatus: i.fulfillmentStatus,
       image: i.image ?? '',
       remark: i.remark ?? '',
     })),
@@ -148,19 +144,17 @@ function OrderDetailView() {
           </div>
         </CardHeader>
         <CardContent className="grid gap-3 text-sm sm:grid-cols-2">
-          <Info label="Khách hàng" value={order.customerName} />
-          <Info label="SĐT" value={order.customerPhone} />
-          <Info label="Địa chỉ" value={order.shippingAddress} />
-          <Info label="Tracking" value={order.tracking} />
-          <Info label="Note của Seller" value={order.sellerNote} />
-          <Info label="Note Kho" value={order.warehouseNote} />
-          <Info label="Note Kho 2" value={order.warehouseNote2} />
+          <Info label="Địa chỉ giao hàng" value={order.shippingAddress} />
+          <Info label="Đơn vị tiền tệ" value={order.currency} />
           <Info label="Tổng số lượng" value={String(order.totalQuantity)} />
           <Info label="Tổng tiền hàng" value={formatUSD(order.totalAmount)} />
         </CardContent>
       </Card>
 
-      {/* Fulfillment workflow (claim / tracking / warehouse note / status) */}
+      {/* Ghi chú Seller / Warehouse (CRUD) */}
+      <OrderNotesPanel orderId={order.id} notes={order.notes} />
+
+      {/* Fulfillment workflow (claim / tracking theo item / status) */}
       <OrderFulfillmentPanel order={order} />
 
       {/* Timeline */}

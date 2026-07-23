@@ -18,7 +18,6 @@ export interface AccountSeller {
 export interface Account {
   id: string;
   name: string;
-  idNormalize: string | null;
   platform: AccountPlatform | null;
   loginTool: string | null;
   seller: AccountSeller | null;
@@ -110,7 +109,6 @@ export interface AccountOverview {
 
 export interface CreateAccountPayload {
   name: string;
-  idNormalize?: string;
   platformId?: string;
   loginTool?: string;
   sellerUserId?: string;

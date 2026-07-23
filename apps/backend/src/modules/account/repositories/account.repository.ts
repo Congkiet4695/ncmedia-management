@@ -8,7 +8,6 @@ type CipherMap = Partial<Record<AccountCredentialField, string | null>>;
 
 export interface AccountWriteData {
   name?: string;
-  idNormalize?: string | null;
   platformId?: string | null;
   loginTool?: string | null;
   sellerUserId?: string | null;
@@ -93,7 +92,6 @@ export class AccountRepository {
       data: {
         organizationId,
         name: data.name ?? '',
-        idNormalize: data.idNormalize ?? null,
         platformId: data.platformId ?? null,
         loginTool: data.loginTool ?? null,
         sellerUserId: data.sellerUserId ?? null,
@@ -122,7 +120,6 @@ export class AccountRepository {
   ): Promise<void> {
     const patch: Prisma.AccountUpdateInput = { updatedBy: actorUserId };
     if (data.name !== undefined) patch.name = data.name;
-    if (data.idNormalize !== undefined) patch.idNormalize = data.idNormalize;
     if (data.platformId !== undefined)
       patch.platform = data.platformId ? { connect: { id: data.platformId } } : { disconnect: true };
     if (data.loginTool !== undefined) patch.loginTool = data.loginTool;
@@ -228,12 +225,7 @@ export class AccountRepository {
           }
         : {}),
       ...(params.search
-        ? {
-            OR: [
-              { name: { contains: params.search, mode: 'insensitive' } },
-              { idNormalize: { contains: params.search, mode: 'insensitive' } },
-            ],
-          }
+        ? { name: { contains: params.search, mode: 'insensitive' } }
         : {}),
     };
 

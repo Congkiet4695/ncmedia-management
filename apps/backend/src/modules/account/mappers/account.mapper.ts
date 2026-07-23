@@ -22,7 +22,6 @@ export class AccountMapper {
     return {
       id: a.id,
       name: a.name,
-      idNormalize: a.idNormalize,
       platform: a.platform ? { id: a.platform.id, code: a.platform.code, name: a.platform.name } : null,
       loginTool: a.loginTool,
       seller: a.seller

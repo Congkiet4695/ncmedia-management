@@ -8,7 +8,6 @@ import {
   IsOptional,
   IsString,
   IsUUID,
-  Matches,
   MaxLength,
   MinLength,
   ValidateNested,
@@ -27,13 +26,6 @@ export class CreateAccountDto {
   @MinLength(1)
   @MaxLength(255)
   name!: string;
-
-  @ApiPropertyOptional({ example: 'TTS32-T3', description: 'ID chuẩn hoá (unique/org)' })
-  @IsOptional()
-  @Transform(trim)
-  @Matches(/^[A-Za-z0-9-]+$/, { message: 'ID chuẩn hoá chỉ gồm chữ, số, gạch ngang' })
-  @MaxLength(120)
-  idNormalize?: string;
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Platform ID' })
   @IsOptional()

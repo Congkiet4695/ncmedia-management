@@ -24,6 +24,7 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   'order.create',
   'order.update',
   'order.delete',
+  'order.note',
   'profile.read',
   'profile.update',
 ] as const;
@@ -31,13 +32,14 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
 /**
  * Permission mặc định của Role FULFILLMENT:
  * xem TẤT CẢ Order (order.read + scope role-based), Nhận xử lý (claim) và cập nhật
- * fulfillment (tracking/status/warehouse-note) trên đơn mình đã claim. KHÔNG order.create/update/delete
- * (không sửa thông tin bán hàng). Profile self-service.
+ * fulfillment (tracking/status theo Item) trên đơn mình đã claim + quản lý ghi chú kho
+ * (order.note). KHÔNG order.create/update/delete (không sửa thông tin bán hàng). Profile self-service.
  */
 export const FULFILLMENT_DEFAULT_PERMISSIONS = [
   'order.read',
   'order.claim',
   'order.fulfill',
+  'order.note',
   'profile.read',
   'profile.update',
 ] as const;

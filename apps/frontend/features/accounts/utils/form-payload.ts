@@ -6,7 +6,6 @@ import type { CreateAccountPayload } from '../types';
  */
 export function toAccountPayload(values: AccountFormInput): CreateAccountPayload {
   const optionalKeys = [
-    'idNormalize',
     'platformId',
     'loginTool',
     'sellerUserId',

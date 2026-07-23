@@ -17,6 +17,10 @@ export const ORDER_LOG_ACTION = {
   // Fulfillment workflow
   CLAIM: 'CLAIM',
   RELEASE: 'RELEASE',
-  WAREHOUSE_NOTE_CHANGE: 'WAREHOUSE_NOTE_CHANGE',
+  ITEM_FULFILLMENT_CHANGE: 'ITEM_FULFILLMENT_CHANGE',
+  // OrderNote (Seller/Warehouse) CRUD
+  NOTE_CREATE: 'NOTE_CREATE',
+  NOTE_UPDATE: 'NOTE_UPDATE',
+  NOTE_DELETE: 'NOTE_DELETE',
 } as const;
 export type OrderLogAction = (typeof ORDER_LOG_ACTION)[keyof typeof ORDER_LOG_ACTION];

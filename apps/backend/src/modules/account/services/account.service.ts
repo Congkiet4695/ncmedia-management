@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AccountStatus, Prisma } from '@prisma/client';
+import { AccountStatus } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { EncryptionService } from '../../../common/services/encryption.service';
 import { ACCOUNT_CREDENTIAL_FIELDS } from '../constants/account.constants';
@@ -17,7 +17,6 @@ import {
   SellerOptionDto,
 } from '../dto/account-response.dto';
 import {
-  AccountDuplicateException,
   AccountNotFoundException,
   PlatformInvalidException,
   SellerInvalidException,
@@ -282,7 +281,6 @@ export class AccountService {
   private buildWriteData(dto: CreateAccountDto | UpdateAccountDto): AccountWriteData {
     return {
       name: dto.name,
-      idNormalize: dto.idNormalize,
       platformId: dto.platformId,
       loginTool: dto.loginTool,
       sellerUserId: dto.sellerUserId,
@@ -317,13 +315,6 @@ export class AccountService {
   }
 
   private mapWriteError(err: unknown): Error {
-    if (err instanceof Prisma.PrismaClientKnownRequestError && err.code === 'P2002') {
-      const target = err.meta?.target;
-      const fields = Array.isArray(target) ? target.join(',') : typeof target === 'string' ? target : '';
-      if (fields.includes('id_normalize') || fields.includes('organization_id')) {
-        return new AccountDuplicateException();
-      }
-    }
     return err instanceof Error ? err : new Error('Unknown error');
   }
 }

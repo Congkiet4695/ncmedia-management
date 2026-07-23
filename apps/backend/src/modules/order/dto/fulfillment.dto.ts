@@ -1,30 +1,25 @@
-import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsOptional, IsString, MaxLength } from 'class-validator';
+import { IsEnum, IsOptional, IsString, MaxLength } from 'class-validator';
+import { OrderItemStatus } from '@prisma/client';
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
 
-/** Cập nhật Tracking Number (Fulfillment). Có thể để trống khi Order còn WAITING. */
-export class UpdateTrackingDto {
-  @ApiProperty({ maxLength: 255, description: 'Mã tracking (có thể rỗng khi chưa SHIPPED)' })
+/**
+ * Cập nhật fulfillment cho TỪNG OrderItem (Tracking Number + Fulfillment Status).
+ * Dùng cho Fulfillment (đã claim đơn) hoặc Admin.
+ */
+export class UpdateOrderItemFulfillmentDto {
+  @ApiPropertyOptional({ maxLength: 255, description: 'Tracking Number của Item' })
+  @IsOptional()
   @Transform(trim)
   @IsString()
   @MaxLength(255)
-  tracking!: string;
-}
+  trackingNumber?: string;
 
-/** Cập nhật Warehouse Note / Warehouse Note 2 (Fulfillment). */
-export class UpdateWarehouseNoteDto {
-  @ApiPropertyOptional({ maxLength: 2000, description: 'Note Kho' })
+  @ApiPropertyOptional({ enum: OrderItemStatus, description: 'Trạng thái fulfillment của Item' })
   @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  warehouseNote?: string;
-
-  @ApiPropertyOptional({ maxLength: 2000, description: 'Note Kho 2' })
-  @IsOptional()
-  @IsString()
-  @MaxLength(2000)
-  warehouseNote2?: string;
+  @IsEnum(OrderItemStatus)
+  fulfillmentStatus?: OrderItemStatus;
 }

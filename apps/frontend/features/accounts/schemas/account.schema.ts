@@ -18,11 +18,6 @@ const optionalDate = z
 /** Form Account (khớp Create/UpdateAccountDto backend). Không gồm credentials. */
 export const accountFormSchema = z.object({
   name: z.string().trim().min(1, 'Vui lòng nhập tên').max(255, 'Tối đa 255 ký tự'),
-  idNormalize: z
-    .string()
-    .regex(/^[A-Za-z0-9-]+$/, 'Chỉ gồm chữ, số, gạch ngang')
-    .max(120)
-    .or(z.literal('')),
   platformId: z.string().uuid('Platform không hợp lệ').or(z.literal('')),
   loginTool: z.string().max(100).or(z.literal('')),
   sellerUserId: z.string().uuid('Seller không hợp lệ').or(z.literal('')),

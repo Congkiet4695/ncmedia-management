@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Loader2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
+import { ImportExportBar } from '@/features/import-export/components/import-export-bar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Modal } from '@/components/ui/modal';
@@ -40,13 +42,12 @@ function OrdersView() {
     sortOrder: 'desc',
   });
   const [searchInput, setSearchInput] = useState('');
-  const [supplierInput, setSupplierInput] = useState('');
   const debouncedSearch = useDebouncedValue(searchInput, 350);
-  const debouncedSupplier = useDebouncedValue(supplierInput, 350);
   const [deleting, setDeleting] = useState<OrderListItem | null>(null);
   const [claimTarget, setClaimTarget] = useState<OrderListItem | null>(null);
 
   const { user, hasPermission } = useAuth();
+  const queryClient = useQueryClient();
   // Chỉ ADMIN (quyền gán Seller) mới thấy filter Seller & fetch danh sách Seller.
   const canSeeSeller = hasPermission('account.assign');
   const canClaim = hasPermission('order.claim');
@@ -66,11 +67,6 @@ function OrdersView() {
     const next = debouncedSearch || undefined;
     setQuery((prev) => (prev.search === next ? prev : { ...prev, search: next, page: 1 }));
   }, [debouncedSearch]);
-
-  useEffect(() => {
-    const next = debouncedSupplier || undefined;
-    setQuery((prev) => (prev.supplier === next ? prev : { ...prev, supplier: next, page: 1 }));
-  }, [debouncedSupplier]);
 
   const items = ordersQuery.data?.items ?? [];
   const meta = ordersQuery.data?.meta;
@@ -124,14 +120,29 @@ function OrdersView() {
           <h1 className="text-2xl font-bold tracking-tight">Order</h1>
           <p className="text-sm text-muted-foreground">Quản lý đơn hàng.</p>
         </div>
-        {hasPermission('order.create') && (
-          <Button asChild>
-            <Link href="/dashboard/orders/create">
-              <Plus className="size-4" />
-              Thêm Order
-            </Link>
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <ImportExportBar
+            entity="Order"
+            exportExamplePath="/orders/export/example"
+            exportPath="/orders/export"
+            importPath="/orders/import"
+            importUpdatePath="/orders/import/update"
+            exampleFilename="order-import-template.xlsx"
+            exportFilename="orders-export.xlsx"
+            canExport={hasPermission('order.read')}
+            canImport={hasPermission('order.create')}
+            canImportUpdate={hasPermission('order.update')}
+            onImported={() => queryClient.invalidateQueries({ queryKey: ['orders'] })}
+          />
+          {hasPermission('order.create') && (
+            <Button asChild>
+              <Link href="/dashboard/orders/create">
+                <Plus className="size-4" />
+                Thêm Order
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       <Card>
@@ -141,7 +152,6 @@ function OrdersView() {
             status={query.status}
             platformId={query.platformId}
             accountId={query.accountId}
-            supplier={supplierInput}
             sellerUserId={query.sellerUserId}
             dateFrom={query.dateFrom}
             dateTo={query.dateTo}
@@ -153,7 +163,6 @@ function OrdersView() {
             onStatusChange={(status) => patchQuery({ status, page: 1 })}
             onPlatformChange={(platformId) => patchQuery({ platformId, accountId: undefined, page: 1 })}
             onAccountChange={(accountId) => patchQuery({ accountId, page: 1 })}
-            onSupplierChange={setSupplierInput}
             onSellerChange={(sellerUserId) => patchQuery({ sellerUserId, page: 1 })}
             onDateFromChange={(dateFrom) => patchQuery({ dateFrom, page: 1 })}
             onDateToChange={(dateTo) => patchQuery({ dateTo, page: 1 })}

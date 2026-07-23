@@ -15,16 +15,20 @@ import {
   useClaimOrder,
   useFulfillStatus,
   useReleaseOrder,
-  useUpdateTracking,
-  useUpdateWarehouseNote,
+  useUpdateItemFulfillment,
 } from '../hooks/use-orders';
-import { FULFILLMENT_STATUSES, ORDER_STATUS_LABELS } from '../schemas/order.schema';
-import type { Order, OrderStatus } from '../types';
+import {
+  FULFILLMENT_STATUSES,
+  ORDER_ITEM_STATUSES,
+  ORDER_ITEM_STATUS_LABELS,
+  ORDER_STATUS_LABELS,
+} from '../schemas/order.schema';
+import type { Order, OrderItem, OrderItemStatus, OrderStatus } from '../types';
 
 /**
- * Panel Fulfillment (Requirement 5–8): Claim/Release + cập nhật Tracking / Warehouse Note / Status.
- * Chỉ hiện với người có quyền `order.fulfill`. Chỉ cho SỬA khi: là người đã Claim, hoặc ADMIN.
- * KHÔNG đụng field bán hàng (Customer/Items/Price/Address…) — readonly ở nơi khác.
+ * Panel Fulfillment: Claim/Release + cập nhật Tracking / Fulfillment Status theo TỪNG Item +
+ * đổi trạng thái đơn. Chỉ hiện với người có quyền `order.fulfill`. Chỉ cho SỬA khi: là người đã
+ * Claim, hoặc ADMIN. KHÔNG đụng field bán hàng (Items/Price/Address…) — readonly ở nơi khác.
  */
 export function OrderFulfillmentPanel({ order }: { order: Order }) {
   const { user, hasPermission } = useAuth();
@@ -34,13 +38,8 @@ export function OrderFulfillmentPanel({ order }: { order: Order }) {
 
   const claimM = useClaimOrder();
   const releaseM = useReleaseOrder();
-  const trackingM = useUpdateTracking();
   const statusM = useFulfillStatus();
-  const whM = useUpdateWarehouseNote();
 
-  const [tracking, setTracking] = useState(order.tracking ?? '');
-  const [warehouseNote, setWarehouseNote] = useState(order.warehouseNote ?? '');
-  const [warehouseNote2, setWarehouseNote2] = useState(order.warehouseNote2 ?? '');
   const [status, setStatus] = useState<OrderStatus>(order.status);
   const [statusNote, setStatusNote] = useState('');
   const [confirmClaim, setConfirmClaim] = useState(false);
@@ -117,72 +116,24 @@ export function OrderFulfillmentPanel({ order }: { order: Order }) {
 
         {canEdit && (
           <>
-            {/* Tracking */}
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-              <div className="flex-1 space-y-1.5">
-                <Label htmlFor="ful-tracking">Tracking Number</Label>
-                <Input
-                  id="ful-tracking"
-                  value={tracking}
-                  placeholder="Nhập mã tracking…"
-                  onChange={(e) => setTracking(e.target.value)}
-                />
-              </div>
-              <Button
-                variant="outline"
-                disabled={trackingM.isPending || tracking === (order.tracking ?? '')}
-                onClick={() =>
-                  run(
-                    () => trackingM.mutateAsync({ id: order.id, payload: { tracking } }),
-                    'Đã cập nhật Tracking.',
-                    'Cập nhật Tracking thất bại',
-                  )
-                }
-              >
-                {trackingM.isPending ? <Loader2 className="size-4 animate-spin" /> : <Truck className="size-4" />}
-                Lưu Tracking
-              </Button>
+            {/* Tracking + Fulfillment Status theo TỪNG Item */}
+            <div className="space-y-3">
+              <Label className="text-sm">Tracking &amp; trạng thái theo sản phẩm</Label>
+              {order.items.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Đơn không có sản phẩm.</p>
+              ) : (
+                <ul className="space-y-2">
+                  {order.items.map((item) => (
+                    <OrderItemFulfillmentRow key={item.id} orderId={order.id} item={item} run={run} />
+                  ))}
+                </ul>
+              )}
             </div>
 
-            {/* Warehouse notes */}
-            <div className="space-y-3 rounded-lg border p-3">
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-1.5">
-                  <Label htmlFor="ful-wh">Warehouse Note</Label>
-                  <Input id="ful-wh" value={warehouseNote} onChange={(e) => setWarehouseNote(e.target.value)} />
-                </div>
-                <div className="space-y-1.5">
-                  <Label htmlFor="ful-wh2">Warehouse Note 2</Label>
-                  <Input id="ful-wh2" value={warehouseNote2} onChange={(e) => setWarehouseNote2(e.target.value)} />
-                </div>
-              </div>
-              <div className="flex justify-end">
-                <Button
-                  variant="outline"
-                  disabled={
-                    whM.isPending ||
-                    (warehouseNote === (order.warehouseNote ?? '') &&
-                      warehouseNote2 === (order.warehouseNote2 ?? ''))
-                  }
-                  onClick={() =>
-                    run(
-                      () =>
-                        whM.mutateAsync({ id: order.id, payload: { warehouseNote, warehouseNote2 } }),
-                      'Đã cập nhật Warehouse Note.',
-                      'Cập nhật Warehouse Note thất bại',
-                    )
-                  }
-                >
-                  {whM.isPending && <Loader2 className="size-4 animate-spin" />}
-                  Lưu Warehouse Note
-                </Button>
-              </div>
-            </div>
-
-            {/* Status */}
+            {/* Status đơn */}
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
               <div className="space-y-1.5 sm:w-48">
-                <Label htmlFor="ful-status">Trạng thái</Label>
+                <Label htmlFor="ful-status">Trạng thái đơn</Label>
                 <NativeSelect
                   id="ful-status"
                   value={status}
@@ -219,7 +170,7 @@ export function OrderFulfillmentPanel({ order }: { order: Order }) {
               </Button>
             </div>
             <p className="text-xs text-muted-foreground">
-              SHIPPED yêu cầu đã có Tracking. Mỗi thay đổi được ghi Audit Log &amp; Timeline.
+              Mỗi thay đổi được ghi Audit Log &amp; Timeline.
             </p>
           </>
         )}
@@ -242,5 +193,76 @@ export function OrderFulfillmentPanel({ order }: { order: Order }) {
         </div>
       </Modal>
     </Card>
+  );
+}
+
+/** Một dòng chỉnh Tracking + Fulfillment Status cho 1 OrderItem. */
+function OrderItemFulfillmentRow({
+  orderId,
+  item,
+  run,
+}: {
+  orderId: string;
+  item: OrderItem;
+  run: (fn: () => Promise<unknown>, ok: string, err: string) => Promise<void>;
+}) {
+  const updateM = useUpdateItemFulfillment();
+  const [tracking, setTracking] = useState(item.trackingNumber ?? '');
+  const [status, setStatus] = useState<OrderItemStatus>(item.fulfillmentStatus);
+
+  const dirty = tracking !== (item.trackingNumber ?? '') || status !== item.fulfillmentStatus;
+
+  return (
+    <li className="space-y-2 rounded-lg border p-3">
+      <p className="text-sm font-medium">{item.productName}</p>
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+        <div className="flex-1 space-y-1.5">
+          <Label htmlFor={`trk-${item.id}`} className="text-xs">
+            Tracking Number
+          </Label>
+          <Input
+            id={`trk-${item.id}`}
+            value={tracking}
+            placeholder="Nhập mã tracking…"
+            onChange={(e) => setTracking(e.target.value)}
+          />
+        </div>
+        <div className="space-y-1.5 sm:w-44">
+          <Label htmlFor={`st-${item.id}`} className="text-xs">
+            Fulfillment Status
+          </Label>
+          <NativeSelect
+            id={`st-${item.id}`}
+            value={status}
+            onChange={(e) => setStatus(e.target.value as OrderItemStatus)}
+          >
+            {ORDER_ITEM_STATUSES.map((s) => (
+              <option key={s} value={s}>
+                {ORDER_ITEM_STATUS_LABELS[s]}
+              </option>
+            ))}
+          </NativeSelect>
+        </div>
+        <Button
+          variant="outline"
+          disabled={updateM.isPending || !dirty}
+          onClick={() =>
+            run(
+              () =>
+                updateM.mutateAsync({
+                  id: orderId,
+                  itemId: item.id,
+                  payload: { trackingNumber: tracking, fulfillmentStatus: status },
+                }),
+              'Đã cập nhật sản phẩm.',
+              'Cập nhật thất bại',
+            )
+          }
+        >
+          {updateM.isPending ? <Loader2 className="size-4 animate-spin" /> : <Truck className="size-4" />}
+          Lưu
+        </Button>
+      </div>
+    </li>
   );
 }

@@ -68,12 +68,16 @@ export class OrderNotClaimedException extends ConflictException {
   }
 }
 
-/** Tracking bắt buộc khi chuyển sang SHIPPED (Requirement 6). 400. */
-export class OrderTrackingRequiredException extends BadRequestException {
+/** Không tìm thấy OrderNote (hoặc không thuộc Order). */
+export class OrderNoteNotFoundException extends NotFoundException {
   constructor() {
-    super({
-      code: 'ORDER_TRACKING_REQUIRED',
-      message: 'Tracking Number bắt buộc khi chuyển sang trạng thái SHIPPED.',
-    });
+    super({ code: 'ORDER_NOTE_NOT_FOUND', message: 'Không tìm thấy ghi chú của đơn hàng' });
+  }
+}
+
+/** Không tìm thấy OrderItem (hoặc không thuộc Order). */
+export class OrderItemNotFoundException extends NotFoundException {
+  constructor() {
+    super({ code: 'ORDER_ITEM_NOT_FOUND', message: 'Không tìm thấy sản phẩm trong đơn hàng' });
   }
 }

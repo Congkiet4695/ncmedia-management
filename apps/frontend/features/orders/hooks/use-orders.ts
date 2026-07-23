@@ -4,12 +4,13 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { accountService } from '@/features/accounts/services/account.service';
 import { orderService } from '../services/order.service';
 import type {
+  CreateOrderNotePayload,
   CreateOrderPayload,
   OrderQuery,
+  UpdateItemFulfillmentPayload,
+  UpdateOrderNotePayload,
   UpdateOrderPayload,
   UpdateStatusPayload,
-  UpdateTrackingPayload,
-  UpdateWarehouseNotePayload,
 } from '../types';
 
 const ORDERS_KEY = 'orders';
@@ -104,11 +105,18 @@ export function useReleaseOrder() {
   });
 }
 
-export function useUpdateTracking() {
+export function useUpdateItemFulfillment() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: UpdateTrackingPayload }) =>
-      orderService.updateTracking(id, payload),
+    mutationFn: ({
+      id,
+      itemId,
+      payload,
+    }: {
+      id: string;
+      itemId: string;
+      payload: UpdateItemFulfillmentPayload;
+    }) => orderService.updateItemFulfillment(id, itemId, payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [ORDERS_KEY] }),
   });
 }
@@ -122,11 +130,30 @@ export function useFulfillStatus() {
   });
 }
 
-export function useUpdateWarehouseNote() {
+// --- OrderNote (Seller / Warehouse) CRUD mutations ---
+
+export function useCreateOrderNote() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({ id, payload }: { id: string; payload: UpdateWarehouseNotePayload }) =>
-      orderService.updateWarehouseNote(id, payload),
+    mutationFn: ({ id, payload }: { id: string; payload: CreateOrderNotePayload }) =>
+      orderService.createNote(id, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [ORDERS_KEY] }),
+  });
+}
+
+export function useUpdateOrderNote() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ noteId, payload }: { noteId: string; payload: UpdateOrderNotePayload }) =>
+      orderService.updateNote(noteId, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [ORDERS_KEY] }),
+  });
+}
+
+export function useDeleteOrderNote() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (noteId: string) => orderService.deleteNote(noteId),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [ORDERS_KEY] }),
   });
 }

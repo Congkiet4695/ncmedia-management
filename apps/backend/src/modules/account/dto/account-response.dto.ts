@@ -16,7 +16,6 @@ export class AccountSellerDto {
 export class AccountResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty() name!: string;
-  @ApiProperty({ nullable: true, type: String }) idNormalize!: string | null;
   @ApiProperty({ nullable: true, type: AccountPlatformDto }) platform!: AccountPlatformDto | null;
   @ApiProperty({ nullable: true, type: String }) loginTool!: string | null;
   @ApiProperty({ nullable: true, type: AccountSellerDto }) seller!: AccountSellerDto | null;

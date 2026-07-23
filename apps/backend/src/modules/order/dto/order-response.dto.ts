@@ -1,4 +1,5 @@
 import { ApiProperty } from '@nestjs/swagger';
+import { OrderNoteDto } from './order-note.dto';
 
 export class OrderPlatformDto {
   @ApiProperty({ nullable: true, type: String }) id!: string | null;
@@ -18,13 +19,13 @@ export class OrderItemDto {
   @ApiProperty() id!: string;
   @ApiProperty() productName!: string;
   @ApiProperty({ nullable: true, type: String }) productLink!: string | null;
-  @ApiProperty({ nullable: true, type: String }) supplier!: string | null;
-  @ApiProperty({ nullable: true, type: String }) sku!: string | null;
-  @ApiProperty({ nullable: true, type: String }) variant!: string | null;
   @ApiProperty({ nullable: true, type: String }) color!: string | null;
   @ApiProperty({ nullable: true, type: String }) size!: string | null;
   @ApiProperty() quantity!: number;
   @ApiProperty() unitPrice!: number;
+  @ApiProperty({ nullable: true, type: String, description: 'Tracking Number (theo Item)' })
+  trackingNumber!: string | null;
+  @ApiProperty({ description: 'Trạng thái fulfillment của Item' }) fulfillmentStatus!: string;
   @ApiProperty({ nullable: true, type: String }) image!: string | null;
   @ApiProperty({ nullable: true, type: String }) remark!: string | null;
 }
@@ -48,13 +49,8 @@ export class OrderResponseDto {
 
   @ApiProperty({ type: OrderAccountDto }) account!: OrderAccountDto;
 
-  @ApiProperty({ nullable: true, type: String }) customerName!: string | null;
-  @ApiProperty({ nullable: true, type: String }) customerPhone!: string | null;
   @ApiProperty({ nullable: true, type: String }) shippingAddress!: string | null;
-  @ApiProperty({ nullable: true, type: String }) sellerNote!: string | null;
-  @ApiProperty({ nullable: true, type: String }) warehouseNote!: string | null;
-  @ApiProperty({ nullable: true, type: String }) warehouseNote2!: string | null;
-  @ApiProperty({ nullable: true, type: String }) tracking!: string | null;
+  @ApiProperty({ nullable: true, type: String }) currency!: string | null;
 
   // Fulfillment
   @ApiProperty({ nullable: true, type: String }) fulfilledById!: string | null;
@@ -63,6 +59,8 @@ export class OrderResponseDto {
   @ApiProperty({ description: 'Đã có Fulfillment nhận xử lý hay chưa' }) isClaimed!: boolean;
 
   @ApiProperty({ type: OrderItemDto, isArray: true }) items!: OrderItemDto[];
+  @ApiProperty({ type: OrderNoteDto, isArray: true, description: 'Ghi chú Seller/Warehouse (1..N)' })
+  notes!: OrderNoteDto[];
   @ApiProperty({ type: OrderStatusHistoryDto, isArray: true })
   statusHistories!: OrderStatusHistoryDto[];
 
@@ -77,11 +75,12 @@ export class OrderResponseDto {
 export class OrderListPreviewItemDto {
   @ApiProperty() id!: string;
   @ApiProperty() productName!: string;
-  @ApiProperty({ nullable: true, type: String }) variant!: string | null;
   @ApiProperty({ nullable: true, type: String }) color!: string | null;
   @ApiProperty({ nullable: true, type: String }) size!: string | null;
   @ApiProperty() quantity!: number;
   @ApiProperty() unitPrice!: number;
+  @ApiProperty({ nullable: true, type: String }) trackingNumber!: string | null;
+  @ApiProperty() fulfillmentStatus!: string;
 }
 
 /** Hàng danh sách Order. Kèm `items` (preview) + `totalAmount` cho Expandable Grid. */
@@ -91,11 +90,8 @@ export class OrderListItemDto {
   @ApiProperty({ nullable: true, type: String }) platformName!: string | null;
   @ApiProperty() accountName!: string | null;
   @ApiProperty({ nullable: true, type: String }) sellerName!: string | null;
-  @ApiProperty({ nullable: true, type: String }) customerName!: string | null;
   @ApiProperty() status!: string;
-  @ApiProperty({ nullable: true, type: String }) tracking!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'Sản phẩm đầu tiên' }) productName!: string | null;
-  @ApiProperty({ nullable: true, type: String }) supplier!: string | null;
   @ApiProperty() itemsCount!: number;
   @ApiProperty() totalQuantity!: number;
   @ApiProperty({ description: 'Tổng tiền hàng = SUM(quantity × unitPrice) — derived (ADR-014)' })
@@ -105,6 +101,8 @@ export class OrderListItemDto {
   @ApiProperty({ nullable: true, type: String }) fulfilledByName!: string | null;
   @ApiProperty() isClaimed!: boolean;
   @ApiProperty({ type: OrderListPreviewItemDto, isArray: true }) items!: OrderListPreviewItemDto[];
+  @ApiProperty({ type: OrderNoteDto, isArray: true, description: 'Ghi chú Seller/Warehouse (1..N)' })
+  notes!: OrderNoteDto[];
   @ApiProperty({ nullable: true, type: String }) orderedAt!: string | null;
   @ApiProperty() createdAt!: string;
 }

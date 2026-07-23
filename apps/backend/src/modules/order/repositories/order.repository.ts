@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { OrderStatus, Prisma } from '@prisma/client';
+import { OrderItemStatus, OrderNoteType, OrderStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { OrderSortField } from '../constants/order.constants';
 import {
@@ -19,13 +19,8 @@ export interface AccountForOrder {
 /** Field scalar của Order được phép ghi (không gồm status — dùng riêng updateStatus). */
 export interface OrderScalarWrite {
   orderNumber?: string;
-  customerName?: string | null;
-  customerPhone?: string | null;
   shippingAddress?: string | null;
-  sellerNote?: string | null;
-  warehouseNote?: string | null;
-  warehouseNote2?: string | null;
-  tracking?: string | null;
+  currency?: string | null;
   orderedAt?: Date | null;
   status?: OrderStatus;
 }
@@ -41,15 +36,20 @@ export interface OrderCreateData extends OrderScalarWrite {
 export interface OrderItemWrite {
   productName: string;
   productLink?: string | null;
-  supplier?: string | null;
-  sku?: string | null;
-  variant?: string | null;
   color?: string | null;
   size?: string | null;
   quantity?: number;
   unitPrice?: number;
+  trackingNumber?: string | null;
+  fulfillmentStatus?: OrderItemStatus;
   image?: string | null;
   remark?: string | null;
+}
+
+/** Ghi OrderNote (tạo/sửa). */
+export interface OrderNoteWrite {
+  type?: OrderNoteType;
+  content?: string;
 }
 
 export interface OrderLogWrite {
@@ -68,7 +68,6 @@ export interface OrderFindManyParams {
   platformId?: string;
   accountId?: string;
   status?: OrderStatus;
-  supplier?: string;
   sellerUserId?: string;
   dateFrom?: Date;
   dateTo?: Date;
@@ -143,12 +142,8 @@ export class OrderRepository {
         accountId: data.accountId,
         platform: data.platform,
         orderNumber: data.orderNumber,
-        customerName: data.customerName ?? null,
-        customerPhone: data.customerPhone ?? null,
         shippingAddress: data.shippingAddress ?? null,
-        sellerNote: data.sellerNote ?? null,
-        warehouseNote: data.warehouseNote ?? null,
-        tracking: data.tracking ?? null,
+        currency: data.currency ?? null,
         status: data.status,
         orderedAt: data.orderedAt ?? null,
         createdBy: actorUserId,
@@ -167,13 +162,12 @@ export class OrderRepository {
         orderId,
         productName: i.productName,
         productLink: i.productLink ?? null,
-        supplier: i.supplier ?? null,
-        sku: i.sku ?? null,
-        variant: i.variant ?? null,
         color: i.color ?? null,
         size: i.size ?? null,
         quantity: i.quantity ?? 1,
         unitPrice: i.unitPrice ?? 0,
+        trackingNumber: i.trackingNumber ?? null,
+        fulfillmentStatus: i.fulfillmentStatus ?? OrderItemStatus.PENDING,
         image: i.image ?? null,
         remark: i.remark ?? null,
       })),
@@ -198,13 +192,8 @@ export class OrderRepository {
   ): Promise<void> {
     const patch: Prisma.OrderUpdateInput = { updatedBy: actorUserId };
     if (data.orderNumber !== undefined) patch.orderNumber = data.orderNumber;
-    if (data.customerName !== undefined) patch.customerName = data.customerName;
-    if (data.customerPhone !== undefined) patch.customerPhone = data.customerPhone;
     if (data.shippingAddress !== undefined) patch.shippingAddress = data.shippingAddress;
-    if (data.sellerNote !== undefined) patch.sellerNote = data.sellerNote;
-    if (data.warehouseNote !== undefined) patch.warehouseNote = data.warehouseNote;
-    if (data.warehouseNote2 !== undefined) patch.warehouseNote2 = data.warehouseNote2;
-    if (data.tracking !== undefined) patch.tracking = data.tracking;
+    if (data.currency !== undefined) patch.currency = data.currency;
     if (data.orderedAt !== undefined) patch.orderedAt = data.orderedAt;
     if (data.status !== undefined) patch.status = data.status;
     await tx.order.update({ where: { id }, data: patch });
@@ -296,9 +285,6 @@ export class OrderRepository {
       deletedAt: null,
       ...(params.status ? { status: params.status } : {}),
       ...(Object.keys(accountWhere).length ? { account: accountWhere } : {}),
-      ...(params.supplier
-        ? { items: { some: { supplier: { contains: params.supplier, mode: 'insensitive' } } } }
-        : {}),
       ...(params.dateFrom || params.dateTo
         ? {
             orderedAt: {
@@ -311,10 +297,12 @@ export class OrderRepository {
         ? {
             OR: [
               { orderNumber: { contains: params.search, mode: 'insensitive' } },
-              { tracking: { contains: params.search, mode: 'insensitive' } },
-              { customerName: { contains: params.search, mode: 'insensitive' } },
-              { customerPhone: { contains: params.search, mode: 'insensitive' } },
               { shippingAddress: { contains: params.search, mode: 'insensitive' } },
+              {
+                items: {
+                  some: { trackingNumber: { contains: params.search, mode: 'insensitive' } },
+                },
+              },
             ],
           }
         : {}),
@@ -331,6 +319,67 @@ export class OrderRepository {
       this.prisma.order.count({ where }),
     ]);
     return { items, total };
+  }
+
+  // --- OrderNote (1..N theo Order) ---
+
+  /** Danh sách note còn sống của Order. */
+  listNotes(orderId: string) {
+    return this.prisma.orderNote.findMany({
+      where: { orderId, deletedAt: null },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /** Lấy 1 note (còn sống) theo id. */
+  findNoteById(id: string) {
+    return this.prisma.orderNote.findFirst({ where: { id, deletedAt: null } });
+  }
+
+  createNote(
+    tx: Prisma.TransactionClient,
+    orderId: string,
+    type: OrderNoteType,
+    content: string,
+    actorUserId: string,
+  ): Promise<{ id: string }> {
+    return tx.orderNote.create({
+      data: { orderId, type, content, createdBy: actorUserId },
+      select: { id: true },
+    });
+  }
+
+  async updateNote(
+    tx: Prisma.TransactionClient,
+    id: string,
+    data: OrderNoteWrite,
+  ): Promise<void> {
+    const patch: Prisma.OrderNoteUpdateInput = {};
+    if (data.type !== undefined) patch.type = data.type;
+    if (data.content !== undefined) patch.content = data.content;
+    await tx.orderNote.update({ where: { id }, data: patch });
+  }
+
+  async softDeleteNote(tx: Prisma.TransactionClient, id: string): Promise<void> {
+    await tx.orderNote.update({ where: { id }, data: { deletedAt: new Date() } });
+  }
+
+  // --- OrderItem fulfillment (tracking + status theo từng item) ---
+
+  /** Lấy item (đảm bảo thuộc order). */
+  findItemById(orderId: string, itemId: string) {
+    return this.prisma.orderItem.findFirst({ where: { id: itemId, orderId } });
+  }
+
+  async updateItemFulfillment(
+    tx: Prisma.TransactionClient,
+    itemId: string,
+    data: { trackingNumber?: string | null; fulfillmentStatus?: OrderItemStatus },
+  ): Promise<void> {
+    const patch: Prisma.OrderItemUpdateInput = {};
+    if (data.trackingNumber !== undefined) patch.trackingNumber = data.trackingNumber;
+    if (data.fulfillmentStatus !== undefined) patch.fulfillmentStatus = data.fulfillmentStatus;
+    await tx.orderItem.update({ where: { id: itemId }, data: patch });
   }
 
   /** Danh sách Seller (User quản lý Account) trong Org — cho filter Seller (ADMIN). */

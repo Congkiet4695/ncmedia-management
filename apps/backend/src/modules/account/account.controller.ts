@@ -12,10 +12,16 @@ import {
   Patch,
   Post,
   Query,
+  StreamableFile,
+  UploadedFile,
   UseGuards,
+  UseInterceptors,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
+  ApiBody,
+  ApiConsumes,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiOkResponse,
@@ -23,6 +29,9 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { ImportResultDto } from '../../common/excel/import-result.dto';
+import { requireXlsx, xlsxFile, xlsxUploadOptions } from '../../common/excel/excel.http';
+import { AccountExcelService } from './services/account-excel.service';
 import { ADMIN_ROLE_CODE } from '../auth/constants/default-roles';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
@@ -55,7 +64,10 @@ import { AccountService } from './services/account.service';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('accounts')
 export class AccountController {
-  constructor(private readonly accountService: AccountService) {}
+  constructor(
+    private readonly accountService: AccountService,
+    private readonly excel: AccountExcelService,
+  ) {}
 
   /** Row-level scope: Admin → undefined (toàn Org); khác → userId (chỉ của mình). */
   private scope(user: AuthenticatedUser): string | undefined {
@@ -99,6 +111,54 @@ export class AccountController {
   @ApiOkResponse({ type: SellerOptionDto, isArray: true })
   sellers(@CurrentUser() user: AuthenticatedUser): Promise<SellerOptionDto[]> {
     return this.accountService.listSellers(user.organizationId);
+  }
+
+  // ---------- Import/Export Excel (chỉ Admin) ----------
+
+  @Get('export/example')
+  @RequirePermissions('account.export')
+  @ApiOperation({ summary: 'Tải file Excel mẫu để Import Account (Admin)' })
+  @ApiOkResponse({ description: 'File .xlsx' })
+  async exportExample(): Promise<StreamableFile> {
+    return xlsxFile(await this.excel.buildExample(), 'account-import-template.xlsx');
+  }
+
+  @Get('export')
+  @RequirePermissions('account.export')
+  @ApiOperation({ summary: 'Export toàn bộ Account ra Excel (kèm ID) (Admin)' })
+  @ApiOkResponse({ description: 'File .xlsx' })
+  async exportAll(@CurrentUser() user: AuthenticatedUser): Promise<StreamableFile> {
+    return xlsxFile(await this.excel.exportAll(user.organizationId), 'accounts-export.xlsx');
+  }
+
+  @Post('import')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('account.import')
+  @UseInterceptors(FileInterceptor('file', xlsxUploadOptions))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
+  @ApiOperation({ summary: 'Import Account từ Excel — tạo mới, bỏ qua trùng (Admin)' })
+  @ApiOkResponse({ type: ImportResultDto })
+  importCreate(
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<ImportResultDto> {
+    return this.excel.importCreate(user.organizationId, user.userId, requireXlsx(file));
+  }
+
+  @Post('import/update')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('account.import')
+  @UseInterceptors(FileInterceptor('file', xlsxUploadOptions))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
+  @ApiOperation({ summary: 'Import file export để UPDATE theo ID (Admin)' })
+  @ApiOkResponse({ type: ImportResultDto })
+  importUpdate(
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<ImportResultDto> {
+    return this.excel.importUpdate(user.organizationId, user.userId, requireXlsx(file));
   }
 
   @Get(':id')

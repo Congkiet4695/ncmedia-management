@@ -28,7 +28,6 @@ interface AccountFormProps {
 
 const BASE_DEFAULTS: AccountFormInput = {
   name: '',
-  idNormalize: '',
   platformId: '',
   loginTool: '',
   sellerUserId: '',
@@ -77,12 +76,6 @@ export function AccountForm({
           </Label>
           <Input id="name" disabled={submitting} aria-invalid={!!errors.name} {...register('name')} />
           <FieldError message={errors.name?.message} />
-        </div>
-
-        <div className="space-y-2">
-          <Label htmlFor="idNormalize">ID chuẩn hoá</Label>
-          <Input id="idNormalize" disabled={submitting} aria-invalid={!!errors.idNormalize} {...register('idNormalize')} />
-          <FieldError message={errors.idNormalize?.message} />
         </div>
 
         <div className="space-y-2">

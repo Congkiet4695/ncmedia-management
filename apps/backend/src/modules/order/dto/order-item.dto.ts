@@ -1,6 +1,7 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  IsEnum,
   IsInt,
   IsNumber,
   IsOptional,
@@ -10,11 +11,12 @@ import {
   Min,
   MinLength,
 } from 'class-validator';
+import { OrderItemStatus } from '@prisma/client';
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
 
-/** Một dòng sản phẩm trong đơn (OrderItem). Đơn có 1..N item. */
+/** Một dòng sản phẩm trong đơn (OrderItem). Đơn có 1..N item. Tracking + fulfillment theo từng Item. */
 export class OrderItemInputDto {
   @ApiProperty({ example: 'Garvee Dog Kennel 6.6ft', minLength: 1, maxLength: 1024 })
   @Transform(trim)
@@ -29,27 +31,6 @@ export class OrderItemInputDto {
   @IsString()
   @MaxLength(2048)
   productLink?: string;
-
-  @ApiPropertyOptional({ maxLength: 255, description: 'Nhà cung cấp (Supplier)' })
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MaxLength(255)
-  supplier?: string;
-
-  @ApiPropertyOptional({ maxLength: 255 })
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MaxLength(255)
-  sku?: string;
-
-  @ApiPropertyOptional({ maxLength: 255 })
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MaxLength(255)
-  variant?: string;
 
   @ApiPropertyOptional({ maxLength: 255 })
   @IsOptional()
@@ -80,6 +61,18 @@ export class OrderItemInputDto {
   @Min(0)
   @Max(9_999_999_999_999)
   unitPrice?: number = 0;
+
+  @ApiPropertyOptional({ maxLength: 255, description: 'Tracking Number (theo Item)' })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(255)
+  trackingNumber?: string;
+
+  @ApiPropertyOptional({ enum: OrderItemStatus, default: OrderItemStatus.PENDING })
+  @IsOptional()
+  @IsEnum(OrderItemStatus)
+  fulfillmentStatus?: OrderItemStatus;
 
   @ApiPropertyOptional({ maxLength: 2048, description: 'Ảnh sản phẩm (URL)' })
   @IsOptional()

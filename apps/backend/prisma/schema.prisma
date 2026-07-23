@@ -97,6 +97,25 @@ enum OrderStatus {
   @@map("order_status")
 }
 
+/// Loại Note của Order (OrderNote — 1 Order có nhiều Note).
+enum OrderNoteType {
+  SELLER
+  WAREHOUSE
+
+  @@map("order_note_type")
+}
+
+/// Trạng thái fulfillment theo TỪNG OrderItem.
+enum OrderItemStatus {
+  PENDING
+  PROCESSING
+  SHIPPED
+  DELIVERED
+  CANCELLED
+
+  @@map("order_item_status")
+}
+
 // ---------------------------------------------------------------------------
 // Organization — Tenant root
 // ---------------------------------------------------------------------------
@@ -385,8 +404,6 @@ model Account {
   organizationId String @map("organization_id") @db.Uuid
 
   name         String  @db.VarChar(255)
-  /// Khoá chuẩn hoá phục vụ chống trùng (D-04). Unique theo (org, id_normalize) khi có.
-  idNormalize  String? @map("id_normalize") @db.VarChar(120)
   platformId   String? @map("platform_id") @db.Uuid
   loginTool    String? @map("login_tool") @db.VarChar(100)
   /// Seller quản lý (User có role phù hợp — D-05).
@@ -423,7 +440,6 @@ model Account {
   credentialAccessLogs AccountCredentialAccessLog[]
   orders               Order[]
 
-  @@unique([organizationId, idNormalize])
   @@index([organizationId])
   @@index([platformId])
   @@index([sellerUserId])
@@ -500,15 +516,9 @@ model Order {
   /// Nền tảng (code) — denormalize từ account.platform để khoá unique (org, platform, order_number).
   platform    String? @db.VarChar(50)
 
-  // Thông tin khách hàng
-  customerName    String? @map("customer_name") @db.VarChar(255)
-  customerPhone   String? @map("customer_phone") @db.VarChar(50)
   shippingAddress String? @map("shipping_address") @db.Text
-
-  sellerNote     String? @map("seller_note") @db.Text
-  warehouseNote  String? @map("warehouse_note") @db.Text
-  warehouseNote2 String? @map("warehouse_note_2") @db.Text
-  tracking       String? @db.VarChar(255)
+  /// Đơn vị tiền tệ (Import/Export Excel). VD: USD, VND.
+  currency        String? @db.VarChar(10)
 
   status    OrderStatus @default(WAITING)
   orderedAt DateTime?   @map("ordered_at") @db.Timestamptz(6)
@@ -528,6 +538,7 @@ model Order {
   account         Account              @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   fulfilledBy     User?                @relation("OrderFulfiller", fields: [fulfilledById], references: [id], onDelete: SetNull, onUpdate: Cascade)
   items           OrderItem[]
+  notes           OrderNote[]
   statusHistories OrderStatusHistory[]
   logs            OrderLog[]
 
@@ -552,9 +563,6 @@ model OrderItem {
 
   productName String  @map("product_name") @db.VarChar(1024)
   productLink String? @map("product_link") @db.VarChar(2048)
-  supplier    String? @db.VarChar(255)
-  sku         String? @db.VarChar(255)
-  variant     String? @db.VarChar(255)
   color       String? @db.VarChar(255)
   size        String? @db.VarChar(255)
   quantity    Int     @default(1)
@@ -562,6 +570,11 @@ model OrderItem {
   unitPrice   Decimal @default(0) @map("unit_price") @db.Decimal(15, 2)
   image       String? @db.VarChar(2048)
   remark      String? @db.Text
+
+  /// Tracking theo TỪNG Item (chuyển từ Order sang Item).
+  trackingNumber   String?         @map("tracking_number") @db.VarChar(255)
+  /// Trạng thái fulfillment theo từng Item.
+  fulfillmentStatus OrderItemStatus @default(PENDING) @map("fulfillment_status")
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -613,4 +626,27 @@ model OrderLog {
 
   @@index([orderId])
   @@map("order_logs")
+}
+
+// ---------------------------------------------------------------------------
+// OrderNote — Ghi chú của Order (Order 1 — N OrderNote). Thay cho seller_note/
+// warehouse_note lưu trực tiếp trên Order. type = SELLER | WAREHOUSE. Soft delete.
+// ---------------------------------------------------------------------------
+
+model OrderNote {
+  id        String        @id @default(uuid()) @db.Uuid
+  orderId   String        @map("order_id") @db.Uuid
+  type      OrderNoteType
+  content   String        @db.Text
+
+  createdBy String?   @map("created_by") @db.Uuid
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  order Order @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([orderId])
+  @@index([type])
+  @@map("order_notes")
 }

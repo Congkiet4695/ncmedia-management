@@ -35,7 +35,7 @@ export class OrderQueryDto {
   @Max(100)
   limit?: number = 20;
 
-  @ApiPropertyOptional({ description: 'Tìm theo Order Number / Tracking / Tên KH / SĐT / Địa chỉ' })
+  @ApiPropertyOptional({ description: 'Tìm theo Order Number / Tracking (theo item) / Địa chỉ giao hàng' })
   @IsOptional()
   @Transform(trim)
   @IsString()
@@ -56,13 +56,6 @@ export class OrderQueryDto {
   @IsOptional()
   @IsEnum(OrderStatus)
   status?: OrderStatus;
-
-  @ApiPropertyOptional({ description: 'Lọc theo Supplier (trên sản phẩm)' })
-  @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MaxLength(255)
-  supplier?: string;
 
   @ApiPropertyOptional({ format: 'uuid', description: 'Lọc theo Seller (ADMIN) — account.sellerUserId' })
   @IsOptional()

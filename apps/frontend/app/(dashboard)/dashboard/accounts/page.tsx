@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Loader2, Plus } from 'lucide-react';
 import { toast } from 'sonner';
+import { ImportExportBar } from '@/features/import-export/components/import-export-bar';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Modal } from '@/components/ui/modal';
@@ -43,6 +45,7 @@ function AccountsView() {
   const [deleting, setDeleting] = useState<AccountListItem | null>(null);
 
   const { hasPermission } = useAuth();
+  const queryClient = useQueryClient();
   // Chỉ ADMIN (quyền gán Seller) mới thấy filter Seller & fetch danh sách Seller.
   const canAssign = hasPermission('account.assign');
   const accountsQuery = useAccounts(query);
@@ -79,14 +82,29 @@ function AccountsView() {
           <h1 className="text-2xl font-bold tracking-tight">Account</h1>
           <p className="text-sm text-muted-foreground">Quản lý tài khoản bán hàng trên sàn.</p>
         </div>
-        {hasPermission('account.create') && (
-          <Button asChild>
-            <Link href="/dashboard/accounts/create">
-              <Plus className="size-4" />
-              Thêm Account
-            </Link>
-          </Button>
-        )}
+        <div className="flex flex-wrap items-center gap-2">
+          <ImportExportBar
+            entity="Account"
+            exportExamplePath="/accounts/export/example"
+            exportPath="/accounts/export"
+            importPath="/accounts/import"
+            importUpdatePath="/accounts/import/update"
+            exampleFilename="account-import-template.xlsx"
+            exportFilename="accounts-export.xlsx"
+            canExport={hasPermission('account.export')}
+            canImport={hasPermission('account.import')}
+            canImportUpdate={hasPermission('account.import')}
+            onImported={() => queryClient.invalidateQueries({ queryKey: ['accounts'] })}
+          />
+          {hasPermission('account.create') && (
+            <Button asChild>
+              <Link href="/dashboard/accounts/create">
+                <Plus className="size-4" />
+                Thêm Account
+              </Link>
+            </Button>
+          )}
+        </div>
       </div>
 
       {overviewQuery.data && (
