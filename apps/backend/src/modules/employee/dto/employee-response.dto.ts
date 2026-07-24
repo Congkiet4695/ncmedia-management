@@ -29,6 +29,8 @@ export class EmployeeResponseDto {
   @ApiProperty({ nullable: true, type: String, example: '0123456789' }) bankAccount!: string | null;
   @ApiProperty({ nullable: true, type: String, example: null }) bankQrUrl!: string | null;
   @ApiProperty({ example: 0, description: 'Lương (VND)' }) salary!: number;
+  @ApiProperty({ example: 0, description: 'KPI Đơn hàng (mục tiêu/tháng)' }) orderKpi!: number;
+  @ApiProperty({ example: 0, description: 'KPI Doanh thu (USD, mục tiêu/tháng)' }) revenueKpi!: number;
   @ApiProperty({ nullable: true, type: String, example: null }) avatar!: string | null;
   @ApiProperty({ type: EmployeeRoleDto }) role!: EmployeeRoleDto;
   @ApiProperty({ example: '2026-07-15T00:00:00.000Z' }) createdAt!: string;

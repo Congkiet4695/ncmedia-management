@@ -47,6 +47,14 @@ export const employeeFormSchema = z.object({
     .number({ invalid_type_error: 'Lương phải là số' })
     .min(0, 'Lương phải >= 0')
     .max(SALARY_MAX, 'Lương vượt giới hạn'),
+  orderKpi: z.coerce
+    .number({ invalid_type_error: 'KPI Đơn hàng phải là số' })
+    .int('KPI Đơn hàng phải là số nguyên')
+    .min(0, 'KPI Đơn hàng phải >= 0'),
+  revenueKpi: z.coerce
+    .number({ invalid_type_error: 'KPI Doanh thu phải là số' })
+    .min(0, 'KPI Doanh thu phải >= 0')
+    .max(SALARY_MAX, 'KPI Doanh thu vượt giới hạn'),
   avatar: z.string().max(1024, 'Tối đa 1024 ký tự').or(z.literal('')),
 });
 

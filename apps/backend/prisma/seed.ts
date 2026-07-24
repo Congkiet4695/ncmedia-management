@@ -79,6 +79,8 @@ const PERMISSIONS: Array<{
   // Profile module (self-service)
   { code: 'profile.read',   module: 'PROFILE', resource: 'profile', action: 'read',   description: 'Xem hồ sơ của mình' },
   { code: 'profile.update', module: 'PROFILE', resource: 'profile', action: 'update', description: 'Cập nhật hồ sơ của mình' },
+  // Report module (Dashboard + Reports — thống kê tổng hợp toàn Organization)
+  { code: 'report.read',    module: 'REPORT', resource: 'report', action: 'read', description: 'Xem Báo cáo & Dashboard thống kê' },
 ];
 
 /** Permission mặc định cho Role EMPLOYEE — dùng chung với register.service (default-roles.ts). */

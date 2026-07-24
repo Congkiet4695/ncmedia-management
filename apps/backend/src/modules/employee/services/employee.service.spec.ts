@@ -50,6 +50,8 @@ describe('EmployeeService', () => {
     bankQrUrl: null,
     avatar: null,
     salary: 0,
+    orderKpi: 0,
+    revenueKpi: 0,
     createdAt: new Date('2026-07-15T00:00:00Z'),
     updatedAt: new Date('2026-07-15T00:00:00Z'),
     user: {

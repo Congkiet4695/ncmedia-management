@@ -33,6 +33,8 @@ export function toCreatePayload(values: EmployeeFormInput): CreateEmployeePayloa
     email: values.email,
     status: values.status,
     salary: values.salary,
+    orderKpi: values.orderKpi,
+    revenueKpi: values.revenueKpi,
     ...optionalFields(values),
   };
 }
@@ -43,6 +45,8 @@ export function toUpdatePayload(values: EmployeeFormInput): UpdateEmployeePayloa
     fullName: values.fullName,
     status: values.status,
     salary: values.salary,
+    orderKpi: values.orderKpi,
+    revenueKpi: values.revenueKpi,
     ...optionalFields(values),
   };
 }

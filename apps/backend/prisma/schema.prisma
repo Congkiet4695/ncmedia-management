@@ -231,6 +231,10 @@ model Employee {
 
   /// Lương (VND). Mặc định 0, không âm (CHECK ở migration). Decimal để chính xác tiền tệ.
   salary Decimal @default(0) @db.Decimal(15, 2)
+  /// KPI số Đơn hàng (mục tiêu/tháng). Mặc định 0. Dùng cho Báo cáo hiệu suất Seller (forecast).
+  orderKpi   Int     @default(0) @map("order_kpi")
+  /// KPI Doanh thu (USD, mục tiêu/tháng). Mặc định 0. Decimal cho chính xác tiền tệ.
+  revenueKpi Decimal @default(0) @map("revenue_kpi") @db.Decimal(15, 2)
   /// URL avatar (nullable).
   avatar String? @db.VarChar(1024)
 
@@ -549,6 +553,8 @@ model Order {
   @@index([status])
   @@index([orderedAt])
   @@index([fulfilledById])
+  // Report: tối ưu range-scan theo thời gian trong 1 tổ chức (Dashboard/Reports).
+  @@index([organizationId, orderedAt])
   @@map("orders")
 }
 

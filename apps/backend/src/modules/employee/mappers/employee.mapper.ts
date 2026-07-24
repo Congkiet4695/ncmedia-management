@@ -32,6 +32,8 @@ export class EmployeeMapper {
       bankAccount: employee.bankAccount,
       bankQrUrl: employee.bankQrUrl,
       salary: Number(employee.salary),
+      orderKpi: employee.orderKpi,
+      revenueKpi: Number(employee.revenueKpi),
       avatar: employee.avatar,
       role: { id: user.role.id, code: user.role.code, name: user.role.displayName },
       createdAt: employee.createdAt.toISOString(),

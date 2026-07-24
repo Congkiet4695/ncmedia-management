@@ -38,6 +38,8 @@ interface EmployeeProfileInput {
   bankAccount?: string;
   bankQrUrl?: string;
   salary?: number;
+  orderKpi?: number;
+  revenueKpi?: number;
   avatar?: string;
 }
 
@@ -203,6 +205,8 @@ export class EmployeeService {
       bankAccount: dto.bankAccount,
       bankQrUrl: dto.bankQrUrl,
       salary: dto.salary,
+      orderKpi: dto.orderKpi,
+      revenueKpi: dto.revenueKpi,
       avatar: dto.avatar,
     };
   }

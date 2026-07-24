@@ -14,8 +14,11 @@ export const EMPLOYEE_SORT_FIELDS = [
 ] as const;
 export type EmployeeSortField = (typeof EMPLOYEE_SORT_FIELDS)[number];
 
-/** Giới hạn lương theo DECIMAL(15,2) của DB. */
+/** Giới hạn lương / KPI Doanh thu theo DECIMAL(15,2) của DB. */
 export const EMPLOYEE_SALARY_MAX = 9_999_999_999_999;
+
+/** Giới hạn KPI Đơn hàng (INTEGER). */
+export const EMPLOYEE_ORDER_KPI_MAX = 2_000_000_000;
 
 /**
  * Ánh xạ EmployeeStatus (nghiệp vụ) → UserStatus (auth/login).

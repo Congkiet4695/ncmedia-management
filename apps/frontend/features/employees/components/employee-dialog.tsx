@@ -4,7 +4,7 @@ import type { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
 import { Modal } from '@/components/ui/modal';
-import { formatDate, formatVnd } from '@/lib/format';
+import { formatDate, formatUSD, formatVnd } from '@/lib/format';
 import { useEmployee } from '../hooks/use-employees';
 import { EmployeeStatusBadge } from './employee-status-badge';
 
@@ -56,6 +56,8 @@ export function EmployeeDialog({ employeeId, open, onClose }: EmployeeDialogProp
             <Field label="Ngày sinh">{employee.dateOfBirth ?? '—'}</Field>
             <Field label="CCCD">{employee.cccd ?? '—'}</Field>
             <Field label="Lương">{formatVnd(employee.salary)}</Field>
+            <Field label="KPI Đơn hàng">{employee.orderKpi}</Field>
+            <Field label="KPI Doanh thu">{formatUSD(employee.revenueKpi)}</Field>
             <Field label="Ngân hàng">{employee.bankAccount ?? '—'}</Field>
             <Field label="Địa chỉ">{employee.address ?? '—'}</Field>
             <Field label="Ngày tạo">{formatDate(employee.createdAt)}</Field>

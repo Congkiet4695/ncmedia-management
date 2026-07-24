@@ -18,6 +18,8 @@ interface EmployeeProfileData {
   bankAccount?: string | null;
   bankQrUrl?: string | null;
   salary?: number;
+  orderKpi?: number;
+  revenueKpi?: number;
   avatar?: string | null;
 }
 
@@ -128,6 +130,8 @@ export class EmployeeRepository {
         bankAccount: data.bankAccount ?? null,
         bankQrUrl: data.bankQrUrl ?? null,
         salary: data.salary ?? 0,
+        orderKpi: data.orderKpi ?? 0,
+        revenueKpi: data.revenueKpi ?? 0,
         avatar: data.avatar ?? null,
         createdBy: data.actorUserId,
       },
@@ -166,6 +170,8 @@ export class EmployeeRepository {
       ...(data.bankAccount !== undefined ? { bankAccount: data.bankAccount } : {}),
       ...(data.bankQrUrl !== undefined ? { bankQrUrl: data.bankQrUrl } : {}),
       ...(data.salary !== undefined ? { salary: data.salary } : {}),
+      ...(data.orderKpi !== undefined ? { orderKpi: data.orderKpi } : {}),
+      ...(data.revenueKpi !== undefined ? { revenueKpi: data.revenueKpi } : {}),
       ...(data.avatar !== undefined ? { avatar: data.avatar } : {}),
     };
 

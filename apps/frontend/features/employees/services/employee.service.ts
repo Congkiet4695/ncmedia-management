@@ -27,6 +27,8 @@ export interface CreateEmployeePayload {
   bankAccount?: string;
   bankQrUrl?: string;
   salary?: number;
+  orderKpi?: number;
+  revenueKpi?: number;
   avatar?: string;
 }
 

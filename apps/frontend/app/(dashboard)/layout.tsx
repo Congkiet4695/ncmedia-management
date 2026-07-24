@@ -1,10 +1,12 @@
 'use client';
 
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
 import {
+  BarChart3,
   Building2,
+  ChevronDown,
   ClipboardList,
   LayoutDashboard,
   Loader2,
@@ -27,7 +29,18 @@ interface NavItem {
   label: string;
   href: string;
   icon: LucideIcon;
+  /** Menu con (nhóm có thể mở rộng) — vd nhóm Báo cáo. */
+  children?: NavItem[];
 }
+
+/** 5 sub-menu của nhóm Báo cáo (Reports). */
+const REPORT_CHILDREN: NavItem[] = [
+  { label: 'Tổng quan', href: '/dashboard/reports/overview', icon: BarChart3 },
+  { label: 'Doanh thu / Đơn Seller', href: '/dashboard/reports/seller', icon: BarChart3 },
+  { label: 'Hiệu suất Seller', href: '/dashboard/reports/seller-performance', icon: BarChart3 },
+  { label: 'Hiệu suất Kho', href: '/dashboard/reports/warehouse-performance', icon: BarChart3 },
+  { label: 'Xếp hạng Seller', href: '/dashboard/reports/seller-ranking', icon: BarChart3 },
+];
 
 /**
  * Menu render theo PERMISSION (không hardcode role):
@@ -48,39 +61,105 @@ function buildNavItems(has: (code: string) => boolean): NavItem[] {
   if (has('order.read')) {
     items.push({ label: 'Order', href: '/dashboard/orders', icon: ClipboardList });
   }
+  if (has('report.read')) {
+    items.push({ label: 'Báo cáo', href: '/dashboard/reports', icon: BarChart3, children: REPORT_CHILDREN });
+  }
   if (has('profile.read') && !has('employee.read')) {
     items.push({ label: 'Hồ sơ của tôi', href: '/dashboard/profile', icon: UserRound });
   }
   return items;
 }
 
-function SidebarNav({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => void }) {
+function isActive(pathname: string, href: string): boolean {
+  return href === '/dashboard'
+    ? pathname === href
+    : pathname === href || pathname.startsWith(`${href}/`);
+}
+
+const NAV_LINK_BASE =
+  'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors';
+
+/** Link menu phẳng. */
+function NavLink({
+  item,
+  onNavigate,
+  nested,
+}: {
+  item: NavItem;
+  onNavigate?: () => void;
+  nested?: boolean;
+}) {
   const pathname = usePathname();
+  const active = isActive(pathname, item.href);
+  const Icon = item.icon;
   return (
-    <nav className="flex-1 space-y-1 p-4">
-      {items.map((item) => {
-        const active =
-          item.href === '/dashboard'
-            ? pathname === item.href
-            : pathname === item.href || pathname.startsWith(`${item.href}/`);
-        const Icon = item.icon;
-        return (
-          <Link
-            key={item.href}
-            href={item.href}
-            onClick={onNavigate}
-            className={cn(
-              'flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium transition-colors',
-              active
-                ? 'bg-primary text-primary-foreground'
-                : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
-            )}
-          >
-            <Icon className="size-4" />
-            {item.label}
-          </Link>
-        );
-      })}
+    <Link
+      href={item.href}
+      onClick={onNavigate}
+      className={cn(
+        NAV_LINK_BASE,
+        nested && 'py-1.5 pl-9 text-[13px]',
+        active
+          ? 'bg-primary text-primary-foreground'
+          : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+      )}
+    >
+      {!nested && <Icon className="size-4" />}
+      {item.label}
+    </Link>
+  );
+}
+
+/** Nhóm menu có thể mở rộng (vd Báo cáo) — tự mở khi 1 menu con đang active. */
+function NavGroup({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
+  const pathname = usePathname();
+  const groupActive = isActive(pathname, item.href);
+  const [open, setOpen] = useState(groupActive);
+  const Icon = item.icon;
+
+  useEffect(() => {
+    if (groupActive) setOpen(true);
+  }, [groupActive]);
+
+  return (
+    <div>
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-expanded={open}
+        className={cn(
+          NAV_LINK_BASE,
+          'w-full',
+          groupActive
+            ? 'text-foreground'
+            : 'text-muted-foreground hover:bg-accent hover:text-accent-foreground',
+        )}
+      >
+        <Icon className="size-4" />
+        <span className="flex-1 text-left">{item.label}</span>
+        <ChevronDown className={cn('size-4 transition-transform', open && 'rotate-180')} />
+      </button>
+      {open && (
+        <div className="mt-1 space-y-1">
+          {item.children!.map((child) => (
+            <NavLink key={child.href} item={child} onNavigate={onNavigate} nested />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SidebarNav({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => void }) {
+  return (
+    <nav className="flex-1 space-y-1 overflow-y-auto p-4">
+      {items.map((item) =>
+        item.children?.length ? (
+          <NavGroup key={item.href} item={item} onNavigate={onNavigate} />
+        ) : (
+          <NavLink key={item.href} item={item} onNavigate={onNavigate} />
+        ),
+      )}
     </nav>
   );
 }

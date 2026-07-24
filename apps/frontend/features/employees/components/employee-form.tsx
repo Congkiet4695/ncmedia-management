@@ -40,6 +40,8 @@ const BASE_DEFAULTS: EmployeeFormInput = {
   bankAccount: '',
   bankQrUrl: '',
   salary: 0,
+  orderKpi: 0,
+  revenueKpi: 0,
   avatar: '',
 };
 
@@ -162,6 +164,18 @@ export function EmployeeForm({
           <Label htmlFor="salary">Lương (VND)</Label>
           <Input id="salary" type="number" min={0} step={1000} disabled={submitting} aria-invalid={!!errors.salary} {...register('salary')} />
           <FieldError message={errors.salary?.message} />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="orderKpi">KPI Đơn hàng</Label>
+          <Input id="orderKpi" type="number" min={0} step={1} disabled={submitting} aria-invalid={!!errors.orderKpi} {...register('orderKpi')} />
+          <FieldError message={errors.orderKpi?.message} />
+        </div>
+
+        <div className="space-y-2">
+          <Label htmlFor="revenueKpi">KPI Doanh thu ($)</Label>
+          <Input id="revenueKpi" type="number" min={0} step={100} disabled={submitting} aria-invalid={!!errors.revenueKpi} {...register('revenueKpi')} />
+          <FieldError message={errors.revenueKpi?.message} />
         </div>
 
         <div className="space-y-2">

@@ -26,6 +26,8 @@ export interface Employee {
   bankAccount: string | null;
   bankQrUrl: string | null;
   salary: number;
+  orderKpi: number;
+  revenueKpi: number;
   avatar: string | null;
   role: EmployeeRole;
   createdAt: string;

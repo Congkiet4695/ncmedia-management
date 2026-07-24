@@ -4,6 +4,7 @@ import {
   IsEmail,
   IsEnum,
   IsISO8601,
+  IsInt,
   IsNumber,
   IsOptional,
   IsString,
@@ -15,7 +16,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { EmployeeStatus } from '@prisma/client';
-import { EMPLOYEE_SALARY_MAX } from '../constants/employee.constants';
+import { EMPLOYEE_ORDER_KPI_MAX, EMPLOYEE_SALARY_MAX } from '../constants/employee.constants';
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
@@ -119,6 +120,22 @@ export class CreateEmployeeDto {
   @Min(0)
   @Max(EMPLOYEE_SALARY_MAX)
   salary?: number;
+
+  @ApiPropertyOptional({ example: 0, minimum: 0, default: 0, description: 'KPI Đơn hàng (mục tiêu/tháng), số nguyên >= 0' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  @Max(EMPLOYEE_ORDER_KPI_MAX)
+  orderKpi?: number;
+
+  @ApiPropertyOptional({ example: 0, minimum: 0, default: 0, description: 'KPI Doanh thu (USD, mục tiêu/tháng), >= 0' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2 })
+  @Min(0)
+  @Max(EMPLOYEE_SALARY_MAX)
+  revenueKpi?: number;
 
   @ApiPropertyOptional({ maxLength: 1024, description: 'URL avatar' })
   @IsOptional()

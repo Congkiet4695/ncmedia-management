@@ -82,6 +82,8 @@ function EditEmployeeView() {
     bankAccount: employee.bankAccount ?? '',
     bankQrUrl: employee.bankQrUrl ?? '',
     salary: employee.salary,
+    orderKpi: employee.orderKpi,
+    revenueKpi: employee.revenueKpi,
     avatar: employee.avatar ?? '',
   };
 
