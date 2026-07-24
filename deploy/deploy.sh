@@ -66,9 +66,13 @@ wait_healthy() {
 log "Pull base images (postgres/redis/nginx)…"
 $COMPOSE pull postgres redis nginx || true
 
-# --- 4. Build backend + frontend ---
-log "Build backend + frontend…"
+# --- 4. Build backend + frontend + seed (tools) ---
+# QUAN TRỌNG: service `seed` dùng image RIÊNG `ncmedia-backend-tools:latest` (target: build),
+# KHÁC image runtime của `backend`. Nếu không build lại image tools ở đây, `run --rm seed`
+# sẽ tái dùng image cũ (stale) → seed catalog permission cũ (vd thiếu report.*). Phải build cả seed.
+log "Build backend + frontend + seed (tools)…"
 $COMPOSE build backend frontend || rollback
+$COMPOSE --profile tools build seed || rollback
 
 # --- 5. Postgres/Redis lên trước → migrate deploy ---
 log "Khởi động Postgres + Redis…"
@@ -82,8 +86,9 @@ $COMPOSE run --rm --no-deps backend npx prisma migrate deploy || rollback
 # Seed dữ liệu tham chiếu BẮT BUỘC: permission catalog + platform + backfill role_permissions.
 # Idempotent (upsert). Thiếu bước này → catalog trống → /auth/me trả permissions:[]. SEED_DEMO=false (không tạo admin demo).
 log "Seed catalog permission/platform + backfill role_permissions…"
-$COMPOSE --profile tools run --rm seed || {
-  err "Seed thất bại. Catalog permission có thể trống → /auth/me sẽ trả []. Chạy tay: $COMPOSE --profile tools run --rm seed"
+# `--build` để LUÔN rebuild image tools ngay trước khi seed (chống chạy seed từ image cũ/stale).
+$COMPOSE --profile tools run --build --rm seed || {
+  err "Seed thất bại. Catalog permission có thể trống → /auth/me sẽ trả []. Chạy tay: $COMPOSE --profile tools run --build --rm seed"
   rollback
 }
 
