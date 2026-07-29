@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { useAuth } from '@/hooks/use-auth';
+import { formatUSD } from '@/lib/format';
 import { getApiErrorMessage } from '@/utils/http';
 import { RequirePermission } from '@/components/require-permission';
 import { AccountForm } from '@/features/accounts/components/account-form';
@@ -77,6 +78,9 @@ function EditAccountView() {
     diedAt: account.diedAt ?? '',
     moneyReturnedAt: account.moneyReturnedAt ?? '',
     dieReason: account.dieReason ?? '',
+    holdAmount: String(account.holdAmount ?? 0),
+    netAmount: String(account.netAmount ?? 0),
+    paidAmount: String(account.paidAmount ?? 0),
     proxy: account.proxy ?? '',
     docsUrl: account.docsUrl ?? '',
     note: account.note ?? '',
@@ -107,7 +111,22 @@ function EditAccountView() {
           <CardTitle>Chỉnh sửa Account</CardTitle>
           <CardDescription>{account.name}</CardDescription>
         </CardHeader>
-        <CardContent>
+        <CardContent className="space-y-6">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            {(
+              [
+                { label: 'Hold Amount', value: account.holdAmount },
+                { label: 'Net Amount', value: account.netAmount },
+                { label: 'Paid Amount', value: account.paidAmount },
+              ] as const
+            ).map((item) => (
+              <div key={item.label} className="rounded-lg border p-3">
+                <p className="text-xs text-muted-foreground">{item.label}</p>
+                <p className="text-lg font-semibold tabular-nums">{formatUSD(item.value)}</p>
+              </div>
+            ))}
+          </div>
+
           <AccountForm
             mode="edit"
             platforms={platformsQuery.data ?? []}

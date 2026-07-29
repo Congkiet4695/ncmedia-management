@@ -4,15 +4,22 @@ import { Transform } from 'class-transformer';
 import {
   IsEnum,
   IsISO8601,
+  IsNumber,
   IsObject,
   IsOptional,
   IsString,
   IsUUID,
+  Max,
   MaxLength,
+  Min,
   MinLength,
   ValidateNested,
 } from 'class-validator';
 import { AccountStatus } from '@prisma/client';
+import {
+  ACCOUNT_AMOUNT_DECIMALS,
+  ACCOUNT_AMOUNT_MAX,
+} from '../constants/account.constants';
 import { CredentialsInputDto } from './credentials-input.dto';
 
 const trim = ({ value }: { value: unknown }): unknown =>
@@ -79,6 +86,48 @@ export class CreateAccountDto {
   @IsString()
   @MaxLength(2000)
   dieReason?: string;
+
+  @ApiPropertyOptional({
+    example: 0,
+    minimum: 0,
+    maximum: ACCOUNT_AMOUNT_MAX,
+    default: 0,
+    description: 'Hold — số dư sàn đang giữ (USD), >= 0, tối đa 2 số lẻ',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: ACCOUNT_AMOUNT_DECIMALS })
+  @Min(0)
+  @Max(ACCOUNT_AMOUNT_MAX)
+  holdAmount?: number;
+
+  @ApiPropertyOptional({
+    example: 0,
+    minimum: 0,
+    maximum: ACCOUNT_AMOUNT_MAX,
+    default: 0,
+    description: 'Net — số dư thực nhận (USD), >= 0, tối đa 2 số lẻ',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: ACCOUNT_AMOUNT_DECIMALS })
+  @Min(0)
+  @Max(ACCOUNT_AMOUNT_MAX)
+  netAmount?: number;
+
+  @ApiPropertyOptional({
+    example: 0,
+    minimum: 0,
+    maximum: ACCOUNT_AMOUNT_MAX,
+    default: 0,
+    description: 'Paid — số tiền đã thanh toán/đã rút (USD), >= 0, tối đa 2 số lẻ',
+  })
+  @IsOptional()
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: ACCOUNT_AMOUNT_DECIMALS })
+  @Min(0)
+  @Max(ACCOUNT_AMOUNT_MAX)
+  paidAmount?: number;
 
   @ApiPropertyOptional({ maxLength: 255 })
   @IsOptional()

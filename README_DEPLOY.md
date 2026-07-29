@@ -68,11 +68,15 @@ bash deploy/deploy.sh
 `deploy.sh` tự động: tạo thư mục + cert → snapshot rollback → build → khởi động Postgres/Redis →
 `prisma migrate deploy` → up toàn stack → healthcheck (rollback nếu lỗi).
 
-**Seed lần đầu** (permission catalog + platform — bắt buộc để RBAC hoạt động):
+**Seed lần đầu / seed lại sau khi cập nhật code** (permission catalog + platform — bắt buộc để RBAC hoạt động):
+
+> ⚠️ Bắt buộc `--build`: service `seed` dùng image riêng `ncmedia-backend-tools:latest`.
+> Nếu KHÔNG `--build`, `run seed` tái dùng image cũ (stale) → seed catalog permission cũ,
+> thiếu permission mới thêm gần đây (vd `report.*`). Luôn thêm `--build` khi seed lại.
 
 ```bash
 cd deploy
-docker compose -f docker-compose.production.yml --env-file .env.production --profile tools run --rm seed
+docker compose -f docker-compose.production.yml --env-file .env.production --profile tools run --build --rm seed
 ```
 
 Kiểm tra:

@@ -1,4 +1,5 @@
 import { apiClient } from '@/services/api-client';
+import { downloadXlsx } from '@/features/import-export/service';
 import type { ApiResponse } from '@/types/api';
 import type {
   CreateEmployeeResult,
@@ -83,5 +84,19 @@ export const employeeService = {
   async listRoles(): Promise<EmployeeRole[]> {
     const res = await apiClient.get<ApiResponse<EmployeeRole[]>>('/roles');
     return res.data.data;
+  },
+
+  /**
+   * Export danh sách Employee ra Excel — gửi kèm filter hiện tại (bỏ phân trang vì
+   * server export toàn bộ kết quả khớp filter). Tên file do server đặt.
+   */
+  async exportExcel(query: EmployeeQuery): Promise<void> {
+    const { page: _page, limit: _limit, ...filters } = query;
+    await downloadXlsx('/employees/export', 'employees.xlsx', clean(filters as Record<string, unknown>));
+  },
+
+  /** Tải file Excel mẫu để import. */
+  async downloadTemplate(): Promise<void> {
+    await downloadXlsx('/employees/template', 'employee-import-template.xlsx');
   },
 };

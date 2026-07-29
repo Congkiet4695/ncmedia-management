@@ -46,7 +46,23 @@
       "Bash(docker info *)",
       "Bash(wsl.exe --status)",
       "Bash(wsl.exe -l -v)",
-      "Bash(wsl.exe --update --web-download)"
+      "Bash(wsl.exe --update --web-download)",
+      "Bash(npm ls *)",
+      "Read(//c/Program Files/Google/Chrome/Application/**)",
+      "Read(//c/Program Files \\\\\\(x86\\\\\\)/Microsoft/Edge/Application/**)",
+      "Bash(SEED_DEMO=false npx prisma db seed)",
+      "Bash(grep -E \"error|warning|\\\\.ts$\")",
+      "Bash(sed:*)",
+      "Bash(git:*)",
+      "Bash(docker:*)",
+      "Bash(npm:*)",
+      "Bash(npx:*)",
+      "Bash(prisma:*)",
+      "Bash(cp:*)",
+      "Bash(mv:*)",
+      "Bash(mkdir:*)",
+      "Bash(*)",
+      "Skill(dataviz)"
     ]
   }
 }

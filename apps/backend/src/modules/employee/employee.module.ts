@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { EmployeeController } from './employee.controller';
 import { EmployeeMapper } from './mappers/employee.mapper';
 import { EmployeeRepository } from './repositories/employee.repository';
+import { EmployeeExcelService } from './services/employee-excel.service';
 import { EmployeeService } from './services/employee.service';
 
 /**
@@ -12,6 +13,6 @@ import { EmployeeService } from './services/employee.service';
 @Module({
   imports: [AuthModule],
   controllers: [EmployeeController],
-  providers: [EmployeeService, EmployeeRepository, EmployeeMapper],
+  providers: [EmployeeService, EmployeeExcelService, EmployeeRepository, EmployeeMapper],
 })
 export class EmployeeModule {}

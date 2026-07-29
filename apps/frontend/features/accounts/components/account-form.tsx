@@ -38,11 +38,21 @@ const BASE_DEFAULTS: AccountFormInput = {
   diedAt: '',
   moneyReturnedAt: '',
   dieReason: '',
+  holdAmount: '0',
+  netAmount: '0',
+  paidAmount: '0',
   proxy: '',
   docsUrl: '',
   note: '',
   note2: '',
 };
+
+/** Các ô nhập tiền (USD) — dùng chung cấu hình để không lặp code. */
+const AMOUNT_FIELDS = [
+  { name: 'holdAmount', label: 'Hold Amount' },
+  { name: 'netAmount', label: 'Net Amount' },
+  { name: 'paidAmount', label: 'Paid Amount' },
+] as const satisfies ReadonlyArray<{ name: keyof AccountFormInput; label: string }>;
 
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
@@ -144,6 +154,24 @@ export function AccountForm({
           <Label htmlFor="moneyReturnedAt">Ngày về tiền</Label>
           <Input id="moneyReturnedAt" type="date" disabled={submitting} {...register('moneyReturnedAt')} />
         </div>
+
+        {AMOUNT_FIELDS.map((field) => (
+          <div key={field.name} className="space-y-2">
+            <Label htmlFor={field.name}>{field.label} ($)</Label>
+            <Input
+              id={field.name}
+              type="number"
+              inputMode="decimal"
+              min={0}
+              step="0.01"
+              placeholder="0.00"
+              disabled={submitting}
+              aria-invalid={!!errors[field.name]}
+              {...register(field.name)}
+            />
+            <FieldError message={errors[field.name]?.message} />
+          </div>
+        ))}
 
         <div className="space-y-2">
           <Label htmlFor="proxy">Proxy</Label>

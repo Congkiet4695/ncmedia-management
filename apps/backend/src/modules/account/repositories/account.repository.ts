@@ -18,6 +18,10 @@ export interface AccountWriteData {
   diedAt?: Date | null;
   moneyReturnedAt?: Date | null;
   dieReason?: string | null;
+  /** Hold/Net/Paid (USD) — NOT NULL default 0 ở DB, undefined = không đổi. */
+  holdAmount?: number;
+  netAmount?: number;
+  paidAmount?: number;
   proxy?: string | null;
   docsUrl?: string | null;
   note?: string | null;
@@ -102,6 +106,9 @@ export class AccountRepository {
         diedAt: data.diedAt ?? null,
         moneyReturnedAt: data.moneyReturnedAt ?? null,
         dieReason: data.dieReason ?? null,
+        holdAmount: data.holdAmount ?? 0,
+        netAmount: data.netAmount ?? 0,
+        paidAmount: data.paidAmount ?? 0,
         proxy: data.proxy ?? null,
         docsUrl: data.docsUrl ?? null,
         note: data.note ?? null,
@@ -132,6 +139,9 @@ export class AccountRepository {
     if (data.diedAt !== undefined) patch.diedAt = data.diedAt;
     if (data.moneyReturnedAt !== undefined) patch.moneyReturnedAt = data.moneyReturnedAt;
     if (data.dieReason !== undefined) patch.dieReason = data.dieReason;
+    if (data.holdAmount !== undefined) patch.holdAmount = data.holdAmount;
+    if (data.netAmount !== undefined) patch.netAmount = data.netAmount;
+    if (data.paidAmount !== undefined) patch.paidAmount = data.paidAmount;
     if (data.proxy !== undefined) patch.proxy = data.proxy;
     if (data.docsUrl !== undefined) patch.docsUrl = data.docsUrl;
     if (data.note !== undefined) patch.note = data.note;

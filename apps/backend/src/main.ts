@@ -45,6 +45,8 @@ async function bootstrap(): Promise<void> {
   app.enableCors({
     origin: config.get<string>('corsOrigin', '*'),
     credentials: true,
+    // Cho phép FE đọc tên file do server đặt (export Excel: employees_YYYYMMDD_HHmmss.xlsx).
+    exposedHeaders: ['Content-Disposition'],
   });
 
   // Prefix + shutdown hooks

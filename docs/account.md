@@ -190,11 +190,19 @@ AccountStatus = { NEW, LIVE, DIE_TRANG, DIE, RETURNED }   // chốt danh sách t
 | died_at | date | NULL | Ngày die |
 | money_returned_at | date | NULL | Ngày về tiền |
 | die_reason | text | NULL | Lỗi die |
+| hold_amount | decimal(15,2) | NOT NULL default 0, CHECK `>= 0` | Hold (D-13 — đã chốt) |
+| net_amount | decimal(15,2) | NOT NULL default 0, CHECK `>= 0` | Net (D-13 — đã chốt) |
+| paid_amount | decimal(15,2) | NOT NULL default 0, CHECK `>= 0` | Đã thanh toán/đã rút |
 | proxy | varchar(255) | NULL (nhạy cảm) | Proxy |
 | docs_url | varchar(1024) | NULL | Docs |
 | note | text | NULL | Ghi chú |
 | note2 | text | NULL | Ghi chú 2 |
 | + audit cols | | `created_at/updated_at/deleted_at/created_by/updated_by` | ADR-015 |
+
+> **Cập nhật 2026-07-29 (PO chốt D-13 một phần):** `Hold` / `Net` / `Paid` được **lưu trực tiếp trên
+> `accounts`** (nhập tay / import Excel), **không** derived từ Order. Đây là **snapshot số dư sàn**,
+> khác với Profit (vẫn tính runtime — ADR-014 không đổi). Migration:
+> `20260729000000_account_add_amounts`. Đơn vị **USD**.
 
 ### 3.3. Credentials — 2 phương án lưu trữ (D-01/D-07)
 
@@ -330,7 +338,26 @@ Do khối lượng field nhạy cảm lớn, đề xuất **tách bảng `accoun
 | docsUrl / (avatar-like URLs) | optional URL, ≤1024 |
 | note / note2 | optional, ≤1000 |
 
+| holdAmount / netAmount / paidAmount | optional, number **>= 0**, ≤ 9.999.999.999.999, tối đa 2 chữ số thập phân (khớp DECIMAL(15,2)); default 0 |
+
 - Whitelist DTO (chặn field lạ), forbidNonWhitelisted. `organization_id` **không** nhận từ client (lấy từ token).
+
+### 7.1. Import / Export Excel (cập nhật 2026-07-29)
+
+- **Template** (`GET /accounts/export/example`) và **Export** (`GET /accounts/export`) chứa **đầy đủ cột
+  nghiệp vụ**: Account Name · Platform · Login Tool · Seller Email · Status · 5 mốc ngày · Die Reason ·
+  **Hold Amount · Net Amount · Paid Amount** · Username · Password · Email · Proxy · Docs URL · Note ·
+  Note 2 (Export thêm `ID`, `Created At`, `Updated At`). Template có thêm sheet **Instructions**.
+- **Import** (`POST /accounts/import`): khoá đối chiếu = **Account Name + Platform**.
+  Chưa tồn tại → **CREATE**; đã tồn tại → **UPDATE**. Ô trống = giữ nguyên giá trị hiện tại.
+  Một dòng lỗi → **không ghi dòng nào** (một `$transaction`, rollback toàn bộ).
+- **Tương thích ngược:** tên cột cũ giữ nguyên + có alias; header khớp qua `normalizeHeader`
+  (bỏ `*`, gộp khoảng trắng/NBSP, bỏ BOM/zero-width) nên **file Import/Export cũ vẫn dùng được**;
+  file cũ thiếu 3 cột tiền → nhận mặc định 0.
+- Cột tiền là **cell Number** (`#,##0.00`), cột ngày là **cell Date** (`yyyy-mm-dd`); header có style,
+  auto width, freeze dòng 1.
+- ⚠️ Export **không** xuất SSN / INF / 2FA secret (BR-A12: secret chỉ lộ qua endpoint reveal có audit).
+  Ba cột `Username / Password / Email` giữ nguyên như bản cũ để không phá file đang dùng.
 
 ---
 

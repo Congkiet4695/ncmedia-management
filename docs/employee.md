@@ -66,10 +66,15 @@ Base `/api/v1`. Header `Authorization: Bearer <access>`. Guard: **JwtAuthGuard +
 |---|---|---|---|
 | `POST /employees` | Admin | Tạo Employee | `201` `{ …employee, temporaryPassword }` |
 | `GET /employees` | Admin | Danh sách (filter/search/sort/pagination) | `200` `{ items, meta }` |
+| `GET /employees/export` | Admin | Export Excel (áp dụng filter hiện tại) | `200` file `.xlsx` |
+| `GET /employees/template` | Admin | Tải file mẫu Import | `200` file `.xlsx` |
+| `POST /employees/import` | Admin | Import Excel (multipart, field `file`) | `200` `EmployeeImportResultDto` |
 | `GET /employees/:id` | Admin | Chi tiết | `200` employee |
 | `PATCH /employees/:id` | Admin | Cập nhật | `200` employee |
 | `DELETE /employees/:id` | Admin | Xóa mềm | `200` `data: null` |
 | `GET /roles` | Admin | Danh sách Role (selector) | `200` `RoleResponseDto[]` |
+
+> Ba route Excel khai báo **trước** `:id` để không bị route param nuốt.
 
 ### 4.1. Query danh sách (`GET /employees`)
 `page` (≥1, default 1), `limit` (1–100, default 20), `fullname`, `email`, `status`, `roleId`, `search` (OR fullname/email), `sortBy` (`createdAt|fullName|email|salary|status`), `sortOrder` (`asc|desc`). `meta: { total, page, limit, totalPages }` (ADR-023; `totalPages = 0` khi `total = 0`).
@@ -131,6 +136,46 @@ Kết quả: Admin org A **không** thấy/sửa/xóa Employee của org B.
 - React Query: `useEmployees`, `useEmployee`, `useRoles`, `useCreateEmployee`, `useUpdateEmployee`, `useDeleteEmployee` (delete có **optimistic update** + rollback, invalidate `['employees']`).
 - Auth: AuthProvider + Access Token + GET /me; `RequireAdmin` chặn non-admin (403). Search **debounce** 350ms.
 - UI: shadcn/ui (Table/Badge/Avatar/NativeSelect/Modal), responsive, hỗ trợ dark mode (theme toggle).
+
+---
+
+## 8bis. Import / Export Excel (ADMIN-only)
+
+Code: `modules/employee/services/employee-excel.service.ts` + `constants/employee-excel.constants.ts`.
+Thư viện: **exceljs** (backend). Dùng chung `common/excel/*` với Account/Order.
+
+### 8bis.1. Export — `GET /employees/export`
+
+- Chỉ Employee của Organization trong Access Token; nhận cùng query filter với `GET /employees` (bỏ `page`/`limit` — export **toàn bộ** kết quả khớp filter).
+- Tên file: `employees_YYYYMMDD_HHmmss.xlsx` (server đặt qua `Content-Disposition`; CORS đã `exposedHeaders`).
+- Cột: `ID, Full Name, Email, Phone, Date Of Birth, Salary, Role, Status, Created At, Updated At`.
+- Header in đậm + nền màu, **freeze** dòng 1, **auto width**. `Salary` là cell **Number** (`#,##0.00`); `Date Of Birth` là cell **Date** (`yyyy-mm-dd`), `Created/Updated At` (`yyyy-mm-dd hh:mm:ss`, UTC). `Role`/`Status` xuất theo **Code**.
+
+### 8bis.2. Template — `GET /employees/template`
+
+Sheet `Employees` (chỉ header): `Full Name *`, `Email *`, `Phone`, `Date Of Birth`, `Salary`, `Role Code *`, `Status`.
+Sheet `Instructions`: cột bắt buộc/tuỳ chọn, format ngày, **danh sách Role thật của Organization**, Status hợp lệ, quy tắc Insert/Update, quy tắc ô trống, cảnh báo *không sửa Header*, giới hạn dung lượng/số dòng.
+
+### 8bis.3. Import — `POST /employees/import` (multipart/form-data, field `file`)
+
+- Chỉ `.xlsx`, tối đa **10MB** và **5000 dòng**.
+- **Validate toàn bộ file trước**; chỉ cần 1 dòng lỗi → **không ghi dòng nào**. Khi hợp lệ, toàn bộ ghi trong **một `$transaction`** (timeout 120s); lỗi ghi → rollback toàn bộ.
+- Header chấp nhận cả nhãn template (`Full Name *`) lẫn nhãn file Export (`Full Name`, `Role`) → nạp lại file export được.
+- Quy tắc: email chưa tồn tại → **create** (mật khẩu random + bcrypt cost 12, giống `POST /employees`); email đã tồn tại **trong Organization** → **update** `fullName, phone, dateOfBirth, salary, role, status`; không thay đổi gì → **skip**.
+- **Không bao giờ** cập nhật `password`, `email`, `id`, `organizationId` qua import.
+- Ô trống = *không cung cấp* → create dùng mặc định, update giữ nguyên giá trị cũ.
+- Validate: `Full Name` bắt buộc 2–255 · `Email` bắt buộc, đúng format, ≤255, không trùng trong file · `Role Code` phải tồn tại trong Org · `Status` ∈ EmployeeStatus · `Salary >= 0`, ≤ DECIMAL(15,2), ≤2 số lẻ · `Date Of Birth` = `YYYY-MM-DD` hoặc cell Date (chặn ngày không tồn tại như `2024-02-31`) · `Phone` khớp `^[0-9+\-\s]{8,20}$`.
+- **Multi-tenant:** email thuộc Organization khác / tài khoản đã soft-delete / tài khoản không có hồ sơ Employee → lỗi `Email already exists`, tuyệt đối không đọc-ghi dữ liệu Org khác.
+
+### 8bis.4. Kết quả import — `EmployeeImportResultDto`
+
+`total, created, updated, skipped, failed, errors[], durationMs, errorFile (base64 .xlsx | null), errorFileName`.
+Khi có lỗi, `errorFile` chứa sheet `Employees` gồm cột `Row` + **cột gốc của file upload** + cột `Error` (gộp mọi lỗi của dòng, ngăn bằng ` | `) — FE tải trực tiếp, không phải upload lại.
+
+### 8bis.5. Frontend
+
+`features/employees/components/employee-import-export-bar.tsx` (trong `RequireAdmin`): **Export Excel** (gửi kèm filter đang áp dụng) · **Download Template** · **Import Excel**.
+Dialog import dùng lại `features/import-export/components/import-dialog.tsx`: drag & drop, progress upload, loading, success/error, bảng lỗi + nút tải file lỗi `.xlsx`, thống kê `Tổng dòng / Insert / Update / Skip / Lỗi` + thời gian xử lý. Import xong → `invalidateQueries(['employees'])` để reload danh sách.
 
 ---
 

@@ -11,7 +11,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { formatDate } from '@/lib/format';
+import { formatDate, formatUSD } from '@/lib/format';
 import { AccountStatusBadge } from './account-status-badge';
 import type { AccountListItem } from '../types';
 
@@ -50,6 +50,9 @@ export function AccountTable({ accounts, loading, onDelete }: AccountTableProps)
           <TableHead>Ngày cấp</TableHead>
           <TableHead>Ngày die</TableHead>
           <TableHead>Tuổi thọ</TableHead>
+          <TableHead className="whitespace-nowrap text-right">Hold</TableHead>
+          <TableHead className="whitespace-nowrap text-right">Net</TableHead>
+          <TableHead className="whitespace-nowrap text-right">Paid</TableHead>
           <TableHead className="text-right">Thao tác</TableHead>
         </TableRow>
       </TableHeader>
@@ -75,6 +78,15 @@ export function AccountTable({ accounts, loading, onDelete }: AccountTableProps)
             </TableCell>
             <TableCell className="text-muted-foreground">
               {a.lifespanDays != null ? `${a.lifespanDays} ngày` : '—'}
+            </TableCell>
+            <TableCell className="whitespace-nowrap text-right tabular-nums">
+              {formatUSD(a.holdAmount)}
+            </TableCell>
+            <TableCell className="whitespace-nowrap text-right tabular-nums">
+              {formatUSD(a.netAmount)}
+            </TableCell>
+            <TableCell className="whitespace-nowrap text-right tabular-nums">
+              {formatUSD(a.paidAmount)}
             </TableCell>
             <TableCell>
               <div className="flex items-center justify-end gap-1">

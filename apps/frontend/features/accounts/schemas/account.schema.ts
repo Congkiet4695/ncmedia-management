@@ -15,6 +15,22 @@ const optionalDate = z
   .regex(/^\d{4}-\d{2}-\d{2}$/, 'Ngày không hợp lệ')
   .or(z.literal(''));
 
+/** Giới hạn theo DECIMAL(15,2) của DB (khớp ACCOUNT_AMOUNT_MAX backend). */
+export const ACCOUNT_AMOUNT_MAX = 9_999_999_999_999;
+
+/**
+ * Ô nhập tiền (USD): để trống = 0. Chỉ nhận số **không âm**, tối đa 2 chữ số thập phân.
+ * Dấu `-` bị regex chặn nên không thể nhập số âm.
+ */
+const optionalAmount = z
+  .string()
+  .refine((v) => v === '' || /^\d+(\.\d{1,2})?$/.test(v), {
+    message: 'Số tiền phải >= 0, tối đa 2 chữ số thập phân',
+  })
+  .refine((v) => v === '' || Number(v) <= ACCOUNT_AMOUNT_MAX, {
+    message: 'Số tiền vượt quá giới hạn cho phép',
+  });
+
 /** Form Account (khớp Create/UpdateAccountDto backend). Không gồm credentials. */
 export const accountFormSchema = z.object({
   name: z.string().trim().min(1, 'Vui lòng nhập tên').max(255, 'Tối đa 255 ký tự'),
@@ -28,6 +44,9 @@ export const accountFormSchema = z.object({
   diedAt: optionalDate,
   moneyReturnedAt: optionalDate,
   dieReason: z.string().max(2000).or(z.literal('')),
+  holdAmount: optionalAmount,
+  netAmount: optionalAmount,
+  paidAmount: optionalAmount,
   proxy: z.string().max(255).or(z.literal('')),
   docsUrl: z.string().max(1024).or(z.literal('')),
   note: z.string().max(2000).or(z.literal('')),

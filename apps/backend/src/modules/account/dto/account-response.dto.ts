@@ -28,6 +28,9 @@ export class AccountResponseDto {
   @ApiProperty({ nullable: true, type: String }) dieReason!: string | null;
   @ApiProperty({ nullable: true, type: Number, description: 'Tuổi thọ (ngày) — derived' })
   lifespanDays!: number | null;
+  @ApiProperty({ example: 0, description: 'Hold — số dư sàn đang giữ (USD)' }) holdAmount!: number;
+  @ApiProperty({ example: 0, description: 'Net — số dư thực nhận (USD)' }) netAmount!: number;
+  @ApiProperty({ example: 0, description: 'Paid — đã thanh toán/đã rút (USD)' }) paidAmount!: number;
   @ApiProperty({ nullable: true, type: String }) proxy!: string | null;
   @ApiProperty({ nullable: true, type: String }) docsUrl!: string | null;
   @ApiProperty({ nullable: true, type: String }) note!: string | null;
@@ -47,6 +50,9 @@ export class AccountListItemDto {
   @ApiProperty({ nullable: true, type: String }) issuedAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) diedAt!: string | null;
   @ApiProperty({ nullable: true, type: Number }) lifespanDays!: number | null;
+  @ApiProperty({ example: 0, description: 'Hold (USD)' }) holdAmount!: number;
+  @ApiProperty({ example: 0, description: 'Net (USD)' }) netAmount!: number;
+  @ApiProperty({ example: 0, description: 'Paid (USD)' }) paidAmount!: number;
   @ApiProperty() hasCredentials!: boolean;
   @ApiProperty() createdAt!: string;
 }

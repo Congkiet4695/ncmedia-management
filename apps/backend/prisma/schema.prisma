@@ -423,6 +423,13 @@ model Account {
   moneyReturnedAt DateTime? @map("money_returned_at") @db.Date
   dieReason       String?   @map("die_reason") @db.Text
 
+  /// Số dư đang bị sàn giữ (Hold) — USD. Mặc định 0, không âm (CHECK ở migration).
+  holdAmount Decimal @default(0) @map("hold_amount") @db.Decimal(15, 2)
+  /// Số dư thực nhận (Net) — USD. Mặc định 0, không âm (CHECK ở migration).
+  netAmount  Decimal @default(0) @map("net_amount") @db.Decimal(15, 2)
+  /// Số tiền đã thanh toán/đã rút (Paid) — USD. Mặc định 0, không âm (CHECK ở migration).
+  paidAmount Decimal @default(0) @map("paid_amount") @db.Decimal(15, 2)
+
   // Không nhạy cảm
   proxy   String? @db.VarChar(255)
   docsUrl String? @map("docs_url") @db.VarChar(1024)

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
+import { useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -11,6 +12,7 @@ import { getApiErrorMessage } from '@/utils/http';
 import { DeleteDialog } from '@/features/employees/components/delete-dialog';
 import { EmployeeDialog } from '@/features/employees/components/employee-dialog';
 import { EmployeeFilter } from '@/features/employees/components/employee-filter';
+import { EmployeeImportExportBar } from '@/features/employees/components/employee-import-export-bar';
 import { EmployeeTable } from '@/features/employees/components/employee-table';
 import { RequireAdmin } from '@/features/employees/components/require-admin';
 import {
@@ -42,6 +44,7 @@ function EmployeesView() {
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<EmployeeListItem | null>(null);
 
+  const queryClient = useQueryClient();
   const employeesQuery = useEmployees(query);
   const deleteMutation = useDeleteEmployee();
 
@@ -78,12 +81,18 @@ function EmployeesView() {
           <h1 className="text-2xl font-bold tracking-tight">Nhân viên</h1>
           <p className="text-sm text-muted-foreground">Quản lý nhân viên trong tổ chức của bạn.</p>
         </div>
-        <Button asChild>
-          <Link href="/dashboard/employees/create">
-            <Plus className="size-4" />
-            Thêm nhân viên
-          </Link>
-        </Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <EmployeeImportExportBar
+            query={query}
+            onImported={() => queryClient.invalidateQueries({ queryKey: ['employees'] })}
+          />
+          <Button asChild>
+            <Link href="/dashboard/employees/create">
+              <Plus className="size-4" />
+              Thêm nhân viên
+            </Link>
+          </Button>
+        </div>
       </div>
 
       <Card>

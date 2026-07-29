@@ -7,7 +7,7 @@ import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import { cn } from '@/lib/utils';
 import { getApiErrorMessage } from '@/utils/http';
-import { downloadErrorCsv, uploadXlsx } from '../service';
+import { downloadBase64Xlsx, downloadErrorCsv, uploadXlsx } from '../service';
 import type { ImportResult } from '../types';
 
 interface ImportDialogProps {
@@ -65,7 +65,7 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
       const res = await uploadXlsx(path, file, setProgress);
       setResult(res);
       if (res.failed === 0) {
-        toast.success('Import hoàn tất', {
+        toast.success('Import thành công', {
           description: `Tạo mới ${res.created} · Cập nhật ${res.updated} · Bỏ qua ${res.skipped}`,
         });
         onImported?.();
@@ -174,12 +174,18 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
               {succeeded ? 'Import thành công' : 'Import thất bại — đã rollback toàn bộ'}
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-              <Stat label="Tổng" value={result.total} />
-              <Stat label="Tạo mới" value={result.created} tone="success" />
-              <Stat label="Cập nhật" value={result.updated} tone="success" />
-              <Stat label="Bỏ qua" value={result.skipped} tone="muted" />
+              <Stat label="Tổng dòng" value={result.total} />
+              <Stat label="Insert" value={result.created} tone="success" />
+              <Stat label="Update" value={result.updated} tone="success" />
+              <Stat label="Skip" value={result.skipped} tone="muted" />
               <Stat label="Lỗi" value={result.failed} tone={result.failed ? 'danger' : 'muted'} />
             </div>
+
+            {result.durationMs !== undefined && (
+              <p className="text-xs text-muted-foreground">
+                Thời gian xử lý: {formatDuration(result.durationMs)}
+              </p>
+            )}
 
             {result.errors.length > 0 && (
               <div className="space-y-2">
@@ -187,13 +193,28 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
                   <span className="text-xs font-medium text-muted-foreground">
                     Danh sách lỗi ({result.errors.length})
                   </span>
-                  <Button
-                    size="sm"
-                    variant="outline"
-                    onClick={() => downloadErrorCsv(result.errors, 'import-errors.csv')}
-                  >
-                    Tải file lỗi (.csv)
-                  </Button>
+                  {result.errorFile ? (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() =>
+                        downloadBase64Xlsx(
+                          result.errorFile as string,
+                          result.errorFileName ?? 'import-errors.xlsx',
+                        )
+                      }
+                    >
+                      Tải file lỗi (.xlsx)
+                    </Button>
+                  ) : (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      onClick={() => downloadErrorCsv(result.errors, 'import-errors.csv')}
+                    >
+                      Tải file lỗi (.csv)
+                    </Button>
+                  )}
                 </div>
                 <div className="max-h-52 overflow-y-auto rounded-md border">
                   <table className="w-full text-xs">
@@ -242,6 +263,11 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
       </div>
     </Modal>
   );
+}
+
+/** 1234 → "1.23 giây"; < 1s giữ nguyên mili giây. */
+function formatDuration(ms: number): string {
+  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(2)} giây`;
 }
 
 function Stat({ label, value, tone }: { label: string; value: number; tone?: 'success' | 'danger' | 'muted' }) {

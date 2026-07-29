@@ -29,6 +29,10 @@ export interface Account {
   moneyReturnedAt: string | null;
   dieReason: string | null;
   lifespanDays: number | null;
+  /** Hold / Net / Paid (USD) — luôn có giá trị, mặc định 0. */
+  holdAmount: number;
+  netAmount: number;
+  paidAmount: number;
   proxy: string | null;
   docsUrl: string | null;
   note: string | null;
@@ -47,6 +51,9 @@ export interface AccountListItem {
   issuedAt: string | null;
   diedAt: string | null;
   lifespanDays: number | null;
+  holdAmount: number;
+  netAmount: number;
+  paidAmount: number;
   hasCredentials: boolean;
   createdAt: string;
 }
@@ -119,6 +126,9 @@ export interface CreateAccountPayload {
   diedAt?: string;
   moneyReturnedAt?: string;
   dieReason?: string;
+  holdAmount?: number;
+  netAmount?: number;
+  paidAmount?: number;
   proxy?: string;
   docsUrl?: string;
   note?: string;

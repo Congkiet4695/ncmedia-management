@@ -121,6 +121,58 @@ export function readSheet(ws: ExcelJS.Worksheet): ParsedSheet {
   return { headers, rows, rowNumbers };
 }
 
+/**
+ * Chuẩn hoá tên cột để SO KHỚP.
+ * (Chỉ dùng khi so khớp — việc ĐỌC dữ liệu vẫn theo đúng header gốc của file.)
+ *
+ * Xử lý các biến dạng thường gặp sau khi file đi qua Excel / Google Sheets / copy-paste:
+ * - `NFKC`: quy các ký tự tương đương về dạng chuẩn (NBSP → space, ký tự full-width → ASCII…).
+ * - Bỏ BOM (U+FEFF) và ký tự zero-width (U+200B–U+200D, U+2060).
+ * - Bỏ dấu `*` (ký hiệu "bắt buộc" của template), dù dính liền hay tách rời.
+ * - Mọi khoảng trắng — NBSP, tab, xuống dòng, space lặp — về đúng 1 space; trim; lowercase.
+ *
+ * Nhờ vậy `Full Name *`, `Full Name`, `FULL NAME`, `Full  Name*` và các biến thể dùng
+ * NBSP / xuống dòng / zero-width đều quy về cùng một khoá `full name`.
+ */
+export function normalizeHeader(raw: string): string {
+  return raw
+    .normalize('NFKC')
+    .replace(/[\uFEFF\u200B-\u200D\u2060]/g, '') // BOM + zero-width
+    .replace(/\*+/g, ' ')
+    .replace(/[\s\u00A0]+/g, ' ') // NBSP/tab/newline/space lap -> 1 space
+    .trim()
+    .toLowerCase();
+}
+
+/**
+ * Đọc ô ngày: chấp nhận `YYYY-MM-DD` hoặc ô Date của Excel (cellToString trả ISO đầy đủ).
+ * Trả `null` nếu sai định dạng hoặc ngày không tồn tại trên lịch (VD 2024-02-31).
+ */
+export function parseDateCell(value: string): Date | null {
+  const ymd = /^\d{4}-\d{2}-\d{2}$/.test(value)
+    ? value
+    : /^(\d{4}-\d{2}-\d{2})T/.exec(value)?.[1];
+  if (!ymd) return null;
+  const date = new Date(`${ymd}T00:00:00.000Z`);
+  if (Number.isNaN(date.getTime()) || date.toISOString().slice(0, 10) !== ymd) return null;
+  return date;
+}
+
+/**
+ * Đọc ô số thập phân (tiền tệ): chấp nhận `1000.5` và `1,000.50` (dấu phẩy hàng nghìn).
+ * Trả `null` nếu không phải số hợp lệ hoặc vượt quá `maxDecimals` chữ số thập phân.
+ * **Cho phép số âm** — việc chặn giá trị âm do nghiệp vụ quyết định (để phân biệt
+ * lỗi "không phải số" với lỗi "phải >= 0").
+ */
+export function parseDecimalCell(value: string, maxDecimals = 2): number | null {
+  const cleaned = /^\d{1,3}(,\d{3})+(\.\d+)?$/.test(value) ? value.replace(/,/g, '') : value;
+  if (!/^-?\d+(\.\d+)?$/.test(cleaned)) return null;
+  const decimals = cleaned.split('.')[1];
+  if (decimals && decimals.length > maxDecimals) return null;
+  const num = Number(cleaned);
+  return Number.isFinite(num) ? num : null;
+}
+
 /** Kiểm tra header thiếu so với danh sách bắt buộc. Trả về danh sách cột thiếu. */
 export function missingHeaders(actual: string[], required: string[]): string[] {
   const set = new Set(actual.map((h) => h.trim().toLowerCase()));

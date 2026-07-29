@@ -4,10 +4,34 @@ import type { ImportResult, ImportRowError } from './types';
 
 const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
-/** Tải file (blob) từ 1 endpoint export → lưu về máy. */
-export async function downloadXlsx(path: string, filename: string): Promise<void> {
-  const res = await apiClient.get<Blob>(path, { responseType: 'blob' });
-  triggerDownload(new Blob([res.data], { type: XLSX_MIME }), filename);
+/**
+ * Tải file (blob) từ 1 endpoint export → lưu về máy.
+ * Ưu tiên tên file do server đặt ở `Content-Disposition` (VD employees_YYYYMMDD_HHmmss.xlsx),
+ * `filename` chỉ là phương án dự phòng. `params` để truyền filter hiện tại của màn hình.
+ */
+export async function downloadXlsx(
+  path: string,
+  filename: string,
+  params?: Record<string, unknown>,
+): Promise<void> {
+  const res = await apiClient.get<Blob>(path, { responseType: 'blob', params });
+  const fromHeader = parseContentDispositionFilename(res.headers['content-disposition']);
+  triggerDownload(new Blob([res.data], { type: XLSX_MIME }), fromHeader ?? filename);
+}
+
+/** Tải file .xlsx được server trả kèm response JSON dưới dạng base64 (VD file lỗi import). */
+export function downloadBase64Xlsx(base64: string, filename: string): void {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  triggerDownload(new Blob([bytes], { type: XLSX_MIME }), filename);
+}
+
+/** `attachment; filename="abc.xlsx"` → `abc.xlsx`. */
+function parseContentDispositionFilename(header: unknown): string | null {
+  if (typeof header !== 'string') return null;
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(header);
+  return match ? decodeURIComponent(match[1].trim()) : null;
 }
 
 /** Upload 1 file .xlsx tới endpoint import → trả ImportResult. */

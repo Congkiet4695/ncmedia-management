@@ -117,7 +117,10 @@ export class AccountController {
 
   @Get('export/example')
   @RequirePermissions('account.export')
-  @ApiOperation({ summary: 'Tải file Excel mẫu để Import Account (Admin)' })
+  @ApiOperation({
+    summary: 'Tải file Excel mẫu để Import Account (Admin)',
+    description: 'Gồm đầy đủ cột nghiệp vụ của Account (kể cả Hold/Net/Paid Amount) + sheet Instructions.',
+  })
   @ApiOkResponse({ description: 'File .xlsx' })
   async exportExample(): Promise<StreamableFile> {
     return xlsxFile(await this.excel.buildExample(), 'account-import-template.xlsx');
@@ -125,7 +128,10 @@ export class AccountController {
 
   @Get('export')
   @RequirePermissions('account.export')
-  @ApiOperation({ summary: 'Export toàn bộ Account ra Excel (kèm ID) (Admin)' })
+  @ApiOperation({
+    summary: 'Export toàn bộ Account ra Excel (kèm ID) (Admin)',
+    description: 'Xuất đầy đủ cột nghiệp vụ: vòng đời, Hold/Net/Paid Amount, ghi chú, thời gian audit.',
+  })
   @ApiOkResponse({ description: 'File .xlsx' })
   async exportAll(@CurrentUser() user: AuthenticatedUser): Promise<StreamableFile> {
     return xlsxFile(await this.excel.exportAll(user.organizationId), 'accounts-export.xlsx');
@@ -137,7 +143,12 @@ export class AccountController {
   @UseInterceptors(FileInterceptor('file', xlsxUploadOptions))
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
-  @ApiOperation({ summary: 'Import Account từ Excel — tạo mới, bỏ qua trùng (Admin)' })
+  @ApiOperation({
+    summary: 'Import Account từ Excel — tạo mới hoặc cập nhật theo (Account Name + Platform) (Admin)',
+    description:
+      'Validate toàn bộ file trước khi ghi; chỉ cần 1 dòng lỗi → không ghi dòng nào (rollback toàn bộ). ' +
+      'Account chưa tồn tại → tạo mới; đã tồn tại → cập nhật. Ô trống = giữ nguyên giá trị hiện tại.',
+  })
   @ApiOkResponse({ type: ImportResultDto })
   importCreate(
     @CurrentUser() user: AuthenticatedUser,

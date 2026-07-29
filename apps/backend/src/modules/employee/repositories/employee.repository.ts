@@ -4,6 +4,24 @@ import { PrismaService } from '../../../database/prisma.service';
 import { EmployeeSortField } from '../constants/employee.constants';
 import { EMPLOYEE_INCLUDE, EmployeeWithRelations } from '../types/employee-with-relations.type';
 
+/** Kết quả tra cứu User theo email khi Import (đủ field để so sánh thay đổi). */
+export interface EmployeeUserLookup {
+  id: string;
+  email: string;
+  organizationId: string;
+  deletedAt: Date | null;
+  fullName: string;
+  roleId: string;
+  employee: {
+    id: string;
+    deletedAt: Date | null;
+    phone: string | null;
+    dateOfBirth: Date | null;
+    salary: Prisma.Decimal;
+    status: EmployeeStatus;
+  } | null;
+}
+
 /** Trường hồ sơ nhân sự (dùng chung create/update). Date-only đã convert sang Date. */
 interface EmployeeProfileData {
   larkAccount?: string | null;
@@ -44,10 +62,8 @@ export interface UpdateEmployeeData extends EmployeeProfileData {
   userStatus?: UserStatus;
 }
 
-/** Tham số lọc/sắp xếp/phân trang danh sách. */
-export interface FindManyParams {
-  page: number;
-  limit: number;
+/** Tham số lọc/sắp xếp danh sách (dùng chung cho list có phân trang và export). */
+export interface EmployeeFilterParams {
   fullname?: string;
   email?: string;
   status?: EmployeeStatus;
@@ -57,6 +73,12 @@ export interface FindManyParams {
   search?: string;
   sortBy: EmployeeSortField;
   sortOrder: 'asc' | 'desc';
+}
+
+/** Tham số lọc/sắp xếp/phân trang danh sách. */
+export interface FindManyParams extends EmployeeFilterParams {
+  page: number;
+  limit: number;
 }
 
 /**
@@ -87,6 +109,44 @@ export class EmployeeRepository {
 
   findRoleByCode(organizationId: string, code: string): Promise<Role | null> {
     return this.prisma.role.findFirst({ where: { organizationId, code, deletedAt: null } });
+  }
+
+  /** Toàn bộ Role của Organization (dùng cho Import Excel + sheet hướng dẫn Template). */
+  findRolesInOrg(organizationId: string): Promise<Role[]> {
+    return this.prisma.role.findMany({
+      where: { organizationId, deletedAt: null },
+      orderBy: { code: 'asc' },
+    });
+  }
+
+  /**
+   * Tra cứu User theo danh sách email khi Import.
+   * email là UNIQUE **GLOBAL** (Decision-001) nên phải tra toàn bảng — kể cả bản ghi
+   * của Organization khác / đã soft-delete — để phân loại: cập nhật hay báo lỗi trùng.
+   * KHÔNG dùng cho việc đọc dữ liệu nghiệp vụ xuyên tenant.
+   */
+  findUsersByEmails(emails: string[]): Promise<EmployeeUserLookup[]> {
+    return this.prisma.user.findMany({
+      where: { email: { in: emails } },
+      select: {
+        id: true,
+        email: true,
+        organizationId: true,
+        deletedAt: true,
+        fullName: true,
+        roleId: true,
+        employee: {
+          select: {
+            id: true,
+            deletedAt: true,
+            phone: true,
+            dateOfBirth: true,
+            salary: true,
+            status: true,
+          },
+        },
+      },
+    });
   }
 
   findById(organizationId: string, id: string): Promise<EmployeeWithRelations | null> {
@@ -216,8 +276,44 @@ export class EmployeeRepository {
     organizationId: string,
     params: FindManyParams,
   ): Promise<{ items: EmployeeWithRelations[]; total: number }> {
+    const where = this.buildWhere(organizationId, params);
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.employee.findMany({
+        where,
+        include: EMPLOYEE_INCLUDE,
+        orderBy: this.buildOrderBy(params.sortBy, params.sortOrder),
+        skip: (params.page - 1) * params.limit,
+        take: params.limit,
+      }),
+      this.prisma.employee.count({ where }),
+    ]);
+
+    return { items, total };
+  }
+
+  /**
+   * Lấy TOÀN BỘ Employee khớp filter (không phân trang) — dùng cho Export Excel.
+   * Vẫn nhận `organizationId` nên không bao giờ lộ dữ liệu Organization khác (ADR-004).
+   */
+  findAllForExport(
+    organizationId: string,
+    params: EmployeeFilterParams,
+  ): Promise<EmployeeWithRelations[]> {
+    return this.prisma.employee.findMany({
+      where: this.buildWhere(organizationId, params),
+      include: EMPLOYEE_INCLUDE,
+      orderBy: this.buildOrderBy(params.sortBy, params.sortOrder),
+    });
+  }
+
+  /** Điều kiện lọc dùng chung cho list và export (tránh lệch kết quả giữa 2 luồng). */
+  private buildWhere(
+    organizationId: string,
+    params: EmployeeFilterParams,
+  ): Prisma.EmployeeWhereInput {
     const userFilter = this.buildUserFilter(params);
-    const where: Prisma.EmployeeWhereInput = {
+    return {
       organizationId,
       deletedAt: null,
       ...(params.status ? { status: params.status } : {}),
@@ -234,22 +330,9 @@ export class EmployeeRepository {
           }
         : {}),
     };
-
-    const [items, total] = await this.prisma.$transaction([
-      this.prisma.employee.findMany({
-        where,
-        include: EMPLOYEE_INCLUDE,
-        orderBy: this.buildOrderBy(params.sortBy, params.sortOrder),
-        skip: (params.page - 1) * params.limit,
-        take: params.limit,
-      }),
-      this.prisma.employee.count({ where }),
-    ]);
-
-    return { items, total };
   }
 
-  private buildUserFilter(params: FindManyParams): Prisma.UserWhereInput {
+  private buildUserFilter(params: EmployeeFilterParams): Prisma.UserWhereInput {
     const user: Prisma.UserWhereInput = {};
     if (params.roleId) user.roleId = params.roleId;
     if (params.fullname) user.fullName = { contains: params.fullname, mode: 'insensitive' };
