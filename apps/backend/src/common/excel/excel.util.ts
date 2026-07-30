@@ -158,6 +158,59 @@ export function parseDateCell(value: string): Date | null {
   return date;
 }
 
+/** Excel serial 1 = 1900-01-01 → epoch 1899-12-30 UTC (bù lỗi năm nhuận 1900 của Excel). */
+const EXCEL_EPOCH_MS = Date.UTC(1899, 11, 30);
+const EXCEL_SERIAL_MIN = 1;
+/** 2958465 = 9999-12-31 — chặn số vô nghĩa bị hiểu thành ngày. */
+const EXCEL_SERIAL_MAX = 2_958_465;
+
+/**
+ * Đọc ô ngày **linh hoạt** — dùng cho cột do người dùng nhập tay nhiều định dạng.
+ * Chấp nhận (theo thứ tự ưu tiên):
+ * 1. ISO `YYYY-MM-DD` hoặc ISO datetime đầy đủ (cũng là dạng ô Date của Excel đọc ra).
+ * 2. `dd/MM/yyyy` (chuẩn hiển thị của dự án) — **ngày trước tháng**, có thể dùng `-` hoặc `.`.
+ * 3. **Excel Date Serial** (số nguyên/thập phân, VD `45000`) — khi ô để định dạng General.
+ *
+ * Trả `null` nếu không nhận dạng được hoặc ngày không tồn tại trên lịch (VD 31/02/2026).
+ * Giữ nguyên phần giờ nếu đầu vào có giờ (ISO datetime / serial thập phân).
+ */
+export function parseFlexibleDateCell(value: string): Date | null {
+  const raw = value.trim();
+  if (!raw) return null;
+
+  // 1a. ISO datetime đầy đủ — xử lý TRƯỚC parseDateCell để **giữ nguyên phần giờ**
+  // (parseDateCell chủ đích cắt về 00:00 cho cột @db.Date, sẽ làm mất giờ ở cột timestamp).
+  if (/^\d{4}-\d{2}-\d{2}T/.test(raw)) {
+    const dt = new Date(raw);
+    return Number.isNaN(dt.getTime()) ? null : dt;
+  }
+  // 1b. ISO date-only
+  const isoDate = parseDateCell(raw);
+  if (isoDate) return isoDate;
+
+  // 2. dd/MM/yyyy (hoặc dd-MM-yyyy, dd.MM.yyyy)
+  const dmy = /^(\d{1,2})[/\-.](\d{1,2})[/\-.](\d{4})$/.exec(raw);
+  if (dmy) {
+    const [, d, m, y] = dmy;
+    const date = new Date(Date.UTC(Number(y), Number(m) - 1, Number(d)));
+    const valid =
+      date.getUTCFullYear() === Number(y) &&
+      date.getUTCMonth() === Number(m) - 1 &&
+      date.getUTCDate() === Number(d);
+    return valid ? date : null;
+  }
+
+  // 3. Excel Date Serial
+  if (/^\d+(\.\d+)?$/.test(raw)) {
+    const serial = Number(raw);
+    if (serial < EXCEL_SERIAL_MIN || serial > EXCEL_SERIAL_MAX) return null;
+    const date = new Date(EXCEL_EPOCH_MS + Math.round(serial * 86_400_000));
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  return null;
+}
+
 /**
  * Đọc ô số thập phân (tiền tệ): chấp nhận `1000.5` và `1,000.50` (dấu phẩy hàng nghìn).
  * Trả `null` nếu không phải số hợp lệ hoặc vượt quá `maxDecimals` chữ số thập phân.
