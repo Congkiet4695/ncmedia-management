@@ -1,45 +1,67 @@
 import { z } from 'zod';
+import type { TFunction } from 'i18next';
 
-const optionalDate = z
-  .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Ngày không hợp lệ')
-  .or(z.literal(''));
+/**
+ * Schema hồ sơ cá nhân — tạo qua hàm nhận `t` để thông báo lỗi theo ngôn ngữ đang chọn
+ * (cùng cách làm với `features/auth/schemas/auth.schema.ts`).
+ */
+type ValidationT = TFunction<'validation'>;
+
+const PASSWORD_MIN = 8;
+const PASSWORD_MAX = 72;
+const NAME_MIN = 2;
 
 /** Form thông tin cá nhân (khớp UpdateProfileDto backend). */
-export const profileFormSchema = z.object({
-  fullName: z.string().trim().min(2, 'Họ tên tối thiểu 2 ký tự').max(255, 'Tối đa 255 ký tự'),
-  phone: z
+export function createProfileFormSchema(t: ValidationT) {
+  const optionalDate = z
     .string()
-    .regex(/^[0-9+\-\s]{8,20}$/, 'Số điện thoại không hợp lệ')
-    .or(z.literal('')),
-  dateOfBirth: optionalDate,
-  address: z.string().max(500, 'Tối đa 500 ký tự').or(z.literal('')),
-  avatar: z.string().max(1024, 'Tối đa 1024 ký tự').or(z.literal('')),
-  larkAccount: z.string().max(255, 'Tối đa 255 ký tự').or(z.literal('')),
-  bankAccount: z.string().max(100, 'Tối đa 100 ký tự').or(z.literal('')),
-  bankQrUrl: z.string().max(1024, 'Tối đa 1024 ký tự').or(z.literal('')),
-});
+    .regex(/^\d{4}-\d{2}-\d{2}$/, t('invalidDate'))
+    .or(z.literal(''));
 
-export type ProfileFormInput = z.infer<typeof profileFormSchema>;
+  const max = (limit: number) =>
+    z.string().max(limit, t('maxLength', { count: limit })).or(z.literal(''));
+
+  return z.object({
+    fullName: z
+      .string()
+      .trim()
+      .min(NAME_MIN, t('minLength', { count: NAME_MIN }))
+      .max(255, t('maxLength', { count: 255 })),
+    phone: z
+      .string()
+      .regex(/^[0-9+\-\s]{8,20}$/, t('phone'))
+      .or(z.literal('')),
+    dateOfBirth: optionalDate,
+    address: max(500),
+    avatar: max(1024),
+    larkAccount: max(255),
+    bankAccount: max(100),
+    bankQrUrl: max(1024),
+  });
+}
+
+export type ProfileFormInput = z.infer<ReturnType<typeof createProfileFormSchema>>;
 
 /** Form đổi mật khẩu (Decision-002: ≥8, có chữ + số). */
-export const changePasswordSchema = z
-  .object({
-    currentPassword: z.string().min(1, 'Vui lòng nhập mật khẩu hiện tại'),
-    newPassword: z
-      .string()
-      .min(8, 'Mật khẩu tối thiểu 8 ký tự')
-      .max(72, 'Mật khẩu tối đa 72 ký tự')
-      .regex(/^(?=.*[A-Za-z])(?=.*\d).+$/, 'Mật khẩu phải có ít nhất 1 chữ và 1 số'),
-    confirmPassword: z.string().min(1, 'Vui lòng nhập lại mật khẩu mới'),
-  })
-  .refine((d) => d.newPassword === d.confirmPassword, {
-    message: 'Xác nhận mật khẩu không khớp',
-    path: ['confirmPassword'],
-  })
-  .refine((d) => d.newPassword !== d.currentPassword, {
-    message: 'Mật khẩu mới phải khác mật khẩu hiện tại',
-    path: ['newPassword'],
-  });
+export function createChangePasswordSchema(t: ValidationT) {
+  return z
+    .object({
+      currentPassword: z.string().min(1, t('required')),
+      newPassword: z
+        .string()
+        .min(PASSWORD_MIN, t('passwordTooShort', { count: PASSWORD_MIN }))
+        .max(PASSWORD_MAX, t('maxLength', { count: PASSWORD_MAX }))
+        .regex(/^(?=.*[A-Za-z])(?=.*\d).+$/, t('passwordWeak')),
+      confirmPassword: z.string().min(1, t('required')),
+    })
+    .refine((d) => d.newPassword === d.confirmPassword, {
+      message: t('passwordMismatch'),
+      path: ['confirmPassword'],
+    })
+    .refine((d) => d.newPassword !== d.currentPassword, {
+      message: t('passwordSameAsCurrent'),
+      path: ['newPassword'],
+    });
+}
 
-export type ChangePasswordFormInput = z.infer<typeof changePasswordSchema>;
+export type ChangePasswordFormInput = z.infer<ReturnType<typeof createChangePasswordSchema>>;

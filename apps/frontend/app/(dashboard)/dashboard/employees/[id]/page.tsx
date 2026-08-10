@@ -5,9 +5,10 @@ import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { ArrowLeft, KeyRound, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { getApiErrorMessage } from '@/utils/http';
+import { useApiError } from '@/hooks/use-api-error';
 import { CredentialsDialog } from '@/features/employees/components/credentials-dialog';
 import { EmployeeForm } from '@/features/employees/components/employee-form';
 import { EmployeeStatusBadge } from '@/features/employees/components/employee-status-badge';
@@ -30,6 +31,8 @@ export default function EditEmployeePage() {
 }
 
 function EditEmployeeView() {
+  const { t } = useTranslation(['employee', 'common']);
+  const translateApiError = useApiError();
   const params = useParams<{ id: string }>();
   const id = params.id;
   const router = useRouter();
@@ -52,12 +55,12 @@ function EditEmployeeView() {
     return (
       <div className="mx-auto max-w-3xl space-y-4">
         <p className="text-sm text-destructive">
-          {getApiErrorMessage(employeeQuery.error, 'Không tìm thấy nhân viên')}
+          {translateApiError(employeeQuery.error)}
         </p>
         <Button asChild variant="outline" size="sm">
           <Link href="/dashboard/employees">
             <ArrowLeft className="size-4" />
-            Quay lại danh sách
+            {t('backToList')}
           </Link>
         </Button>
       </div>
@@ -90,10 +93,10 @@ function EditEmployeeView() {
   const onSubmit = async (values: EmployeeFormInput) => {
     try {
       await updateMutation.mutateAsync({ id, payload: toUpdatePayload(values) });
-      toast.success('Cập nhật thành công', { description: values.fullName });
+      toast.success(t('updateSuccess'), { description: values.fullName });
       router.push('/dashboard/employees');
     } catch (error) {
-      toast.error('Cập nhật thất bại', { description: getApiErrorMessage(error) });
+      toast.error(t('updateFailed'), { description: translateApiError(error) });
     }
   };
 
@@ -102,7 +105,7 @@ function EditEmployeeView() {
       const result = await resetMutation.mutateAsync(id);
       setNewPassword(result.newPassword);
     } catch (error) {
-      toast.error('Reset mật khẩu thất bại', { description: getApiErrorMessage(error) });
+      toast.error(t('resetPasswordFailed'), { description: translateApiError(error) });
     }
   };
 
@@ -111,14 +114,14 @@ function EditEmployeeView() {
       <Button asChild variant="ghost" size="sm">
         <Link href="/dashboard/employees">
           <ArrowLeft className="size-4" />
-          Quay lại danh sách
+          {t('backToList')}
         </Link>
       </Button>
 
       <Card>
         <CardHeader>
-          <CardTitle>Thông tin đăng nhập</CardTitle>
-          <CardDescription>Tài khoản đăng nhập của nhân viên.</CardDescription>
+          <CardTitle>{t('loginInfo')}</CardTitle>
+          <CardDescription>{t('loginInfoHint')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <dl className="grid gap-3 text-sm sm:grid-cols-3">
@@ -127,11 +130,11 @@ function EditEmployeeView() {
               <dd className="break-words font-medium">{employee.email}</dd>
             </div>
             <div className="space-y-0.5">
-              <dt className="text-xs text-muted-foreground">Vai trò</dt>
+              <dt className="text-xs text-muted-foreground">{t('field.role')}</dt>
               <dd className="font-medium">{employee.role.name}</dd>
             </div>
             <div className="space-y-0.5">
-              <dt className="text-xs text-muted-foreground">Trạng thái</dt>
+              <dt className="text-xs text-muted-foreground">{t('field.status')}</dt>
               <dd>
                 <EmployeeStatusBadge status={employee.status} />
               </dd>
@@ -155,7 +158,7 @@ function EditEmployeeView() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Chỉnh sửa nhân viên</CardTitle>
+          <CardTitle>{t('edit')}</CardTitle>
           <CardDescription>{employee.email}</CardDescription>
         </CardHeader>
         <CardContent>
@@ -171,8 +174,8 @@ function EditEmployeeView() {
 
       <CredentialsDialog
         open={Boolean(newPassword)}
-        title="Mật khẩu mới"
-        description="Mật khẩu mới của nhân viên (hiển thị một lần):"
+        title={t('newPassword')}
+        description={t('newPasswordHint')}
         password={newPassword ?? ''}
         onClose={() => setNewPassword(null)}
       />

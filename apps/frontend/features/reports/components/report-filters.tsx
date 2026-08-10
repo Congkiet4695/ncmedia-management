@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslation } from 'react-i18next';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { NativeSelect } from '@/components/ui/native-select';
@@ -22,15 +23,16 @@ export function MetricSelect({
   onChange: (v: ReportMetric) => void;
   id?: string;
 }) {
+  const { t } = useTranslation('report');
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id} className="text-xs text-muted-foreground">
-        Theo
+        {t('metric.label')}
       </Label>
       <NativeSelect id={id} value={value} onChange={(e) => onChange(e.target.value as ReportMetric)}>
         {METRIC_OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>
-            {o.label}
+            {t(o.labelKey)}
           </option>
         ))}
       </NativeSelect>
@@ -48,15 +50,16 @@ export function GroupBySelect({
   onChange: (v: ReportGroupBy) => void;
   id?: string;
 }) {
+  const { t } = useTranslation('report');
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id} className="text-xs text-muted-foreground">
-        Gom nhóm
+        {t('groupBy.label')}
       </Label>
       <NativeSelect id={id} value={value} onChange={(e) => onChange(e.target.value as ReportGroupBy)}>
         {GROUP_BY_OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>
-            {o.label}
+            {t(o.labelKey)}
           </option>
         ))}
       </NativeSelect>
@@ -76,13 +79,14 @@ export function SellerSelect({
   sellers: { id: string; name: string }[];
   id?: string;
 }) {
+  const { t } = useTranslation('report');
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id} className="text-xs text-muted-foreground">
-        Seller
+        {t('seller')}
       </Label>
       <NativeSelect id={id} value={value} onChange={(e) => onChange(e.target.value)}>
-        <option value="">Tất cả nhân viên</option>
+        <option value="">{t('allEmployees')}</option>
         {sellers.map((s) => (
           <option key={s.id} value={s.id}>
             {s.name}
@@ -105,11 +109,12 @@ export function MonthSelect({
   onChange: (month: number, year: number) => void;
   id?: string;
 }) {
+  const { t } = useTranslation('report');
   const value = `${year}-${String(month).padStart(2, '0')}`;
   return (
     <div className="space-y-1.5">
       <Label htmlFor={id} className="text-xs text-muted-foreground">
-        Tháng
+        {t('month')}
       </Label>
       <Input
         id={id}
@@ -140,11 +145,12 @@ export function DateRangeFilter({
   onStartDate: (v?: string) => void;
   onEndDate: (v?: string) => void;
 }) {
+  const { t } = useTranslation(['report', 'common']);
   return (
     <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
       <div className="space-y-1.5 sm:w-44">
         <Label htmlFor="range" className="text-xs text-muted-foreground">
-          Khoảng thời gian
+          {t('quickRange.label')}
         </Label>
         <NativeSelect
           id="range"
@@ -153,14 +159,14 @@ export function DateRangeFilter({
         >
           {QUICK_RANGE_OPTIONS.map((o) => (
             <option key={o.value} value={o.value}>
-              {o.label}
+              {t(o.labelKey)}
             </option>
           ))}
         </NativeSelect>
       </div>
       <div className="space-y-1.5 sm:w-40">
         <Label htmlFor="range-from" className="text-xs text-muted-foreground">
-          Từ ngày
+          {t('common:date.from')}
         </Label>
         <Input
           id="range-from"
@@ -171,7 +177,7 @@ export function DateRangeFilter({
       </div>
       <div className="space-y-1.5 sm:w-40">
         <Label htmlFor="range-to" className="text-xs text-muted-foreground">
-          Đến ngày
+          {t('common:date.to')}
         </Label>
         <Input
           id="range-to"

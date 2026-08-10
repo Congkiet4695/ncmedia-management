@@ -3,21 +3,22 @@ import { ConfigService } from '@nestjs/config';
 import { createCipheriv, createDecipheriv, randomBytes } from 'node:crypto';
 
 /**
- * EncryptionService — mã hoá đối xứng AES-256-GCM cho secret Account (docs/account.md D-01).
+ * AesGcmCipher — mã hoá đối xứng AES-256-GCM dùng chung (DRY).
  *
- * - Khoá 32 byte lấy từ ENV `ACCOUNT_ENCRYPTION_KEY` (base64) — không hardcode (ADR-020).
- * - Ciphertext định dạng: `v1.<iv_b64>.<tag_b64>.<data_b64>` (có thể giải lại để đăng nhập).
- * - KHÔNG hash (cần lấy lại), KHÔNG lưu plaintext.
+ * - Khoá 32 byte (base64) truyền qua constructor — không hardcode (ADR-020).
+ * - Ciphertext định dạng: `v1.<iv_b64>.<tag_b64>.<data_b64>` (giải lại được khi cần dùng).
+ * - KHÔNG hash (cần lấy lại giá trị gốc), KHÔNG lưu plaintext.
+ *
+ * Mỗi miền dữ liệu dùng MỘT khoá riêng (key separation): lộ khoá của miền này
+ * không kéo theo lộ dữ liệu của miền khác.
  */
-@Injectable()
-export class EncryptionService {
+export abstract class AesGcmCipher {
   private readonly key: Buffer;
 
-  constructor(config: ConfigService) {
-    const b64 = config.getOrThrow<string>('account.encryptionKey');
-    const key = Buffer.from(b64, 'base64');
+  protected constructor(keyBase64: string, envName: string) {
+    const key = Buffer.from(keyBase64, 'base64');
     if (key.length !== 32) {
-      throw new Error('ACCOUNT_ENCRYPTION_KEY phải là base64 của đúng 32 byte (AES-256)');
+      throw new Error(`${envName} phải là base64 của đúng 32 byte (AES-256)`);
     }
     this.key = key;
   }
@@ -51,5 +52,16 @@ export class EncryptionService {
   /** Giải mã optional: null → null. */
   decryptOptional(value?: string | null): string | null {
     return value ? this.decrypt(value) : null;
+  }
+}
+
+/**
+ * EncryptionService — mã hoá secret của Account/ShopAccount (docs/account.md D-01).
+ * Khoá: ENV `ACCOUNT_ENCRYPTION_KEY`.
+ */
+@Injectable()
+export class EncryptionService extends AesGcmCipher {
+  constructor(config: ConfigService) {
+    super(config.getOrThrow<string>('account.encryptionKey'), 'ACCOUNT_ENCRYPTION_KEY');
   }
 }

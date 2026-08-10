@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslation } from 'react-i18next';
 import { useEffect, type ReactNode } from 'react';
 import { X } from 'lucide-react';
 import { cn } from '@/lib/utils';
@@ -18,6 +19,7 @@ interface ModalProps {
  * Đóng bằng Escape / click backdrop / nút X. Khóa scroll nền khi mở.
  */
 export function Modal({ open, onClose, title, description, children, className }: ModalProps) {
+  const { t } = useTranslation();
   useEffect(() => {
     if (!open) return;
     const onKey = (e: KeyboardEvent) => {
@@ -38,7 +40,7 @@ export function Modal({ open, onClose, title, description, children, className }
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
       <button
         type="button"
-        aria-label="Đóng"
+        aria-label={t('action.close')}
         className="absolute inset-0 cursor-default bg-black/50"
         onClick={onClose}
       />
@@ -51,7 +53,7 @@ export function Modal({ open, onClose, title, description, children, className }
         <button
           type="button"
           onClick={onClose}
-          aria-label="Đóng"
+          aria-label={t('action.close')}
           className="absolute right-4 top-4 text-muted-foreground hover:text-foreground"
         >
           <X className="size-4" />

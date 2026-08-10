@@ -81,6 +81,29 @@ const PERMISSIONS: Array<{
   { code: 'profile.update', module: 'PROFILE', resource: 'profile', action: 'update', description: 'Cập nhật hồ sơ của mình' },
   // Report module (Dashboard + Reports — thống kê tổng hợp toàn Organization)
   { code: 'report.read',    module: 'REPORT', resource: 'report', action: 'read', description: 'Xem Báo cáo & Dashboard thống kê' },
+  // Module POD — TikTok Shop (docs/pod-tiktok/**). Sprint 1: Link Account.
+  { code: 'pod.tiktok.account.read',   module: 'POD_TIKTOK', resource: 'pod.tiktok.account', action: 'read',   description: 'Xem TikTok Shop Account đã liên kết' },
+  { code: 'pod.tiktok.account.create', module: 'POD_TIKTOK', resource: 'pod.tiktok.account', action: 'create', description: 'Liên kết (link) TikTok Shop Account' },
+  { code: 'pod.tiktok.account.update', module: 'POD_TIKTOK', resource: 'pod.tiktok.account', action: 'update', description: 'Cập nhật kết nối TikTok Shop (refresh token, bật/tắt sync)' },
+  { code: 'pod.tiktok.account.delete', module: 'POD_TIKTOK', resource: 'pod.tiktok.account', action: 'delete', description: 'Ngắt liên kết (unlink) TikTok Shop Account' },
+  // Sprint 2: Scheduler + Get Orders + Sync Orders
+  { code: 'pod.tiktok.order.read',     module: 'POD_TIKTOK', resource: 'pod.tiktok.order',   action: 'read',   description: 'Xem đơn TikTok đã đồng bộ + nhật ký đồng bộ' },
+  { code: 'pod.tiktok.order.sync',     module: 'POD_TIKTOK', resource: 'pod.tiktok.order',   action: 'sync',   description: 'Kích hoạt đồng bộ đơn TikTok thủ công' },
+  // Sprint Order List Enhancement: upload design cho tung san pham
+  { code: 'pod.tiktok.design.upload',  module: 'POD_TIKTOK', resource: 'pod.tiktok.design',  action: 'upload', description: 'Upload/thay thế design in cho sản phẩm POD' },
+  { code: 'pod.tiktok.design.delete',  module: 'POD_TIKTOK', resource: 'pod.tiktok.design',  action: 'delete', description: 'Xoá design in của sản phẩm POD' },
+  // Sprint Payout Report: thong ke chi tra tu TikTok Finance API
+  { code: 'pod.tiktok.payout.read',    module: 'POD_TIKTOK', resource: 'pod.tiktok.payout',  action: 'read',   description: 'Xem báo cáo Payout TikTok' },
+  { code: 'pod.tiktok.payout.sync',    module: 'POD_TIKTOK', resource: 'pod.tiktok.payout',  action: 'sync',   description: 'Đồng bộ dữ liệu Payout từ TikTok Finance API' },
+  // Module Fulfillment — gui don sang xuong in (MangoTeePrints)
+  { code: 'fulfillment.read',   module: 'FULFILLMENT', resource: 'fulfillment', action: 'read',   description: 'Xem trạng thái, lịch sử và lỗi fulfillment' },
+  { code: 'fulfillment.create', module: 'FULFILLMENT', resource: 'fulfillment', action: 'create', description: 'Gửi đơn sang xưởng in (Fulfill / Retry)' },
+  { code: 'fulfillment.cancel', module: 'FULFILLMENT', resource: 'fulfillment', action: 'cancel', description: 'Huỷ đơn tại xưởng in' },
+  { code: 'fulfillment.config', module: 'FULFILLMENT', resource: 'fulfillment', action: 'config', description: 'Cấu hình tài khoản nhà cung cấp và ánh xạ sản phẩm' },
+  // Storage Module (core) — API lưu trữ file dùng chung cho mọi module
+  { code: 'storage.read',   module: 'STORAGE', resource: 'storage', action: 'read',   description: 'Xem/tải file trong kho lưu trữ' },
+  { code: 'storage.upload', module: 'STORAGE', resource: 'storage', action: 'upload', description: 'Tải file lên kho lưu trữ' },
+  { code: 'storage.delete', module: 'STORAGE', resource: 'storage', action: 'delete', description: 'Xoá file khỏi kho lưu trữ' },
 ];
 
 /** Permission mặc định cho Role EMPLOYEE — dùng chung với register.service (default-roles.ts). */

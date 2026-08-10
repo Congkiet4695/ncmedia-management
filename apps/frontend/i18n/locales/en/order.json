@@ -1,0 +1,9 @@
+{
+  "title": "Orders",
+  "subtitle": "Manage orders",
+  "orderNumber": "Order number",
+  "customer": "Customer",
+  "revenue": "Revenue",
+  "quantity": "Quantity",
+  "tracking": "Tracking number"
+}

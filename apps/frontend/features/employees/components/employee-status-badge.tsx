@@ -1,5 +1,5 @@
 import { Badge } from '@/components/ui/badge';
-import { EMPLOYEE_STATUS_LABELS } from '../schemas/employee.schema';
+import { useTranslation } from 'react-i18next';
 import type { EmployeeStatus } from '../types';
 
 const VARIANT: Record<EmployeeStatus, 'success' | 'muted' | 'warning' | 'destructive'> = {
@@ -10,5 +10,6 @@ const VARIANT: Record<EmployeeStatus, 'success' | 'muted' | 'warning' | 'destruc
 };
 
 export function EmployeeStatusBadge({ status }: { status: EmployeeStatus }) {
-  return <Badge variant={VARIANT[status]}>{EMPLOYEE_STATUS_LABELS[status]}</Badge>;
+  const { t } = useTranslation('employee');
+  return <Badge variant={VARIANT[status]}>{t(`status.${status}`)}</Badge>;
 }

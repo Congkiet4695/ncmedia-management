@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo } from 'react';
+import { useTranslation } from 'react-i18next';
 import { RequirePermission } from '@/components/require-permission';
 import {
   Table,
@@ -22,22 +23,20 @@ import { WAREHOUSE_STATUS_STYLE } from '@/features/reports/constants';
 import { formatCompact } from '@/features/reports/utils/format';
 import { formatUSD } from '@/lib/format';
 
-const STATUS_SERIES = [
-  { key: 'notProcessed', name: WAREHOUSE_STATUS_STYLE.notProcessed.label, color: WAREHOUSE_STATUS_STYLE.notProcessed.color },
-  { key: 'processing', name: WAREHOUSE_STATUS_STYLE.processing.label, color: WAREHOUSE_STATUS_STYLE.processing.color },
-  { key: 'cancelled', name: WAREHOUSE_STATUS_STYLE.cancelled.label, color: WAREHOUSE_STATUS_STYLE.cancelled.color },
-  { key: 'completed', name: WAREHOUSE_STATUS_STYLE.completed.label, color: WAREHOUSE_STATUS_STYLE.completed.color },
-];
+/** Thứ tự cột trong biểu đồ trạng thái — nhãn dịch tại chỗ render. */
+const STATUS_KEYS = ['notProcessed', 'processing', 'cancelled', 'completed'] as const;
 
 export default function ReportWarehousePerformancePage() {
+  const { t } = useTranslation('report');
   return (
-    <RequirePermission permission="report.read" message="Bạn không có quyền xem Báo cáo.">
+    <RequirePermission permission="report.read" message={t('noPermission')}>
       <WarehouseView />
     </RequirePermission>
   );
 }
 
 function WarehouseView() {
+  const { t } = useTranslation('report');
   const filters = useReportFilters('month');
   const theme = useChartTheme();
   const query = useWarehousePerformance(filters.range);
@@ -63,8 +62,8 @@ function WarehouseView() {
   return (
     <div className="space-y-6">
       <ReportPageHeader
-        title="Hiệu suất Kho"
-        description="Thống kê xử lý đơn theo từng nhân viên Fulfillment."
+        title={t('warehouse.title')}
+        description={t('warehouse.description')}
       />
 
       <DateRangeFilter
@@ -78,7 +77,7 @@ function WarehouseView() {
 
       <div className="grid gap-6 lg:grid-cols-2">
         <ChartCard
-          title="Tình trạng xử lí đơn hàng"
+          title={t('warehouse.statusChart')}
           loading={query.isLoading}
           error={query.isError ? query.error : undefined}
           isEmpty={isEmpty}
@@ -87,15 +86,19 @@ function WarehouseView() {
           <ReportBarChart
             data={statusData}
             xKey="name"
-            series={STATUS_SERIES}
+            series={STATUS_KEYS.map((key) => ({
+              key,
+              name: t(WAREHOUSE_STATUS_STYLE[key].labelKey),
+              color: WAREHOUSE_STATUS_STYLE[key].color,
+            }))}
             valueFormatter={(v) => String(Math.round(v))}
             tickFormatter={(v) => String(Math.round(v))}
           />
         </ChartCard>
 
         <ChartCard
-          title="Balance làm được"
-          description="Doanh thu các đơn phụ trách."
+          title={t('warehouse.balance')}
+          description={t('warehouse.balanceDescription')}
           loading={query.isLoading}
           error={query.isError ? query.error : undefined}
           isEmpty={isEmpty}
@@ -113,28 +116,30 @@ function WarehouseView() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Bảng hiệu suất Kho</CardTitle>
+          <CardTitle className="text-lg">{t('warehouse.tableTitle')}</CardTitle>
         </CardHeader>
         <CardContent>
           {query.isLoading ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">Đang tải…</p>
+            <p className="py-10 text-center text-sm text-muted-foreground">{t('loading')}</p>
           ) : query.isError ? (
-            <p className="py-10 text-center text-sm text-destructive">Không tải được dữ liệu.</p>
+            <p className="py-10 text-center text-sm text-destructive">{t('loadFailedShort')}</p>
           ) : isEmpty ? (
             <p className="py-10 text-center text-sm text-muted-foreground">
-              Chưa có đơn nào được nhận xử lý trong khoảng thời gian này.
+              {t('warehouse.empty')}
             </p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Nhân viên Kho</TableHead>
-                    <TableHead className="text-right">Tổng đơn</TableHead>
-                    <TableHead className="text-right">Chưa xử lí</TableHead>
-                    <TableHead className="text-right">Đang xử lí</TableHead>
-                    <TableHead className="text-right">Đơn hủy</TableHead>
-                    <TableHead className="text-right">Hoàn tất</TableHead>
+                    <TableHead>{t('warehouse.staff')}</TableHead>
+                    <TableHead className="text-right">{t('warehouse.totalOrders')}</TableHead>
+                    <TableHead className="text-right">
+                      {t('warehouseStatus.notProcessed')}
+                    </TableHead>
+                    <TableHead className="text-right">{t('warehouseStatus.processing')}</TableHead>
+                    <TableHead className="text-right">{t('warehouseStatus.cancelled')}</TableHead>
+                    <TableHead className="text-right">{t('warehouseStatus.completed')}</TableHead>
                     <TableHead className="text-right">Balance</TableHead>
                   </TableRow>
                 </TableHeader>

@@ -1,3 +1,4 @@
+import { useTranslation } from 'react-i18next';
 import { formatUSD } from '@/lib/format';
 import type { ReportMetric } from '../constants';
 
@@ -15,7 +16,13 @@ export function formatCompact(value: number, metric: ReportMetric): string {
   return `${prefix}${metric === 'revenue' ? value.toFixed(0) : Math.round(value)}`;
 }
 
-/** Nhãn metric tiếng Việt. */
-export function metricLabel(metric: ReportMetric): string {
-  return metric === 'revenue' ? 'Doanh thu' : 'Đơn hàng';
+/**
+ * Nhãn metric theo ngôn ngữ đang chọn.
+ *
+ * Là HOOK chứ không phải hàm thuần vì nhãn phụ thuộc ngôn ngữ runtime; component
+ * gọi `const metricLabel = useMetricLabel()` rồi dùng như hàm cũ.
+ */
+export function useMetricLabel(): (metric: ReportMetric) => string {
+  const { t } = useTranslation('report');
+  return (metric) => t(`metric.${metric}`);
 }

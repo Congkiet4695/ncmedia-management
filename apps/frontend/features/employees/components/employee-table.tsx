@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslation } from 'react-i18next';
 import Link from 'next/link';
 import { Eye, Loader2, Pencil, Trash2, Users } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
@@ -24,6 +25,7 @@ interface EmployeeTableProps {
 }
 
 export function EmployeeTable({ employees, loading, onView, onDelete }: EmployeeTableProps) {
+  const { t } = useTranslation(['employee', 'common']);
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -36,7 +38,7 @@ export function EmployeeTable({ employees, loading, onView, onDelete }: Employee
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
         <Users className="size-10 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">Chưa có nhân viên nào.</p>
+        <p className="text-sm text-muted-foreground">{t('empty')}</p>
       </div>
     );
   }
@@ -45,14 +47,14 @@ export function EmployeeTable({ employees, loading, onView, onDelete }: Employee
     <Table>
       <TableHeader>
         <TableRow>
-          <TableHead>Nhân viên</TableHead>
+          <TableHead>{t('column')}</TableHead>
           <TableHead>Email</TableHead>
-          <TableHead>SĐT</TableHead>
-          <TableHead>Phòng</TableHead>
-          <TableHead>Trạng thái</TableHead>
-          <TableHead>Ngày vào làm</TableHead>
-          <TableHead>Ngày nghỉ</TableHead>
-          <TableHead className="text-right">Thao tác</TableHead>
+          <TableHead>{t('phoneShort')}</TableHead>
+          <TableHead>{t('field.department')}</TableHead>
+          <TableHead>{t('field.status')}</TableHead>
+          <TableHead>{t('field.startDate')}</TableHead>
+          <TableHead>{t('resignedAt')}</TableHead>
+          <TableHead className="text-right">{t('common:table.actions')}</TableHead>
         </TableRow>
       </TableHeader>
       <TableBody>
@@ -81,12 +83,12 @@ export function EmployeeTable({ employees, loading, onView, onDelete }: Employee
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label="Xem chi tiết"
+                  aria-label={t('common:action.viewDetail')}
                   onClick={() => onView(employee)}
                 >
                   <Eye className="size-4" />
                 </Button>
-                <Button asChild variant="ghost" size="icon" aria-label="Chỉnh sửa">
+                <Button asChild variant="ghost" size="icon" aria-label={t('common:action.edit')}>
                   <Link href={`/dashboard/employees/${employee.id}`}>
                     <Pencil className="size-4" />
                   </Link>
@@ -94,7 +96,7 @@ export function EmployeeTable({ employees, loading, onView, onDelete }: Employee
                 <Button
                   variant="ghost"
                   size="icon"
-                  aria-label="Xóa"
+                  aria-label={t('common:action.delete')}
                   onClick={() => onDelete(employee)}
                 >
                   <Trash2 className="size-4 text-destructive" />

@@ -1,11 +1,13 @@
 'use client';
 
 import { Loader2 } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Avatar } from '@/components/ui/avatar';
 import { Badge } from '@/components/ui/badge';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { formatDate, formatVnd } from '@/lib/format';
-import { getApiErrorMessage } from '@/utils/http';
+import { formatVnd } from '@/lib/format';
+import { useApiError } from '@/hooks/use-api-error';
+import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { ChangePasswordForm } from '@/features/profile/components/change-password-form';
 import { ProfileForm } from '@/features/profile/components/profile-form';
 import { useProfile } from '@/features/profile/hooks/use-profile';
@@ -20,6 +22,9 @@ function ReadonlyItem({ label, value }: { label: string; value: string }) {
 }
 
 export default function ProfilePage() {
+  const { t } = useTranslation('profile');
+  const translateApiError = useApiError();
+  const { formatDate } = useLocaleFormat();
   const { data: profile, isLoading, isError, error } = useProfile();
 
   if (isLoading) {
@@ -33,7 +38,7 @@ export default function ProfilePage() {
   if (isError || !profile) {
     return (
       <p className="py-10 text-center text-sm text-destructive">
-        {getApiErrorMessage(error, 'Không tải được hồ sơ')}
+        {translateApiError(error)}
       </p>
     );
   }
@@ -41,15 +46,15 @@ export default function ProfilePage() {
   return (
     <div className="mx-auto max-w-3xl space-y-6">
       <div>
-        <h1 className="text-2xl font-bold tracking-tight">Hồ sơ của tôi</h1>
-        <p className="text-sm text-muted-foreground">Xem và cập nhật thông tin cá nhân của bạn.</p>
+        <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
+        <p className="text-sm text-muted-foreground">{t('subtitle')}</p>
       </div>
 
       {/* Thông tin tài khoản — read-only (do Admin/HR quản lý) */}
       <Card>
         <CardHeader>
-          <CardTitle>Thông tin tài khoản</CardTitle>
-          <CardDescription>Các thông tin dưới đây do quản trị viên quản lý.</CardDescription>
+          <CardTitle>{t('accountInfo')}</CardTitle>
+          <CardDescription>{t('accountInfoHint')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
           <div className="flex items-center gap-3">
@@ -63,14 +68,14 @@ export default function ProfilePage() {
             </div>
           </div>
           <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
-            <ReadonlyItem label="Vai trò" value={profile.role.name} />
-            <ReadonlyItem label="Tổ chức" value={profile.organization.name} />
-            <ReadonlyItem label="Phòng" value={profile.department ?? '—'} />
+            <ReadonlyItem label={t('role')} value={profile.role.name} />
+            <ReadonlyItem label={t('organization')} value={profile.organization.name} />
+            <ReadonlyItem label={t('department')} value={profile.department ?? '—'} />
             <ReadonlyItem
-              label="Lương"
+              label={t('salary')}
               value={profile.salary != null ? formatVnd(profile.salary) : '—'}
             />
-            <ReadonlyItem label="Ngày vào làm" value={formatDate(profile.startDate)} />
+            <ReadonlyItem label={t('startDate')} value={formatDate(profile.startDate)} />
             <ReadonlyItem label="CCCD" value={profile.cccd ?? '—'} />
           </dl>
         </CardContent>
@@ -79,8 +84,8 @@ export default function ProfilePage() {
       {/* Thông tin cá nhân — editable */}
       <Card>
         <CardHeader>
-          <CardTitle>Thông tin cá nhân</CardTitle>
-          <CardDescription>Bạn có thể tự cập nhật các thông tin này.</CardDescription>
+          <CardTitle>{t('personalInfo')}</CardTitle>
+          <CardDescription>{t('personalInfoHint')}</CardDescription>
         </CardHeader>
         <CardContent>
           <ProfileForm profile={profile} />
@@ -90,8 +95,8 @@ export default function ProfilePage() {
       {/* Đổi mật khẩu */}
       <Card>
         <CardHeader>
-          <CardTitle>Đổi mật khẩu</CardTitle>
-          <CardDescription>Cập nhật mật khẩu đăng nhập của bạn.</CardDescription>
+          <CardTitle>{t('changePassword')}</CardTitle>
+          <CardDescription>{t('changePasswordHint')}</CardDescription>
         </CardHeader>
         <CardContent>
           <ChangePasswordForm />

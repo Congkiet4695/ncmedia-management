@@ -1,14 +1,16 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { getApiErrorMessage } from '@/utils/http';
-import { profileFormSchema, type ProfileFormInput } from '../schemas/profile.schema';
+import { useApiError } from '@/hooks/use-api-error';
+import { createProfileFormSchema, type ProfileFormInput } from '../schemas/profile.schema';
 import { useUpdateProfile } from '../hooks/use-profile';
 import type { Profile, UpdateProfileInput } from '../types';
 
@@ -19,13 +21,17 @@ function FieldError({ message }: { message?: string }) {
 
 /** Form cập nhật thông tin cá nhân (self-service). Không có role/status/email/salary. */
 export function ProfileForm({ profile }: { profile: Profile }) {
+  const { t } = useTranslation('profile');
+  const { t: tv } = useTranslation('validation');
+  const translateApiError = useApiError();
+  const schema = useMemo(() => createProfileFormSchema(tv), [tv]);
   const mutation = useUpdateProfile();
   const {
     register,
     handleSubmit,
     formState: { errors },
   } = useForm<ProfileFormInput>({
-    resolver: zodResolver(profileFormSchema),
+    resolver: zodResolver(schema),
     defaultValues: {
       fullName: profile.fullName,
       phone: profile.phone ?? '',
@@ -52,9 +58,9 @@ export function ProfileForm({ profile }: { profile: Profile }) {
     };
     try {
       await mutation.mutateAsync(payload);
-      toast.success('Cập nhật hồ sơ thành công');
+      toast.success(t('updateSuccess'));
     } catch (error) {
-      toast.error('Cập nhật thất bại', { description: getApiErrorMessage(error) });
+      toast.error(t('updateFailed'), { description: translateApiError(error) });
     }
   };
 
@@ -65,20 +71,20 @@ export function ProfileForm({ profile }: { profile: Profile }) {
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="fullName">
-            Họ và tên <span className="text-destructive">*</span>
+            {t('fullName')} <span className="text-destructive">*</span>
           </Label>
           <Input id="fullName" disabled={submitting} aria-invalid={!!errors.fullName} {...register('fullName')} />
           <FieldError message={errors.fullName?.message} />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="phone">Số điện thoại</Label>
+          <Label htmlFor="phone">{t('phone')}</Label>
           <Input id="phone" disabled={submitting} aria-invalid={!!errors.phone} {...register('phone')} />
           <FieldError message={errors.phone?.message} />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="dateOfBirth">Ngày sinh</Label>
+          <Label htmlFor="dateOfBirth">{t('dateOfBirth')}</Label>
           <Input id="dateOfBirth" type="date" disabled={submitting} aria-invalid={!!errors.dateOfBirth} {...register('dateOfBirth')} />
           <FieldError message={errors.dateOfBirth?.message} />
         </div>
@@ -90,19 +96,19 @@ export function ProfileForm({ profile }: { profile: Profile }) {
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="bankAccount">Tài khoản ngân hàng</Label>
+          <Label htmlFor="bankAccount">{t('bankAccount')}</Label>
           <Input id="bankAccount" disabled={submitting} {...register('bankAccount')} />
           <FieldError message={errors.bankAccount?.message} />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="bankQrUrl">QR Ngân hàng (URL)</Label>
+          <Label htmlFor="bankQrUrl">{t('bankQrUrl')}</Label>
           <Input id="bankQrUrl" placeholder="https://…" disabled={submitting} {...register('bankQrUrl')} />
           <FieldError message={errors.bankQrUrl?.message} />
         </div>
 
         <div className="space-y-2 sm:col-span-2">
-          <Label htmlFor="address">Địa chỉ</Label>
+          <Label htmlFor="address">{t('address')}</Label>
           <Input id="address" disabled={submitting} {...register('address')} />
           <FieldError message={errors.address?.message} />
         </div>
@@ -117,7 +123,7 @@ export function ProfileForm({ profile }: { profile: Profile }) {
       <div className="flex justify-end">
         <Button type="submit" disabled={submitting}>
           {submitting && <Loader2 className="animate-spin" />}
-          Lưu thay đổi
+          {t('save')}
         </Button>
       </div>
     </form>

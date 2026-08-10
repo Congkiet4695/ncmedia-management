@@ -4,7 +4,8 @@ import { Search } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
-import { EMPLOYEE_STATUSES, EMPLOYEE_STATUS_LABELS } from '../schemas/employee.schema';
+import { useTranslation } from 'react-i18next';
+import { EMPLOYEE_STATUSES } from '../schemas/employee.schema';
 import type { EmployeeStatus } from '../types';
 
 interface EmployeeFilterProps {
@@ -28,17 +29,18 @@ export function EmployeeFilter({
   onDepartmentChange,
   onStartDateChange,
 }: EmployeeFilterProps) {
+  const { t } = useTranslation('employee');
   return (
     <div className="flex flex-col gap-3 lg:flex-row lg:flex-wrap lg:items-end">
       <div className="flex-1 space-y-1.5 lg:min-w-56">
         <Label htmlFor="emp-search" className="text-xs text-muted-foreground">
-          Tìm kiếm (tên / email / SĐT)
+          {t('searchLabel')}
         </Label>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             id="emp-search"
-            placeholder="Nhập từ khóa…"
+            placeholder={t('searchPlaceholder')}
             className="pl-9"
             value={search}
             onChange={(e) => onSearchChange(e.target.value)}
@@ -48,17 +50,17 @@ export function EmployeeFilter({
 
       <div className="space-y-1.5 lg:w-44">
         <Label htmlFor="emp-status" className="text-xs text-muted-foreground">
-          Trạng thái
+          {t('field.status')}
         </Label>
         <NativeSelect
           id="emp-status"
           value={status ?? ''}
           onChange={(e) => onStatusChange((e.target.value || undefined) as EmployeeStatus | undefined)}
         >
-          <option value="">Tất cả</option>
+          <option value="">{t('all')}</option>
           {EMPLOYEE_STATUSES.map((s) => (
             <option key={s} value={s}>
-              {EMPLOYEE_STATUS_LABELS[s]}
+              {t(`status.${s}`)}
             </option>
           ))}
         </NativeSelect>
@@ -66,7 +68,7 @@ export function EmployeeFilter({
 
       <div className="space-y-1.5 lg:w-44">
         <Label htmlFor="emp-department" className="text-xs text-muted-foreground">
-          Phòng
+          {t('field.department')}
         </Label>
         <Input
           id="emp-department"
@@ -78,7 +80,7 @@ export function EmployeeFilter({
 
       <div className="space-y-1.5 lg:w-44">
         <Label htmlFor="emp-start" className="text-xs text-muted-foreground">
-          Vào làm từ ngày
+          {t('startedFrom')}
         </Label>
         <Input
           id="emp-start"

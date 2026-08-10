@@ -1,6 +1,7 @@
 'use client';
 
 import { DollarSign, ShoppingCart } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/hooks/use-auth';
 import { formatUSD } from '@/lib/format';
 import { DateRangeFilter } from '@/features/reports/components/report-filters';
@@ -13,6 +14,7 @@ import { useDashboardSummary } from '@/features/reports/hooks/use-reports';
  * Mặc định: Hôm nay. Chỉ hiển thị với người có quyền `report.read`.
  */
 export function DashboardSummary() {
+  const { t } = useTranslation();
   const { hasPermission } = useAuth();
   const canView = hasPermission('report.read');
   const filters = useReportFilters('today');
@@ -35,13 +37,13 @@ export function DashboardSummary() {
       />
       <div className="grid gap-4 sm:grid-cols-2">
         <StatCard
-          label="Tổng Đơn hàng"
+          label={t('dashboard.totalOrders')}
           icon={ShoppingCart}
           loading={query.isLoading}
           value={errored ? '—' : String(data?.totalOrders ?? 0)}
         />
         <StatCard
-          label="Tổng Doanh thu"
+          label={t('dashboard.totalRevenue')}
           icon={DollarSign}
           loading={query.isLoading}
           value={errored ? '—' : formatUSD(data?.totalRevenue ?? 0)}

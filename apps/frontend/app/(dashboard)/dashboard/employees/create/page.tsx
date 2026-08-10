@@ -5,9 +5,10 @@ import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { getApiErrorMessage } from '@/utils/http';
+import { useApiError } from '@/hooks/use-api-error';
 import { CredentialsDialog } from '@/features/employees/components/credentials-dialog';
 import { EmployeeForm } from '@/features/employees/components/employee-form';
 import { RequireAdmin } from '@/features/employees/components/require-admin';
@@ -25,6 +26,8 @@ export default function CreateEmployeePage() {
 }
 
 function CreateEmployeeView() {
+  const { t } = useTranslation(['employee', 'common']);
+  const translateApiError = useApiError();
   const router = useRouter();
   const rolesQuery = useRoles();
   const createMutation = useCreateEmployee();
@@ -36,7 +39,7 @@ function CreateEmployeeView() {
       // Hiển thị Success Dialog (mật khẩu chỉ hiển thị một lần) — redirect khi đóng.
       setCredentials(result.credentials);
     } catch (error) {
-      toast.error('Tạo nhân viên thất bại', { description: getApiErrorMessage(error) });
+      toast.error(t('createFailed'), { description: translateApiError(error) });
     }
   };
 
@@ -50,14 +53,14 @@ function CreateEmployeeView() {
       <Button asChild variant="ghost" size="sm">
         <Link href="/dashboard/employees">
           <ArrowLeft className="size-4" />
-          Quay lại danh sách
+          {t('backToList')}
         </Link>
       </Button>
 
       <Card>
         <CardHeader>
-          <CardTitle>Thêm nhân viên</CardTitle>
-          <CardDescription>Mật khẩu được tạo tự động và hiển thị một lần sau khi tạo.</CardDescription>
+          <CardTitle>{t('create')}</CardTitle>
+          <CardDescription>{t('createHint')}</CardDescription>
         </CardHeader>
         <CardContent>
           <EmployeeForm
@@ -71,8 +74,8 @@ function CreateEmployeeView() {
 
       <CredentialsDialog
         open={Boolean(credentials)}
-        title="Tạo nhân viên thành công"
-        description="Thông tin đăng nhập của nhân viên (hiển thị một lần):"
+        title={t('createSuccess')}
+        description={t('credentialsHint')}
         email={credentials?.email}
         password={credentials?.initialPassword ?? ''}
         onClose={handleCloseDialog}

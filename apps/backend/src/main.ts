@@ -6,6 +6,10 @@ import { Logger } from 'nestjs-pino';
 import helmet from 'helmet';
 import { ValidationError } from 'class-validator';
 
+import { NestExpressApplication } from '@nestjs/platform-express';
+import type { ServerResponse } from 'node:http';
+import { resolve } from 'node:path';
+
 import { AppModule } from './app.module';
 import { ApiErrorItem } from './common/interfaces/api-response.interface';
 
@@ -31,7 +35,7 @@ function validationExceptionFactory(errors: ValidationError[]): BadRequestExcept
 }
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
 
   // Logger (pino) làm logger toàn cục
   app.useLogger(app.get(Logger));
@@ -48,6 +52,27 @@ async function bootstrap(): Promise<void> {
     // Cho phép FE đọc tên file do server đặt (export Excel: employees_YYYYMMDD_HHmmss.xlsx).
     exposedHeaders: ['Content-Disposition'],
   });
+
+  /**
+   * Phục vụ file tĩnh — CHỈ khi Storage Module đang chạy trên đĩa cục bộ (dev/test).
+   * Với Cloudflare R2, file được lấy qua `GET /api/v1/storage/:id/download` hoặc
+   * URL công khai của bucket, ứng dụng không phục vụ file nào.
+   *
+   * Đặt TRƯỚC `setGlobalPrefix` để URL là `/uploads/...` chứ không phải `/api/v1/uploads/...`.
+   * Helmet mặc định đặt `Cross-Origin-Resource-Policy: same-origin` khiến ảnh bị chặn khi
+   * Frontend chạy ở origin khác — nới riêng cho thư mục uploads, không nới toàn cục.
+   */
+  if (config.get<string>('storage.provider') === 'LOCAL_DISK') {
+    app.useStaticAssets(resolve(config.get<string>('storage.local.root', './uploads')), {
+      prefix: config.get<string>('storage.local.urlPrefix', '/uploads'),
+      index: false,
+      setHeaders: (res: ServerResponse) => {
+        res.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+        // Tên file trên đĩa là UUID (không bao giờ đổi nội dung) ⇒ cache dài an toàn.
+        res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
+      },
+    });
+  }
 
   // Prefix + shutdown hooks
   app.setGlobalPrefix(apiPrefix);

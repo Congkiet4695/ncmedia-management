@@ -1,21 +1,29 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { getApiErrorMessage, getApiFieldErrors } from '@/utils/http';
-import { loginSchema, type LoginInput } from '../schemas/auth.schema';
+import { useApiError } from '@/hooks/use-api-error';
+import { getApiFieldErrors } from '@/utils/http';
+import { createLoginSchema, type LoginInput } from '../schemas/auth.schema';
 import { useLogin } from '../hooks/use-login';
 
 export function LoginForm() {
+  const { t } = useTranslation('auth');
+  const { t: tv } = useTranslation('validation');
+  const translateApiError = useApiError();
   const [showPassword, setShowPassword] = useState(false);
   const mutation = useLogin();
+
+  // Tạo lại schema khi đổi ngôn ngữ để thông báo lỗi cũng đổi theo.
+  const schema = useMemo(() => createLoginSchema(tv), [tv]);
 
   const {
     register,
@@ -23,7 +31,7 @@ export function LoginForm() {
     setError,
     formState: { errors },
   } = useForm<LoginInput>({
-    resolver: zodResolver(loginSchema),
+    resolver: zodResolver(schema),
     defaultValues: { email: '', password: '' },
   });
 
@@ -39,7 +47,7 @@ export function LoginForm() {
         );
       } else {
         // 401 trung tính (chống enumeration) → thông báo chung.
-        toast.error('Đăng nhập thất bại', { description: getApiErrorMessage(error) });
+        toast.error(t('login.failed'), { description: translateApiError(error) });
       }
     }
   };
@@ -50,7 +58,7 @@ export function LoginForm() {
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
       <div className="space-y-2">
         <Label htmlFor="email">
-          Email <span className="text-destructive">*</span>
+          {t('login.email')} <span className="text-destructive">*</span>
         </Label>
         <Input
           id="email"
@@ -66,7 +74,7 @@ export function LoginForm() {
 
       <div className="space-y-2">
         <Label htmlFor="password">
-          Mật khẩu <span className="text-destructive">*</span>
+          {t('login.password')} <span className="text-destructive">*</span>
         </Label>
         <div className="relative">
           <Input
@@ -83,7 +91,7 @@ export function LoginForm() {
             type="button"
             onClick={() => setShowPassword((prev) => !prev)}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+            aria-label={showPassword ? t('password.hide') : t('password.show')}
             tabIndex={-1}
           >
             {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -94,16 +102,16 @@ export function LoginForm() {
 
       <Button type="submit" className="w-full" disabled={isLoading}>
         {isLoading && <Loader2 className="animate-spin" />}
-        Đăng nhập
+        {isLoading ? t('login.submitting') : t('login.submit')}
       </Button>
 
       <p className="text-center text-sm text-muted-foreground">
-        Chưa có tài khoản?{' '}
+        {t('login.noAccount')}{' '}
         <Link
           href="/register"
           className="font-medium text-primary underline-offset-4 hover:underline"
         >
-          Đăng ký tổ chức
+          {t('login.registerLink')}
         </Link>
       </p>
     </form>

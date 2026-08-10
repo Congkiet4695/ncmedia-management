@@ -1,21 +1,29 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Eye, EyeOff, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { getApiErrorCode, getApiErrorMessage, getApiFieldErrors } from '@/utils/http';
-import { registerSchema, type RegisterInput } from '../schemas/auth.schema';
+import { useApiError } from '@/hooks/use-api-error';
+import { getApiErrorCode, getApiFieldErrors } from '@/utils/http';
+import { createRegisterSchema, type RegisterInput } from '../schemas/auth.schema';
 import { useRegister } from '../hooks/use-register';
 
 export function RegisterForm() {
+  const { t } = useTranslation('auth');
+  const { t: tv } = useTranslation('validation');
+  const translateApiError = useApiError();
   const [showPassword, setShowPassword] = useState(false);
   const mutation = useRegister();
+
+  // Tạo lại schema khi đổi ngôn ngữ để thông báo lỗi cũng đổi theo.
+  const schema = useMemo(() => createRegisterSchema(tv), [tv]);
 
   const {
     register,
@@ -23,7 +31,7 @@ export function RegisterForm() {
     setError,
     formState: { errors },
   } = useForm<RegisterInput>({
-    resolver: zodResolver(registerSchema),
+    resolver: zodResolver(schema),
     defaultValues: { organizationName: '', fullName: '', email: '', password: '' },
   });
 
@@ -38,9 +46,9 @@ export function RegisterForm() {
           setError(field as keyof RegisterInput, { message: fieldErrors[field] }),
         );
       } else if (getApiErrorCode(error) === 'AUTH_EMAIL_EXISTS') {
-        setError('email', { message: getApiErrorMessage(error) });
+        setError('email', { message: translateApiError(error) });
       } else {
-        toast.error('Đăng ký thất bại', { description: getApiErrorMessage(error) });
+        toast.error(t('register.failed'), { description: translateApiError(error) });
       }
     }
   };
@@ -51,7 +59,7 @@ export function RegisterForm() {
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
       <div className="space-y-2">
         <Label htmlFor="organizationName">
-          Tên tổ chức <span className="text-destructive">*</span>
+          {t('register.organizationName')} <span className="text-destructive">*</span>
         </Label>
         <Input
           id="organizationName"
@@ -68,11 +76,11 @@ export function RegisterForm() {
 
       <div className="space-y-2">
         <Label htmlFor="fullName">
-          Họ và tên <span className="text-destructive">*</span>
+          {t('register.fullName')} <span className="text-destructive">*</span>
         </Label>
         <Input
           id="fullName"
-          placeholder="Nguyễn Văn A"
+          placeholder={t('register.fullNamePlaceholder')}
           autoComplete="name"
           disabled={isLoading}
           aria-invalid={!!errors.fullName}
@@ -83,7 +91,7 @@ export function RegisterForm() {
 
       <div className="space-y-2">
         <Label htmlFor="email">
-          Email <span className="text-destructive">*</span>
+          {t('register.email')} <span className="text-destructive">*</span>
         </Label>
         <Input
           id="email"
@@ -99,13 +107,13 @@ export function RegisterForm() {
 
       <div className="space-y-2">
         <Label htmlFor="password">
-          Mật khẩu <span className="text-destructive">*</span>
+          {t('register.password')} <span className="text-destructive">*</span>
         </Label>
         <div className="relative">
           <Input
             id="password"
             type={showPassword ? 'text' : 'password'}
-            placeholder="Tối thiểu 8 ký tự, có chữ và số"
+            placeholder={t('register.passwordPlaceholder')}
             autoComplete="new-password"
             disabled={isLoading}
             aria-invalid={!!errors.password}
@@ -116,7 +124,7 @@ export function RegisterForm() {
             type="button"
             onClick={() => setShowPassword((prev) => !prev)}
             className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground hover:text-foreground"
-            aria-label={showPassword ? 'Ẩn mật khẩu' : 'Hiện mật khẩu'}
+            aria-label={showPassword ? t('password.hide') : t('password.show')}
             tabIndex={-1}
           >
             {showPassword ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
@@ -127,13 +135,13 @@ export function RegisterForm() {
 
       <Button type="submit" className="w-full" disabled={isLoading}>
         {isLoading && <Loader2 className="animate-spin" />}
-        Đăng ký
+        {isLoading ? t('register.submitting') : t('register.submit')}
       </Button>
 
       <p className="text-center text-sm text-muted-foreground">
-        Đã có tài khoản?{' '}
+        {t('register.hasAccount')}{' '}
         <Link href="/login" className="font-medium text-primary underline-offset-4 hover:underline">
-          Đăng nhập
+          {t('register.loginLink')}
         </Link>
       </p>
     </form>

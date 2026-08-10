@@ -1,0 +1,152 @@
+{
+  "action": {
+    "apply": "Áp dụng",
+    "assign": "Phân công",
+    "back": "Quay lại",
+    "cancel": "Huỷ",
+    "close": "Đóng",
+    "confirm": "Xác nhận",
+    "copied": "Đã copy {{label}}",
+    "copy": "Sao chép",
+    "copyAll": "Copy tất cả",
+    "copyManual": "Không copy được — vui lòng copy thủ công",
+    "create": "Tạo mới",
+    "delete": "Xoá",
+    "download": "Tải xuống",
+    "downloadFailed": "Tải file thất bại",
+    "edit": "Sửa",
+    "export": "Xuất Excel",
+    "filter": "Bộ lọc",
+    "import": "Nhập Excel",
+    "logout": "Đăng xuất",
+    "next": "Sau",
+    "previous": "Trước",
+    "refresh": "Làm mới",
+    "reset": "Đặt lại",
+    "retry": "Thử lại",
+    "save": "Lưu",
+    "search": "Tìm kiếm",
+    "select": "Chọn",
+    "sync": "Đồng bộ",
+    "syncNow": "Đồng bộ ngay",
+    "unassign": "Bỏ phân công",
+    "upload": "Tải lên",
+    "view": "Xem",
+    "viewDetail": "Xem chi tiết"
+  },
+  "appName": "NCMedia Management",
+  "dashboard": {
+    "fullName": "Họ và tên",
+    "organization": "Tổ chức",
+    "role": "Vai trò",
+    "session": "Phiên đăng nhập",
+    "subtitle": "Tổng quan hoạt động kinh doanh.",
+    "title": "Dashboard",
+    "totalOrders": "Tổng Đơn hàng",
+    "totalRevenue": "Tổng Doanh thu"
+  },
+  "date": {
+    "from": "Từ ngày",
+    "preset": {
+      "ALL": "Tất cả thời gian",
+      "CUSTOM": "Tùy chọn",
+      "LAST_30_DAYS": "30 ngày gần nhất",
+      "LAST_7_DAYS": "7 ngày gần nhất",
+      "LAST_MONTH": "Tháng trước",
+      "THIS_MONTH": "Tháng này",
+      "TODAY": "Hôm nay",
+      "YESTERDAY": "Hôm qua"
+    },
+    "rangeInvalid": "Ngày bắt đầu phải trước hoặc bằng ngày kết thúc",
+    "rangeRequired": "Vui lòng chọn cả ngày bắt đầu và ngày kết thúc",
+    "to": "Đến ngày"
+  },
+  "dialog": {
+    "cannotUndo": "Thao tác này không thể hoàn tác.",
+    "confirmDelete": "Bạn có chắc muốn xoá?",
+    "confirmTitle": "Xác nhận"
+  },
+  "filter": {
+    "allStatuses": "Tất cả trạng thái"
+  },
+  "image": {
+    "viewLarge": "Xem ảnh"
+  },
+  "importExport": {
+    "column": "Cột",
+    "createDescription": "Tạo mới bản ghi; bản ghi trùng sẽ bị bỏ qua. Lỗi bất kỳ dòng nào → rollback toàn bộ.",
+    "downloadCsv": "Tải file lỗi (.csv)",
+    "downloadXlsx": "Tải file lỗi (.xlsx)",
+    "dropHere": "Kéo thả file .xlsx vào đây",
+    "duration": "Thời gian xử lý: {{value}}",
+    "error": "Lỗi",
+    "errorList": "Danh sách lỗi ({{count}})",
+    "errors": "Lỗi",
+    "failed": "Import thất bại",
+    "failedRollback": "Import thất bại — đã rollback toàn bộ",
+    "failedRows": "Import có {{count}} dòng lỗi — đã rollback toàn bộ",
+    "importAnother": "Import file khác",
+    "importTitle": "Import {{entity}} từ Excel",
+    "onlyXlsx": "Chỉ chấp nhận file .xlsx",
+    "orClick": "hoặc bấm để chọn file",
+    "pickAnother": "Chọn file khác",
+    "row": "Dòng",
+    "seconds": "{{value}} giây",
+    "sheet": "Sheet",
+    "success": "Import thành công",
+    "successDetail": "Tạo mới {{created}} · Cập nhật {{updated}} · Bỏ qua {{skipped}}",
+    "totalRows": "Tổng dòng",
+    "updateDescription": "Cập nhật bản ghi theo ID từ file export. Không tạo mới. Lỗi bất kỳ dòng nào → rollback toàn bộ."
+  },
+  "language": {
+    "label": "Ngôn ngữ",
+    "switch": "Đổi ngôn ngữ"
+  },
+  "member": "Thành viên",
+  "pagination": {
+    "page": "Trang {{page}}/{{totalPages}}",
+    "pageWithRows": "Trang {{page}}/{{totalPages}} · {{total}} dòng",
+    "pageWithTotal": "Trang {{page}}/{{totalPages}} · {{total}} bản ghi",
+    "perPage": "Số dòng mỗi trang",
+    "rows": "{{count}} dòng",
+    "showing": "Hiển thị {{from}}–{{to}} trên {{total}}"
+  },
+  "search": {
+    "noResult": "Không tìm thấy kết quả nào",
+    "placeholder": "Tìm kiếm..."
+  },
+  "state": {
+    "empty": "Chưa có dữ liệu",
+    "emptyFiltered": "Không có dữ liệu khớp bộ lọc",
+    "error": "Đã có lỗi xảy ra",
+    "failed": "Thất bại",
+    "forbiddenMessage": "Bạn không có quyền truy cập khu vực này.",
+    "forbiddenTitle": "403 — Không có quyền truy cập",
+    "loadFailed": "Không tải được dữ liệu",
+    "loading": "Đang tải...",
+    "noPermission": "Bạn không có quyền truy cập trang này.",
+    "notFound": "Không tìm thấy",
+    "processing": "Đang xử lý...",
+    "saving": "Đang lưu...",
+    "success": "Thành công",
+    "unauthorized": "Bạn không có quyền truy cập"
+  },
+  "table": {
+    "actions": "Thao tác",
+    "createdAt": "Ngày tạo",
+    "email": "Email",
+    "name": "Tên",
+    "noResult": "Không có kết quả",
+    "note": "Ghi chú",
+    "phone": "Điện thoại",
+    "sortBy": "Sắp xếp theo {{column}}",
+    "status": "Trạng thái",
+    "total": "Tổng",
+    "updatedAt": "Cập nhật"
+  },
+  "theme": {
+    "dark": "Tối",
+    "light": "Sáng",
+    "toggle": "Đổi giao diện sáng/tối"
+  }
+}

@@ -3,6 +3,7 @@
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
+import i18n from '@/i18n';
 import { clearAuthCookies, setAuthCookies } from '@/lib/auth-cookies';
 import { useAuthStore } from '@/stores/auth.store';
 import { authService } from '../services/auth.service';
@@ -33,7 +34,9 @@ export function useRegister() {
     onSuccess: (profile) => {
       setSession(profile); // Save Session
       queryClient.setQueryData(ME_QUERY_KEY, profile);
-      toast.success('Đăng ký thành công', { description: `Chào mừng ${profile.fullName}` });
+      toast.success(i18n.t('auth:register.success'), {
+        description: i18n.t('auth:register.welcome', { name: profile.fullName }),
+      });
       router.replace('/dashboard'); // Redirect Dashboard
     },
   });

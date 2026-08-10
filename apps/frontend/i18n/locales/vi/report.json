@@ -1,0 +1,98 @@
+{
+  "accountStatus": {
+    "die": "Die",
+    "dieTrang": "Die trắng",
+    "live": "Live",
+    "notApplicable": "Không áp dụng"
+  },
+  "allEmployees": "Tất cả nhân viên",
+  "byGroup": "{{metric}} theo {{unit}}",
+  "bySeller": "{{metric}} theo Seller",
+  "groupBy": {
+    "day": "Theo ngày",
+    "label": "Gom nhóm",
+    "month": "Theo tháng",
+    "unitDay": "ngày",
+    "unitMonth": "tháng",
+    "unitYear": "năm",
+    "year": "Theo năm"
+  },
+  "loadFailed": "Không tải được dữ liệu báo cáo",
+  "loadFailedShort": "Không tải được dữ liệu.",
+  "loading": "Đang tải…",
+  "metric": {
+    "label": "Theo",
+    "order": "Đơn hàng",
+    "revenue": "Doanh thu"
+  },
+  "month": "Tháng",
+  "noData": "Chưa có dữ liệu trong khoảng thời gian này",
+  "noDataShort": "Chưa có dữ liệu.",
+  "noPermission": "Bạn không có quyền xem Báo cáo.",
+  "noSeller": "Chưa có Seller nào.",
+  "overview": {
+    "description": "Biểu đồ doanh thu / đơn hàng theo thời gian.",
+    "title": "Tổng quan"
+  },
+  "performance": {
+    "achievedPercent": "% đạt",
+    "description": "KPI (cần đạt) · Thực đạt · Dự báo cuối tháng theo từng Seller.",
+    "elapsed": "Đã qua {{elapsed}}/{{total}} ngày trong tháng.",
+    "order": {
+      "actual": "Đơn hàng thực đạt",
+      "forecast": "Dự báo đơn cuối tháng",
+      "target": "Đơn hàng cần đạt"
+    },
+    "revenue": {
+      "actual": "Doanh thu thực đạt",
+      "forecast": "Dự báo doanh thu cuối tháng",
+      "target": "Doanh thu đề ra"
+    },
+    "tableTitle": "Bảng hiệu suất Seller",
+    "title": "Hiệu suất Seller"
+  },
+  "performanceBySeller": "Hiệu suất {{metric}} theo Seller",
+  "quickRange": {
+    "all": "Tất cả thời gian",
+    "custom": "Tùy chọn",
+    "label": "Khoảng thời gian",
+    "month": "Tháng này",
+    "today": "Hôm nay",
+    "week": "Tuần này",
+    "year": "Năm nay"
+  },
+  "ranking": {
+    "description": "Bảng xếp hạng Seller theo doanh thu hoặc số đơn.",
+    "rank": "Hạng",
+    "tableTitle": "Bảng xếp hạng",
+    "title": "Xếp hạng Seller"
+  },
+  "rankingBy": "Xếp hạng theo {{metric}}",
+  "seller": "Seller",
+  "sellerPage": {
+    "description": "Tổng doanh thu hoặc số đơn theo từng Seller trong khoảng thời gian đã chọn.",
+    "title": "Doanh thu / Đơn Seller"
+  },
+  "title": "Báo cáo",
+  "totalOrders": "Tổng đơn",
+  "totalRevenue": "Tổng doanh thu",
+  "unitOrders": "Đơn vị: số đơn",
+  "unitUsd": "Đơn vị: USD ($)",
+  "warehouse": {
+    "balance": "Balance làm được",
+    "balanceDescription": "Doanh thu các đơn phụ trách.",
+    "description": "Thống kê xử lý đơn theo từng nhân viên Fulfillment.",
+    "empty": "Chưa có đơn nào được nhận xử lý trong khoảng thời gian này.",
+    "staff": "Nhân viên Kho",
+    "statusChart": "Tình trạng xử lí đơn hàng",
+    "tableTitle": "Bảng hiệu suất Kho",
+    "title": "Hiệu suất Kho",
+    "totalOrders": "Tổng đơn"
+  },
+  "warehouseStatus": {
+    "cancelled": "Đơn hủy",
+    "completed": "Hoàn tất",
+    "notProcessed": "Chưa xử lí",
+    "processing": "Đang xử lí"
+  }
+}

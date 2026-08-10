@@ -3,7 +3,8 @@
 import type { ReactNode } from 'react';
 import { BarChart3, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
-import { getApiErrorMessage } from '@/utils/http';
+import { useTranslation } from 'react-i18next';
+import { useApiError } from '@/hooks/use-api-error';
 
 interface ChartCardProps {
   title: string;
@@ -31,10 +32,14 @@ export function ChartCard({
   loading,
   error,
   isEmpty,
-  emptyMessage = 'Chưa có dữ liệu trong khoảng thời gian này.',
+  emptyMessage,
   height = 320,
   children,
 }: ChartCardProps) {
+  const { t } = useTranslation('report');
+  const translateApiError = useApiError();
+  const emptyText = emptyMessage ?? t('noData');
+
   return (
     <Card>
       <CardHeader>
@@ -55,13 +60,13 @@ export function ChartCard({
           ) : error ? (
             <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
               <p className="text-sm text-destructive">
-                {getApiErrorMessage(error, 'Không tải được dữ liệu báo cáo')}
+                {translateApiError(error)}
               </p>
             </div>
           ) : isEmpty ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
               <BarChart3 className="size-10 text-muted-foreground" />
-              <p className="text-sm text-muted-foreground">{emptyMessage}</p>
+              <p className="text-sm text-muted-foreground">{emptyText}</p>
             </div>
           ) : (
             children

@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { RequirePermission } from '@/components/require-permission';
 import { ReportPageHeader } from '@/features/reports/components/report-page-header';
 import { ChartCard } from '@/features/reports/components/chart-card';
@@ -15,17 +16,20 @@ import { useReportFilters } from '@/features/reports/hooks/use-report-filters';
 import { useOverview } from '@/features/reports/hooks/use-reports';
 import type { ReportGroupBy, ReportMetric } from '@/features/reports/constants';
 import { formatBucketLabel } from '@/features/reports/utils/date-range';
-import { formatCompact, formatMetricValue, metricLabel } from '@/features/reports/utils/format';
+import { formatCompact, formatMetricValue, useMetricLabel } from '@/features/reports/utils/format';
 
 export default function ReportOverviewPage() {
+  const { t } = useTranslation('report');
   return (
-    <RequirePermission permission="report.read" message="Bạn không có quyền xem Báo cáo.">
+    <RequirePermission permission="report.read" message={t('noPermission')}>
       <OverviewView />
     </RequirePermission>
   );
 }
 
 function OverviewView() {
+  const { t } = useTranslation('report');
+  const metricLabel = useMetricLabel();
   const filters = useReportFilters('month');
   const [metric, setMetric] = useState<ReportMetric>('revenue');
   const [groupBy, setGroupBy] = useState<ReportGroupBy>('day');
@@ -39,14 +43,15 @@ function OverviewView() {
 
   const series = useMemo(
     () => [{ key: 'value', name: metricLabel(metric), color: theme.primary }],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- metricLabel đổi cùng ngôn ngữ
     [metric, theme.primary],
   );
 
   return (
     <div className="space-y-6">
       <ReportPageHeader
-        title="Tổng quan"
-        description="Biểu đồ doanh thu / đơn hàng theo thời gian."
+        title={t('overview.title')}
+        description={t('overview.description')}
       />
 
       <DateRangeFilter
@@ -59,7 +64,16 @@ function OverviewView() {
       />
 
       <ChartCard
-        title={`${metricLabel(metric)} theo ${groupBy === 'day' ? 'ngày' : groupBy === 'month' ? 'tháng' : 'năm'}`}
+        title={t('byGroup', {
+          metric: metricLabel(metric),
+          unit: t(
+            groupBy === 'day'
+              ? 'groupBy.unitDay'
+              : groupBy === 'month'
+                ? 'groupBy.unitMonth'
+                : 'groupBy.unitYear',
+          ),
+        })}
         toolbar={
           <>
             <MetricSelect value={metric} onChange={setMetric} />

@@ -31,11 +31,13 @@
     "seed": "node -r ts-node/register prisma/seed.ts"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.1104.0",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.0",
     "@nestjs/core": "^11.0.1",
     "@nestjs/jwt": "^11.0.0",
     "@nestjs/platform-express": "^11.0.1",
+    "@nestjs/schedule": "^6.1.3",
     "@nestjs/swagger": "^11.0.3",
     "@prisma/client": "^6.3.1",
     "bcrypt": "^5.1.1",

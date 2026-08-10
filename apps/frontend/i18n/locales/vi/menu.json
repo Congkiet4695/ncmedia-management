@@ -1,0 +1,19 @@
+{
+  "dashboard": "Dashboard",
+  "employees": "Nhân viên",
+  "accounts": "Account",
+  "orders": "Order",
+  "reports": "Báo cáo",
+  "profile": "Hồ sơ của tôi",
+  "pod": "POD",
+  "podTiktokAccounts": "TikTok Accounts",
+  "podOrders": "POD Orders",
+  "podPayout": "Tiktok Payout",
+  "reportOverview": "Tổng quan",
+  "reportSeller": "Doanh thu / Đơn Seller",
+  "reportSellerPerformance": "Hiệu suất Seller",
+  "reportWarehouse": "Hiệu suất Kho",
+  "reportSellerRanking": "Xếp hạng Seller",
+  "openMenu": "Mở menu",
+  "closeMenu": "Đóng menu"
+}

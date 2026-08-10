@@ -97,6 +97,111 @@ enum OrderStatus {
   @@map("order_status")
 }
 
+// ---------------------------------------------------------------------------
+// POD TikTok Shop — enum (docs/pod-tiktok/03-database-design-erd.md)
+// ---------------------------------------------------------------------------
+
+/// Trạng thái kết nối (authorization) tới TikTok Shop Seller.
+/// PENDING: vừa tạo, chưa lấy được shop · ACTIVE: hoạt động
+/// REAUTH_REQUIRED: refresh token hết hạn/sắp hết → seller phải uỷ quyền lại
+/// DEAUTHORIZED: seller thu hồi quyền (webhook SELLER_DEAUTHORIZATION — Sprint sau)
+/// DISCONNECTED: Admin chủ động ngắt · ERROR: refresh lỗi liên tiếp
+enum PodTiktokAccountStatus {
+  PENDING
+  ACTIVE
+  REAUTH_REQUIRED
+  DEAUTHORIZED
+  DISCONNECTED
+  ERROR
+
+  @@map("pod_tiktok_account_status")
+}
+
+/// Hành động trên token — phục vụ audit bảo mật. KHÔNG lưu giá trị token.
+enum PodTiktokTokenAction {
+  ISSUE
+  REFRESH
+  REAUTHORIZE
+  REVOKE_LOCAL
+
+  @@map("pod_tiktok_token_action")
+}
+
+/// Vị trí in design trên sản phẩm POD.
+///
+/// Khai báo SẴN đủ 5 vị trí ngay từ đầu để mở rộng về sau KHÔNG cần migration:
+/// muốn dùng thêm LEFT/RIGHT/SLEEVE chỉ việc bật ở cấu hình/UI.
+enum PodDesignPlacement {
+  FRONT
+  BACK
+  LEFT
+  RIGHT
+  SLEEVE
+  LABEL
+
+  @@map("pod_design_placement")
+}
+
+/// Nguồn kích hoạt một lượt đồng bộ đơn.
+enum PodSyncTrigger {
+  CRON
+  MANUAL
+  BACKFILL
+
+  @@map("pod_sync_trigger")
+}
+
+/// Trạng thái chi trả (payout) — GIỮ NGUYÊN giá trị TikTok trả về.
+/// Nguồn: Get Payments / Get Statements (`status` / `payment_status`).
+/// 🔴 TikTok CHỈ trả 3 giá trị này — KHÔNG có `CANCELLED`. Không tự chế thêm giá trị.
+enum PodPayoutStatus {
+  /// Đang xử lý, tiền chưa về tài khoản ngân hàng.
+  PROCESSING
+  /// Đã chuyển tiền cho seller.
+  PAID
+  /// Chuyển tiền thất bại.
+  FAILED
+
+  @@map("pod_payout_status")
+}
+
+/// Loại dòng giao dịch trong một statement (Get Transactions by Statement).
+/// ORDER      — giao dịch của một đơn đã settle (có `order_id`).
+/// ADJUSTMENT — điều chỉnh (có `adjustment_id`, có thể kèm `adjustment_order_id`).
+/// RESERVE    — tiền giữ lại/giải phóng (có `reserve_id` + `associated_order_id`).
+/// OTHER      — giá trị lạ TikTok bổ sung sau này (không làm vỡ sync — xem R3.6).
+enum PodStatementTxType {
+  ORDER
+  ADJUSTMENT
+  RESERVE
+  OTHER
+
+  @@map("pod_statement_tx_type")
+}
+
+/// Pha đồng bộ — quyết định quét theo trục thời gian nào.
+/// BACKFILL: kéo LỊCH SỬ theo `create_time` (bất biến ⇒ phân trang là snapshot ổn định).
+/// INCREMENTAL: đồng bộ định kỳ theo `update_time` (bắt được thay đổi của đơn cũ).
+enum PodSyncPhase {
+  BACKFILL
+  INCREMENTAL
+
+  @@map("pod_sync_phase")
+}
+
+/// Kết quả một lượt đồng bộ.
+/// PARTIAL: chạy được nhưng chưa hết (chạm giới hạn trang/deadline) → watermark KHÔNG tiến.
+/// SKIPPED: bỏ qua do lock hoặc account đang tạm ngưng (circuit breaker).
+enum PodSyncStatus {
+  RUNNING
+  SUCCESS
+  PARTIAL
+  FAILED
+  SKIPPED
+
+  @@map("pod_sync_status")
+}
+
 /// Loại Note của Order (OrderNote — 1 Order có nhiều Note).
 enum OrderNoteType {
   SELLER
@@ -135,11 +240,16 @@ model Organization {
   updatedBy String?   @map("updated_by") @db.Uuid
 
   // Quan hệ
-  users     User[]
-  roles     Role[]
-  employees Employee[]
-  accounts  Account[]
-  orders    Order[]
+  users                      User[]
+  roles                      Role[]
+  employees                  Employee[]
+  accounts                   Account[]
+  orders                     Order[]
+  podTiktokAccounts          PodTiktokAccount[]
+  storageFiles               StorageFile[]
+  fulfillmentAccounts        FulfillmentAccount[]
+  fulfillmentProductMappings FulfillmentProductMapping[]
+  fulfillmentOrders          FulfillmentOrder[]
 
   @@map("organizations")
 }
@@ -174,15 +284,19 @@ model User {
   updatedBy String?   @map("updated_by") @db.Uuid
 
   // Quan hệ
-  organization   Organization   @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  role           Role           @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  refreshTokens  RefreshToken[]
+  organization                Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  role                        Role               @relation(fields: [roleId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  refreshTokens               RefreshToken[]
   // User ↔ Employee: quan hệ 1-1 (ADR-007). Account đăng nhập tách khỏi hồ sơ nghiệp vụ.
-  employee       Employee?
+  employee                    Employee?
   // Account (ShopAccount) do User này quản lý với vai trò Seller (docs/account.md D-05).
-  sellerAccounts Account[]      @relation("AccountSeller")
+  sellerAccounts              Account[]          @relation("AccountSeller")
   // Order mà User này (role FULFILLMENT/ADMIN) đã "Nhận xử lý" (claim).
-  fulfilledOrders Order[]      @relation("OrderFulfiller")
+  fulfilledOrders             Order[]            @relation("OrderFulfiller")
+  // Kết nối TikTok Shop do User này thực hiện uỷ quyền (POD module).
+  podTiktokAccountsAuthorized PodTiktokAccount[] @relation("PodTiktokAuthorizer")
+  // File do User này upload (Storage Module dùng chung toàn hệ thống).
+  storageFilesUploaded        StorageFile[]      @relation("StorageUploader")
 
   @@index([organizationId])
   @@index([roleId])
@@ -230,13 +344,13 @@ model Employee {
   bankQrUrl   String? @map("bank_qr_url") @db.VarChar(1024)
 
   /// Lương (VND). Mặc định 0, không âm (CHECK ở migration). Decimal để chính xác tiền tệ.
-  salary Decimal @default(0) @db.Decimal(15, 2)
+  salary     Decimal @default(0) @db.Decimal(15, 2)
   /// KPI số Đơn hàng (mục tiêu/tháng). Mặc định 0. Dùng cho Báo cáo hiệu suất Seller (forecast).
   orderKpi   Int     @default(0) @map("order_kpi")
   /// KPI Doanh thu (USD, mục tiêu/tháng). Mặc định 0. Decimal cho chính xác tiền tệ.
   revenueKpi Decimal @default(0) @map("revenue_kpi") @db.Decimal(15, 2)
   /// URL avatar (nullable).
-  avatar String? @db.VarChar(1024)
+  avatar     String? @db.VarChar(1024)
 
   // Audit (ADR-015) + soft delete
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -246,8 +360,11 @@ model Employee {
   updatedBy String?   @map("updated_by") @db.Uuid
 
   // Quan hệ
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  user         User         @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  organization      Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  user              User               @relation(fields: [userId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  /// Các kết nối TikTok Shop do nhân viên này phụ trách với vai trò Seller.
+  /// Một Employee quản lý được NHIỀU TikTok Account (1-n).
+  podTiktokAccounts PodTiktokAccount[] @relation("PodTiktokSeller")
 
   @@index([organizationId])
   @@index([status])
@@ -523,7 +640,7 @@ model Order {
   organizationId String @map("organization_id") @db.Uuid
   accountId      String @map("account_id") @db.Uuid
 
-  orderNumber String @map("order_number") @db.VarChar(120)
+  orderNumber String  @map("order_number") @db.VarChar(120)
   /// Nền tảng (code) — denormalize từ account.platform để khoá unique (org, platform, order_number).
   platform    String? @db.VarChar(50)
 
@@ -585,7 +702,7 @@ model OrderItem {
   remark      String? @db.Text
 
   /// Tracking theo TỪNG Item (chuyển từ Order sang Item).
-  trackingNumber   String?         @map("tracking_number") @db.VarChar(255)
+  trackingNumber    String?         @map("tracking_number") @db.VarChar(255)
   /// Trạng thái fulfillment theo từng Item.
   fulfillmentStatus OrderItemStatus @default(PENDING) @map("fulfillment_status")
 
@@ -647,10 +764,10 @@ model OrderLog {
 // ---------------------------------------------------------------------------
 
 model OrderNote {
-  id        String        @id @default(uuid()) @db.Uuid
-  orderId   String        @map("order_id") @db.Uuid
-  type      OrderNoteType
-  content   String        @db.Text
+  id      String        @id @default(uuid()) @db.Uuid
+  orderId String        @map("order_id") @db.Uuid
+  type    OrderNoteType
+  content String        @db.Text
 
   createdBy String?   @map("created_by") @db.Uuid
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -662,4 +779,1405 @@ model OrderNote {
   @@index([orderId])
   @@index([type])
   @@map("order_notes")
+}
+
+// ===========================================================================
+// MODULE POD — TIKTOK SHOP (Sprint 1: Link Account)
+// Nguồn: docs/pod-tiktok/** · Tài liệu chính thức TikTok Shop Partner Center.
+//
+// Thiết kế theo response THỰC TẾ của TikTok:
+//   - Get Access Token   GET https://auth.tiktok-shops.com/api/v2/token/get
+//     → access_token, access_token_expire_in, refresh_token, refresh_token_expire_in,
+//       open_id, seller_name, seller_base_region, user_type, granted_scopes
+//   - Get Authorized Shops  GET /authorization/202309/shops
+//     → shops[]: id, name, region, seller_type, cipher, code
+//
+// ĐỘC LẬP hoàn toàn với model `Account` (ShopAccount) hiện có — không sửa bảng cũ.
+// Trường phục vụ Sprint sau (Sync Orders/Products, Webhook, Shipment) đã dự trù sẵn.
+// ===========================================================================
+
+// ---------------------------------------------------------------------------
+// PodTiktokAccount — MỘT lần seller uỷ quyền (authorization) cho app.
+// 1 Account (token) → N Shop (TikTok trả về mảng `shops[]`, có thể nhiều shop).
+// Token LƯU DẠNG MÃ HOÁ AES-256-GCM (EncryptionService) — không bao giờ plaintext.
+// ---------------------------------------------------------------------------
+
+model PodTiktokAccount {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  /// Tên do người dùng đặt để nhận diện kết nối (bắt buộc — theo yêu cầu Sprint 1).
+  accountName String @map("account_name") @db.VarChar(255)
+
+  // --- Dữ liệu định danh trả về từ Get Access Token ---
+  /// `open_id` — ID người dùng đã uỷ quyền (TikTok). Unique trong 1 Organization.
+  openId           String  @map("open_id") @db.VarChar(128)
+  /// `seller_name` — tên seller do TikTok trả về.
+  sellerName       String? @map("seller_name") @db.VarChar(255)
+  /// `seller_base_region` — vùng của seller (vd US).
+  sellerBaseRegion String? @map("seller_base_region") @db.VarChar(10)
+  /// `user_type` — 0=Seller, 1=Creator, 2/3=Partner, 4/5=Global Selling seller.
+  /// Chỉ chấp nhận 0/4/5 (seller) — CHECK constraint ở migration.
+  userType         Int     @map("user_type")
+
+  // --- Token (MÃ HOÁ AES-256-GCM at-rest) ---
+  /// `access_token` đã mã hoá. KHÔNG expose qua API.
+  accessTokenEnc        String   @map("access_token_enc") @db.Text
+  /// `access_token_expire_in` (Unix) → timestamptz. Mặc định TikTok cấp 7 ngày.
+  accessTokenExpiresAt  DateTime @map("access_token_expires_at") @db.Timestamptz(6)
+  /// `refresh_token` đã mã hoá.
+  refreshTokenEnc       String   @map("refresh_token_enc") @db.Text
+  /// `refresh_token_expire_in` (Unix) → timestamptz. = thời hạn seller cấp quyền.
+  refreshTokenExpiresAt DateTime @map("refresh_token_expires_at") @db.Timestamptz(6)
+  /// `granted_scopes` — scope thực tế được cấp (cảnh báo sớm trước khi API lỗi 105005).
+  grantedScopes         Json?    @map("granted_scopes")
+
+  status PodTiktokAccountStatus @default(PENDING)
+
+  // --- Vận hành / phục vụ Sprint sau (Refresh Token, Sync, Webhook) ---
+  /// Lần refresh token gần nhất (Sprint 2 — Token Lifecycle).
+  lastRefreshedAt     DateTime? @map("last_refreshed_at") @db.Timestamptz(6)
+  /// Số lần refresh thất bại liên tiếp — circuit breaker.
+  refreshFailureCount Int       @default(0) @map("refresh_failure_count")
+  /// Lần đồng bộ đơn gần nhất (Sprint 3 — Sync Orders).
+  lastSyncedAt        DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  /// Mã lỗi TikTok gần nhất (vd 105002, 36004004).
+  lastErrorCode       String?   @map("last_error_code") @db.VarChar(20)
+  lastErrorMessage    String?   @map("last_error_message") @db.VarChar(500)
+  /// `request_id` của TikTok — bắt buộc khi mở ticket hỗ trợ.
+  lastErrorRequestId  String?   @map("last_error_request_id") @db.VarChar(64)
+
+  /// User đã thực hiện uỷ quyền (audit).
+  authorizedBy String? @map("authorized_by") @db.Uuid
+  /// Nhân viên (Employee) phụ trách kết nối này với vai trò Seller. NULL = chưa phân công.
+  ///
+  /// 🔴 Trỏ tới `Employee`, KHÔNG phải `User`: seller là một vai trò NGHIỆP VỤ nên phải gắn
+  /// với hồ sơ nhân sự (ADR-007 — User lo đăng nhập, Employee lo thông tin nghiệp vụ).
+  /// Chỉ Employee đang ACTIVE và có Role `EMPLOYEE` mới được gán (Admin/Fulfillment không phải seller).
+  ///
+  /// Đây là NGUỒN DUY NHẤT xác định seller của mọi dữ liệu POD: Order/Payout/Dashboard đều
+  /// join ngược qua account, KHÔNG bản sao xuống Order — đổi người phụ trách là toàn hệ thống
+  /// đổi theo, không có dữ liệu lệch.
+  sellerId     String? @map("seller_id") @db.Uuid
+
+  // Audit + soft delete (ADR-015)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  authorizer   User?        @relation("PodTiktokAuthorizer", fields: [authorizedBy], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  seller       Employee?    @relation("PodTiktokSeller", fields: [sellerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  shops                 PodTiktokShop[]
+  tokenAudits           PodTiktokTokenAudit[]
+  orders                PodOrder[]
+  syncLogs              PodSyncLog[]
+  payments              PodTiktokPayment[]
+  statements            PodTiktokStatement[]
+  statementTransactions PodTiktokStatementTransaction[]
+
+  // Không link trùng cùng một seller (open_id) trong CÙNG Organization.
+  // Uỷ quyền lại (reauthorize) → UPDATE bản ghi cũ, không tạo mới.
+  @@unique([organizationId, openId])
+  @@index([organizationId])
+  @@index([status])
+  @@index([accessTokenExpiresAt])
+  @@index([refreshTokenExpiresAt])
+  @@index([sellerId])
+  @@map("pod_tiktok_accounts")
+}
+
+// ---------------------------------------------------------------------------
+// PodTiktokShop — một TikTok Shop cụ thể thuộc kết nối (Get Authorized Shops).
+// `cipher` (shop_cipher) là định danh BẮT BUỘC cho mọi API Shop-tag (Order,
+// Product, Fulfillment) ⇒ coi như credential, mã hoá at-rest.
+// ---------------------------------------------------------------------------
+
+model PodTiktokShop {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  /// Kết nối (authorization) sở hữu shop này.
+  accountId      String @map("account_id") @db.Uuid
+
+  /// `shops[].id` — TikTok Shop ID.
+  tiktokShopId  String  @map("tiktok_shop_id") @db.VarChar(64)
+  /// `shops[].cipher` — shop_cipher (MÃ HOÁ). Bắt buộc cho Shop-tag API.
+  shopCipherEnc String  @map("shop_cipher_enc") @db.Text
+  /// `shops[].code` — mã shop hiển thị ở Seller Center.
+  shopCode      String? @map("shop_code") @db.VarChar(64)
+  /// `shops[].name` — tên shop.
+  name          String  @db.VarChar(255)
+  /// `shops[].region` — thị trường (US, GB, ...).
+  region        String  @db.VarChar(10)
+  /// `shops[].seller_type` — LOCAL | CROSS_BORDER.
+  sellerType    String  @map("seller_type") @db.VarChar(20)
+
+  // --- Dự trù Sprint sau ---
+  /// Bật/tắt đồng bộ theo từng shop (Sprint 3 — Sync Orders).
+  syncEnabled         Boolean   @default(true) @map("sync_enabled")
+  /// Watermark `update_time` (Unix seconds) đã đồng bộ xong (Sprint 3).
+  lastOrderSyncCursor BigInt?   @map("last_order_sync_cursor")
+  /// Lần đồng bộ đơn gần nhất của shop (Sprint 3).
+  lastOrderSyncAt     DateTime? @map("last_order_sync_at") @db.Timestamptz(6)
+  /// Thời điểm đăng ký webhook cho shop (Sprint 4 — Webhook).
+  webhookRegisteredAt DateTime? @map("webhook_registered_at") @db.Timestamptz(6)
+
+  /// Số lượt sync thất bại LIÊN TIẾP — circuit breaker theo shop (Sprint 2).
+  syncFailureCount Int       @default(0) @map("sync_failure_count")
+  /// Tạm ngưng sync tới thời điểm này (backoff khi lỗi liên tiếp). NULL = không ngưng.
+  syncPausedUntil  DateTime? @map("sync_paused_until") @db.Timestamptz(6)
+  /// Đã kéo xong lịch sử đơn lần đầu hay chưa (phân biệt lần sync đầu vs định kỳ).
+  /// FALSE ⇒ shop chạy pha BACKFILL (quét theo `create_time`); TRUE ⇒ chạy pha
+  /// INCREMENTAL (quét theo `update_time`). Xem docs/pod-tiktok/05-flows-sequence.md.
+  backfillDone     Boolean   @default(false) @map("backfill_done")
+  /// Watermark `create_time` (Unix seconds) của pha BACKFILL — cho phép kéo lịch sử
+  /// nhiều lượt mà không phải quét lại từ đầu. NULL = chưa kéo lát nào.
+  /// KHÔNG dùng chung với `lastOrderSyncCursor`: hai cột theo hai trục thời gian khác nhau
+  /// (`create_time` bất biến ⇒ phân trang ổn định; `update_time` thay đổi được).
+  backfillCursor   BigInt?   @map("backfill_cursor")
+
+  // Audit + soft delete (ADR-015)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  account               PodTiktokAccount                @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  orders                PodOrder[]
+  syncLogs              PodSyncLog[]
+  payments              PodTiktokPayment[]
+  statements            PodTiktokStatement[]
+  statementTransactions PodTiktokStatementTransaction[]
+
+  // Chống link trùng Shop trong cùng Organization (hàng rào ở tầng DB).
+  @@unique([organizationId, tiktokShopId])
+  @@index([organizationId])
+  @@index([accountId])
+  @@index([tiktokShopId])
+  @@index([syncEnabled])
+  @@map("pod_tiktok_shops")
+}
+
+// ---------------------------------------------------------------------------
+// PodTiktokTokenAudit — vết thao tác token (bảo mật). KHÔNG lưu giá trị token.
+// ---------------------------------------------------------------------------
+
+model PodTiktokTokenAudit {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+
+  action  PodTiktokTokenAction
+  success Boolean
+
+  /// Mã lỗi TikTok (nếu thất bại).
+  errorCode       String? @map("error_code") @db.VarChar(20)
+  /// `request_id` của TikTok — phục vụ mở ticket.
+  tiktokRequestId String? @map("tiktok_request_id") @db.VarChar(64)
+
+  /// Hạn token SAU thao tác (metadata, không phải giá trị token).
+  accessTokenExpiresAt  DateTime? @map("access_token_expires_at") @db.Timestamptz(6)
+  refreshTokenExpiresAt DateTime? @map("refresh_token_expires_at") @db.Timestamptz(6)
+
+  /// NULL = do hệ thống (cron) thực hiện.
+  performedBy String? @map("performed_by") @db.Uuid
+  ipAddress   String? @map("ip_address") @db.VarChar(45)
+  userAgent   String? @map("user_agent") @db.VarChar(512)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account PodTiktokAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([accountId, createdAt])
+  @@index([organizationId])
+  @@map("pod_tiktok_token_audits")
+}
+
+// ===========================================================================
+// MODULE POD — TIKTOK ORDERS (Sprint 2: Scheduler + Get Orders + Sync Orders)
+//
+// Thiết kế theo RESPONSE THỰC TẾ của `POST /order/202309/orders/search`
+// (Get Order List — partner.tiktokshop.com/docv2/page/650aa8094a0bb702c06df242).
+//
+// Cấu trúc TikTok trả về:  Order -> line_items[] -> (item_tax[], sub_item_info[])
+//                                -> packages[]
+// => ánh xạ thành: pod_orders 1—N pod_order_items · pod_orders 1—N pod_order_packages
+//
+// ĐỘC LẬP với bảng `orders` (đơn nhập tay) — không dùng chung, không sửa bảng cũ.
+// Tiền tệ dùng Decimal(18,4): TikTok trả về dạng STRING, parse có kiểm soát.
+// Thời gian lưu CẢ Unix seconds (bigint — để so watermark) LẪN timestamptz (để query).
+// ===========================================================================
+
+model PodOrder {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+  shopId         String @map("shop_id") @db.Uuid
+
+  /// `orders[].id` — TikTok Shop order ID.
+  tiktokOrderId String @map("tiktok_order_id") @db.VarChar(64)
+
+  /// `orders[].status` — UNPAID/ON_HOLD/AWAITING_SHIPMENT/PARTIALLY_SHIPPING/
+  /// AWAITING_COLLECTION/IN_TRANSIT/DELIVERED/COMPLETED/CANCELLED.
+  /// KHÔNG dùng enum Postgres: TikTok bổ sung giá trị mới (vd ON_HOLD) nên enum cứng sẽ vỡ sync.
+  status String @db.VarChar(40)
+
+  // --- Người mua ---
+  buyerUserId   String? @map("buyer_user_id") @db.VarChar(64)
+  /// `buyer_email` — email ẩn danh do TikTok cấp.
+  buyerEmail    String? @map("buyer_email") @db.VarChar(255)
+  buyerNickname String? @map("buyer_nickname") @db.VarChar(255)
+  buyerMessage  String? @map("buyer_message") @db.Text
+  sellerNote    String? @map("seller_note") @db.Text
+
+  // --- Huỷ đơn ---
+  cancellationInitiator String? @map("cancellation_initiator") @db.VarChar(20)
+  cancelReason          String? @map("cancel_reason") @db.VarChar(500)
+  isBuyerRequestCancel  Boolean @default(false) @map("is_buyer_request_cancel")
+
+  // --- Fulfillment / vận chuyển ---
+  fulfillmentType            String? @map("fulfillment_type") @db.VarChar(40)
+  deliveryType               String? @map("delivery_type") @db.VarChar(30)
+  /// TIKTOK (4PL) | SELLER (3PL) | TIKTOK_DIGITAL — quyết định địa chỉ có bị che hay không.
+  shippingType               String? @map("shipping_type") @db.VarChar(30)
+  shippingProvider           String? @map("shipping_provider") @db.VarChar(255)
+  shippingProviderId         String? @map("shipping_provider_id") @db.VarChar(64)
+  trackingNumber             String? @map("tracking_number") @db.VarChar(255)
+  splitOrCombineTag          String? @map("split_or_combine_tag") @db.VarChar(20)
+  hasUpdatedRecipientAddress Boolean @default(false) @map("has_updated_recipient_address")
+  warehouseId                String? @map("warehouse_id") @db.VarChar(64)
+  deliveryOptionId           String? @map("delivery_option_id") @db.VarChar(64)
+  deliveryOptionName         String? @map("delivery_option_name") @db.VarChar(255)
+  paymentMethodName          String? @map("payment_method_name") @db.VarChar(100)
+  needUploadInvoice          String? @map("need_upload_invoice") @db.VarChar(30)
+  isCod                      Boolean @default(false) @map("is_cod")
+
+  // --- Loại đơn (US: POD dùng MADE_TO_ORDER) ---
+  /// NORMAL | ZERO_LOTTERY | PRE_ORDER | MADE_TO_ORDER | BACK_ORDER | VIRTUAL_ORDER.
+  orderType             String? @map("order_type") @db.VarChar(30)
+  /// `handling_duration.days` — chỉ có với MADE_TO_ORDER/BACK_ORDER.
+  handlingDurationDays  String? @map("handling_duration_days") @db.VarChar(10)
+  /// `handling_duration.type` — CALENDAR_DAY | BUSINESS_DAY.
+  handlingDurationType  String? @map("handling_duration_type") @db.VarChar(20)
+  /// `release_date` — chỉ có với PRE_ORDER. Unix seconds.
+  releaseDate           BigInt? @map("release_date")
+  /// Luồng On Hold mới/cũ — quyết định app có phải tự giữ đơn 1 giờ hay không.
+  isOnHoldOrder         Boolean @default(false) @map("is_on_hold_order")
+  isSampleOrder         Boolean @default(false) @map("is_sample_order")
+  isReplacementOrder    Boolean @default(false) @map("is_replacement_order")
+  replacedOrderId       String? @map("replaced_order_id") @db.VarChar(64)
+  isExchangeOrder       Boolean @default(false) @map("is_exchange_order")
+  exchangeSourceOrderId String? @map("exchange_source_order_id") @db.VarChar(64)
+  isSubscriptionOrder   Boolean @default(false) @map("is_subscription_order")
+  commercePlatform      String? @map("commerce_platform") @db.VarChar(30)
+  autoCombineGroupId    String? @map("auto_combine_group_id") @db.VarChar(64)
+  fastDeliveryProgram   String? @map("fast_delivery_program") @db.VarChar(40)
+
+  // --- payment{} (TikTok trả STRING -> Decimal(18,4)) ---
+  currency                    String?  @db.VarChar(10)
+  totalAmount                 Decimal? @map("total_amount") @db.Decimal(18, 4)
+  subTotal                    Decimal? @map("sub_total") @db.Decimal(18, 4)
+  shippingFee                 Decimal? @map("shipping_fee") @db.Decimal(18, 4)
+  originalTotalProductPrice   Decimal? @map("original_total_product_price") @db.Decimal(18, 4)
+  originalShippingFee         Decimal? @map("original_shipping_fee") @db.Decimal(18, 4)
+  sellerDiscount              Decimal? @map("seller_discount") @db.Decimal(18, 4)
+  platformDiscount            Decimal? @map("platform_discount") @db.Decimal(18, 4)
+  paymentPlatformDiscount     Decimal? @map("payment_platform_discount") @db.Decimal(18, 4)
+  paymentDiscountServiceFee   Decimal? @map("payment_discount_service_fee") @db.Decimal(18, 4)
+  shippingFeeSellerDiscount   Decimal? @map("shipping_fee_seller_discount") @db.Decimal(18, 4)
+  shippingFeePlatformDiscount Decimal? @map("shipping_fee_platform_discount") @db.Decimal(18, 4)
+  shippingFeeCofundedDiscount Decimal? @map("shipping_fee_cofunded_discount") @db.Decimal(18, 4)
+  tax                         Decimal? @db.Decimal(18, 4)
+  productTax                  Decimal? @map("product_tax") @db.Decimal(18, 4)
+  shippingFeeTax              Decimal? @map("shipping_fee_tax") @db.Decimal(18, 4)
+  retailDeliveryFee           Decimal? @map("retail_delivery_fee") @db.Decimal(18, 4)
+  buyerServiceFee             Decimal? @map("buyer_service_fee") @db.Decimal(18, 4)
+  handlingFee                 Decimal? @map("handling_fee") @db.Decimal(18, 4)
+  shippingInsuranceFee        Decimal? @map("shipping_insurance_fee") @db.Decimal(18, 4)
+  itemInsuranceFee            Decimal? @map("item_insurance_fee") @db.Decimal(18, 4)
+  itemInsuranceTax            Decimal? @map("item_insurance_tax") @db.Decimal(18, 4)
+  smallOrderFee               Decimal? @map("small_order_fee") @db.Decimal(18, 4)
+
+  // --- recipient_address{} — PII, MÃ HOÁ at-rest (AES-256-GCM) ---
+  /// Toàn bộ object `recipient_address` đã mã hoá. Chỉ giải mã khi có quyền.
+  recipientEnc        String? @map("recipient_enc") @db.Text
+  /// Không nhạy cảm — dùng lọc/thống kê theo vùng mà không cần giải mã.
+  recipientRegionCode String? @map("recipient_region_code") @db.VarChar(10)
+  recipientPostalCode String? @map("recipient_postal_code") @db.VarChar(20)
+  /// Payload lần này trả về địa chỉ ĐÃ BỊ CHE (4PL/FBT hoặc quá 30 ngày sau COMPLETED).
+  /// Dùng cho quy tắc masking-safe write: KHÔNG ghi đè dữ liệu thật bằng giá trị đã che.
+  recipientMasked     Boolean @default(false) @map("recipient_masked")
+
+  // --- Mốc thời gian (Unix seconds từ TikTok) ---
+  tiktokCreateTime  BigInt  @map("tiktok_create_time")
+  /// Dùng cho watermark đồng bộ và phát hiện thay đổi.
+  tiktokUpdateTime  BigInt  @map("tiktok_update_time")
+  paidTime          BigInt? @map("paid_time")
+  rtsTime           BigInt? @map("rts_time")
+  cancelTime        BigInt? @map("cancel_time")
+  deliveryTime      BigInt? @map("delivery_time")
+  collectionTime    BigInt? @map("collection_time")
+  requestCancelTime BigInt? @map("request_cancel_time")
+
+  // SLA
+  rtsSlaTime         BigInt? @map("rts_sla_time")
+  ttsSlaTime         BigInt? @map("tts_sla_time")
+  deliverySlaTime    BigInt? @map("delivery_sla_time")
+  cancelOrderSlaTime BigInt? @map("cancel_order_sla_time")
+  shippingDueTime    BigInt? @map("shipping_due_time")
+  collectionDueTime  BigInt? @map("collection_due_time")
+  deliveryDueTime    BigInt? @map("delivery_due_time")
+
+  /// Bản timestamptz của create/update time — phục vụ filter và sort trên UI.
+  orderedAt       DateTime @map("ordered_at") @db.Timestamptz(6)
+  tiktokUpdatedAt DateTime @map("tiktok_updated_at") @db.Timestamptz(6)
+
+  // --- Metadata đồng bộ ---
+  /// sha256 canonical JSON (đã LOẠI recipient_address) — phát hiện thay đổi nội dung.
+  payloadHash  String   @map("payload_hash") @db.Char(64)
+  /// Response nguyên trạng — phục vụ debug/replay mà không cần gọi lại TikTok.
+  rawPayload   Json     @map("raw_payload")
+  /// Có ít nhất một line item `is_pod_customized = true`.
+  hasPodItem   Boolean  @default(false) @map("has_pod_item")
+  /// Nguồn ghi gần nhất: CRON | MANUAL | BACKFILL.
+  syncSource   String   @map("sync_source") @db.VarChar(20)
+  /// Số lần bản ghi được cập nhật từ TikTok (0 = mới tạo).
+  syncVersion  Int      @default(0) @map("sync_version")
+  /// Lần cuối nhìn thấy đơn này trong một lượt sync (kể cả khi SKIP).
+  lastSyncedAt DateTime @map("last_synced_at") @db.Timestamptz(6)
+
+  // Audit + soft delete (ADR-015)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  account           PodTiktokAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  shop              PodTiktokShop      @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  items             PodOrderItem[]
+  packages          PodOrderPackage[]
+  /// Các lần gửi đơn sang xưởng in (mỗi nhà cung cấp tối đa một bản ghi).
+  fulfillmentOrders FulfillmentOrder[]
+
+  /// Hàng rào chống trùng đơn ở tầng DB (không chỉ ở tầng code).
+  @@unique([organizationId, tiktokOrderId])
+  @@index([organizationId])
+  @@index([shopId, tiktokUpdateTime])
+  @@index([accountId])
+  @@index([status])
+  @@index([organizationId, orderedAt])
+  @@index([hasPodItem])
+  @@index([orderType])
+  @@map("pod_orders")
+}
+
+// ---------------------------------------------------------------------------
+// PodOrderItem — `orders[].line_items[]`.
+// LƯU Ý: TikTok trả 1 line item = 1 ĐƠN VỊ sản phẩm (mua 5 áo => 5 line item),
+// mỗi cái có `id` riêng và có thể có nội dung POD riêng => KHÔNG gộp.
+// ---------------------------------------------------------------------------
+
+model PodOrderItem {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  orderId        String @map("order_id") @db.Uuid
+
+  /// `line_items[].id` — order line item ID.
+  tiktokLineItemId String @map("tiktok_line_item_id") @db.VarChar(64)
+
+  productId   String? @map("product_id") @db.VarChar(64)
+  productName String? @map("product_name") @db.VarChar(1024)
+  skuId       String? @map("sku_id") @db.VarChar(64)
+  skuName     String? @map("sku_name") @db.VarChar(512)
+  sellerSku   String? @map("seller_sku") @db.VarChar(255)
+  skuImage    String? @map("sku_image") @db.VarChar(2048)
+
+  salePrice        Decimal? @map("sale_price") @db.Decimal(18, 4)
+  originalPrice    Decimal? @map("original_price") @db.Decimal(18, 4)
+  platformDiscount Decimal? @map("platform_discount") @db.Decimal(18, 4)
+  sellerDiscount   Decimal? @map("seller_discount") @db.Decimal(18, 4)
+  currency         String?  @db.VarChar(10)
+
+  /// Trạng thái hiển thị theo item và trạng thái package của item.
+  displayStatus String? @map("display_status") @db.VarChar(40)
+  packageStatus String? @map("package_status") @db.VarChar(40)
+
+  packageId            String? @map("package_id") @db.VarChar(64)
+  trackingNumber       String? @map("tracking_number") @db.VarChar(255)
+  shippingProviderId   String? @map("shipping_provider_id") @db.VarChar(64)
+  shippingProviderName String? @map("shipping_provider_name") @db.VarChar(255)
+  warehouseId          String? @map("warehouse_id") @db.VarChar(64)
+
+  cancelReason String? @map("cancel_reason") @db.VarChar(500)
+  cancelUser   String? @map("cancel_user") @db.VarChar(20)
+  rtsTime      BigInt? @map("rts_time")
+
+  isGift            Boolean @default(false) @map("is_gift")
+  isDangerousGood   Boolean @default(false) @map("is_dangerous_good")
+  needsPrescription Boolean @default(false) @map("needs_prescription")
+
+  /// POD — có sẵn ngay ở Get Order List (không cần gọi Get Order Detail).
+  isPodCustomized Boolean @default(false) @map("is_pod_customized")
+  /// ID dữ liệu tuỳ biến POD — dùng làm `pod_order_data_id` khi gọi Get Pod Detail (Sprint sau).
+  podInfoId       String? @map("pod_info_id") @db.VarChar(64)
+
+  /// DEPRECATED bởi TikTok (thay bằng `order_type` ở mức Order) — giữ để tương thích ngược.
+  skuType            String? @map("sku_type") @db.VarChar(40)
+  productListingType String? @map("product_listing_type") @db.VarChar(40)
+  roomId             String? @map("room_id") @db.VarChar(64)
+
+  /// Danh mục sản phẩm — hiển thị ở màn hình Order List.
+  /// ⚠️ Get Order List KHÔNG trả về category; trường này sẽ được điền khi triển khai
+  /// Sprint Product (Get Product API). Hiện tại luôn NULL và UI hiển thị "—".
+  productCategory String? @map("product_category") @db.VarChar(255)
+
+  retailDeliveryFee Decimal? @map("retail_delivery_fee") @db.Decimal(18, 4)
+  buyerServiceFee   Decimal? @map("buyer_service_fee") @db.Decimal(18, 4)
+  smallOrderFee     Decimal? @map("small_order_fee") @db.Decimal(18, 4)
+  pfandFee          Decimal? @map("pfand_fee") @db.Decimal(18, 4)
+  giftRetailPrice   Decimal? @map("gift_retail_price") @db.Decimal(18, 4)
+
+  isUnboxingItem  Boolean @default(false) @map("is_unboxing_item")
+  unboxingSkuCode String? @map("unboxing_sku_code") @db.VarChar(64)
+
+  /// Mảng lồng nhau giữ nguyên dạng JSON (ít truy vấn, tránh phình bảng).
+  itemTax             Json? @map("item_tax")
+  subItemInfo         Json? @map("sub_item_info")
+  combinedListingSkus Json? @map("combined_listing_skus")
+  unboxingCaseList    Json? @map("unboxing_case_list")
+
+  /// sha256 của item — chỉ UPDATE khi nội dung thay đổi.
+  payloadHash String @map("payload_hash") @db.Char(64)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  order                 PodOrder               @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  designs               PodOrderItemDesign[]
+  fulfillmentOrderItems FulfillmentOrderItem[]
+
+  /// Chống trùng item trong cùng một đơn.
+  @@unique([orderId, tiktokLineItemId])
+  @@index([organizationId])
+  @@index([orderId])
+  @@index([skuId])
+  @@index([isPodCustomized])
+  @@index([packageId])
+  @@map("pod_order_items")
+}
+
+// ---------------------------------------------------------------------------
+// PodOrderPackage — `orders[].packages[]`.
+// Get Order List chỉ trả `{ id }`; các field chi tiết (tracking, label...) sẽ được
+// bổ sung ở Sprint Fulfillment qua Get Package Detail.
+// ---------------------------------------------------------------------------
+
+model PodOrderPackage {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  orderId        String @map("order_id") @db.Uuid
+
+  /// `packages[].id` — package ID.
+  tiktokPackageId String @map("tiktok_package_id") @db.VarChar(64)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  order PodOrder @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([orderId, tiktokPackageId])
+  @@index([organizationId])
+  @@index([orderId])
+  @@map("pod_order_packages")
+}
+
+// ---------------------------------------------------------------------------
+// PodSyncLog — nhật ký từng lượt đồng bộ (theo shop hoặc theo cả lượt cron).
+// Bảng log: chỉ created_at, KHÔNG soft delete; có job dọn theo retention.
+// ---------------------------------------------------------------------------
+
+model PodSyncLog {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  /// NULL = dòng tổng hợp của cả lượt cron (nhiều account).
+  accountId      String? @map("account_id") @db.Uuid
+  /// NULL = dòng tổng hợp cấp account/cron.
+  shopId         String? @map("shop_id") @db.Uuid
+
+  trigger PodSyncTrigger
+  status  PodSyncStatus  @default(RUNNING)
+
+  /// Cửa sổ thời gian (Unix seconds) đã quét. Trục thời gian tuỳ pha:
+  /// BACKFILL dùng `create_time`, INCREMENTAL dùng `update_time` (xem `phase`).
+  windowFrom BigInt?      @map("window_from")
+  windowTo   BigInt?      @map("window_to")
+  /// Pha đã chạy: BACKFILL (kéo lịch sử) | INCREMENTAL (đồng bộ định kỳ).
+  phase      PodSyncPhase @default(INCREMENTAL)
+
+  pagesFetched Int @default(0) @map("pages_fetched")
+  /// Số lần gọi TikTok API — theo dõi mức tiêu thụ quota.
+  apiCalls     Int @default(0) @map("api_calls")
+
+  totalOrders      Int  @default(0) @map("total_orders")
+  /// `data.total_count` do TikTok trả về ở trang đầu — đối chiếu với `totalOrders`
+  /// để tự phát hiện đồng bộ thiếu (đây chính là dấu hiệu đã bỏ lỡ ở bug 55/143).
+  tiktokTotalCount Int? @map("tiktok_total_count")
+  createdCount     Int  @default(0) @map("created_count")
+  updatedCount     Int  @default(0) @map("updated_count")
+  skippedCount     Int  @default(0) @map("skipped_count")
+  failedCount      Int  @default(0) @map("failed_count")
+
+  startedAt  DateTime  @map("started_at") @db.Timestamptz(6)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)
+  durationMs Int?      @map("duration_ms")
+
+  errorCode       String? @map("error_code") @db.VarChar(40)
+  errorMessage    String? @map("error_message") @db.VarChar(1000)
+  /// `request_id` của TikTok — bắt buộc khi mở ticket hỗ trợ.
+  tiktokRequestId String? @map("tiktok_request_id") @db.VarChar(64)
+
+  /// NULL = do scheduler chạy; có giá trị = do người dùng bấm Manual Sync.
+  triggeredBy String? @map("triggered_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account PodTiktokAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  shop    PodTiktokShop?    @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([organizationId, startedAt])
+  @@index([shopId, startedAt])
+  @@index([accountId, startedAt])
+  @@index([status])
+  @@map("pod_sync_logs")
+}
+
+// ---------------------------------------------------------------------------
+// PodOrderItemDesign — file design in cho TỪNG sản phẩm (line item) của đơn POD.
+//
+// Vì sao MỘT DÒNG cho MỖI VỊ TRÍ IN (thay vì 2 cột front_url/back_url):
+//   - Thêm vị trí mới (LEFT/RIGHT/SLEEVE) KHÔNG cần migration, chỉ dùng thêm giá trị enum.
+//   - Mỗi vị trí có metadata riêng (người upload, thời điểm, số lần thay, kích thước file).
+//   - Truy vấn "thiếu design" đơn giản: đếm số dòng theo vị trí bắt buộc.
+//
+// Mỗi (order_item, placement) chỉ có MỘT design đang hiệu lực — thay design = ghi đè
+// dòng hiện có và tăng `version`, đồng thời xoá file cũ khỏi storage.
+// ---------------------------------------------------------------------------
+
+model PodOrderItemDesign {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  /// Denormalize từ order item — cho phép lọc/đếm design theo đơn mà không phải join.
+  orderId        String @map("order_id") @db.Uuid
+  orderItemId    String @map("order_item_id") @db.Uuid
+
+  /// Vị trí in: FRONT | BACK | LEFT | RIGHT | SLEEVE | LABEL.
+  placement PodDesignPlacement
+
+  /// File thực tế nằm ở Storage Module (bảng `storage_files`).
+  /// Bảng này KHÔNG lặp lại object key / URL / mime / size — mọi thông tin file
+  /// là trách nhiệm của Storage Module (một nguồn sự thật duy nhất).
+  storageFileId String @map("storage_file_id") @db.Uuid
+
+  /// Số lần design ở vị trí này được thay (1 = upload lần đầu).
+  version Int @default(1)
+
+  // Audit + soft delete (ADR-015)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  orderItem   PodOrderItem @relation(fields: [orderItemId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  /// Restrict: không cho xoá bản ghi file khi vẫn còn design tham chiếu.
+  storageFile StorageFile  @relation(fields: [storageFileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// Mỗi sản phẩm chỉ có MỘT design đang hiệu lực cho mỗi vị trí in.
+  @@unique([orderItemId, placement])
+  @@index([organizationId])
+  @@index([orderId])
+  @@index([orderItemId])
+  @@index([placement])
+  @@map("pod_order_item_designs")
+}
+
+// ===========================================================================
+// CORE MODULE — STORAGE
+//
+// Bảng trung tâm lưu metadata MỌI file của hệ thống (Employee Avatar, POD Design,
+// Shipping Label, Excel Import/Export...). Bytes nằm ở object storage (Cloudflare R2);
+// bảng này chỉ giữ metadata + khoá đối tượng để truy xuất/xoá.
+//
+// Module nghiệp vụ KHÔNG tự lưu đường dẫn file — chỉ tham chiếu `storage_files.id`.
+// ===========================================================================
+
+/// Module nghiệp vụ sở hữu file — phục vụ thống kê dung lượng và dọn dẹp theo module.
+/// Thêm module mới chỉ cần thêm giá trị enum (một dòng migration).
+enum StorageModuleName {
+  POD_TIKTOK
+  EMPLOYEE
+  ORDER
+  ACCOUNT
+  REPORT
+  COMMON
+
+  @@map("storage_module_name")
+}
+
+/// Loại thực thể mà file gắn vào. Dùng cặp (reference_type, reference_id) để tra ngược.
+/// Khai báo SẴN các loại đã thấy trong lộ trình để mở rộng không cần migration.
+enum StorageReferenceType {
+  POD_ORDER_ITEM_DESIGN
+  EMPLOYEE_AVATAR
+  EMPLOYEE_CCCD
+  ACCOUNT_DOCUMENT
+  ORDER_ATTACHMENT
+  SHIPPING_LABEL
+  EXCEL_IMPORT
+  EXCEL_EXPORT
+  OTHER
+
+  @@map("storage_reference_type")
+}
+
+/// Nhà cung cấp lưu trữ đang giữ file. Lưu theo TỪNG file để có thể chuyển provider
+/// dần dần mà file cũ vẫn truy xuất được.
+enum StorageProviderName {
+  CLOUDFLARE_R2
+  LOCAL_DISK
+  AWS_S3
+  MINIO
+  GCS
+
+  @@map("storage_provider_name")
+}
+
+model StorageFile {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  /// Module sở hữu file.
+  module StorageModuleName
+
+  /// Cặp tham chiếu ngược về thực thể nghiệp vụ (vd POD_ORDER_ITEM_DESIGN + orderItemId).
+  /// `referenceId` để NULL với file không gắn thực thể cụ thể (vd file export tạm).
+  referenceType StorageReferenceType @map("reference_type")
+  referenceId   String?              @map("reference_id") @db.Uuid
+
+  /// Thư mục logic trong bucket (không gồm tên file), vd `designs/{org}/{order}/{item}`.
+  folder    String @db.VarChar(512)
+  /// Khoá đối tượng ĐẦY ĐỦ trong bucket — dùng để đọc/xoá. UNIQUE toàn hệ thống.
+  objectKey String @unique @map("object_key") @db.VarChar(1024)
+
+  /// Tên file gốc người dùng chọn (chỉ để hiển thị/tải về).
+  originalName String @map("original_name") @db.VarChar(255)
+  /// Tên file thực tế trên storage (UUID + phần mở rộng) — KHÔNG dùng tên người dùng.
+  storedName   String @map("stored_name") @db.VarChar(255)
+  /// Phần mở rộng đã chuẩn hoá, không có dấu chấm (png, jpg, pdf...).
+  extension    String @db.VarChar(20)
+  mimeType     String @map("mime_type") @db.VarChar(150)
+  /// Kích thước (byte).
+  fileSize     Int    @map("file_size")
+
+  /// URL công khai (nếu bucket cho phép đọc công khai). NULL khi bucket private.
+  publicUrl String? @map("public_url") @db.VarChar(2048)
+
+  /// Provider đang giữ file — cho phép chuyển dần sang provider khác.
+  provider StorageProviderName @default(CLOUDFLARE_R2)
+  /// Tên bucket tại thời điểm upload (đổi bucket vẫn truy xuất được file cũ).
+  bucket   String?             @db.VarChar(255)
+  /// Checksum nội dung (sha256 hex) — phát hiện trùng file và kiểm tra toàn vẹn.
+  checksum String?             @db.Char(64)
+
+  uploadedBy String   @map("uploaded_by") @db.Uuid
+  uploadedAt DateTime @map("uploaded_at") @db.Timestamptz(6)
+
+  // Audit + soft delete (ADR-015). Soft delete để có thể đối soát file đã xoá.
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  uploader     User         @relation("StorageUploader", fields: [uploadedBy], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// File được dùng làm design của sản phẩm POD (0..n — thực tế 0 hoặc 1).
+  podDesigns PodOrderItemDesign[]
+
+  @@index([organizationId])
+  @@index([organizationId, module])
+  @@index([referenceType, referenceId])
+  @@index([uploadedBy])
+  @@index([createdAt])
+  @@map("storage_files")
+}
+
+// ===========================================================================
+// MODULE POD — TIKTOK PAYOUT (Finance API)
+//
+// Nguồn dữ liệu (docs/pod-tiktok/10-payout-report.md):
+//   1. GET /finance/202605/payments                                  → PodTiktokPayment
+//   2. GET /finance/202309/statements                                → PodTiktokStatement
+//   3. GET /finance/202501/statements/{id}/statement_transactions    → PodTiktokStatementTransaction
+//
+// 🔴 KHÔNG tự tính payout từ bảng đơn hàng. Toàn bộ số tiền là giá trị TikTok trả về,
+// chỉ lưu lại nguyên trạng rồi báo cáo bằng SQL aggregate.
+//
+// Quan hệ nghiệp vụ:
+//   Payment (tiền về ngân hàng) 1 ── n Statement (đối soát theo ngày) 1 ── n Transaction (đơn)
+// Một payment có thể gộp NHIỀU statement (khi số tiền quá nhỏ) — theo Finance API overview.
+// ===========================================================================
+
+/// PodTiktokPayment — một lần TikTok chi trả về tài khoản ngân hàng của seller.
+/// Đây là ĐỊNH NGHĨA "Payout" dùng cho Report Card và cột Total Payout.
+model PodTiktokPayment {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+  shopId         String @map("shop_id") @db.Uuid
+
+  /// `payments[].id` — ID chi trả phía TikTok. UNIQUE theo Organization (chống ghi trùng).
+  tiktokPaymentId String          @map("tiktok_payment_id") @db.VarChar(64)
+  /// `payments[].status` — PROCESSING | PAID | FAILED.
+  status          PodPayoutStatus
+
+  /// `amount` — số tiền chi trả CUỐI CÙNG (sau quy đổi ngoại tệ). Đây là số dùng để cộng tổng.
+  amount   Decimal @db.Decimal(18, 4)
+  currency String  @db.VarChar(10)
+
+  /// `settlement_amount` — số tiền đối soát TRƯỚC quy đổi ngoại tệ.
+  settlementAmount     Decimal? @map("settlement_amount") @db.Decimal(18, 4)
+  /// `payment_amount_before_exchange` — số tiền chi trả trước quy đổi.
+  amountBeforeExchange Decimal? @map("amount_before_exchange") @db.Decimal(18, 4)
+  /// `exchange_rate` — tỷ giá, 6 chữ số thập phân theo tài liệu.
+  exchangeRate         Decimal? @map("exchange_rate") @db.Decimal(18, 6)
+  /// `reserve_amount` — chỉ có ở bản 202309; bản 202605 không trả.
+  reserveAmount        Decimal? @map("reserve_amount") @db.Decimal(18, 4)
+
+  /// `bank_account` — TikTok đã che, chỉ còn 4 số cuối. Lưu nguyên trạng.
+  bankAccountMasked String? @map("bank_account_masked") @db.VarChar(64)
+
+  /// `create_time` — thời điểm khởi tạo chi trả (Unix seconds). Đây là TRỤC LỌC của báo cáo.
+  paymentCreateTime BigInt    @map("payment_create_time")
+  /// Bản `timestamptz` của `create_time` — để lọc theo khoảng ngày bằng SQL.
+  paymentCreatedAt  DateTime  @map("payment_created_at") @db.Timestamptz(6)
+  /// `paid_time` — thời điểm chuyển tiền thành công. NULL khi chưa chi (TikTok trả 0).
+  paidAt            DateTime? @map("paid_at") @db.Timestamptz(6)
+
+  /// sha256 canonical của payload — bỏ qua ghi đè khi không có gì đổi (giống luồng Order).
+  payloadHash  String   @map("payload_hash") @db.Char(64)
+  lastSyncedAt DateTime @map("last_synced_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  account    PodTiktokAccount     @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  shop       PodTiktokShop        @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  statements PodTiktokStatement[]
+
+  @@unique([organizationId, tiktokPaymentId])
+  @@index([organizationId, paymentCreatedAt])
+  @@index([organizationId, status])
+  @@index([accountId, paymentCreatedAt])
+  @@index([shopId])
+  @@map("pod_tiktok_payments")
+}
+
+/// PodTiktokStatement — bảng đối soát theo NGÀY của một shop (TikTok sinh lúc 00:00 UTC).
+/// Là cầu nối Payment ↔ Order: mang `payment_id` và chứa các transaction cấp đơn.
+model PodTiktokStatement {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+  shopId         String @map("shop_id") @db.Uuid
+
+  /// `statements[].id`.
+  tiktokStatementId String  @map("tiktok_statement_id") @db.VarChar(64)
+  /// `statements[].payment_id` — khoá liên kết sang `pod_tiktok_payments`.
+  /// Lưu dạng chuỗi (không FK) vì statement có thể về TRƯỚC payment tương ứng.
+  tiktokPaymentId   String? @map("tiktok_payment_id") @db.VarChar(64)
+  /// FK nội bộ, gán khi payment tương ứng đã có trong DB. NULL = chưa đối soát được.
+  paymentId         String? @map("payment_id") @db.Uuid
+
+  /// `payment_status` — trạng thái chi trả của statement này.
+  paymentStatus PodPayoutStatus
+
+  /// `statement_time` (Unix seconds) + bản timestamptz để lọc bằng SQL.
+  statementTime BigInt    @map("statement_time")
+  statementAt   DateTime  @map("statement_at") @db.Timestamptz(6)
+  /// `payment_time`.
+  paidAt        DateTime? @map("paid_at") @db.Timestamptz(6)
+
+  currency           String   @db.VarChar(10)
+  /// `settlement_amount` — số tiền đối soát của ngày.
+  settlementAmount   Decimal  @map("settlement_amount") @db.Decimal(18, 4)
+  revenueAmount      Decimal? @map("revenue_amount") @db.Decimal(18, 4)
+  feeAmount          Decimal? @map("fee_amount") @db.Decimal(18, 4)
+  adjustmentAmount   Decimal? @map("adjustment_amount") @db.Decimal(18, 4)
+  netSalesAmount     Decimal? @map("net_sales_amount") @db.Decimal(18, 4)
+  shippingCostAmount Decimal? @map("shipping_cost_amount") @db.Decimal(18, 4)
+
+  /// Đã kéo xong transaction cấp đơn của statement này chưa (NULL = chưa).
+  /// Statement đã SETTLED thì transaction bất biến ⇒ chỉ kéo MỘT lần.
+  transactionsSyncedAt DateTime? @map("transactions_synced_at") @db.Timestamptz(6)
+  /// Số đơn (order_id duy nhất, dòng type=ORDER) — denormalize để báo cáo khỏi join sâu.
+  orderCount           Int       @default(0) @map("order_count")
+
+  payloadHash  String   @map("payload_hash") @db.Char(64)
+  lastSyncedAt DateTime @map("last_synced_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  account      PodTiktokAccount                @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  shop         PodTiktokShop                   @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  payment      PodTiktokPayment?               @relation(fields: [paymentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  transactions PodTiktokStatementTransaction[]
+
+  @@unique([organizationId, tiktokStatementId])
+  @@index([organizationId, statementAt])
+  @@index([organizationId, tiktokPaymentId])
+  @@index([paymentId])
+  @@index([accountId, statementAt])
+  @@index([shopId])
+  @@index([transactionsSyncedAt])
+  @@map("pod_tiktok_statements")
+}
+
+/// PodTiktokStatementTransaction — một dòng giao dịch trong statement (cấp ĐƠN HÀNG).
+/// Đây là nguồn DUY NHẤT cho cột "Order Count" của báo cáo Payout.
+model PodTiktokStatementTransaction {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+  shopId         String @map("shop_id") @db.Uuid
+  statementId    String @map("statement_id") @db.Uuid
+
+  /// `transactions[].id`.
+  tiktokTransactionId String             @map("tiktok_transaction_id") @db.VarChar(64)
+  /// `transactions[].type` — ORDER | ADJUSTMENT | RESERVE | OTHER.
+  type                PodStatementTxType
+
+  /// ID đơn đã chuẩn hoá: `order_id` ?? `adjustment_order_id` ?? `associated_order_id`.
+  /// CHỈ dòng `type = ORDER` được dùng để đếm số đơn (dòng RESERVE trỏ lại chính đơn đó).
+  tiktokOrderId   String? @map("tiktok_order_id") @db.VarChar(64)
+  adjustmentId    String? @map("adjustment_id") @db.VarChar(64)
+  reserveId       String? @map("reserve_id") @db.VarChar(64)
+  /// `order_create_time` (Unix seconds).
+  orderCreateTime BigInt? @map("order_create_time")
+
+  currency           String   @db.VarChar(10)
+  /// `settlement_amount` của dòng.
+  settlementAmount   Decimal  @map("settlement_amount") @db.Decimal(18, 4)
+  revenueAmount      Decimal? @map("revenue_amount") @db.Decimal(18, 4)
+  feeTaxAmount       Decimal? @map("fee_tax_amount") @db.Decimal(18, 4)
+  shippingCostAmount Decimal? @map("shipping_cost_amount") @db.Decimal(18, 4)
+  adjustmentAmount   Decimal? @map("adjustment_amount") @db.Decimal(18, 4)
+  reserveAmount      Decimal? @map("reserve_amount") @db.Decimal(18, 4)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  account   PodTiktokAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  shop      PodTiktokShop      @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  statement PodTiktokStatement @relation(fields: [statementId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([organizationId, tiktokTransactionId])
+  @@index([statementId])
+  @@index([organizationId, tiktokOrderId])
+  @@index([accountId, type])
+  @@index([shopId])
+  @@map("pod_tiktok_statement_transactions")
+}
+
+// ===========================================================================
+// MODULE FULFILLMENT — gửi đơn sang xưởng in (POD fulfillment provider)
+//
+// Nhà cung cấp đầu tiên: MangoTeePrints (docs.mangoteeprints.com, MangoV3 Public API).
+// Thiết kế đa nhà cung cấp ngay từ đầu: mọi bảng đều mang `provider`, phần đặc thù
+// nhà cung cấp nằm ở `providerPayload`/`rawRequest`/`rawResponse` (JSON) thay vì cột riêng.
+// Thêm Printify/Printful sau ⇒ viết thêm một client + mapper, KHÔNG đổi lược đồ.
+//
+// Chi tiết: docs/fulfillment/README.md
+// ===========================================================================
+
+/// Nhà cung cấp fulfillment. Hiện chỉ MANGOTEE được implement.
+enum FulfillmentProvider {
+  MANGOTEE
+  PRINTIFY
+  PRINTFUL
+
+  @@map("fulfillment_provider")
+}
+
+/// Trạng thái fulfillment CHUẨN HOÁ của NCMedia (không phải enum của nhà cung cấp).
+///
+/// 🔴 Trạng thái gốc của nhà cung cấp luôn được lưu NGUYÊN VĂN ở `providerStatus`.
+/// Cột này chỉ là ánh xạ để UI/thống kê dùng chung giữa nhiều nhà cung cấp —
+/// giá trị lạ của provider sẽ map về `UNKNOWN` chứ không làm vỡ đồng bộ.
+enum FulfillmentStatus {
+  /// Chưa gửi đi (bản ghi vừa tạo hoặc đã reset để gửi lại).
+  DRAFT
+  /// Đang gọi API tạo đơn.
+  SUBMITTING
+  /// Đã gửi thành công, nhà cung cấp tiếp nhận.
+  SUBMITTED
+  /// Đang sản xuất.
+  IN_PRODUCTION
+  /// Tạm giữ (chờ thanh toán/xác nhận).
+  ON_HOLD
+  /// Đã giao cho đơn vị vận chuyển.
+  SHIPPED
+  /// Hoàn tất (đã giao tới người nhận).
+  DELIVERED
+  /// Nhà cung cấp từ chối đơn.
+  REJECTED
+  /// Đã huỷ.
+  CANCELLED
+  /// Đã hoàn tiền (một phần hoặc toàn bộ).
+  REFUNDED
+  /// Gửi thất bại phía NCMedia (lỗi validate/mạng/API) — có thể retry.
+  FAILED
+  /// Trạng thái provider chưa được ánh xạ (đã lưu nguyên văn ở `providerStatus`).
+  UNKNOWN
+
+  @@map("fulfillment_status")
+}
+
+/// Loại sự kiện ghi vào nhật ký fulfillment (append-only).
+enum FulfillmentEventType {
+  CREATE_REQUEST
+  CREATE_SUCCESS
+  CREATE_FAILED
+  STATUS_CHANGED
+  SHIPMENT_UPDATED
+  SYNC
+  CANCEL_REQUEST
+  CANCEL_SUCCESS
+  CANCEL_FAILED
+  RETRY
+  WEBHOOK_RECEIVED
+  VALIDATION_FAILED
+
+  @@map("fulfillment_event_type")
+}
+
+/// Nguồn kích hoạt một hành động fulfillment.
+enum FulfillmentTrigger {
+  MANUAL
+  CRON
+  WEBHOOK
+  RETRY
+
+  @@map("fulfillment_trigger")
+}
+
+// ---------------------------------------------------------------------------
+// FulfillmentAccount — cấu hình kết nối tới một nhà cung cấp (theo Organization).
+// ---------------------------------------------------------------------------
+model FulfillmentAccount {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  provider       FulfillmentProvider
+
+  /// Tên gợi nhớ do người dùng đặt.
+  name      String  @db.VarChar(255)
+  /// Chỉ MỘT tài khoản mặc định cho mỗi (organization, provider) — xem partial unique index.
+  isDefault Boolean @default(false) @map("is_default")
+  isActive  Boolean @default(true) @map("is_active")
+
+  /// API key đã MÃ HOÁ AES-256-GCM (Mango dùng header `X-API-Key`). KHÔNG expose qua API.
+  apiKeyEnc  String  @map("api_key_enc") @db.Text
+  /// 4 ký tự cuối của API key — để người dùng nhận diện mà không lộ khoá.
+  apiKeyHint String? @map("api_key_hint") @db.VarChar(8)
+
+  /// Ghi đè base URL (môi trường thử nghiệm). NULL = dùng cấu hình mặc định của hệ thống.
+  baseUrlOverride String? @map("base_url_override") @db.VarChar(500)
+
+  /// `production_line_id` mặc định khi tạo đơn (Mango: GET /production-lines).
+  defaultProductionLine String? @map("default_production_line") @db.VarChar(64)
+  /// `shipping_method` mặc định (Mango enum: standard | priority | express | ...).
+  defaultShippingMethod String  @default("standard") @map("default_shipping_method") @db.VarChar(40)
+  /// `facility` mặc định (chỉ production line TIKTOK). NULL = để Mango tự chọn (AUTO).
+  defaultFacility       String? @map("default_facility") @db.VarChar(40)
+
+  /// Secret dùng để xác thực webhook gọi về (Mango KHÔNG ký payload — xem docs/fulfillment).
+  webhookSecretEnc  String? @map("webhook_secret_enc") @db.Text
+  /// ID webhook phía nhà cung cấp (Mango: POST /webhooks trả `id`).
+  providerWebhookId String? @map("provider_webhook_id") @db.VarChar(64)
+
+  lastUsedAt   DateTime? @map("last_used_at") @db.Timestamptz(6)
+  lastErrorAt  DateTime? @map("last_error_at") @db.Timestamptz(6)
+  lastErrorMsg String?   @map("last_error_msg") @db.VarChar(1000)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  organization    Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  orders          FulfillmentOrder[]
+  productMappings FulfillmentProductMapping[]
+  webhookLogs     FulfillmentWebhookLog[]
+  syncLogs        FulfillmentSyncLog[]
+
+  @@index([organizationId, provider])
+  @@index([isActive])
+  @@map("fulfillment_accounts")
+}
+
+// ---------------------------------------------------------------------------
+// FulfillmentProductMapping — TikTok product/SKU ⇄ SKU của nhà cung cấp.
+//
+// 🔴 KHÔNG hardcode: mọi ánh xạ nằm ở bảng này, người vận hành tự khai báo.
+// Ưu tiên khớp theo `tiktokSkuId` (chính xác nhất), sau đó `sellerSku`, cuối cùng
+// `tiktokProductId` (áp cho mọi biến thể của sản phẩm).
+// ---------------------------------------------------------------------------
+model FulfillmentProductMapping {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  accountId      String              @map("account_id") @db.Uuid
+  provider       FulfillmentProvider
+
+  /// Khoá phía TikTok — ít nhất MỘT trong ba phải có (CHECK ở migration).
+  tiktokProductId String? @map("tiktok_product_id") @db.VarChar(64)
+  tiktokSkuId     String? @map("tiktok_sku_id") @db.VarChar(64)
+  sellerSku       String? @map("seller_sku") @db.VarChar(255)
+
+  /// SKU biến thể phía nhà cung cấp — giá trị gửi vào `items[].sku` khi tạo đơn.
+  providerSku         String  @map("provider_sku") @db.VarChar(255)
+  /// ID sản phẩm/biến thể phía nhà cung cấp (tham chiếu, không bắt buộc để tạo đơn).
+  providerProductId   String? @map("provider_product_id") @db.VarChar(64)
+  providerVariantId   String? @map("provider_variant_id") @db.VarChar(64)
+  /// Tên/màu/size để người vận hành đối chiếu khi khai báo.
+  providerProductName String? @map("provider_product_name") @db.VarChar(500)
+  providerColor       String? @map("provider_color") @db.VarChar(100)
+  providerSize        String? @map("provider_size") @db.VarChar(100)
+
+  /// `production_config` của Mango (default | large). NULL = không gửi.
+  productionConfig String? @map("production_config") @db.VarChar(40)
+  /// Ghi đè production line cho riêng sản phẩm này.
+  productionLine   String? @map("production_line") @db.VarChar(64)
+
+  /// Ánh xạ vị trí in: `{ "FRONT": "front", "BACK": "back" }`
+  /// (khoá = PodDesignPlacement của NCMedia, giá trị = `print_files[].key` của nhà cung cấp).
+  /// NULL = dùng ánh xạ mặc định trong code.
+  placementMap Json? @map("placement_map")
+
+  isActive Boolean @default(true) @map("is_active")
+  note     String? @db.VarChar(500)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  account      FulfillmentAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([organizationId, provider])
+  @@index([organizationId, tiktokSkuId])
+  @@index([organizationId, sellerSku])
+  @@index([organizationId, tiktokProductId])
+  @@index([accountId])
+  @@map("fulfillment_product_mappings")
+}
+
+// ---------------------------------------------------------------------------
+// FulfillmentOrder — một lần gửi đơn POD sang nhà cung cấp.
+// ---------------------------------------------------------------------------
+model FulfillmentOrder {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  accountId      String              @map("account_id") @db.Uuid
+  provider       FulfillmentProvider
+
+  /// Đơn POD TikTok nguồn. UNIQUE theo (podOrderId, provider): mỗi đơn chỉ gửi MỘT lần
+  /// tới mỗi nhà cung cấp — hàng rào chống tạo trùng ở tầng DB.
+  podOrderId String @map("pod_order_id") @db.Uuid
+
+  /// `order_id` do NCMedia sinh và gửi sang nhà cung cấp — Mango yêu cầu DUY NHẤT
+  /// và trả lỗi nếu trùng ⇒ chính là khoá idempotency của luồng tạo đơn.
+  externalOrderId String @map("external_order_id") @db.VarChar(40)
+
+  /// ID đơn phía nhà cung cấp (Mango: `data.id`).
+  providerOrderId   String? @map("provider_order_id") @db.VarChar(64)
+  /// `order_fulfill_id` — mã đơn ở xưởng sản xuất.
+  providerFulfillId String? @map("provider_fulfill_id") @db.VarChar(64)
+
+  status         FulfillmentStatus @default(DRAFT)
+  /// Trạng thái NGUYÊN VĂN của nhà cung cấp (Mango: new_order, in_production, shipped...).
+  providerStatus String?           @map("provider_status") @db.VarChar(64)
+
+  /// Thông số đã dùng khi tạo đơn (ghi lại để đối soát khi cấu hình đổi về sau).
+  productionLine String? @map("production_line") @db.VarChar(64)
+  shippingMethod String? @map("shipping_method") @db.VarChar(40)
+  facility       String? @db.VarChar(40)
+  speedType      String? @map("speed_type") @db.VarChar(40)
+
+  /// Vận chuyển (từ Get Order Detail hoặc webhook `order.shipment`).
+  trackingNumber String? @map("tracking_number") @db.VarChar(128)
+  trackingStatus String? @map("tracking_status") @db.VarChar(64)
+  trackingUrl    String? @map("tracking_url") @db.VarChar(1024)
+  carrier        String? @db.VarChar(100)
+  labelUrl       String? @map("label_url") @db.VarChar(1024)
+
+  /// Chi phí nhà cung cấp báo (Get Order Detail).
+  subtotal    Decimal? @db.Decimal(18, 4)
+  shippingFee Decimal? @map("shipping_fee") @db.Decimal(18, 4)
+  tax         Decimal? @db.Decimal(18, 4)
+  total       Decimal? @db.Decimal(18, 4)
+  currency    String?  @db.VarChar(10)
+
+  /// 🔴 Payload GỐC của lần tạo đơn gần nhất — bắt buộc để đối soát khi có tranh chấp.
+  /// PII người nhận đã được che trước khi lưu (xem `FulfillmentMangoMapper`).
+  rawRequest  Json? @map("raw_request")
+  rawResponse Json? @map("raw_response")
+
+  /// Lỗi gần nhất (bản tóm tắt; chi tiết đầy đủ ở `fulfillment_error_logs`).
+  lastErrorCode    String? @map("last_error_code") @db.VarChar(64)
+  lastErrorMessage String? @map("last_error_message") @db.VarChar(2000)
+  /// `request_id` của nhà cung cấp — cần khi mở ticket hỗ trợ.
+  lastRequestId    String? @map("last_request_id") @db.VarChar(64)
+
+  /// Số lần đã thử gửi (mỗi lần Fulfill/Retry +1).
+  attemptCount Int       @default(0) @map("attempt_count")
+  submittedAt  DateTime? @map("submitted_at") @db.Timestamptz(6)
+  lastSyncedAt DateTime? @map("last_synced_at") @db.Timestamptz(6)
+  cancelledAt  DateTime? @map("cancelled_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  account      FulfillmentAccount      @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  podOrder     PodOrder                @relation(fields: [podOrderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  items        FulfillmentOrderItem[]
+  histories    FulfillmentHistory[]
+  errorLogs    FulfillmentErrorLog[]
+  webhookLogs  FulfillmentWebhookLog[]
+
+  @@unique([podOrderId, provider])
+  @@unique([organizationId, externalOrderId])
+  @@index([organizationId, status])
+  @@index([accountId])
+  @@index([providerOrderId])
+  @@index([lastSyncedAt])
+  @@map("fulfillment_orders")
+}
+
+// ---------------------------------------------------------------------------
+// FulfillmentOrderItem — một dòng sản phẩm đã gửi sang nhà cung cấp.
+// ---------------------------------------------------------------------------
+model FulfillmentOrderItem {
+  id                 String @id @default(uuid()) @db.Uuid
+  organizationId     String @map("organization_id") @db.Uuid
+  fulfillmentOrderId String @map("fulfillment_order_id") @db.Uuid
+
+  /// Line item POD nguồn (giữ liên kết ngược để tra design/sản phẩm).
+  podOrderItemId String? @map("pod_order_item_id") @db.Uuid
+
+  /// SKU đã gửi (`items[].sku`) + số lượng.
+  providerSku String @map("provider_sku") @db.VarChar(255)
+  quantity    Int
+
+  /// `item_id` do nhà cung cấp sinh/nhận.
+  providerItemId   String? @map("provider_item_id") @db.VarChar(64)
+  productionConfig String? @map("production_config") @db.VarChar(40)
+
+  /// Ảnh chụp danh sách file in đã gửi: `[{ key, url }]`. Giữ nguyên để đối soát về sau
+  /// (design có thể bị thay/xoá, bản ghi này phải bất biến).
+  printFiles Json? @map("print_files")
+
+  /// Giá vốn nhà cung cấp báo về (Get Order Detail).
+  baseCost Decimal? @map("base_cost") @db.Decimal(18, 4)
+  color    String?  @db.VarChar(100)
+  size     String?  @db.VarChar(100)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  fulfillmentOrder FulfillmentOrder @relation(fields: [fulfillmentOrderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  podOrderItem     PodOrderItem?    @relation(fields: [podOrderItemId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([fulfillmentOrderId])
+  @@index([organizationId])
+  @@index([podOrderItemId])
+  @@map("fulfillment_order_items")
+}
+
+// ---------------------------------------------------------------------------
+// FulfillmentHistory — nhật ký APPEND-ONLY của mọi thao tác/chuyển trạng thái.
+// 🔴 KHÔNG BAO GIỜ ghi đè hay xoá: đây là bằng chứng đối soát với xưởng in.
+// ---------------------------------------------------------------------------
+model FulfillmentHistory {
+  id                 String               @id @default(uuid()) @db.Uuid
+  organizationId     String               @map("organization_id") @db.Uuid
+  fulfillmentOrderId String               @map("fulfillment_order_id") @db.Uuid
+  eventType          FulfillmentEventType @map("event_type")
+  trigger            FulfillmentTrigger
+
+  /// Chuyển trạng thái (nếu có).
+  fromStatus     FulfillmentStatus? @map("from_status")
+  toStatus       FulfillmentStatus? @map("to_status")
+  /// Trạng thái nguyên văn của nhà cung cấp tại thời điểm ghi.
+  providerStatus String?            @map("provider_status") @db.VarChar(64)
+
+  success Boolean @default(true)
+  message String? @db.VarChar(2000)
+  /// Dữ liệu kèm theo (payload webhook, tóm tắt request/response, thay đổi tracking...).
+  payload Json?
+
+  /// Thời lượng thao tác (ms) — theo dõi hiệu năng gọi API.
+  durationMs Int?    @map("duration_ms")
+  requestId  String? @map("request_id") @db.VarChar(64)
+
+  /// NULL = do hệ thống (cron/webhook); có giá trị = người dùng thao tác.
+  performedBy String?  @map("performed_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  fulfillmentOrder FulfillmentOrder @relation(fields: [fulfillmentOrderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([fulfillmentOrderId, createdAt])
+  @@index([organizationId, createdAt])
+  @@index([eventType])
+  @@map("fulfillment_histories")
+}
+
+// ---------------------------------------------------------------------------
+// FulfillmentErrorLog — chi tiết lỗi đầy đủ (HTTP status, code, validation errors).
+// Tách khỏi History để History gọn nhẹ mà vẫn giữ được nguyên văn lỗi phục vụ debug.
+// ---------------------------------------------------------------------------
+model FulfillmentErrorLog {
+  id                 String              @id @default(uuid()) @db.Uuid
+  organizationId     String              @map("organization_id") @db.Uuid
+  fulfillmentOrderId String?             @map("fulfillment_order_id") @db.Uuid
+  provider           FulfillmentProvider
+
+  /// Thao tác đang thực hiện khi lỗi (create/sync/cancel/webhook).
+  operation  String @db.VarChar(40)
+  /// Phân loại để quyết định có retry hay không (xem `FulfillmentErrorClass`).
+  errorClass String @map("error_class") @db.VarChar(40)
+
+  httpStatus       Int?    @map("http_status")
+  /// `code` trong envelope của nhà cung cấp (VALIDATION_ERROR, NOT_FOUND...).
+  providerCode     String? @map("provider_code") @db.VarChar(64)
+  message          String  @db.VarChar(2000)
+  /// Mảng lỗi validate nguyên văn: `[{ field, message, type }]`.
+  validationErrors Json?   @map("validation_errors")
+  /// Toàn bộ body lỗi (đã che PII).
+  rawError         Json?   @map("raw_error")
+  requestId        String? @map("request_id") @db.VarChar(64)
+
+  /// Có thể thử lại được không (mạng/5xx/rate limit = có; validate/auth = không).
+  retryable Boolean @default(false)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  fulfillmentOrder FulfillmentOrder? @relation(fields: [fulfillmentOrderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([fulfillmentOrderId])
+  @@index([errorClass])
+  @@map("fulfillment_error_logs")
+}
+
+// ---------------------------------------------------------------------------
+// FulfillmentWebhookLog — mọi webhook nhận được, lưu RAW trước khi xử lý.
+// Lưu trước-xử lý-sau để không mất sự kiện khi xử lý lỗi (dead letter + retry).
+// ---------------------------------------------------------------------------
+model FulfillmentWebhookLog {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String?             @map("organization_id") @db.Uuid
+  accountId      String?             @map("account_id") @db.Uuid
+  provider       FulfillmentProvider
+
+  /// `event` trong payload (Mango: order.status | order.shipment).
+  eventType       String  @map("event_type") @db.VarChar(64)
+  /// `order_id` mà NCMedia đã gửi đi — dùng để tìm ngược FulfillmentOrder.
+  externalOrderId String? @map("external_order_id") @db.VarChar(64)
+
+  /// Payload NGUYÊN VĂN — không bao giờ sửa.
+  payload Json
+  /// Header đã lọc (bỏ thông tin nhạy cảm) để truy vết nguồn gọi.
+  headers Json?
+
+  /// Kết quả xác thực nguồn gọi. Mango KHÔNG ký payload nên hệ thống dùng secret
+  /// riêng trên URL webhook — xem docs/fulfillment/README.md §Webhook.
+  verified Boolean @default(false)
+
+  processed    Boolean   @default(false)
+  processedAt  DateTime? @map("processed_at") @db.Timestamptz(6)
+  /// Số lần thử xử lý; vượt ngưỡng ⇒ chuyển sang dead letter.
+  attemptCount Int       @default(0) @map("attempt_count")
+  deadLetter   Boolean   @default(false) @map("dead_letter")
+  errorMessage String?   @map("error_message") @db.VarChar(2000)
+
+  fulfillmentOrderId String? @map("fulfillment_order_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account          FulfillmentAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  fulfillmentOrder FulfillmentOrder?   @relation(fields: [fulfillmentOrderId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([provider, eventType])
+  @@index([processed, deadLetter])
+  @@index([externalOrderId])
+  @@index([createdAt])
+  @@map("fulfillment_webhook_logs")
+}
+
+// ---------------------------------------------------------------------------
+// FulfillmentSyncLog — một lượt đồng bộ trạng thái (cron hoặc thủ công).
+// ---------------------------------------------------------------------------
+model FulfillmentSyncLog {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  accountId      String?             @map("account_id") @db.Uuid
+  provider       FulfillmentProvider
+  trigger        FulfillmentTrigger
+
+  status String @db.VarChar(20)
+
+  ordersChecked Int @default(0) @map("orders_checked")
+  ordersUpdated Int @default(0) @map("orders_updated")
+  ordersFailed  Int @default(0) @map("orders_failed")
+  apiCalls      Int @default(0) @map("api_calls")
+
+  startedAt  DateTime  @map("started_at") @db.Timestamptz(6)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)
+  durationMs Int?      @map("duration_ms")
+
+  errorCode    String? @map("error_code") @db.VarChar(64)
+  errorMessage String? @map("error_message") @db.VarChar(2000)
+  triggeredBy  String? @map("triggered_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account FulfillmentAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([organizationId, startedAt])
+  @@index([status])
+  @@map("fulfillment_sync_logs")
 }

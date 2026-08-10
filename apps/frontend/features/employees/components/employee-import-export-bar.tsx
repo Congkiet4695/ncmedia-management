@@ -3,9 +3,10 @@
 import { useState } from 'react';
 import { Download, FileDown, Loader2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { ImportDialog } from '@/features/import-export/components/import-dialog';
-import { getApiErrorMessage } from '@/utils/http';
+import { useApiError } from '@/hooks/use-api-error';
 import { employeeService } from '../services/employee.service';
 import type { EmployeeQuery } from '../types';
 
@@ -21,6 +22,8 @@ interface EmployeeImportExportBarProps {
  * Tái sử dụng ImportDialog dùng chung (drag & drop, progress, kết quả, file lỗi).
  */
 export function EmployeeImportExportBar({ query, onImported }: EmployeeImportExportBarProps) {
+  const { t } = useTranslation(['employee', 'common']);
+  const translateApiError = useApiError();
   const [busy, setBusy] = useState<'export' | 'template' | null>(null);
   const [importOpen, setImportOpen] = useState(false);
 
@@ -29,7 +32,7 @@ export function EmployeeImportExportBar({ query, onImported }: EmployeeImportExp
     try {
       await action();
     } catch (error) {
-      toast.error('Tải file thất bại', { description: getApiErrorMessage(error) });
+      toast.error(t('common:action.downloadFailed'), { description: translateApiError(error) });
     } finally {
       setBusy(null);
     }
@@ -66,8 +69,8 @@ export function EmployeeImportExportBar({ query, onImported }: EmployeeImportExp
         open={importOpen}
         onClose={() => setImportOpen(false)}
         path="/employees/import"
-        title="Import nhân viên từ Excel"
-        description="Email chưa có → tạo mới (mật khẩu sinh ngẫu nhiên); email đã có trong tổ chức → cập nhật. Chỉ cần 1 dòng lỗi là toàn bộ bị rollback."
+        title={t('importTitle')}
+        description={t('importDescription')}
         onImported={onImported}
       />
     </div>

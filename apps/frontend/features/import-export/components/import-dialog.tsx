@@ -3,10 +3,11 @@
 import { useCallback, useRef, useState } from 'react';
 import { CheckCircle2, FileSpreadsheet, Loader2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import { cn } from '@/lib/utils';
-import { getApiErrorMessage } from '@/utils/http';
+import { useApiError } from '@/hooks/use-api-error';
 import { downloadBase64Xlsx, downloadErrorCsv, uploadXlsx } from '../service';
 import type { ImportResult } from '../types';
 
@@ -22,6 +23,8 @@ interface ImportDialogProps {
 }
 
 export function ImportDialog({ open, onClose, path, title, description, onImported }: ImportDialogProps) {
+  const { t } = useTranslation();
+  const translateApiError = useApiError();
   const [file, setFile] = useState<File | null>(null);
   const [dragOver, setDragOver] = useState(false);
   const [uploading, setUploading] = useState(false);
@@ -47,7 +50,7 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
   const pick = (f: File | null | undefined) => {
     if (!f) return;
     if (!/\.xlsx$/i.test(f.name)) {
-      toast.error('Chỉ chấp nhận file .xlsx');
+      toast.error(t('importExport.onlyXlsx'));
       return;
     }
     setFile(f);
@@ -65,16 +68,20 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
       const res = await uploadXlsx(path, file, setProgress);
       setResult(res);
       if (res.failed === 0) {
-        toast.success('Import thành công', {
-          description: `Tạo mới ${res.created} · Cập nhật ${res.updated} · Bỏ qua ${res.skipped}`,
+        toast.success(t('importExport.success'), {
+          description: t('importExport.successDetail', {
+            created: res.created,
+            updated: res.updated,
+            skipped: res.skipped,
+          }),
         });
         onImported?.();
       } else {
-        toast.error(`Import có ${res.failed} dòng lỗi — đã rollback toàn bộ`);
+        toast.error(t('importExport.failedRows', { count: res.failed }));
       }
     } catch (err) {
-      setErrorMsg(getApiErrorMessage(err, 'Import thất bại'));
-      toast.error('Import thất bại', { description: getApiErrorMessage(err) });
+      setErrorMsg(translateApiError(err));
+      toast.error(t('importExport.failed'), { description: translateApiError(err) });
     } finally {
       setUploading(false);
     }
@@ -126,14 +133,14 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
                     setFile(null);
                   }}
                 >
-                  <X className="size-3" /> Chọn file khác
+                  <X className="size-3" /> {t('importExport.pickAnother')}
                 </button>
               </>
             ) : (
               <>
                 <Upload className="size-8 text-muted-foreground" />
-                <p className="text-sm font-medium">Kéo thả file .xlsx vào đây</p>
-                <p className="text-xs text-muted-foreground">hoặc bấm để chọn file</p>
+                <p className="text-sm font-medium">{t('importExport.dropHere')}</p>
+                <p className="text-xs text-muted-foreground">{t('importExport.orClick')}</p>
               </>
             )}
           </div>
@@ -144,7 +151,7 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
           <div className="space-y-1.5">
             <div className="flex items-center gap-2 text-sm text-muted-foreground">
               <Loader2 className="size-4 animate-spin" />
-              Đang xử lý…
+              {t('state.processing')}
             </div>
             <div className="h-2 overflow-hidden rounded-full bg-muted">
               <div
@@ -171,19 +178,27 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
               ) : (
                 <X className="size-5 text-destructive" />
               )}
-              {succeeded ? 'Import thành công' : 'Import thất bại — đã rollback toàn bộ'}
+              {t(succeeded ? 'importExport.success' : 'importExport.failedRollback')}
             </div>
             <div className="grid grid-cols-2 gap-2 sm:grid-cols-5">
-              <Stat label="Tổng dòng" value={result.total} />
+              <Stat label={t('importExport.totalRows')} value={result.total} />
               <Stat label="Insert" value={result.created} tone="success" />
               <Stat label="Update" value={result.updated} tone="success" />
               <Stat label="Skip" value={result.skipped} tone="muted" />
-              <Stat label="Lỗi" value={result.failed} tone={result.failed ? 'danger' : 'muted'} />
+              <Stat
+                label={t('importExport.errors')}
+                value={result.failed}
+                tone={result.failed ? 'danger' : 'muted'}
+              />
             </div>
 
             {result.durationMs !== undefined && (
               <p className="text-xs text-muted-foreground">
-                Thời gian xử lý: {formatDuration(result.durationMs)}
+                {t('importExport.duration', {
+                  value: formatDuration(result.durationMs, (v) =>
+                    t('importExport.seconds', { value: v }),
+                  ),
+                })}
               </p>
             )}
 
@@ -191,7 +206,7 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
               <div className="space-y-2">
                 <div className="flex items-center justify-between">
                   <span className="text-xs font-medium text-muted-foreground">
-                    Danh sách lỗi ({result.errors.length})
+                    {t('importExport.errorList', { count: result.errors.length })}
                   </span>
                   {result.errorFile ? (
                     <Button
@@ -204,7 +219,7 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
                         )
                       }
                     >
-                      Tải file lỗi (.xlsx)
+                      {t('importExport.downloadXlsx')}
                     </Button>
                   ) : (
                     <Button
@@ -212,7 +227,7 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
                       variant="outline"
                       onClick={() => downloadErrorCsv(result.errors, 'import-errors.csv')}
                     >
-                      Tải file lỗi (.csv)
+                      {t('importExport.downloadCsv')}
                     </Button>
                   )}
                 </div>
@@ -220,10 +235,10 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
                   <table className="w-full text-xs">
                     <thead className="sticky top-0 bg-muted">
                       <tr className="text-left text-muted-foreground">
-                        <th className="px-2 py-1.5">Sheet</th>
-                        <th className="px-2 py-1.5">Dòng</th>
-                        <th className="px-2 py-1.5">Cột</th>
-                        <th className="px-2 py-1.5">Lỗi</th>
+                        <th className="px-2 py-1.5">{t('importExport.sheet')}</th>
+                        <th className="px-2 py-1.5">{t('importExport.row')}</th>
+                        <th className="px-2 py-1.5">{t('importExport.column')}</th>
+                        <th className="px-2 py-1.5">{t('importExport.error')}</th>
                       </tr>
                     </thead>
                     <tbody>
@@ -246,7 +261,7 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
         {/* Actions */}
         <div className="flex justify-end gap-2">
           <Button variant="outline" onClick={close} disabled={uploading}>
-            {result ? 'Đóng' : 'Hủy'}
+            {t(result ? 'action.close' : 'action.cancel')}
           </Button>
           {!result && (
             <Button onClick={doImport} disabled={!file || uploading}>
@@ -256,7 +271,7 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
           )}
           {result && (
             <Button variant="secondary" onClick={reset}>
-              Import file khác
+              {t('importExport.importAnother')}
             </Button>
           )}
         </div>
@@ -265,9 +280,12 @@ export function ImportDialog({ open, onClose, path, title, description, onImport
   );
 }
 
-/** 1234 → "1.23 giây"; < 1s giữ nguyên mili giây. */
-function formatDuration(ms: number): string {
-  return ms < 1000 ? `${ms} ms` : `${(ms / 1000).toFixed(2)} giây`;
+/**
+ * 1234 → "1.23 giây" / "1.23 s"; dưới 1 giây giữ nguyên mili giây.
+ * Nhận sẵn mẫu câu đã dịch vì hàm nằm ngoài component nên không dùng được hook.
+ */
+function formatDuration(ms: number, secondsTemplate: (value: string) => string): string {
+  return ms < 1000 ? `${ms} ms` : secondsTemplate((ms / 1000).toFixed(2));
 }
 
 function Stat({ label, value, tone }: { label: string; value: number; tone?: 'success' | 'danger' | 'muted' }) {

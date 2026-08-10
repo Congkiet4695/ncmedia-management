@@ -1,0 +1,98 @@
+{
+  "accountStatus": {
+    "die": "Die",
+    "dieTrang": "Blank die",
+    "live": "Live",
+    "notApplicable": "Not applicable"
+  },
+  "allEmployees": "All employees",
+  "byGroup": "{{metric}} by {{unit}}",
+  "bySeller": "{{metric}} by seller",
+  "groupBy": {
+    "day": "By day",
+    "label": "Group by",
+    "month": "By month",
+    "unitDay": "day",
+    "unitMonth": "month",
+    "unitYear": "year",
+    "year": "By year"
+  },
+  "loadFailed": "Could not load report data",
+  "loadFailedShort": "Could not load data.",
+  "loading": "Loading…",
+  "metric": {
+    "label": "Metric",
+    "order": "Orders",
+    "revenue": "Revenue"
+  },
+  "month": "Month",
+  "noData": "No data in the selected period",
+  "noDataShort": "No data yet.",
+  "noPermission": "You do not have permission to view reports.",
+  "noSeller": "No sellers yet.",
+  "overview": {
+    "description": "Revenue / order chart over time.",
+    "title": "Overview"
+  },
+  "performance": {
+    "achievedPercent": "% achieved",
+    "description": "KPI (target) · Actual · End-of-month forecast per seller.",
+    "elapsed": "{{elapsed}} of {{total}} days elapsed this month.",
+    "order": {
+      "actual": "Orders achieved",
+      "forecast": "Forecast orders at month end",
+      "target": "Order target"
+    },
+    "revenue": {
+      "actual": "Revenue achieved",
+      "forecast": "Forecast revenue at month end",
+      "target": "Revenue target"
+    },
+    "tableTitle": "Seller performance table",
+    "title": "Seller performance"
+  },
+  "performanceBySeller": "Seller performance by {{metric}}",
+  "quickRange": {
+    "all": "All time",
+    "custom": "Custom",
+    "label": "Period",
+    "month": "This month",
+    "today": "Today",
+    "week": "This week",
+    "year": "This year"
+  },
+  "ranking": {
+    "description": "Seller leaderboard by revenue or order count.",
+    "rank": "Rank",
+    "tableTitle": "Leaderboard",
+    "title": "Seller ranking"
+  },
+  "rankingBy": "Ranking by {{metric}}",
+  "seller": "Seller",
+  "sellerPage": {
+    "description": "Total revenue or order count per seller for the selected period.",
+    "title": "Seller revenue / orders"
+  },
+  "title": "Reports",
+  "totalOrders": "Total orders",
+  "totalRevenue": "Total revenue",
+  "unitOrders": "Unit: order count",
+  "unitUsd": "Unit: USD ($)",
+  "warehouse": {
+    "balance": "Balance handled",
+    "balanceDescription": "Revenue of the orders handled.",
+    "description": "Order-handling statistics per fulfillment staff member.",
+    "empty": "No orders were picked up for handling in this period.",
+    "staff": "Warehouse staff",
+    "statusChart": "Order-handling status",
+    "tableTitle": "Warehouse performance table",
+    "title": "Warehouse performance",
+    "totalOrders": "Total orders"
+  },
+  "warehouseStatus": {
+    "cancelled": "Cancelled",
+    "completed": "Completed",
+    "notProcessed": "Not processed",
+    "processing": "Processing"
+  }
+}

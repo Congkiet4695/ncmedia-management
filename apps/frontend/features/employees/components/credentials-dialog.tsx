@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslation } from 'react-i18next';
 import { Copy } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -15,12 +16,18 @@ interface CredentialsDialogProps {
   onClose: () => void;
 }
 
-async function copyText(text: string, label: string): Promise<void> {
+/**
+ * Copy vào clipboard rồi báo kết quả.
+ *
+ * Nhận sẵn câu thông báo ĐÃ DỊCH thay vì tự gọi `t`: hàm nằm ngoài component nên
+ * không dùng được hook, và truyền chuỗi vào giữ cho hàm thuần tuý, dễ kiểm thử.
+ */
+async function copyText(text: string, okMessage: string, failMessage: string): Promise<void> {
   try {
     await navigator.clipboard.writeText(text);
-    toast.success(`Đã copy ${label}`);
+    toast.success(okMessage);
   } catch {
-    toast.error('Không copy được — vui lòng copy thủ công');
+    toast.error(failMessage);
   }
 }
 
@@ -58,20 +65,30 @@ export function CredentialsDialog({
   password,
   onClose,
 }: CredentialsDialogProps) {
+  const { t } = useTranslation(['employee', 'common', 'auth']);
+  // Dựng sẵn hai câu thông báo để hàm copy nằm ngoài component không cần gọi `t`.
+  const copyFail = t('common:action.copyManual');
+  const copy = (text: string, label: string) =>
+    void copyText(text, t('common:action.copied', { label }), copyFail);
+
   return (
     <Modal open={open} onClose={onClose} title={title} description={description}>
       <div className="space-y-4">
         {email && (
-          <ReadonlyField label="Email" value={email} onCopy={() => void copyText(email, 'email')} />
+          <ReadonlyField
+            label={t('auth:login.email')}
+            value={email}
+            onCopy={() => copy(email, t('auth:login.email'))}
+          />
         )}
         <ReadonlyField
-          label="Mật khẩu"
+          label={t('auth:login.password')}
           value={password}
-          onCopy={() => void copyText(password, 'mật khẩu')}
+          onCopy={() => copy(password, t('auth:login.password'))}
         />
 
         <p className="text-xs text-amber-600 dark:text-amber-400">
-          Mật khẩu chỉ hiển thị một lần. Hãy lưu lại và chuyển an toàn cho nhân viên.
+          {t('passwordOnce')}
         </p>
 
         <div className="flex justify-end gap-2">
@@ -79,14 +96,19 @@ export function CredentialsDialog({
             <Button
               type="button"
               variant="outline"
-              onClick={() => void copyText(`Email: ${email}\nMật khẩu: ${password}`, 'tất cả')}
+              onClick={() =>
+                copy(
+                  `${t('auth:login.email')}: ${email}\n${t('auth:login.password')}: ${password}`,
+                  t('common:action.copyAll'),
+                )
+              }
             >
               <Copy className="size-4" />
-              Copy tất cả
+              {t('common:action.copyAll')}
             </Button>
           )}
           <Button type="button" onClick={onClose}>
-            Đóng
+            {t('common:action.close')}
           </Button>
         </div>
       </div>

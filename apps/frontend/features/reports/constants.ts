@@ -7,24 +7,28 @@ export type ReportMetric = 'revenue' | 'order';
 export type ReportGroupBy = 'day' | 'month' | 'year';
 export type QuickRange = 'today' | 'week' | 'month' | 'year' | 'all' | 'custom';
 
-export const METRIC_OPTIONS: { value: ReportMetric; label: string }[] = [
-  { value: 'revenue', label: 'Doanh thu' },
-  { value: 'order', label: 'Đơn hàng' },
+/**
+ * Danh sách lựa chọn chỉ mang MÃ và KHOÁ DỊCH — nhãn hiển thị nằm ở
+ * `i18n/locales/<lang>/report.json`. Nhờ vậy hằng số không phụ thuộc ngôn ngữ.
+ */
+export const METRIC_OPTIONS: { value: ReportMetric; labelKey: string }[] = [
+  { value: 'revenue', labelKey: 'metric.revenue' },
+  { value: 'order', labelKey: 'metric.order' },
 ];
 
-export const GROUP_BY_OPTIONS: { value: ReportGroupBy; label: string }[] = [
-  { value: 'day', label: 'Theo ngày' },
-  { value: 'month', label: 'Theo tháng' },
-  { value: 'year', label: 'Theo năm' },
+export const GROUP_BY_OPTIONS: { value: ReportGroupBy; labelKey: string }[] = [
+  { value: 'day', labelKey: 'groupBy.day' },
+  { value: 'month', labelKey: 'groupBy.month' },
+  { value: 'year', labelKey: 'groupBy.year' },
 ];
 
-export const QUICK_RANGE_OPTIONS: { value: QuickRange; label: string }[] = [
-  { value: 'today', label: 'Hôm nay' },
-  { value: 'week', label: 'Tuần này' },
-  { value: 'month', label: 'Tháng này' },
-  { value: 'year', label: 'Năm nay' },
-  { value: 'all', label: 'Tất cả thời gian' },
-  { value: 'custom', label: 'Tùy chọn' },
+export const QUICK_RANGE_OPTIONS: { value: QuickRange; labelKey: string }[] = [
+  { value: 'today', labelKey: 'quickRange.today' },
+  { value: 'week', labelKey: 'quickRange.week' },
+  { value: 'month', labelKey: 'quickRange.month' },
+  { value: 'year', labelKey: 'quickRange.year' },
+  { value: 'all', labelKey: 'quickRange.all' },
+  { value: 'custom', labelKey: 'quickRange.custom' },
 ];
 
 /**
@@ -52,16 +56,16 @@ export const STATUS_COLORS = {
 
 /** Map trạng thái Account → màu (biểu đồ Account theo Seller). */
 export const ACCOUNT_STATUS_STYLE = {
-  live: { label: 'Live', color: STATUS_COLORS.good },
-  dieTrang: { label: 'Die trắng', color: STATUS_COLORS.warning },
-  die: { label: 'Die', color: STATUS_COLORS.critical },
-  notApplicable: { label: 'Không áp dụng', color: STATUS_COLORS.muted },
+  live: { labelKey: 'accountStatus.live', color: STATUS_COLORS.good },
+  dieTrang: { labelKey: 'accountStatus.dieTrang', color: STATUS_COLORS.warning },
+  die: { labelKey: 'accountStatus.die', color: STATUS_COLORS.critical },
+  notApplicable: { labelKey: 'accountStatus.notApplicable', color: STATUS_COLORS.muted },
 } as const;
 
 /** Map nhóm trạng thái xử lý đơn (Hiệu suất Kho) → màu. */
 export const WAREHOUSE_STATUS_STYLE = {
-  notProcessed: { label: 'Chưa xử lí', color: SERIES_PRIMARY.light },
-  processing: { label: 'Đang xử lí', color: STATUS_COLORS.warning },
-  cancelled: { label: 'Đơn hủy', color: STATUS_COLORS.critical },
-  completed: { label: 'Hoàn tất', color: STATUS_COLORS.good },
+  notProcessed: { labelKey: 'warehouseStatus.notProcessed', color: SERIES_PRIMARY.light },
+  processing: { labelKey: 'warehouseStatus.processing', color: STATUS_COLORS.warning },
+  cancelled: { labelKey: 'warehouseStatus.cancelled', color: STATUS_COLORS.critical },
+  completed: { labelKey: 'warehouseStatus.completed', color: STATUS_COLORS.good },
 } as const;

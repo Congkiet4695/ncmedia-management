@@ -1,6 +1,8 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useForm } from 'react-hook-form';
+import { useTranslation } from 'react-i18next';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -9,8 +11,7 @@ import { Label } from '@/components/ui/label';
 import { NativeSelect } from '@/components/ui/native-select';
 import {
   EMPLOYEE_STATUSES,
-  EMPLOYEE_STATUS_LABELS,
-  employeeFormSchema,
+  createEmployeeFormSchema,
   type EmployeeFormInput,
 } from '../schemas/employee.schema';
 import type { EmployeeRole } from '../types';
@@ -57,12 +58,15 @@ export function EmployeeForm({
   defaultValues,
   onSubmit,
 }: EmployeeFormProps) {
+  const { t } = useTranslation(['employee', 'common']);
+  const { t: tv } = useTranslation('validation');
+  const schema = useMemo(() => createEmployeeFormSchema(tv), [tv]);
   const {
     register,
     handleSubmit,
     formState: { errors },
   } = useForm<EmployeeFormInput>({
-    resolver: zodResolver(employeeFormSchema),
+    resolver: zodResolver(schema),
     defaultValues: { ...BASE_DEFAULTS, ...defaultValues },
   });
 
@@ -73,7 +77,7 @@ export function EmployeeForm({
       <div className="grid gap-4 sm:grid-cols-2">
         <div className="space-y-2">
           <Label htmlFor="fullName">
-            Tên <span className="text-destructive">*</span>
+            {t('field.fullName')} <span className="text-destructive">*</span>
           </Label>
           <Input id="fullName" disabled={submitting} aria-invalid={!!errors.fullName} {...register('fullName')} />
           <FieldError message={errors.fullName?.message} />
@@ -90,25 +94,25 @@ export function EmployeeForm({
             aria-invalid={!!errors.email}
             {...register('email')}
           />
-          {isEdit && <p className="text-xs text-muted-foreground">Email không thể đổi.</p>}
+          {isEdit && <p className="text-xs text-muted-foreground">{t('emailLocked')}</p>}
           <FieldError message={errors.email?.message} />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="status">Trạng thái</Label>
+          <Label htmlFor="status">{t('field.status')}</Label>
           <NativeSelect id="status" disabled={submitting} {...register('status')}>
             {EMPLOYEE_STATUSES.map((s) => (
               <option key={s} value={s}>
-                {EMPLOYEE_STATUS_LABELS[s]}
+                {t(`status.${s}`)}
               </option>
             ))}
           </NativeSelect>
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="roleId">Vai trò</Label>
+          <Label htmlFor="roleId">{t('field.role')}</Label>
           <NativeSelect id="roleId" disabled={submitting} {...register('roleId')}>
-            <option value="">Mặc định (Employee)</option>
+            <option value="">{t('roleDefault')}</option>
             {roles.map((role) => (
               <option key={role.id} value={role.id}>
                 {role.name}
@@ -125,13 +129,13 @@ export function EmployeeForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="department">Phòng làm việc</Label>
+          <Label htmlFor="department">{t('departmentLabel')}</Label>
           <Input id="department" disabled={submitting} {...register('department')} />
           <FieldError message={errors.department?.message} />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="phone">Số điện thoại</Label>
+          <Label htmlFor="phone">{t('field.phone')}</Label>
           <Input id="phone" disabled={submitting} aria-invalid={!!errors.phone} {...register('phone')} />
           <FieldError message={errors.phone?.message} />
         </div>
@@ -143,61 +147,61 @@ export function EmployeeForm({
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="startDate">Ngày bắt đầu làm việc</Label>
+          <Label htmlFor="startDate">{t('startDateLabel')}</Label>
           <Input id="startDate" type="date" disabled={submitting} aria-invalid={!!errors.startDate} {...register('startDate')} />
           <FieldError message={errors.startDate?.message} />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="resignedAt">Ngày nghỉ việc</Label>
+          <Label htmlFor="resignedAt">{t('resignedAtLabel')}</Label>
           <Input id="resignedAt" type="date" disabled={submitting} aria-invalid={!!errors.resignedAt} {...register('resignedAt')} />
           <FieldError message={errors.resignedAt?.message} />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="dateOfBirth">Ngày sinh</Label>
+          <Label htmlFor="dateOfBirth">{t('dateOfBirth')}</Label>
           <Input id="dateOfBirth" type="date" disabled={submitting} aria-invalid={!!errors.dateOfBirth} {...register('dateOfBirth')} />
           <FieldError message={errors.dateOfBirth?.message} />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="salary">Lương (VND)</Label>
+          <Label htmlFor="salary">{t('salaryVnd')}</Label>
           <Input id="salary" type="number" min={0} step={1000} disabled={submitting} aria-invalid={!!errors.salary} {...register('salary')} />
           <FieldError message={errors.salary?.message} />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="orderKpi">KPI Đơn hàng</Label>
+          <Label htmlFor="orderKpi">{t('field.orderKpi')}</Label>
           <Input id="orderKpi" type="number" min={0} step={1} disabled={submitting} aria-invalid={!!errors.orderKpi} {...register('orderKpi')} />
           <FieldError message={errors.orderKpi?.message} />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="revenueKpi">KPI Doanh thu ($)</Label>
+          <Label htmlFor="revenueKpi">{t('revenueKpi')} ($)</Label>
           <Input id="revenueKpi" type="number" min={0} step={100} disabled={submitting} aria-invalid={!!errors.revenueKpi} {...register('revenueKpi')} />
           <FieldError message={errors.revenueKpi?.message} />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="bankAccount">Tài khoản ngân hàng</Label>
+          <Label htmlFor="bankAccount">{t('bank')}</Label>
           <Input id="bankAccount" disabled={submitting} {...register('bankAccount')} />
           <FieldError message={errors.bankAccount?.message} />
         </div>
 
         <div className="space-y-2 sm:col-span-2">
-          <Label htmlFor="address">Địa chỉ</Label>
+          <Label htmlFor="address">{t('address')}</Label>
           <Input id="address" disabled={submitting} {...register('address')} />
           <FieldError message={errors.address?.message} />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="cccdImageUrl">Ảnh CCCD (URL)</Label>
+          <Label htmlFor="cccdImageUrl">{t('cccdImageUrl')}</Label>
           <Input id="cccdImageUrl" placeholder="https://…" disabled={submitting} {...register('cccdImageUrl')} />
           <FieldError message={errors.cccdImageUrl?.message} />
         </div>
 
         <div className="space-y-2">
-          <Label htmlFor="bankQrUrl">QR Ngân hàng (URL)</Label>
+          <Label htmlFor="bankQrUrl">{t('bankQrUrl')}</Label>
           <Input id="bankQrUrl" placeholder="https://…" disabled={submitting} {...register('bankQrUrl')} />
           <FieldError message={errors.bankQrUrl?.message} />
         </div>
@@ -212,7 +216,7 @@ export function EmployeeForm({
       <div className="flex justify-end gap-2 pt-2">
         <Button type="submit" disabled={submitting}>
           {submitting && <Loader2 className="animate-spin" />}
-          {isEdit ? 'Lưu thay đổi' : 'Tạo nhân viên'}
+          {isEdit ? t('common:action.save') : t('create')}
         </Button>
       </div>
     </form>

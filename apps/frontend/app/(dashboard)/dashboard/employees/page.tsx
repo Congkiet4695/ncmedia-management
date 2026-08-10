@@ -5,10 +5,11 @@ import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
-import { getApiErrorMessage } from '@/utils/http';
+import { useApiError } from '@/hooks/use-api-error';
 import { DeleteDialog } from '@/features/employees/components/delete-dialog';
 import { EmployeeDialog } from '@/features/employees/components/employee-dialog';
 import { EmployeeFilter } from '@/features/employees/components/employee-filter';
@@ -30,6 +31,8 @@ export default function EmployeesPage() {
 }
 
 function EmployeesView() {
+  const { t } = useTranslation(['employee', 'common']);
+  const translateApiError = useApiError();
   const [query, setQuery] = useState<EmployeeQuery>({
     page: 1,
     limit: 10,
@@ -67,10 +70,10 @@ function EmployeesView() {
     if (!deleting) return;
     try {
       await deleteMutation.mutateAsync(deleting.id);
-      toast.success('Đã xóa nhân viên', { description: deleting.fullName });
+      toast.success(t('deleted'), { description: deleting.fullName });
       setDeleting(null);
     } catch (error) {
-      toast.error('Xóa thất bại', { description: getApiErrorMessage(error) });
+      toast.error(t('deleteFailed'), { description: translateApiError(error) });
     }
   };
 
@@ -78,8 +81,8 @@ function EmployeesView() {
     <div className="space-y-6">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <div>
-          <h1 className="text-2xl font-bold tracking-tight">Nhân viên</h1>
-          <p className="text-sm text-muted-foreground">Quản lý nhân viên trong tổ chức của bạn.</p>
+          <h1 className="text-2xl font-bold tracking-tight">{t('title')}</h1>
+          <p className="text-sm text-muted-foreground">{t('listSubtitle')}</p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
           <EmployeeImportExportBar
@@ -89,7 +92,7 @@ function EmployeesView() {
           <Button asChild>
             <Link href="/dashboard/employees/create">
               <Plus className="size-4" />
-              Thêm nhân viên
+              {t('create')}
             </Link>
           </Button>
         </div>
@@ -111,7 +114,7 @@ function EmployeesView() {
         <CardContent className="space-y-4">
           {employeesQuery.isError ? (
             <p className="py-10 text-center text-sm text-destructive">
-              {getApiErrorMessage(employeesQuery.error, 'Không tải được danh sách nhân viên')}
+              {translateApiError(employeesQuery.error)}
             </p>
           ) : (
             <EmployeeTable
@@ -125,7 +128,7 @@ function EmployeesView() {
           {meta && meta.total > 0 && (
             <div className="flex items-center justify-between text-sm text-muted-foreground">
               <span>
-                Trang {meta.page}/{meta.totalPages} · {meta.total} nhân viên
+                {t('pageWithTotal', { page: meta.page, totalPages: meta.totalPages, total: meta.total })}
               </span>
               <div className="flex gap-2">
                 <Button
@@ -135,7 +138,7 @@ function EmployeesView() {
                   onClick={() => patchQuery({ page: meta.page - 1 })}
                 >
                   <ChevronLeft className="size-4" />
-                  Trước
+                  {t('common:action.previous')}
                 </Button>
                 <Button
                   variant="outline"
@@ -143,7 +146,7 @@ function EmployeesView() {
                   disabled={meta.page >= meta.totalPages}
                   onClick={() => patchQuery({ page: meta.page + 1 })}
                 >
-                  Sau
+                  {t('common:action.next')}
                   <ChevronRight className="size-4" />
                 </Button>
               </div>

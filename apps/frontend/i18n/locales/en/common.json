@@ -1,0 +1,152 @@
+{
+  "action": {
+    "apply": "Apply",
+    "assign": "Assign",
+    "back": "Back",
+    "cancel": "Cancel",
+    "close": "Close",
+    "confirm": "Confirm",
+    "copied": "{{label}} copied",
+    "copy": "Copy",
+    "copyAll": "Copy all",
+    "copyManual": "Copy failed — please copy it manually",
+    "create": "Create",
+    "delete": "Delete",
+    "download": "Download",
+    "downloadFailed": "File download failed",
+    "edit": "Edit",
+    "export": "Export to Excel",
+    "filter": "Filter",
+    "import": "Import from Excel",
+    "logout": "Log out",
+    "next": "Next",
+    "previous": "Previous",
+    "refresh": "Refresh",
+    "reset": "Reset",
+    "retry": "Retry",
+    "save": "Save",
+    "search": "Search",
+    "select": "Select",
+    "sync": "Sync",
+    "syncNow": "Sync now",
+    "unassign": "Unassign",
+    "upload": "Upload",
+    "view": "View",
+    "viewDetail": "View detail"
+  },
+  "appName": "NCMedia Management",
+  "dashboard": {
+    "fullName": "Full name",
+    "organization": "Organization",
+    "role": "Role",
+    "session": "Current session",
+    "subtitle": "An overview of business activity.",
+    "title": "Dashboard",
+    "totalOrders": "Total orders",
+    "totalRevenue": "Total revenue"
+  },
+  "date": {
+    "from": "From date",
+    "preset": {
+      "ALL": "All time",
+      "CUSTOM": "Custom",
+      "LAST_30_DAYS": "Last 30 days",
+      "LAST_7_DAYS": "Last 7 days",
+      "LAST_MONTH": "Last month",
+      "THIS_MONTH": "This month",
+      "TODAY": "Today",
+      "YESTERDAY": "Yesterday"
+    },
+    "rangeInvalid": "Start date must be on or before end date",
+    "rangeRequired": "Please select both start and end dates",
+    "to": "To date"
+  },
+  "dialog": {
+    "cannotUndo": "This action cannot be undone.",
+    "confirmDelete": "Are you sure you want to delete this?",
+    "confirmTitle": "Confirm"
+  },
+  "filter": {
+    "allStatuses": "All statuses"
+  },
+  "image": {
+    "viewLarge": "View image"
+  },
+  "importExport": {
+    "column": "Column",
+    "createDescription": "Creates new records; duplicates are skipped. Any failing row rolls the whole import back.",
+    "downloadCsv": "Download error file (.csv)",
+    "downloadXlsx": "Download error file (.xlsx)",
+    "dropHere": "Drop an .xlsx file here",
+    "duration": "Processing time: {{value}}",
+    "error": "Error",
+    "errorList": "Error list ({{count}})",
+    "errors": "Errors",
+    "failed": "Import failed",
+    "failedRollback": "Import failed — everything was rolled back",
+    "failedRows": "The import has {{count}} failing rows — everything was rolled back",
+    "importAnother": "Import another file",
+    "importTitle": "Import {{entity}} from Excel",
+    "onlyXlsx": "Only .xlsx files are accepted",
+    "orClick": "or click to choose a file",
+    "pickAnother": "Choose another file",
+    "row": "Row",
+    "seconds": "{{value}} s",
+    "sheet": "Sheet",
+    "success": "Import succeeded",
+    "successDetail": "{{created}} created · {{updated}} updated · {{skipped}} skipped",
+    "totalRows": "Total rows",
+    "updateDescription": "Updates records by the ID from the exported file. Nothing is created. Any failing row rolls the whole import back."
+  },
+  "language": {
+    "label": "Language",
+    "switch": "Change language"
+  },
+  "member": "Member",
+  "pagination": {
+    "page": "Page {{page}} of {{totalPages}}",
+    "pageWithRows": "Page {{page}} of {{totalPages}} · {{total}} rows",
+    "pageWithTotal": "Page {{page}} of {{totalPages}} · {{total}} records",
+    "perPage": "Rows per page",
+    "rows": "{{count}} rows",
+    "showing": "Showing {{from}}–{{to}} of {{total}}"
+  },
+  "search": {
+    "noResult": "No results found",
+    "placeholder": "Search..."
+  },
+  "state": {
+    "empty": "No data yet",
+    "emptyFiltered": "No data matches the filter",
+    "error": "Something went wrong",
+    "failed": "Failed",
+    "forbiddenMessage": "You do not have permission to access this area.",
+    "forbiddenTitle": "403 — Access denied",
+    "loadFailed": "Could not load data",
+    "loading": "Loading...",
+    "noPermission": "You do not have access to this page.",
+    "notFound": "Not found",
+    "processing": "Processing...",
+    "saving": "Saving...",
+    "success": "Success",
+    "unauthorized": "You do not have permission"
+  },
+  "table": {
+    "actions": "Actions",
+    "createdAt": "Created at",
+    "email": "Email",
+    "name": "Name",
+    "noResult": "No results",
+    "note": "Note",
+    "phone": "Phone",
+    "sortBy": "Sort by {{column}}",
+    "status": "Status",
+    "total": "Total",
+    "updatedAt": "Updated at"
+  },
+  "theme": {
+    "dark": "Dark",
+    "light": "Light",
+    "toggle": "Toggle light/dark theme"
+  }
+}

@@ -1,0 +1,19 @@
+{
+  "dashboard": "Dashboard",
+  "employees": "Employees",
+  "accounts": "Accounts",
+  "orders": "Orders",
+  "reports": "Reports",
+  "profile": "My profile",
+  "pod": "POD",
+  "podTiktokAccounts": "TikTok Accounts",
+  "podOrders": "POD Orders",
+  "podPayout": "TikTok Payout",
+  "reportOverview": "Overview",
+  "reportSeller": "Seller revenue / orders",
+  "reportSellerPerformance": "Seller performance",
+  "reportWarehouse": "Warehouse performance",
+  "reportSellerRanking": "Seller ranking",
+  "openMenu": "Open menu",
+  "closeMenu": "Close menu"
+}

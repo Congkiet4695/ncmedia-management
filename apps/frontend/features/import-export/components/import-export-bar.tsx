@@ -3,8 +3,9 @@
 import { useState } from 'react';
 import { Download, FileDown, FileUp, Loader2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
-import { getApiErrorMessage } from '@/utils/http';
+import { useApiError } from '@/hooks/use-api-error';
 import { downloadXlsx } from '../service';
 import { ImportDialog } from './import-dialog';
 
@@ -36,6 +37,8 @@ export function ImportExportBar({
   canImportUpdate,
   onImported,
 }: ImportExportBarProps) {
+  const { t } = useTranslation();
+  const translateApiError = useApiError();
   const [busy, setBusy] = useState<'example' | 'export' | null>(null);
   const [dialog, setDialog] = useState<'import' | 'update' | null>(null);
 
@@ -44,7 +47,7 @@ export function ImportExportBar({
     try {
       await downloadXlsx(path, filename);
     } catch (err) {
-      toast.error('Tải file thất bại', { description: getApiErrorMessage(err) });
+      toast.error(t('action.downloadFailed'), { description: translateApiError(err) });
     } finally {
       setBusy(null);
     }
@@ -93,8 +96,8 @@ export function ImportExportBar({
         open={dialog === 'import'}
         onClose={() => setDialog(null)}
         path={importPath}
-        title={`Import ${entity} từ Excel`}
-        description="Tạo mới bản ghi; bản ghi trùng sẽ bị bỏ qua. Lỗi bất kỳ dòng nào → rollback toàn bộ."
+        title={t('importExport.importTitle', { entity })}
+        description={t('importExport.createDescription')}
         onImported={onImported}
       />
       <ImportDialog
@@ -102,7 +105,7 @@ export function ImportExportBar({
         onClose={() => setDialog(null)}
         path={importUpdatePath}
         title={`Import Update ${entity} (theo ID)`}
-        description="Cập nhật bản ghi theo ID từ file export. Không tạo mới. Lỗi bất kỳ dòng nào → rollback toàn bộ."
+        description={t('importExport.updateDescription')}
         onImported={onImported}
       />
     </div>

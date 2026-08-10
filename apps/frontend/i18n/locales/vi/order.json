@@ -1,0 +1,9 @@
+{
+  "title": "Order",
+  "subtitle": "Quản lý đơn hàng",
+  "orderNumber": "Mã đơn",
+  "customer": "Khách hàng",
+  "revenue": "Doanh thu",
+  "quantity": "Số lượng",
+  "tracking": "Mã vận đơn"
+}

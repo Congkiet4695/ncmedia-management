@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { RequirePermission } from '@/components/require-permission';
 import { ReportPageHeader } from '@/features/reports/components/report-page-header';
 import { ChartCard } from '@/features/reports/components/chart-card';
@@ -10,17 +11,20 @@ import { useChartTheme } from '@/features/reports/hooks/use-chart-theme';
 import { useReportFilters } from '@/features/reports/hooks/use-report-filters';
 import { useSellerChart } from '@/features/reports/hooks/use-reports';
 import type { ReportMetric } from '@/features/reports/constants';
-import { formatCompact, formatMetricValue, metricLabel } from '@/features/reports/utils/format';
+import { formatCompact, formatMetricValue, useMetricLabel } from '@/features/reports/utils/format';
 
 export default function ReportSellerPage() {
+  const { t } = useTranslation('report');
   return (
-    <RequirePermission permission="report.read" message="Bạn không có quyền xem Báo cáo.">
+    <RequirePermission permission="report.read" message={t('noPermission')}>
       <SellerView />
     </RequirePermission>
   );
 }
 
 function SellerView() {
+  const { t } = useTranslation('report');
+  const metricLabel = useMetricLabel();
   const filters = useReportFilters('month');
   const [metric, setMetric] = useState<ReportMetric>('revenue');
   const theme = useChartTheme();
@@ -35,8 +39,8 @@ function SellerView() {
   return (
     <div className="space-y-6">
       <ReportPageHeader
-        title="Doanh thu / Đơn Seller"
-        description="Tổng doanh thu hoặc số đơn theo từng Seller trong khoảng thời gian đã chọn."
+        title={t('sellerPage.title')}
+        description={t('sellerPage.description')}
       />
 
       <DateRangeFilter
@@ -49,8 +53,8 @@ function SellerView() {
       />
 
       <ChartCard
-        title={`${metricLabel(metric)} theo Seller`}
-        description={metric === 'revenue' ? 'Đơn vị: USD ($)' : 'Đơn vị: số đơn'}
+        title={t('bySeller', { metric: metricLabel(metric) })}
+        description={t(metric === 'revenue' ? 'unitUsd' : 'unitOrders')}
         toolbar={<MetricSelect value={metric} onChange={setMetric} />}
         loading={query.isLoading}
         error={query.isError ? query.error : undefined}

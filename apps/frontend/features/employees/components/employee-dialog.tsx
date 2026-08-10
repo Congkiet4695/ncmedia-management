@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslation } from 'react-i18next';
 import type { ReactNode } from 'react';
 import { Loader2 } from 'lucide-react';
 import { Avatar } from '@/components/ui/avatar';
@@ -25,10 +26,11 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 
 /** EmployeeDialog — modal xem chi tiết đầy đủ (Action: View). Tự fetch hồ sơ theo id. */
 export function EmployeeDialog({ employeeId, open, onClose }: EmployeeDialogProps) {
+  const { t } = useTranslation(['employee', 'common']);
   const { data: employee, isLoading } = useEmployee(open && employeeId ? employeeId : undefined);
 
   return (
-    <Modal open={open} onClose={onClose} title="Chi tiết nhân viên" className="max-w-2xl">
+    <Modal open={open} onClose={onClose} title={t('detailTitle')} className="max-w-2xl">
       {isLoading || !employee ? (
         <div className="flex justify-center py-10">
           <Loader2 className="size-6 animate-spin text-muted-foreground" />
@@ -47,20 +49,20 @@ export function EmployeeDialog({ employeeId, open, onClose }: EmployeeDialogProp
           </div>
 
           <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
-            <Field label="Vai trò">{employee.role.name}</Field>
-            <Field label="SĐT">{employee.phone ?? '—'}</Field>
+            <Field label={t('field.role')}>{employee.role.name}</Field>
+            <Field label={t('phoneShort')}>{employee.phone ?? '—'}</Field>
             <Field label="Account Lark">{employee.larkAccount ?? '—'}</Field>
-            <Field label="Phòng">{employee.department ?? '—'}</Field>
-            <Field label="Ngày vào làm">{formatDate(employee.startDate)}</Field>
-            <Field label="Ngày nghỉ">{formatDate(employee.resignedAt)}</Field>
-            <Field label="Ngày sinh">{employee.dateOfBirth ?? '—'}</Field>
+            <Field label={t('field.department')}>{employee.department ?? '—'}</Field>
+            <Field label={t('field.startDate')}>{formatDate(employee.startDate)}</Field>
+            <Field label={t('resignedAt')}>{formatDate(employee.resignedAt)}</Field>
+            <Field label={t('dateOfBirth')}>{employee.dateOfBirth ?? '—'}</Field>
             <Field label="CCCD">{employee.cccd ?? '—'}</Field>
-            <Field label="Lương">{formatVnd(employee.salary)}</Field>
-            <Field label="KPI Đơn hàng">{employee.orderKpi}</Field>
-            <Field label="KPI Doanh thu">{formatUSD(employee.revenueKpi)}</Field>
-            <Field label="Ngân hàng">{employee.bankAccount ?? '—'}</Field>
-            <Field label="Địa chỉ">{employee.address ?? '—'}</Field>
-            <Field label="Ngày tạo">{formatDate(employee.createdAt)}</Field>
+            <Field label={t('field.salary')}>{formatVnd(employee.salary)}</Field>
+            <Field label={t('field.orderKpi')}>{employee.orderKpi}</Field>
+            <Field label={t('revenueKpi')}>{formatUSD(employee.revenueKpi)}</Field>
+            <Field label={t('bank')}>{employee.bankAccount ?? '—'}</Field>
+            <Field label={t('address')}>{employee.address ?? '—'}</Field>
+            <Field label={t('createdAt')}>{formatDate(employee.createdAt)}</Field>
           </dl>
 
           {(employee.cccdImageUrl || employee.bankQrUrl) && (
@@ -72,7 +74,7 @@ export function EmployeeDialog({ employeeId, open, onClose }: EmployeeDialogProp
                   rel="noreferrer"
                   className="text-primary underline-offset-4 hover:underline"
                 >
-                  Ảnh CCCD
+                  {t('cccdImage')}
                 </a>
               )}
               {employee.bankQrUrl && (
@@ -82,7 +84,7 @@ export function EmployeeDialog({ employeeId, open, onClose }: EmployeeDialogProp
                   rel="noreferrer"
                   className="text-primary underline-offset-4 hover:underline"
                 >
-                  QR Ngân hàng
+                  {t('bankQr')}
                 </a>
               )}
             </div>

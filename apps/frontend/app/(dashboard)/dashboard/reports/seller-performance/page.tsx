@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { RequirePermission } from '@/components/require-permission';
 import {
   Table,
@@ -18,31 +19,22 @@ import { MetricSelect, MonthSelect } from '@/features/reports/components/report-
 import { useChartTheme } from '@/features/reports/hooks/use-chart-theme';
 import { useSellerPerformance } from '@/features/reports/hooks/use-reports';
 import type { ReportMetric } from '@/features/reports/constants';
-import { formatCompact, formatMetricValue, metricLabel } from '@/features/reports/utils/format';
+import { formatCompact, formatMetricValue, useMetricLabel } from '@/features/reports/utils/format';
 
-/** Nhãn 3 cột theo metric (giống mockup hiệu suất seller 5). */
-const SERIES_LABELS: Record<ReportMetric, { target: string; actual: string; forecast: string }> = {
-  order: {
-    target: 'Đơn hàng cần đạt',
-    actual: 'Đơn hàng thực đạt',
-    forecast: 'Dự báo đơn cuối tháng',
-  },
-  revenue: {
-    target: 'Doanh thu đề ra',
-    actual: 'Doanh thu thực đạt',
-    forecast: 'Dự báo doanh thu cuối tháng',
-  },
-};
+/** Khoá dịch 3 cột theo metric — nhãn nằm ở `report.json` (`performance.<metric>.*`). */
 
 export default function ReportSellerPerformancePage() {
+  const { t } = useTranslation('report');
   return (
-    <RequirePermission permission="report.read" message="Bạn không có quyền xem Báo cáo.">
+    <RequirePermission permission="report.read" message={t('noPermission')}>
       <SellerPerformanceView />
     </RequirePermission>
   );
 }
 
 function SellerPerformanceView() {
+  const { t } = useTranslation('report');
+  const metricLabel = useMetricLabel();
   const now = new Date();
   const [metric, setMetric] = useState<ReportMetric>('revenue');
   const [month, setMonth] = useState(now.getMonth() + 1);
@@ -59,7 +51,11 @@ function SellerPerformanceView() {
     actual: theme.categorical[4], // aqua/teal
     forecast: theme.categorical[3], // yellow
   };
-  const labels = SERIES_LABELS[metric];
+  const labels = {
+    target: t(`performance.${metric}.target`),
+    actual: t(`performance.${metric}.actual`),
+    forecast: t(`performance.${metric}.forecast`),
+  };
   const series = [
     { key: 'target', name: labels.target, color: colors.target },
     { key: 'actual', name: labels.actual, color: colors.actual },
@@ -84,8 +80,8 @@ function SellerPerformanceView() {
   return (
     <div className="space-y-6">
       <ReportPageHeader
-        title="Hiệu suất Seller"
-        description="KPI (cần đạt) · Thực đạt · Dự báo cuối tháng theo từng Seller."
+        title={t('performance.title')}
+        description={t('performance.description')}
       />
 
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
@@ -93,14 +89,17 @@ function SellerPerformanceView() {
         <MonthSelect month={month} year={year} onChange={(m, y) => { setMonth(m); setYear(y); }} />
         {meta && (
           <p className="text-xs text-muted-foreground sm:pb-2">
-            Đã qua {meta.daysElapsed}/{meta.daysInMonth} ngày trong tháng.
+            {t('performance.elapsed', {
+              elapsed: meta.daysElapsed,
+              total: meta.daysInMonth,
+            })}
           </p>
         )}
       </div>
 
       <ChartCard
-        title={`Hiệu suất ${metricLabel(metric).toLowerCase()} theo Seller`}
-        description={isRevenue ? 'Đơn vị: USD ($)' : 'Đơn vị: số đơn'}
+        title={t('performanceBySeller', { metric: metricLabel(metric).toLowerCase() })}
+        description={t(isRevenue ? 'unitUsd' : 'unitOrders')}
         loading={query.isLoading}
         error={query.isError ? query.error : undefined}
         isEmpty={data.length === 0}
@@ -118,25 +117,25 @@ function SellerPerformanceView() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Bảng hiệu suất Seller</CardTitle>
+          <CardTitle className="text-lg">{t('performance.tableTitle')}</CardTitle>
         </CardHeader>
         <CardContent>
           {query.isLoading ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">Đang tải…</p>
+            <p className="py-10 text-center text-sm text-muted-foreground">{t('loading')}</p>
           ) : query.isError ? (
-            <p className="py-10 text-center text-sm text-destructive">Không tải được dữ liệu.</p>
+            <p className="py-10 text-center text-sm text-destructive">{t('loadFailedShort')}</p>
           ) : rows.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">Chưa có Seller nào.</p>
+            <p className="py-10 text-center text-sm text-muted-foreground">{t('noSeller')}</p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead>Seller</TableHead>
+                    <TableHead>{t('seller')}</TableHead>
                     <TableHead className="text-right">{labels.target}</TableHead>
                     <TableHead className="text-right">{labels.actual}</TableHead>
                     <TableHead className="text-right">{labels.forecast}</TableHead>
-                    <TableHead className="text-right">% đạt</TableHead>
+                    <TableHead className="text-right">{t('performance.achievedPercent')}</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>

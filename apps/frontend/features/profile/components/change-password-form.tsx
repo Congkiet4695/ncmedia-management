@@ -1,14 +1,20 @@
 'use client';
 
+import { useMemo } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { getApiErrorCode, getApiErrorMessage, getApiFieldErrors } from '@/utils/http';
-import { changePasswordSchema, type ChangePasswordFormInput } from '../schemas/profile.schema';
+import { useApiError } from '@/hooks/use-api-error';
+import { getApiErrorCode, getApiFieldErrors } from '@/utils/http';
+import {
+  createChangePasswordSchema,
+  type ChangePasswordFormInput,
+} from '../schemas/profile.schema';
 import { useChangePassword } from '../hooks/use-profile';
 
 function FieldError({ message }: { message?: string }) {
@@ -17,6 +23,10 @@ function FieldError({ message }: { message?: string }) {
 }
 
 export function ChangePasswordForm() {
+  const { t } = useTranslation('profile');
+  const { t: tv } = useTranslation('validation');
+  const translateApiError = useApiError();
+  const schema = useMemo(() => createChangePasswordSchema(tv), [tv]);
   const mutation = useChangePassword();
   const {
     register,
@@ -25,14 +35,14 @@ export function ChangePasswordForm() {
     setError,
     formState: { errors },
   } = useForm<ChangePasswordFormInput>({
-    resolver: zodResolver(changePasswordSchema),
+    resolver: zodResolver(schema),
     defaultValues: { currentPassword: '', newPassword: '', confirmPassword: '' },
   });
 
   const onSubmit = async (values: ChangePasswordFormInput) => {
     try {
       await mutation.mutateAsync(values);
-      toast.success('Đổi mật khẩu thành công');
+      toast.success(t('passwordChanged'));
       reset();
     } catch (error) {
       const fieldErrors = getApiFieldErrors(error);
@@ -42,9 +52,9 @@ export function ChangePasswordForm() {
           setError(f as keyof ChangePasswordFormInput, { message: fieldErrors[f] }),
         );
       } else if (getApiErrorCode(error) === 'AUTH_INVALID_CREDENTIALS') {
-        setError('currentPassword', { message: 'Mật khẩu hiện tại không đúng' });
+        setError('currentPassword', { message: tv('passwordIncorrect') });
       } else {
-        toast.error('Đổi mật khẩu thất bại', { description: getApiErrorMessage(error) });
+        toast.error(t('changePasswordFailed'), { description: translateApiError(error) });
       }
     }
   };
@@ -55,7 +65,7 @@ export function ChangePasswordForm() {
     <form onSubmit={handleSubmit(onSubmit)} className="max-w-md space-y-4" noValidate>
       <div className="space-y-2">
         <Label htmlFor="currentPassword">
-          Mật khẩu hiện tại <span className="text-destructive">*</span>
+          {t('currentPassword')} <span className="text-destructive">*</span>
         </Label>
         <Input
           id="currentPassword"
@@ -70,7 +80,7 @@ export function ChangePasswordForm() {
 
       <div className="space-y-2">
         <Label htmlFor="newPassword">
-          Mật khẩu mới <span className="text-destructive">*</span>
+          {t('newPassword')} <span className="text-destructive">*</span>
         </Label>
         <Input
           id="newPassword"
@@ -85,7 +95,7 @@ export function ChangePasswordForm() {
 
       <div className="space-y-2">
         <Label htmlFor="confirmPassword">
-          Nhập lại mật khẩu mới <span className="text-destructive">*</span>
+          {t('confirmNewPassword')} <span className="text-destructive">*</span>
         </Label>
         <Input
           id="confirmPassword"
@@ -101,7 +111,7 @@ export function ChangePasswordForm() {
       <div className="flex justify-end">
         <Button type="submit" disabled={submitting}>
           {submitting && <Loader2 className="animate-spin" />}
-          Đổi mật khẩu
+          {t('changePassword')}
         </Button>
       </div>
     </form>

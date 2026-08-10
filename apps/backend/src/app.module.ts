@@ -9,6 +9,7 @@ import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { PrismaModule } from './database/prisma.module';
 import { RedisModule } from './redis/redis.module';
+import { StorageModule } from './modules/storage/storage.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { EmployeeModule } from './modules/employee/employee.module';
@@ -17,6 +18,8 @@ import { PlatformModule } from './modules/platform/platform.module';
 import { AccountModule } from './modules/account/account.module';
 import { OrderModule } from './modules/order/order.module';
 import { ReportModule } from './modules/report/report.module';
+import { PodTiktokModule } from './modules/pod-tiktok/pod-tiktok.module';
+import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
 
 @Module({
   imports: [
@@ -56,6 +59,20 @@ import { ReportModule } from './modules/report/report.module';
               '*.temporaryPassword',
               '*.initialPassword',
               '*.newPassword',
+              // Module POD — TikTok Shop: token/secret/cipher tuyệt đối không vào log.
+              'req.headers["x-tts-access-token"]',
+              'req.body.authorizationCode',
+              '*.authorizationCode',
+              '*.auth_code',
+              '*.appSecret',
+              '*.app_secret',
+              '*.accessTokenEnc',
+              '*.refreshTokenEnc',
+              '*.shopCipherEnc',
+              '*.access_token',
+              '*.refresh_token',
+              '*.cipher',
+              '*.sign',
             ],
             censor: '[REDACTED]',
           },
@@ -66,6 +83,8 @@ import { ReportModule } from './modules/report/report.module';
     // Hạ tầng
     PrismaModule,
     RedisModule,
+    // Storage (@Global) — cửa duy nhất để mọi module lưu trữ file
+    StorageModule,
 
     // Health check
     HealthModule,
@@ -78,6 +97,10 @@ import { ReportModule } from './modules/report/report.module';
     AccountModule,
     OrderModule,
     ReportModule,
+    // Module POD — TikTok Shop (Sprint 1: Link Account)
+    PodTiktokModule,
+    // Gửi đơn POD sang xưởng in (MangoTeePrints)
+    FulfillmentModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

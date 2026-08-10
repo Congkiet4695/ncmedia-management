@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react';
 import { Medal } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { RequirePermission } from '@/components/require-permission';
 import {
   Table,
@@ -20,13 +21,14 @@ import { useChartTheme } from '@/features/reports/hooks/use-chart-theme';
 import { useReportFilters } from '@/features/reports/hooks/use-report-filters';
 import { useSellerRanking } from '@/features/reports/hooks/use-reports';
 import type { ReportMetric } from '@/features/reports/constants';
-import { formatCompact, formatMetricValue, metricLabel } from '@/features/reports/utils/format';
+import { formatCompact, formatMetricValue, useMetricLabel } from '@/features/reports/utils/format';
 
 const MEDAL_COLOR = ['#eda100', '#9aa0a6', '#cd7f32']; // vàng / bạc / đồng
 
 export default function ReportSellerRankingPage() {
+  const { t } = useTranslation('report');
   return (
-    <RequirePermission permission="report.read" message="Bạn không có quyền xem Báo cáo.">
+    <RequirePermission permission="report.read" message={t('noPermission')}>
       <SellerRankingView />
     </RequirePermission>
   );
@@ -35,6 +37,8 @@ export default function ReportSellerRankingPage() {
 function SellerRankingView() {
   const filters = useReportFilters('month');
   const [metric, setMetric] = useState<ReportMetric>('revenue');
+  const { t } = useTranslation('report');
+  const metricLabel = useMetricLabel();
   const theme = useChartTheme();
   const query = useSellerRanking({ ...filters.range, metric });
   const rows = useMemo(() => query.data?.rows ?? [], [query.data]);
@@ -48,8 +52,8 @@ function SellerRankingView() {
   return (
     <div className="space-y-6">
       <ReportPageHeader
-        title="Xếp hạng Seller"
-        description="Bảng xếp hạng Seller theo doanh thu hoặc số đơn."
+        title={t('ranking.title')}
+        description={t('ranking.description')}
       />
 
       <DateRangeFilter
@@ -62,7 +66,7 @@ function SellerRankingView() {
       />
 
       <ChartCard
-        title={`Xếp hạng theo ${metricLabel(metric).toLowerCase()}`}
+        title={t('rankingBy', { metric: metricLabel(metric).toLowerCase() })}
         toolbar={<MetricSelect value={metric} onChange={setMetric} />}
         loading={query.isLoading}
         error={query.isError ? query.error : undefined}
@@ -81,21 +85,21 @@ function SellerRankingView() {
 
       <Card>
         <CardHeader>
-          <CardTitle className="text-lg">Bảng xếp hạng</CardTitle>
+          <CardTitle className="text-lg">{t('ranking.tableTitle')}</CardTitle>
         </CardHeader>
         <CardContent>
           {query.isLoading ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">Đang tải…</p>
+            <p className="py-10 text-center text-sm text-muted-foreground">{t('loading')}</p>
           ) : query.isError ? (
-            <p className="py-10 text-center text-sm text-destructive">Không tải được dữ liệu.</p>
+            <p className="py-10 text-center text-sm text-destructive">{t('loadFailedShort')}</p>
           ) : rows.length === 0 ? (
-            <p className="py-10 text-center text-sm text-muted-foreground">Chưa có dữ liệu.</p>
+            <p className="py-10 text-center text-sm text-muted-foreground">{t('noDataShort')}</p>
           ) : (
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow>
-                    <TableHead className="w-16">Hạng</TableHead>
+                    <TableHead className="w-16">{t('ranking.rank')}</TableHead>
                     <TableHead>Seller</TableHead>
                     <TableHead className="text-right">{metricLabel(metric)}</TableHead>
                   </TableRow>

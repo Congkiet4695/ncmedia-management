@@ -3,72 +3,16 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
-import {
-  BarChart3,
-  Building2,
-  ChevronDown,
-  ClipboardList,
-  LayoutDashboard,
-  Loader2,
-  LogOut,
-  Menu,
-  ShoppingBag,
-  UserRound,
-  Users,
-  X,
-  type LucideIcon,
-} from 'lucide-react';
+import { Building2, ChevronDown, Loader2, LogOut, Menu, X } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
+import { LanguageSwitcher } from '@/components/language-switcher';
 import { ThemeToggle } from '@/components/theme-toggle';
+import { MENU_NAMESPACE, resolveNavigation, type NavItemConfig } from '@/config/navigation';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useUiStore } from '@/stores/ui.store';
-
-interface NavItem {
-  label: string;
-  href: string;
-  icon: LucideIcon;
-  /** Menu con (nhóm có thể mở rộng) — vd nhóm Báo cáo. */
-  children?: NavItem[];
-}
-
-/** 5 sub-menu của nhóm Báo cáo (Reports). */
-const REPORT_CHILDREN: NavItem[] = [
-  { label: 'Tổng quan', href: '/dashboard/reports/overview', icon: BarChart3 },
-  { label: 'Doanh thu / Đơn Seller', href: '/dashboard/reports/seller', icon: BarChart3 },
-  { label: 'Hiệu suất Seller', href: '/dashboard/reports/seller-performance', icon: BarChart3 },
-  { label: 'Hiệu suất Kho', href: '/dashboard/reports/warehouse-performance', icon: BarChart3 },
-  { label: 'Xếp hạng Seller', href: '/dashboard/reports/seller-ranking', icon: BarChart3 },
-];
-
-/**
- * Menu render theo PERMISSION (không hardcode role):
- * - employee.read → Nhân viên · account.read → Account · order.read → Order · profile.read → Hồ sơ của tôi.
- * - "Hồ sơ của tôi" chỉ hiện với người KHÔNG quản lý nhân viên (self-service); người có employee.read
- *   (ADMIN/quản lý) dùng menu "Nhân viên".
- *
- * ⇒ ADMIN: Dashboard, Nhân viên, Account, Order. EMPLOYEE: Dashboard, Account, Order, Hồ sơ của tôi.
- */
-function buildNavItems(has: (code: string) => boolean): NavItem[] {
-  const items: NavItem[] = [{ label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard }];
-  if (has('employee.read')) {
-    items.push({ label: 'Nhân viên', href: '/dashboard/employees', icon: Users });
-  }
-  if (has('account.read')) {
-    items.push({ label: 'Account', href: '/dashboard/accounts', icon: ShoppingBag });
-  }
-  if (has('order.read')) {
-    items.push({ label: 'Order', href: '/dashboard/orders', icon: ClipboardList });
-  }
-  if (has('report.read')) {
-    items.push({ label: 'Báo cáo', href: '/dashboard/reports', icon: BarChart3, children: REPORT_CHILDREN });
-  }
-  if (has('profile.read') && !has('employee.read')) {
-    items.push({ label: 'Hồ sơ của tôi', href: '/dashboard/profile', icon: UserRound });
-  }
-  return items;
-}
 
 function isActive(pathname: string, href: string): boolean {
   return href === '/dashboard'
@@ -85,11 +29,12 @@ function NavLink({
   onNavigate,
   nested,
 }: {
-  item: NavItem;
+  item: NavItemConfig;
   onNavigate?: () => void;
   nested?: boolean;
 }) {
   const pathname = usePathname();
+  const { t } = useTranslation(MENU_NAMESPACE);
   const active = isActive(pathname, item.href);
   const Icon = item.icon;
   return (
@@ -105,14 +50,15 @@ function NavLink({
       )}
     >
       {!nested && <Icon className="size-4" />}
-      {item.label}
+      {t(item.labelKey)}
     </Link>
   );
 }
 
-/** Nhóm menu có thể mở rộng (vd Báo cáo) — tự mở khi 1 menu con đang active. */
-function NavGroup({ item, onNavigate }: { item: NavItem; onNavigate?: () => void }) {
+/** Nhóm menu có thể mở rộng (vd nhóm POD) — tự mở khi 1 menu con đang active. */
+function NavGroup({ item, onNavigate }: { item: NavItemConfig; onNavigate?: () => void }) {
   const pathname = usePathname();
+  const { t } = useTranslation(MENU_NAMESPACE);
   const groupActive = isActive(pathname, item.href);
   const [open, setOpen] = useState(groupActive);
   const Icon = item.icon;
@@ -136,7 +82,7 @@ function NavGroup({ item, onNavigate }: { item: NavItem; onNavigate?: () => void
         )}
       >
         <Icon className="size-4" />
-        <span className="flex-1 text-left">{item.label}</span>
+        <span className="flex-1 text-left">{t(item.labelKey)}</span>
         <ChevronDown className={cn('size-4 transition-transform', open && 'rotate-180')} />
       </button>
       {open && (
@@ -150,7 +96,7 @@ function NavGroup({ item, onNavigate }: { item: NavItem; onNavigate?: () => void
   );
 }
 
-function SidebarNav({ items, onNavigate }: { items: NavItem[]; onNavigate?: () => void }) {
+function SidebarNav({ items, onNavigate }: { items: NavItemConfig[]; onNavigate?: () => void }) {
   return (
     <nav className="flex-1 space-y-1 overflow-y-auto p-4">
       {items.map((item) =>
@@ -171,6 +117,7 @@ function SidebarNav({ items, onNavigate }: { items: NavItem[]; onNavigate?: () =
  */
 export default function DashboardLayout({ children }: { children: ReactNode }) {
   const router = useRouter();
+  const { t } = useTranslation(['common', 'menu']);
   const { user, organization, role, loading, logout, hasPermission } = useAuth();
   const sidebarOpen = useUiStore((state) => state.sidebarOpen);
   const setSidebarOpen = useUiStore((state) => state.setSidebarOpen);
@@ -187,8 +134,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
     );
   }
 
-  const orgName = organization?.name ?? 'NCMedia';
-  const navItems = buildNavItems(hasPermission);
+  const orgName = organization?.name ?? t('appName');
+  const navItems = resolveNavigation(hasPermission);
 
   return (
     <div className="flex min-h-screen bg-muted/30">
@@ -206,7 +153,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
         <div className="fixed inset-0 z-40 md:hidden">
           <button
             type="button"
-            aria-label="Đóng menu"
+            aria-label={t('menu:closeMenu')}
             className="absolute inset-0 bg-black/50"
             onClick={() => setSidebarOpen(false)}
           />
@@ -220,7 +167,7 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
                 variant="ghost"
                 size="icon"
                 onClick={() => setSidebarOpen(false)}
-                aria-label="Đóng menu"
+                aria-label={t('menu:closeMenu')}
               >
                 <X className="size-4" />
               </Button>
@@ -238,23 +185,24 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
             size="icon"
             className="md:hidden"
             onClick={() => setSidebarOpen(true)}
-            aria-label="Mở menu"
+            aria-label={t('menu:openMenu')}
           >
             <Menu className="size-4" />
           </Button>
 
           <div className="ml-auto flex items-center gap-3">
+            <LanguageSwitcher />
             <ThemeToggle />
             <div className="hidden text-right sm:block">
               <p className="text-sm font-medium leading-none">{user.fullName}</p>
               <p className="text-xs text-muted-foreground">
-                {role?.name ?? role?.code ?? 'Thành viên'}
+                {role?.name ?? role?.code ?? t('member')}
               </p>
             </div>
             <Avatar src={user.avatar} name={user.fullName} className="size-8" />
             <Button variant="outline" size="sm" onClick={logout}>
               <LogOut className="size-4" />
-              <span className="hidden sm:inline">Đăng xuất</span>
+              <span className="hidden sm:inline">{t('action.logout')}</span>
             </Button>
           </div>
         </header>

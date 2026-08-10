@@ -1,23 +1,17 @@
 import type { Metadata } from 'next';
-import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { env } from '@/lib/env';
+import { AuthCard } from '@/features/auth/components/auth-card';
 import { RegisterForm } from '@/features/auth/components/register-form';
 
+/** Xem ghi chú ở trang Đăng nhập: metadata không biết ngôn ngữ đang chọn. */
 export const metadata: Metadata = {
-  title: 'Đăng ký',
+  title: env.appName,
 };
 
 export default function RegisterPage() {
   return (
-    <Card className="w-full max-w-md">
-      <CardHeader>
-        <CardTitle>Đăng ký tổ chức</CardTitle>
-        <CardDescription>
-          Tạo Organization mới và tài khoản Admin đầu tiên cho tổ chức của bạn.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        <RegisterForm />
-      </CardContent>
-    </Card>
+    <AuthCard titleKey="register.title" descriptionKey="register.subtitle">
+      <RegisterForm />
+    </AuthCard>
   );
 }

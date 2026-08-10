@@ -1,5 +1,6 @@
 'use client';
 
+import { useTranslation } from 'react-i18next';
 import type { ReactNode } from 'react';
 import { ShieldAlert } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
@@ -9,6 +10,7 @@ import { useAuth } from '@/hooks/use-auth';
  * Backend cũng chặn (AdminGuard → 403); đây là lớp UX phía client.
  */
 export function RequireAdmin({ children }: { children: ReactNode }) {
+  const { t } = useTranslation(['employee', 'common']);
   const { role, loading } = useAuth();
 
   if (loading) return null; // AuthProvider đã hiển thị loading toàn cục
@@ -17,9 +19,9 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-20 text-center">
         <ShieldAlert className="size-10 text-destructive" />
-        <h2 className="text-lg font-semibold">403 — Không có quyền truy cập</h2>
+        <h2 className="text-lg font-semibold">{t('common:state.forbiddenTitle')}</h2>
         <p className="max-w-sm text-sm text-muted-foreground">
-          Chỉ Quản trị viên (ADMIN) mới truy cập được khu vực quản lý Nhân viên.
+          {t('adminOnly')}
         </p>
       </div>
     );
