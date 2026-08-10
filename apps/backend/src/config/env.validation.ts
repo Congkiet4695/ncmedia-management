@@ -25,7 +25,21 @@ export const envValidationSchema = Joi.object({
   JWT_REFRESH_TTL: Joi.string().default('7d'),
   REFRESH_TOKEN_HMAC_SECRET: Joi.string().required(),
 
-  SWAGGER_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+  /**
+   * Mặc định theo môi trường: production TẮT, còn lại BẬT.
+   *
+   * Trước đây docker-compose khoá cứng `false` cho production. Sau khi chuyển sang nạp
+   * biến bằng `env_file`, quên khai báo dòng này trong .env.production sẽ rơi về default —
+   * nên default phải tự nó an toàn, không dựa vào lớp triển khai.
+   */
+  SWAGGER_ENABLED: Joi.boolean()
+    .truthy('true')
+    .falsy('false')
+    .when('NODE_ENV', {
+      is: 'production',
+      then: Joi.boolean().default(false),
+      otherwise: Joi.boolean().default(true),
+    }),
   SWAGGER_PATH: Joi.string().default('docs'),
 
   // Khoá mã hoá secret Account (AES-256-GCM). Base64 của 32 byte (docs/account.md D-01).

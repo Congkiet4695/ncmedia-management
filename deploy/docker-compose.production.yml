@@ -6,12 +6,46 @@
 #   có thể override qua biến (NCMEDIA_*) khi verify ở môi trường khác.
 # - CHỈ publish 80/443 (Nginx). Postgres/Redis/Backend/Frontend KHÔNG expose ra Internet.
 # - depends_on dùng service_healthy. restart: unless-stopped.
-# - Secrets nạp từ .env.production (KHÔNG hardcode).
+#
+# ── CẤU HÌNH BIẾN MÔI TRƯỜNG ────────────────────────────────────────────────
+# `.env.production` được dùng theo HAI đường KHÁC NHAU, đừng nhầm lẫn:
+#
+#   1. `--env-file .env.production` (deploy.sh)  → nội suy `${...}` TRONG file compose này.
+#      Chỉ ảnh hưởng chính file YAML, KHÔNG tự động vào container.
+#   2. `env_file:` trên từng service            → nạp TOÀN BỘ biến VÀO container.
+#
+# Nhờ (2), thêm biến mới cho backend chỉ cần sửa `.env.production` — KHÔNG phải
+# đụng vào file này nữa. Xem docs/deployment-env.md.
+#
+# Thứ tự ưu tiên của Compose: `environment` > `env_file` > ENV trong image.
+# Vì vậy khối `environment` bên dưới chỉ chứa hai loại biến:
+#   (a) giá trị do Compose TÍNH TOÁN từ topology (tên service `postgres`/`redis`);
+#   (b) giá trị BẮT BUỘC khoá cứng vì hạ tầng phụ thuộc vào nó (PORT, API_PREFIX
+#       phải khớp HEALTHCHECK trong Dockerfile và upstream trong nginx.conf).
+# Mọi biến còn lại (secret, TikTok, R2, Mango, cờ tính năng…) đi qua `env_file`.
 # ============================================================================
 
 name: ncmedia-prod
 
+# ---------------------------------------------------------------------------
+# Neo dùng chung — tránh lặp giữa `backend` và `seed` (cùng chạy mã Nest/Prisma).
+# ---------------------------------------------------------------------------
+
+# Toàn bộ biến ứng dụng. Thêm biến mới ⇒ chỉ sửa .env.production.
+# Đường dẫn nội suy từ `ENV_FILE` (deploy.sh export sẵn) để `ENV_FILE=.env.staging`
+# đổi được CẢ nguồn nội suy `${...}` lẫn file nạp vào container — không lệch nhau.
+x-app-env-file: &app-env-file
+  - ${ENV_FILE:-.env.production}
+
+# Chuỗi kết nối DB nội bộ mạng Docker. PHẢI ghi đè giá trị cùng tên trong
+# .env.production (nếu có) vì ở đó DATABASE_URL thường trỏ localhost.
+x-database-url: &database-url
+  DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+
 services:
+  # Postgres/Redis KHÔNG dùng `env_file`: image của chúng đọc nhiều biến điều khiển
+  # (POSTGRES_INITDB_ARGS, POSTGRES_HOST_AUTH_METHOD…). Nạp cả file .env ứng dụng vào
+  # đây sẽ biến một biến đặt nhầm tên thành thay đổi hành vi khởi tạo database.
   postgres:
     image: postgres:16-alpine
     container_name: ncmedia-postgres
@@ -62,31 +96,27 @@ services:
         condition: service_healthy
       redis:
         condition: service_healthy
+    # Toàn bộ biến ứng dụng — thêm biến mới KHÔNG cần sửa file này.
+    env_file: *app-env-file
     environment:
+      <<: *database-url
+      # Khoá cứng: hạ tầng phụ thuộc trực tiếp vào ba giá trị này.
+      #   PORT + API_PREFIX ↔ HEALTHCHECK trong apps/backend/Dockerfile và upstream nginx.conf.
+      #   NODE_ENV ↔ nhánh production của ConfigModule/Prisma/pino.
       NODE_ENV: production
       PORT: 3000
       API_PREFIX: api/v1
-      CORS_ORIGIN: ${CORS_ORIGIN:-*}
-      LOG_LEVEL: ${LOG_LEVEL:-info}
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
+      # Tính từ topology mạng Docker — luôn khác giá trị dùng khi chạy máy local.
       REDIS_HOST: redis
       REDIS_PORT: 6379
-      REDIS_PASSWORD: ${REDIS_PASSWORD}
-      JWT_ACCESS_SECRET: ${JWT_ACCESS_SECRET}
-      JWT_REFRESH_SECRET: ${JWT_REFRESH_SECRET}
-      JWT_ACCESS_TTL: ${JWT_ACCESS_TTL:-15m}
-      JWT_REFRESH_TTL: ${JWT_REFRESH_TTL:-7d}
-      REFRESH_TOKEN_HMAC_SECRET: ${REFRESH_TOKEN_HMAC_SECRET}
-      ACCOUNT_ENCRYPTION_KEY: ${ACCOUNT_ENCRYPTION_KEY}
-      SWAGGER_ENABLED: ${SWAGGER_ENABLED:-false}
-      SWAGGER_PATH: ${SWAGGER_PATH:-docs}
-      UPLOAD_PATH: ${UPLOAD_PATH:-/app/uploads}
     volumes:
       - ${NCMEDIA_UPLOADS:-/opt/ncmedia/uploads}:/app/uploads
       - ${NCMEDIA_LOGS:-/opt/ncmedia/logs}:/app/logs
     networks:
       - ncmedia
 
+  # Frontend nhận cấu hình lúc BUILD (Next.js inline biến NEXT_PUBLIC_* vào bundle),
+  # nên dùng `build.args` chứ KHÔNG phải `env_file` — biến runtime sẽ không có tác dụng.
   frontend:
     build:
       context: ../apps/frontend
@@ -143,9 +173,12 @@ services:
       dockerfile: Dockerfile
       target: build
     image: ncmedia-backend-tools:latest
+    # Dùng chung .env với backend: seed sau này có thể cần thêm biến (vd khoá mã hoá).
+    env_file: *app-env-file
     environment:
-      DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?schema=public
-      # Production: KHÔNG tạo Demo Org/Admin (chỉ seed catalog + backfill role_permissions).
+      <<: *database-url
+      # Production: KHÔNG tạo Demo Org/Admin. Ghi đè có chủ ý — seed.ts mặc định BẬT
+      # (`SEED_DEMO !== 'false'`), thiếu dòng này là tạo nhầm admin demo trên production.
       SEED_DEMO: ${SEED_DEMO:-false}
     depends_on:
       postgres:

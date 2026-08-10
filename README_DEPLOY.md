@@ -53,6 +53,14 @@ openssl rand -base64 24   # POSTGRES_PASSWORD / REDIS_PASSWORD
 nano .env.production       # điền DOMAIN + secret THẬT
 ```
 
+> **File `.env.production` là nguồn duy nhất.** Toàn bộ biến trong đó được nạp thẳng vào container
+> backend qua `env_file:`. Thêm biến môi trường mới (R2, Telegram, OpenAI…) chỉ cần: thêm dòng vào
+> `.env.production` → (nếu cần) thêm luật vào `apps/backend/src/config/env.validation.ts` → deploy.
+> **KHÔNG phải sửa `docker-compose.production.yml`.** Chi tiết: [`docs/deployment-env.md`](docs/deployment-env.md).
+>
+> File phải dùng xuống dòng **LF**. Soạn trên Windows xong chạy `sed -i 's/\r$//' .env.production`
+> (`deploy.sh` cũng chặn sẵn và báo lỗi rõ ràng).
+
 **TLS cert:** đặt Cloudflare Origin Certificate vào `/opt/ncmedia/certs/` với tên `fullchain.pem` + `privkey.pem`.
 Nếu bỏ trống, `deploy.sh` sinh **self-signed** tạm (dùng được với Cloudflare Full, không phải Full-strict).
 
