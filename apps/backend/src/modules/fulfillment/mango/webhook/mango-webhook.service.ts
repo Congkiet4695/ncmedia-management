@@ -5,6 +5,7 @@ import { timingSafeEqual } from 'node:crypto';
 import { TiktokEncryptionService } from '../../../pod-tiktok/services/tiktok-encryption.service';
 import { FulfillmentRepository } from '../../repositories/fulfillment.repository';
 import { MangoApiClient } from '../clients/mango-api.client';
+import { MangoCredentialService } from '../services/mango-credential.service';
 import { MangoFulfillmentService } from '../services/mango-fulfillment.service';
 import type { MangoWebhookPayload } from '../types/mango-api.types';
 
@@ -41,6 +42,7 @@ export class MangoWebhookService {
     private readonly fulfillmentService: MangoFulfillmentService,
     private readonly client: MangoApiClient,
     private readonly encryption: TiktokEncryptionService,
+    private readonly credentials: MangoCredentialService,
   ) {}
 
   /**
@@ -59,7 +61,7 @@ export class MangoWebhookService {
     const account = await this.resolveAccountBySecret(secret);
 
     const log = await this.repo.createWebhookLog({
-      provider: FulfillmentProvider.MANGOTEE,
+      provider: FulfillmentProvider.MANGO,
       eventType: payload.event ?? 'unknown',
       externalOrderId,
       payload: payload as unknown as Prisma.InputJsonValue,
@@ -72,7 +74,7 @@ export class MangoWebhookService {
     if (!account) {
       this.logger.warn({
         module: 'fulfillment',
-        provider: 'MANGOTEE',
+        provider: 'MANGO',
         operation: 'webhook',
         externalOrderId,
         msg: 'Webhook không kèm secret hợp lệ — đã lưu nhưng KHÔNG xử lý',
@@ -146,10 +148,7 @@ export class MangoWebhookService {
        * — vừa chính xác, vừa dùng chung đúng một đường cập nhật với scheduler.
        */
       const result = await this.client.getOrder(
-        {
-          apiKey: this.encryption.decrypt(account.apiKeyEnc),
-          baseUrl: account.baseUrlOverride,
-        },
+        this.credentials.buildContext(account),
         record.externalOrderId,
       );
       await this.fulfillmentService.applyProviderState(
@@ -174,7 +173,7 @@ export class MangoWebhookService {
       });
       this.logger.error({
         module: 'fulfillment',
-        provider: 'MANGOTEE',
+        provider: 'MANGO',
         operation: 'webhook.process',
         fulfillmentOrderId: record.id,
         msg: `Xử lý webhook thất bại: ${(error as Error).message}`,

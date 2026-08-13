@@ -13,6 +13,7 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
+import { FulfillmentProviderSelect } from './fulfillment-provider-select';
 import { SellerAssignSelect } from './seller-assign-select';
 import { TiktokStatusBadge } from './tiktok-status-badge';
 import type { PodTiktokAccountListItem } from '../types';
@@ -45,7 +46,7 @@ export function TiktokAccountTable({
   canAssignSeller = false,
   onUnlink,
 }: TiktokAccountTableProps) {
-  const { t } = useTranslation(['pod', 'common']);
+  const { t } = useTranslation(['pod', 'common', 'fulfillment']);
   const { formatDate } = useLocaleFormat();
 
   if (loading) {
@@ -78,6 +79,7 @@ export function TiktokAccountTable({
             <TableHead>{t('account.region')}</TableHead>
             <TableHead>{t('account.tiktokSeller')}</TableHead>
             <TableHead className="min-w-[200px]">{t('account.assignedSeller')}</TableHead>
+            <TableHead className="min-w-[190px]">{t('fulfillment:assign.label')}</TableHead>
             <TableHead>{t('account.status.columnLabel')}</TableHead>
             <TableHead className="whitespace-nowrap">{t('account.tokenExpiry')}</TableHead>
             <TableHead className="whitespace-nowrap">{t('account.lastSync')}</TableHead>
@@ -110,6 +112,17 @@ export function TiktokAccountTable({
                   sellerId={account.sellerId}
                   sellerFullName={account.sellerFullName}
                   sellerEmail={account.sellerEmail}
+                  editable={canAssignSeller}
+                />
+              </TableCell>
+              {/* Nhà cung cấp fulfillment — cùng cơ chế "chọn là lưu" với ô Seller. */}
+              <TableCell>
+                <FulfillmentProviderSelect
+                  accountId={account.id}
+                  accountName={account.accountName}
+                  fulfillmentAccountId={account.fulfillmentAccountId}
+                  fulfillmentProviderName={account.fulfillmentProviderName}
+                  fulfillmentProviderActive={account.fulfillmentProviderActive}
                   editable={canAssignSeller}
                 />
               </TableCell>

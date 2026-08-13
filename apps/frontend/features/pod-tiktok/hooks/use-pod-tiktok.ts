@@ -58,6 +58,31 @@ export function usePodSellerOptions(enabled = true) {
  * Phân công Seller. Làm mới cả danh sách account LẪN báo cáo Payout vì số liệu
  * payout gom nhóm theo seller — đổi người phụ trách là báo cáo phải đổi theo ngay.
  */
+/**
+ * Gán nhà cung cấp fulfillment cho kết nối TikTok.
+ *
+ * Làm mới cả danh sách kết nối lẫn trạng thái fulfillment của đơn: một đơn đang báo
+ * "chưa cấu hình" phải chuyển sang "sẵn sàng" ngay sau khi gán, không cần tải lại trang.
+ */
+export function useAssignFulfillmentProvider() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      id,
+      fulfillmentAccountId,
+    }: {
+      id: string;
+      fulfillmentAccountId: string | null;
+    }) => podTiktokService.assignFulfillmentProvider(id, fulfillmentAccountId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [POD_TIKTOK_KEY] });
+      void queryClient.invalidateQueries({ queryKey: ['fulfillment'] });
+      void queryClient.invalidateQueries({ queryKey: ['fulfillment-providers'] });
+      void queryClient.invalidateQueries({ queryKey: ['pod-tiktok-orders'] });
+    },
+  });
+}
+
 export function useAssignPodSeller() {
   const queryClient = useQueryClient();
   return useMutation({

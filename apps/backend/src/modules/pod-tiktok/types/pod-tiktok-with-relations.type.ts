@@ -12,6 +12,8 @@ export const POD_TIKTOK_ACCOUNT_INCLUDE = {
   // Seller phụ trách (Employee) — kèm User để lấy họ tên + email hiển thị.
   // Nạp bằng include ⇒ danh sách account chỉ tốn MỘT truy vấn, không N+1.
   seller: { select: { id: true, status: true, user: { select: { fullName: true, email: true } } } },
+  // Nhà cung cấp fulfillment đang gán — nạp kèm để bảng hiển thị tên/trạng thái mà không N+1.
+  fulfillmentAccount: { select: { id: true, name: true, provider: true, isActive: true } },
 } as const satisfies Prisma.PodTiktokAccountInclude;
 
 export type PodTiktokAccountWithShops = Prisma.PodTiktokAccountGetPayload<{

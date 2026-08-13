@@ -33,7 +33,14 @@ import { AuthenticatedUser } from '../../auth/types/authenticated-user.interface
 import {
   CancelFulfillmentDto,
   CreateFulfillmentAccountDto,
+  DeleteFulfillmentAccountResultDto,
+  PaginatedProductMappingDto,
+  ProductMappingQueryDto,
+  ProviderCatalogProductDto,
+  ProviderCatalogVariationDto,
+  TiktokProductOptionDto,
   FulfillmentAccountDto,
+  FulfillmentProviderOptionDto,
   FulfillmentErrorDto,
   FulfillmentHistoryDto,
   FulfillmentOrderDto,
@@ -42,8 +49,10 @@ import {
   ProductMappingDto,
   TriggerFulfillmentSyncDto,
   UpdateFulfillmentAccountDto,
+  TestConnectionResultDto,
   UpsertProductMappingDto,
 } from '../dto/fulfillment.dto';
+import { MangoCatalogService } from '../mango/services/mango-catalog.service';
 import { MangoFulfillmentService } from '../mango/services/mango-fulfillment.service';
 import { FulfillmentSyncService } from '../services/fulfillment-sync.service';
 import { FulfillmentService } from '../services/fulfillment.service';
@@ -54,7 +63,7 @@ import { FulfillmentService } from '../services/fulfillment.service';
  * Tenant-scoped (organizationId từ JWT — ADR-004) + RBAC `fulfillment.*`.
  *
  * 🔴 Hiện chỉ MangoTeePrints được implement. Tham số `provider` để sẵn cho nhà cung cấp
- * sau này — mặc định MANGOTEE nên client hiện tại không cần truyền.
+ * sau này — mặc định MANGO nên client hiện tại không cần truyền.
  */
 @ApiTags('Fulfillment')
 @ApiBearerAuth()
@@ -67,6 +76,7 @@ export class FulfillmentController {
     private readonly service: FulfillmentService,
     private readonly mangoService: MangoFulfillmentService,
     private readonly syncService: FulfillmentSyncService,
+    private readonly catalog: MangoCatalogService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -115,6 +125,57 @@ export class FulfillmentController {
   // Ánh xạ sản phẩm
   // ---------------------------------------------------------------------------
 
+  @Delete('accounts/:id')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('fulfillment.config')
+  @ApiOperation({
+    summary: 'Xoá nhà cung cấp fulfillment',
+    description:
+      'Xoá MỀM. Lịch sử đơn đã gửi được giữ nguyên để tra cứu; mọi kết nối TikTok đang trỏ ' +
+      'tới nhà cung cấp này bị gỡ liên kết và sẽ cần chọn lại trước khi gửi đơn.',
+  })
+  @ApiOkResponse({ type: DeleteFulfillmentAccountResultDto })
+  deleteAccount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<DeleteFulfillmentAccountResultDto> {
+    return this.service.deleteAccount(user.organizationId, user.userId, id);
+  }
+
+  @Post('accounts/:id/test-connection')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('fulfillment.config')
+  @ApiOperation({
+    summary: 'Kiểm tra kết nối tới nhà cung cấp',
+    description:
+      'Gọi `GET /production-lines` của nhà cung cấp — endpoint chỉ đọc, cần xác thực, không ' +
+      'tạo dữ liệu. Thành công ⇒ `connected: true`. Thất bại ⇒ trả NGUYÊN VĂN thông báo lỗi ' +
+      'của nhà cung cấp (HTTP vẫn 200 vì đây là kết quả chẩn đoán, không phải lỗi hệ thống).',
+  })
+  @ApiOkResponse({ type: TestConnectionResultDto })
+  async testConnection(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<TestConnectionResultDto> {
+    const account = await this.service.requireAccountById(user.organizationId, id);
+    return this.mangoService.testConnection(account);
+  }
+
+  @Get('provider-options')
+  @RequirePermissions('fulfillment.read')
+  @ApiOperation({
+    summary: 'Danh sách nhà cung cấp ACTIVE cho dropdown',
+    description:
+      'Dùng ở màn hình TikTok Account để chọn nhà cung cấp. Chỉ trả id/tên/loại — ' +
+      'KHÔNG có API key dưới bất kỳ hình thức nào.',
+  })
+  @ApiOkResponse({ type: FulfillmentProviderOptionDto, isArray: true })
+  listProviderOptions(
+    @CurrentUser() user: AuthenticatedUser,
+  ): Promise<FulfillmentProviderOptionDto[]> {
+    return this.service.listProviderOptions(user.organizationId);
+  }
+
   @Get('mappings')
   @RequirePermissions('fulfillment.config')
   @ApiOperation({
@@ -128,8 +189,90 @@ export class FulfillmentController {
   ): Promise<ProductMappingDto[]> {
     return this.service.listMappings(
       user.organizationId,
-      provider ?? FulfillmentProvider.MANGOTEE,
+      provider ?? FulfillmentProvider.MANGO,
     );
+  }
+
+  @Get('mappings/paged')
+  @RequirePermissions('fulfillment.config')
+  @ApiOperation({
+    summary: 'Danh sách ánh xạ có lọc + phân trang',
+    description:
+      'Lọc theo nhà cung cấp, trạng thái và từ khoá (tìm đồng thời trong tên sản phẩm ' +
+      'nhà cung cấp, Seller SKU và Provider SKU). Dùng cho màn hình Product Mapping.',
+  })
+  @ApiOkResponse({ type: PaginatedProductMappingDto })
+  listMappingsPaged(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ProductMappingQueryDto,
+  ): Promise<PaginatedProductMappingDto> {
+    return this.service.listMappingsPaged(user.organizationId, query);
+  }
+
+  @Get('mappings/tiktok-products')
+  @RequirePermissions('fulfillment.config')
+  @ApiOperation({
+    summary: 'Sản phẩm/SKU TikTok có thể ánh xạ',
+    description:
+      'Lấy từ các dòng hàng ĐÃ ĐỒNG BỘ về (hệ thống không đồng bộ catalog sản phẩm TikTok). ' +
+      'Kèm cờ `mapped` để giao diện làm nổi SKU chưa được ánh xạ.',
+  })
+  @ApiOkResponse({ type: TiktokProductOptionDto, isArray: true })
+  listTiktokProductOptions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('accountId', ParseUUIDPipe) accountId: string,
+    @Query('search') search?: string,
+  ): Promise<TiktokProductOptionDto[]> {
+    return this.service.listTiktokProductOptions(user.organizationId, accountId, search);
+  }
+
+  @Get('accounts/:id/catalog/products')
+  @RequirePermissions('fulfillment.config')
+  @ApiOperation({
+    summary: 'Danh mục sản phẩm của nhà cung cấp',
+    description:
+      'Đọc TRỰC TIẾP từ `GET /products` của nhà cung cấp — không hardcode sản phẩm nào. ' +
+      'Kết quả được cache 5 phút theo tài khoản để giảm số lần gọi API.',
+  })
+  @ApiOkResponse({ type: ProviderCatalogProductDto, isArray: true })
+  async listCatalogProducts(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query('search') search?: string,
+  ): Promise<ProviderCatalogProductDto[]> {
+    const account = await this.service.requireAccountById(user.organizationId, id);
+    return this.catalog.listProducts(account, search);
+  }
+
+  @Get('accounts/:id/catalog/products/:productId/variations')
+  @RequirePermissions('fulfillment.config')
+  @ApiOperation({
+    summary: 'Biến thể của một sản phẩm nhà cung cấp',
+    description:
+      'Đọc TRỰC TIẾP từ `GET /products/{id}/variations`. `sku` trả về chính là giá trị sẽ ' +
+      'gửi trong `items[].sku` khi tạo đơn — đây là lý do phải ánh xạ trước khi gửi.',
+  })
+  @ApiOkResponse({ type: ProviderCatalogVariationDto, isArray: true })
+  async listCatalogVariations(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('productId') productId: string,
+  ): Promise<ProviderCatalogVariationDto[]> {
+    const account = await this.service.requireAccountById(user.organizationId, id);
+    return this.catalog.listVariations(account, productId);
+  }
+
+  @Post('accounts/:id/catalog/refresh')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('fulfillment.config')
+  @ApiOperation({ summary: 'Xoá cache danh mục để đọc lại từ nhà cung cấp' })
+  @ApiOkResponse({ description: 'Đã xoá cache; data = null' })
+  async refreshCatalog(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<void> {
+    await this.service.requireAccountById(user.organizationId, id);
+    await this.catalog.invalidate(id);
   }
 
   @Post('mappings')
@@ -146,7 +289,7 @@ export class FulfillmentController {
     return this.service.createMapping(
       user.organizationId,
       user.userId,
-      provider ?? FulfillmentProvider.MANGOTEE,
+      provider ?? FulfillmentProvider.MANGO,
       dto,
     );
   }

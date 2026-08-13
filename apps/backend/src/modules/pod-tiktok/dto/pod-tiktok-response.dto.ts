@@ -1,3 +1,4 @@
+import { FulfillmentProvider } from '@prisma/client';
 import { ApiProperty } from '@nestjs/swagger';
 
 /**
@@ -41,6 +42,15 @@ export class PodTiktokAccountResponseDto {
   sellerFullName!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'Email Seller phụ trách' })
   sellerEmail!: string | null;
+  @ApiProperty({ nullable: true, type: String, format: 'uuid' })
+  fulfillmentAccountId!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'Tên nhà cung cấp fulfillment.' })
+  fulfillmentProviderName!: string | null;
+  @ApiProperty({ nullable: true, enum: FulfillmentProvider })
+  fulfillmentProviderType!: FulfillmentProvider | null;
+  @ApiProperty({ nullable: true, type: Boolean, description: 'Nhà cung cấp đang ACTIVE?' })
+  fulfillmentProviderActive!: boolean | null;
+
   @ApiProperty({ nullable: true, type: String, example: 'US' }) sellerBaseRegion!: string | null;
   @ApiProperty({ example: 0, description: '0=Seller, 4/5=Global Selling seller' })
   userType!: number;
@@ -88,6 +98,15 @@ export class PodTiktokAccountListItemDto {
   sellerFullName!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'Email Seller phụ trách' })
   sellerEmail!: string | null;
+  @ApiProperty({ nullable: true, type: String, format: 'uuid' })
+  fulfillmentAccountId!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'Tên nhà cung cấp fulfillment.' })
+  fulfillmentProviderName!: string | null;
+  @ApiProperty({ nullable: true, enum: FulfillmentProvider })
+  fulfillmentProviderType!: FulfillmentProvider | null;
+  @ApiProperty({ nullable: true, type: Boolean, description: 'Nhà cung cấp đang ACTIVE?' })
+  fulfillmentProviderActive!: boolean | null;
+
   @ApiProperty({ nullable: true, type: String, description: 'Tên shop (shop đầu tiên)' })
   shopName!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'TikTok Shop ID (shop đầu tiên)' })

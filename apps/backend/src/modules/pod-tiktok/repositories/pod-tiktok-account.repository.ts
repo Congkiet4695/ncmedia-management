@@ -500,6 +500,26 @@ export class PodTiktokAccountRepository {
   }
 
   /** Gán/gỡ Seller phụ trách kết nối. `null` = bỏ phân công. */
+  /** Gán / bỏ gán nhà cung cấp fulfillment cho kết nối. */
+  async assignFulfillmentAccount(
+    id: string,
+    fulfillmentAccountId: string | null,
+    actorUserId: string,
+  ): Promise<void> {
+    await this.prisma.podTiktokAccount.update({
+      where: { id },
+      data: { fulfillmentAccountId, updatedBy: actorUserId },
+    });
+  }
+
+  /** Nhà cung cấp hợp lệ để gán: cùng tổ chức, chưa xoá, đang ACTIVE. */
+  async isEligibleFulfillmentAccount(organizationId: string, id: string): Promise<boolean> {
+    const count = await this.prisma.fulfillmentAccount.count({
+      where: { id, organizationId, isActive: true, deletedAt: null },
+    });
+    return count > 0;
+  }
+
   async assignSeller(id: string, sellerId: string | null, actorUserId: string): Promise<void> {
     await this.prisma.podTiktokAccount.update({
       where: { id },

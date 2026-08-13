@@ -1,19 +1,21 @@
 {
+  "accounts": "Accounts",
+  "closeMenu": "Close menu",
   "dashboard": "Dashboard",
   "employees": "Employees",
-  "accounts": "Accounts",
+  "openMenu": "Open menu",
   "orders": "Orders",
-  "reports": "Reports",
-  "profile": "My profile",
   "pod": "POD",
-  "podTiktokAccounts": "TikTok Accounts",
+  "podFulfillmentProviders": "Fulfillment Providers",
   "podOrders": "POD Orders",
   "podPayout": "TikTok Payout",
+  "podProductMapping": "Product Mapping",
+  "podTiktokAccounts": "TikTok Accounts",
+  "profile": "My profile",
   "reportOverview": "Overview",
   "reportSeller": "Seller revenue / orders",
   "reportSellerPerformance": "Seller performance",
-  "reportWarehouse": "Warehouse performance",
   "reportSellerRanking": "Seller ranking",
-  "openMenu": "Open menu",
-  "closeMenu": "Close menu"
+  "reportWarehouse": "Warehouse performance",
+  "reports": "Reports"
 }

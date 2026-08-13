@@ -202,7 +202,7 @@ export class MangoOrderMapper {
     if (!mapped) {
       this.logger.warn({
         module: 'fulfillment',
-        provider: 'MANGOTEE',
+        provider: 'MANGO',
         providerStatus,
         msg: 'Trạng thái Mango chưa được ánh xạ — giữ nguyên ở providerStatus, đánh dấu UNKNOWN',
       });

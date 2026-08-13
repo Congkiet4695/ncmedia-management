@@ -205,7 +205,7 @@ export class MangoApiClient {
 
     this.logger.log({
       module: 'fulfillment',
-      provider: 'MANGOTEE',
+      provider: 'MANGO',
       operation: `${method} ${path}`,
       httpStatus: response.status,
       requestId,

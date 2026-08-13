@@ -24,6 +24,17 @@ export class PodTiktokAccountNotFoundException extends NotFoundException {
  * Seller được phân công không đủ điều kiện: khác Organization, hồ sơ không ACTIVE,
  * hoặc Role không phải EMPLOYEE (Admin/Fulfillment không được làm seller).
  */
+/** Nhà cung cấp fulfillment được chọn không dùng được (khác tổ chức, đã xoá hoặc INACTIVE). */
+export class PodTiktokFulfillmentProviderInvalidException extends BadRequestException {
+  constructor() {
+    super({
+      code: 'POD_TIKTOK_FULFILLMENT_PROVIDER_INVALID',
+      message:
+        'Nhà cung cấp fulfillment không hợp lệ: khác tổ chức, đã bị xoá, hoặc đang INACTIVE.',
+    });
+  }
+}
+
 export class PodTiktokSellerInvalidException extends BadRequestException {
   constructor() {
     super({

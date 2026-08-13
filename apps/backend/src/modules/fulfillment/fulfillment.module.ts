@@ -3,7 +3,10 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '../auth/auth.module';
 import { PodTiktokModule } from '../pod-tiktok/pod-tiktok.module';
 import { FulfillmentController } from './controllers/fulfillment.controller';
+import { PodOrderFulfillmentController } from './controllers/pod-order-fulfillment.controller';
 import { MangoApiClient } from './mango/clients/mango-api.client';
+import { MangoCatalogService } from './mango/services/mango-catalog.service';
+import { MangoCredentialService } from './mango/services/mango-credential.service';
 import { MangoOrderMapper } from './mango/mappers/mango-order.mapper';
 import { MangoFulfillmentService } from './mango/services/mango-fulfillment.service';
 import { MangoWebhookController } from './mango/webhook/mango-webhook.controller';
@@ -36,7 +39,7 @@ import { FulfillmentService } from './services/fulfillment.service';
  */
 @Module({
   imports: [AuthModule, PodTiktokModule, ScheduleModule.forRoot()],
-  controllers: [FulfillmentController, MangoWebhookController],
+  controllers: [FulfillmentController, PodOrderFulfillmentController, MangoWebhookController],
   providers: [
     // Nghiệp vụ chung
     FulfillmentService,
@@ -46,6 +49,8 @@ import { FulfillmentService } from './services/fulfillment.service';
     // MangoTeePrints
     MangoApiClient,
     MangoOrderMapper,
+    MangoCatalogService,
+    MangoCredentialService,
     MangoFulfillmentService,
     MangoWebhookService,
     // Lịch

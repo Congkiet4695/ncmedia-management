@@ -33,6 +33,7 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import { AuthorizeUrlQueryDto, LinkTiktokAccountDto } from './dto/link-account.dto';
 import {
+  AssignFulfillmentProviderDto,
   AssignPodSellerDto,
   PodSellerOptionQueryDto,
   PodTiktokAccountQueryDto,
@@ -161,6 +162,29 @@ export class PodTiktokAccountController {
     @Body() dto: AssignPodSellerDto,
   ): Promise<PodTiktokAccountResponseDto> {
     return this.service.assignSeller(user.organizationId, user.userId, id, dto);
+  }
+
+  @Patch(':id/fulfillment-provider')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('pod.tiktok.account.update')
+  @ApiOperation({
+    summary: 'Gán / bỏ gán nhà cung cấp fulfillment',
+    description:
+      'Mọi đơn của kết nối này sẽ được gửi tới nhà cung cấp đã chọn. ' +
+      'Truyền `fulfillmentAccountId: null` để bỏ gán — khi đó kết nối KHÔNG gửi đơn sản xuất ' +
+      'được cho tới khi gán lại. Chỉ chấp nhận nhà cung cấp cùng tổ chức và đang ACTIVE.',
+  })
+  @ApiOkResponse({ type: PodTiktokAccountResponseDto })
+  @ApiBadRequestResponse({
+    description: 'Nhà cung cấp không hợp lệ (POD_TIKTOK_FULFILLMENT_PROVIDER_INVALID)',
+  })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy kết nối (POD_TIKTOK_ACCOUNT_NOT_FOUND)' })
+  assignFulfillmentProvider(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: AssignFulfillmentProviderDto,
+  ): Promise<PodTiktokAccountResponseDto> {
+    return this.service.assignFulfillmentAccount(user.organizationId, user.userId, id, dto);
   }
 
   @Delete(':id')

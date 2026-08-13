@@ -13,11 +13,15 @@ import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryp
 import {
   CreateFulfillmentAccountDto,
   FulfillmentAccountDto,
+  FulfillmentProviderOptionDto,
   FulfillmentErrorDto,
   FulfillmentHistoryDto,
   FulfillmentOrderDto,
   FulfillmentStateDto,
+  PaginatedProductMappingDto,
   ProductMappingDto,
+  ProductMappingQueryDto,
+  TiktokProductOptionDto,
   UpdateFulfillmentAccountDto,
   UpsertProductMappingDto,
 } from '../dto/fulfillment.dto';
@@ -70,7 +74,11 @@ export class FulfillmentService {
 
   async listAccounts(organizationId: string): Promise<FulfillmentAccountDto[]> {
     const accounts = await this.repo.listAccounts(organizationId);
-    return accounts.map((account) => this.toAccountDto(account));
+    // Đếm gộp MỘT truy vấn cho tất cả nhà cung cấp — không đếm lặp trong vòng lặp.
+    const linkCounts = await this.repo.countTiktokAccountsGroupedByProvider(organizationId);
+    return accounts.map((account) =>
+      this.toAccountDto(account, undefined, linkCounts.get(account.id) ?? 0),
+    );
   }
 
   async createAccount(
@@ -86,7 +94,9 @@ export class FulfillmentService {
       organizationId,
       provider: dto.provider,
       name: dto.name,
+      // Mã hoá NGAY tại điểm nhận — giá trị thô không đi xa hơn dòng này.
       apiKeyEnc: this.encryption.encrypt(dto.apiKey),
+      // Chỉ 4 ký tự cuối được lưu để hiển thị; đủ để đối chiếu, không đủ để dùng.
       apiKeyHint: dto.apiKey.slice(-4),
       baseUrlOverride: dto.baseUrl ?? null,
       defaultProductionLine: dto.defaultProductionLine ?? null,
@@ -139,6 +149,63 @@ export class FulfillmentService {
     return this.toAccountDto(account);
   }
 
+  /**
+   * Xoá mềm nhà cung cấp và gỡ liên kết khỏi mọi TikTok Account đang trỏ tới nó.
+   *
+   * Trả về số kết nối bị gỡ để giao diện nói rõ hệ quả, thay vì để người dùng phát hiện
+   * sau đó bằng một lỗi "chưa gán nhà cung cấp" không rõ nguyên nhân.
+   */
+  async deleteAccount(
+    organizationId: string,
+    actorUserId: string,
+    id: string,
+  ): Promise<{ id: string; unlinkedTiktokAccounts: number; submittedOrders: number }> {
+    const existing = await this.repo.findAccountById(organizationId, id);
+    if (!existing) throw new FulfillmentAccountNotFoundException();
+
+    const unlinkedTiktokAccounts = await this.repo.countTiktokAccountsByProvider(
+      organizationId,
+      id,
+    );
+    const submittedOrders = await this.repo.countOrdersByAccount(organizationId, id);
+
+    await this.repo.softDeleteAccount(id, actorUserId);
+
+    this.logger.log({
+      module: 'fulfillment',
+      operation: 'account.delete',
+      organizationId,
+      accountId: id,
+      unlinkedTiktokAccounts,
+      submittedOrders,
+      msg: 'Đã xoá nhà cung cấp fulfillment (xoá mềm)',
+    });
+
+    return { id, unlinkedTiktokAccounts, submittedOrders };
+  }
+
+  /**
+   * Lấy bản ghi nhà cung cấp (thực thể Prisma, KHÔNG phải DTO) để tầng gọi API dùng.
+   * Public vì controller Test Connection cần bản ghi gốc mới có `apiKeyEnc` để giải mã.
+   */
+  async requireAccountById(organizationId: string, id: string): Promise<FulfillmentAccount> {
+    const account = await this.repo.findAccountById(organizationId, id);
+    if (!account) throw new FulfillmentAccountNotFoundException();
+    return account;
+  }
+
+  /** Danh sách rút gọn cho dropdown "Fulfillment Provider" ở màn hình TikTok Account. */
+  async listProviderOptions(organizationId: string): Promise<FulfillmentProviderOptionDto[]> {
+    const accounts = await this.repo.listAccounts(organizationId);
+    return accounts
+      .filter((account) => account.isActive)
+      .map((account) => ({
+        id: account.id,
+        name: account.name,
+        provider: account.provider,
+      }));
+  }
+
   // ---------------------------------------------------------------------------
   // Ánh xạ sản phẩm
   // ---------------------------------------------------------------------------
@@ -150,6 +217,78 @@ export class FulfillmentService {
     const account = await this.requireAccount(organizationId, provider);
     const mappings = await this.repo.listMappings(organizationId, account.id);
     return mappings.map((mapping) => this.toMappingDto(mapping));
+  }
+
+  /**
+   * Danh sách ánh xạ có lọc + phân trang cho màn hình quản trị.
+   *
+   * Tên nhà cung cấp được nạp bằng MỘT truy vấn cho cả trang rồi ghép trong bộ nhớ —
+   * tra từng dòng sẽ thành N+1.
+   */
+  async listMappingsPaged(
+    organizationId: string,
+    query: ProductMappingQueryDto,
+  ): Promise<PaginatedProductMappingDto> {
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const { items, total } = await this.repo.listMappingsPaged({
+      organizationId,
+      accountId: query.accountId,
+      provider: query.provider,
+      isActive:
+        query.status === undefined ? undefined : query.status === 'ACTIVE',
+      keyword: query.search,
+      page,
+      limit,
+    });
+
+    const accounts = await this.repo.listAccounts(organizationId);
+    const nameById = new Map(accounts.map((account) => [account.id, account.name]));
+
+    return {
+      items: items.map((mapping) =>
+        this.toMappingDto(mapping, nameById.get(mapping.accountId) ?? null),
+      ),
+      meta: { total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) },
+    };
+  }
+
+  /**
+   * Sản phẩm/SKU TikTok có thể ánh xạ — lấy từ CÁC ĐƠN ĐÃ ĐỒNG BỘ.
+   *
+   * Hệ thống không đồng bộ catalog sản phẩm TikTok (chỉ đồng bộ đơn), nên nguồn đáng tin
+   * duy nhất về "SKU nào thực sự bán được" chính là các dòng hàng đã xuất hiện trong đơn.
+   * Cách này còn có lợi thế: chỉ hiện những SKU thật sự cần ánh xạ.
+   */
+  async listTiktokProductOptions(
+    organizationId: string,
+    accountId: string,
+    search?: string,
+  ): Promise<TiktokProductOptionDto[]> {
+    const [items, mappings] = await Promise.all([
+      this.repo.listDistinctTiktokSkus(organizationId, search),
+      this.repo.listMappings(organizationId, accountId),
+    ]);
+
+    // Khớp theo đúng thứ tự ưu tiên lúc gửi đơn: TikTok SKU ID → Seller SKU → Product ID.
+    const bySkuId = new Set(mappings.map((mapping) => mapping.tiktokSkuId).filter(Boolean));
+    const bySellerSku = new Set(mappings.map((mapping) => mapping.sellerSku).filter(Boolean));
+    const byProductId = new Set(mappings.map((mapping) => mapping.tiktokProductId).filter(Boolean));
+
+    return items.map((item) => ({
+      tiktokProductId: item.productId,
+      tiktokSkuId: item.skuId,
+      sellerSku: item.sellerSku,
+      productName: item.productName,
+      skuName: item.skuName,
+      productCategory: item.productCategory,
+      skuImage: item.skuImage,
+      mapped:
+        (item.skuId !== null && bySkuId.has(item.skuId)) ||
+        (item.sellerSku !== null && bySellerSku.has(item.sellerSku)) ||
+        (item.productId !== null && byProductId.has(item.productId)),
+    }));
   }
 
   async createMapping(
@@ -172,6 +311,7 @@ export class FulfillmentService {
       providerProductId: dto.providerProductId ?? null,
       providerVariantId: dto.providerVariantId ?? null,
       providerProductName: dto.providerProductName ?? null,
+      providerVariantName: dto.providerVariantName ?? null,
       providerColor: dto.providerColor ?? null,
       providerSize: dto.providerSize ?? null,
       productionConfig: dto.productionConfig ?? null,
@@ -201,6 +341,7 @@ export class FulfillmentService {
       providerProductId: dto.providerProductId ?? null,
       providerVariantId: dto.providerVariantId ?? null,
       providerProductName: dto.providerProductName ?? null,
+      providerVariantName: dto.providerVariantName ?? null,
       providerColor: dto.providerColor ?? null,
       providerSize: dto.providerSize ?? null,
       productionConfig: dto.productionConfig ?? null,
@@ -229,28 +370,39 @@ export class FulfillmentService {
   async getState(
     organizationId: string,
     podOrderId: string,
-    provider: FulfillmentProvider = FulfillmentProvider.MANGOTEE,
+    provider: FulfillmentProvider = FulfillmentProvider.MANGO,
   ): Promise<FulfillmentStateDto> {
     const order = await this.podOrderRepo.findById(organizationId, podOrderId);
     if (!order) throw new FulfillmentOrderNotFoundException();
 
     const record = await this.repo.findByPodOrder(organizationId, podOrderId, provider);
-    const account = await this.repo.findActiveAccount(organizationId, provider);
+
+    // Nhà cung cấp lấy TỪ TIKTOK ACCOUNT của đơn — cùng một nguồn với luồng gửi thật,
+    // nên màn hình không bao giờ báo "sẵn sàng" cho một đơn mà submit sẽ từ chối.
+    const assignedId = order.account?.fulfillmentAccountId ?? null;
+    const account = assignedId
+      ? await this.repo.findAccountById(organizationId, assignedId)
+      : null;
 
     // Chưa cấu hình nhà cung cấp ⇒ không thể kiểm tra ánh xạ, báo rõ thay vì báo "thiếu design".
-    if (!account) {
+    if (!account || !account.isActive) {
       return {
         fulfillment: record ? this.toOrderDto(record) : null,
         ready: false,
         issues: [
           {
-            code: 'ACCOUNT_MISSING',
-            message: 'Chưa cấu hình tài khoản nhà cung cấp fulfillment.',
+            code: account ? 'PROVIDER_INACTIVE' : 'PROVIDER_NOT_ASSIGNED',
+            message: account
+              ? `Nhà cung cấp "${account.name}" đang INACTIVE.`
+              : 'Kết nối TikTok của đơn này chưa được gán nhà cung cấp fulfillment.',
             podOrderItemId: null,
           },
         ],
         canFulfill: false,
         canCancel: false,
+        provider: account
+          ? { id: account.id, name: account.name, type: account.provider, isActive: false }
+          : null,
       };
     }
 
@@ -265,9 +417,17 @@ export class FulfillmentService {
         code: issue.code,
         message: issue.message,
         podOrderItemId: issue.podOrderItemId ?? null,
+        // Ngữ cảnh để giao diện mở dialog ánh xạ nhanh (chỉ có với MAPPING_MISSING).
+        tiktokProductId: issue.tiktokProductId ?? null,
+        tiktokSkuId: issue.tiktokSkuId ?? null,
+        sellerSku: issue.sellerSku ?? null,
+        productName: issue.productName ?? null,
+        skuName: issue.skuName ?? null,
+        productCategory: issue.productCategory ?? null,
       })),
       canFulfill: check.ready && FULFILLABLE_STATUSES.includes(status),
       canCancel: Boolean(record) && CANCELLABLE_STATUSES.includes(status),
+      provider: { id: account.id, name: account.name, type: account.provider, isActive: true },
     };
   }
 
@@ -289,7 +449,7 @@ export class FulfillmentService {
   async listHistory(
     organizationId: string,
     podOrderId: string,
-    provider: FulfillmentProvider = FulfillmentProvider.MANGOTEE,
+    provider: FulfillmentProvider = FulfillmentProvider.MANGO,
   ): Promise<FulfillmentHistoryDto[]> {
     const record = await this.repo.findByPodOrder(organizationId, podOrderId, provider);
     if (!record) throw new FulfillmentOrderNotFoundException();
@@ -313,7 +473,7 @@ export class FulfillmentService {
   async listErrors(
     organizationId: string,
     podOrderId: string,
-    provider: FulfillmentProvider = FulfillmentProvider.MANGOTEE,
+    provider: FulfillmentProvider = FulfillmentProvider.MANGO,
   ): Promise<FulfillmentErrorDto[]> {
     const record = await this.repo.findByPodOrder(organizationId, podOrderId, provider);
     if (!record) throw new FulfillmentOrderNotFoundException();
@@ -374,6 +534,8 @@ export class FulfillmentService {
     account: FulfillmentAccount,
     /** Secret vừa sinh: chỉ hiện MỘT LẦN ngay sau khi tạo để người dùng đăng ký webhook. */
     plainWebhookSecret?: string,
+    /** Số kết nối TikTok đang dùng nhà cung cấp này (chỉ có ở màn hình danh sách). */
+    linkedTiktokAccounts = 0,
   ): FulfillmentAccountDto {
     const base = this.config.get<string>('fulfillment.webhookBaseUrl', '');
     return {
@@ -393,6 +555,12 @@ export class FulfillmentService {
       providerWebhookId: account.providerWebhookId,
       lastUsedAt: account.lastUsedAt?.toISOString() ?? null,
       lastErrorMsg: account.lastErrorMsg,
+      updatedAt: account.updatedAt.toISOString(),
+      // `status` là dạng đọc được của `isActive` — KHÔNG thêm cột thứ hai để tránh hai
+      // nguồn sự thật cho cùng một khái niệm.
+      status: account.isActive ? 'ACTIVE' : 'INACTIVE',
+      baseUrl: account.baseUrlOverride,
+      linkedTiktokAccounts,
       createdAt: account.createdAt.toISOString(),
     };
   }
@@ -411,21 +579,32 @@ export class FulfillmentService {
     isActive: boolean;
     note: string | null;
     createdAt: Date;
-  }): ProductMappingDto {
+    updatedAt: Date;
+    providerProductId: string | null;
+    providerVariantId: string | null;
+    providerVariantName: string | null;
+  }, providerName: string | null = null): ProductMappingDto {
     return {
       id: mapping.id,
       tiktokProductId: mapping.tiktokProductId,
       tiktokSkuId: mapping.tiktokSkuId,
       sellerSku: mapping.sellerSku,
       providerSku: mapping.providerSku,
+      providerProductId: mapping.providerProductId,
+      providerVariantId: mapping.providerVariantId,
       providerProductName: mapping.providerProductName,
+      providerVariantName: mapping.providerVariantName,
       providerColor: mapping.providerColor,
       providerSize: mapping.providerSize,
       productionConfig: mapping.productionConfig,
       placementMap: mapping.placementMap,
       isActive: mapping.isActive,
+      // `status` là dạng đọc được của `isActive` — không thêm cột thứ hai cho cùng khái niệm.
+      status: mapping.isActive ? 'ACTIVE' : 'INACTIVE',
+      providerName,
       note: mapping.note,
       createdAt: mapping.createdAt.toISOString(),
+      updatedAt: mapping.updatedAt.toISOString(),
     };
   }
 
@@ -454,6 +633,7 @@ export class FulfillmentService {
       submittedAt: record.submittedAt?.toISOString() ?? null,
       lastSyncedAt: record.lastSyncedAt?.toISOString() ?? null,
       cancelledAt: record.cancelledAt?.toISOString() ?? null,
+      completedAt: record.completedAt?.toISOString() ?? null,
       items: (record.items ?? []).map((item) => ({
         id: item.id,
         podOrderItemId: item.podOrderItemId,

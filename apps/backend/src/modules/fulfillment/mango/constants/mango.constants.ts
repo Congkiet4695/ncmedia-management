@@ -24,6 +24,30 @@ export const MANGO_DEFAULT_BASE_URL = 'https://v3.mangoteeprints.com/api/public/
 /** Header xác thực. Mango KHÔNG dùng Bearer token. */
 export const MANGO_API_KEY_HEADER = 'X-API-Key';
 
+/**
+ * Giới hạn `limit` (số bản ghi mỗi trang) theo tài liệu.
+ *
+ * Get Products      — `limit` tối đa **100** (tài liệu ghi rõ max 100).
+ * Get Product Variations — bảng THAM SỐ ghi max 200, nhưng schema của chính đối tượng
+ *   `pagination` trong response lại ghi `limit: 1..100`. Tài liệu tự mâu thuẫn ⇒ dùng 100,
+ *   giá trị hợp lệ theo CẢ HAI cách đọc. Vì hệ thống luôn duyệt hết mọi trang nên chọn 100
+ *   chỉ tốn thêm một request cho sản phẩm có trên 100 biến thể — đổi lại không có rủi ro 422.
+ *   Xác nhận được 200 là an toàn thì chỉ cần sửa đúng hằng số này.
+ */
+export const MANGO_MAX_PAGE_LIMIT = {
+  products: 100,
+  variations: 100,
+} as const;
+
+/**
+ * Chặn trên số trang duyệt trong một lần lấy danh mục.
+ *
+ * Đây là lưới an toàn chống vòng lặp vô hạn khi nhà cung cấp trả `pages` sai, KHÔNG phải
+ * giới hạn nghiệp vụ: 500 trang × 100 bản ghi = 50.000 sản phẩm, vượt xa danh mục thực tế.
+ * Chạm ngưỡng này sẽ được ghi log CẢNH BÁO kèm số đã tải và tổng số nhà cung cấp báo.
+ */
+export const MANGO_MAX_PAGES_PER_FETCH = 500;
+
 /** Giới hạn tần suất chính thức: 10 request/giây. */
 export const MANGO_RATE_LIMIT_PER_SECOND = 10;
 

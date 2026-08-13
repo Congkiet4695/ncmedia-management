@@ -860,6 +860,11 @@ model PodTiktokAccount {
   /// đổi theo, không có dữ liệu lệch.
   sellerId     String? @map("seller_id") @db.Uuid
 
+  /// Nhà cung cấp fulfillment dùng cho MỌI đơn của kết nối này. NULL = chưa cấu hình
+  /// ⇒ không gửi sản xuất được (báo lỗi rõ ràng thay vì im lặng dùng nhầm tài khoản).
+  /// Một TikTok Account chỉ dùng MỘT provider; đổi provider áp dụng cho đơn gửi từ đó về sau.
+  fulfillmentAccountId String? @map("fulfillment_account_id") @db.Uuid
+
   // Audit + soft delete (ADR-015)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -870,6 +875,7 @@ model PodTiktokAccount {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   authorizer   User?        @relation("PodTiktokAuthorizer", fields: [authorizedBy], references: [id], onDelete: SetNull, onUpdate: Cascade)
   seller       Employee?    @relation("PodTiktokSeller", fields: [sellerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  fulfillmentAccount FulfillmentAccount? @relation("PodTiktokFulfillmentAccount", fields: [fulfillmentAccountId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   shops                 PodTiktokShop[]
   tokenAudits           PodTiktokTokenAudit[]
@@ -1718,9 +1724,12 @@ model PodTiktokStatementTransaction {
 
 /// Nhà cung cấp fulfillment. Hiện chỉ MANGOTEE được implement.
 enum FulfillmentProvider {
-  MANGOTEE
+  MANGO
   PRINTIFY
   PRINTFUL
+  /// Nhà cung cấp tự khai báo (tích hợp riêng). Giữ chỗ để thêm provider không nằm
+  /// trong danh sách dựng sẵn mà không phải đổi enum lần nữa.
+  CUSTOM
 
   @@map("fulfillment_provider")
 }
@@ -1802,7 +1811,10 @@ model FulfillmentAccount {
   isActive  Boolean @default(true) @map("is_active")
 
   /// API key đã MÃ HOÁ AES-256-GCM (Mango dùng header `X-API-Key`). KHÔNG expose qua API.
-  apiKeyEnc  String  @map("api_key_enc") @db.Text
+  ///
+  /// NULL = dùng key mặc định của hệ thống từ biến môi trường `MANGO_API_KEY`.
+  /// Chỉ khai báo ở đây khi cần nhiều tài khoản Mango khác nhau; khi có, key này được ưu tiên.
+  apiKeyEnc  String? @map("api_key_enc") @db.Text
   /// 4 ký tự cuối của API key — để người dùng nhận diện mà không lộ khoá.
   apiKeyHint String? @map("api_key_hint") @db.VarChar(8)
 
@@ -1834,6 +1846,7 @@ model FulfillmentAccount {
   organization    Organization                @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   orders          FulfillmentOrder[]
   productMappings FulfillmentProductMapping[]
+  tiktokAccounts  PodTiktokAccount[]          @relation("PodTiktokFulfillmentAccount")
   webhookLogs     FulfillmentWebhookLog[]
   syncLogs        FulfillmentSyncLog[]
 
@@ -1867,6 +1880,9 @@ model FulfillmentProductMapping {
   providerVariantId   String? @map("provider_variant_id") @db.VarChar(64)
   /// Tên/màu/size để người vận hành đối chiếu khi khai báo.
   providerProductName String? @map("provider_product_name") @db.VarChar(500)
+  /// Tên biến thể NGUYÊN VĂN do nhà cung cấp trả về (vd "Black / L"). Lưu để hiển thị
+  /// và đối soát; màu/size tách riêng bên dưới phục vụ lọc.
+  providerVariantName String? @map("provider_variant_name") @db.VarChar(255)
   providerColor       String? @map("provider_color") @db.VarChar(100)
   providerSize        String? @map("provider_size") @db.VarChar(100)
 
@@ -1962,6 +1978,9 @@ model FulfillmentOrder {
   submittedAt  DateTime? @map("submitted_at") @db.Timestamptz(6)
   lastSyncedAt DateTime? @map("last_synced_at") @db.Timestamptz(6)
   cancelledAt  DateTime? @map("cancelled_at") @db.Timestamptz(6)
+  /// Thời điểm đơn hoàn tất tại nhà cung cấp (chuyển sang DELIVERED). Ghi MỘT LẦN,
+  /// không ghi đè khi trạng thái dao động — mốc hoàn tất phải ổn định để đối soát.
+  completedAt  DateTime? @map("completed_at") @db.Timestamptz(6)
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)

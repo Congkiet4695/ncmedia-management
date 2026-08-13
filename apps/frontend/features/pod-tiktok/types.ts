@@ -33,6 +33,12 @@ export interface PodTiktokAccount {
   accountName: string;
   openIdMasked: string;
   sellerName: string | null;
+  /** Nhà cung cấp fulfillment đang gán. NULL = chưa cấu hình ⇒ không gửi sản xuất được. */
+  fulfillmentAccountId: string | null;
+  fulfillmentProviderName: string | null;
+  fulfillmentProviderType: string | null;
+  fulfillmentProviderActive: boolean | null;
+
   /** Employee phụ trách (Seller). NULL = chưa phân công. Nguồn duy nhất cho Order/Payout/Dashboard. */
   sellerId: string | null;
   sellerFullName: string | null;
@@ -59,6 +65,12 @@ export interface PodTiktokAccountListItem {
   id: string;
   accountName: string;
   sellerName: string | null;
+  /** Nhà cung cấp fulfillment đang gán. NULL = chưa cấu hình ⇒ không gửi sản xuất được. */
+  fulfillmentAccountId: string | null;
+  fulfillmentProviderName: string | null;
+  fulfillmentProviderType: string | null;
+  fulfillmentProviderActive: boolean | null;
+
   /** Employee phụ trách (Seller). NULL = chưa phân công. Nguồn duy nhất cho Order/Payout/Dashboard. */
   sellerId: string | null;
   sellerFullName: string | null;

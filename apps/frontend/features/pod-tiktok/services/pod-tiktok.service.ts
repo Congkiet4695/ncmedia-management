@@ -59,6 +59,18 @@ export const podTiktokService = {
   },
 
   /** Phân công Seller phụ trách. `sellerId = null` để bỏ phân công. */
+  /** Gán / bỏ gán nhà cung cấp fulfillment cho một kết nối. */
+  async assignFulfillmentProvider(
+    id: string,
+    fulfillmentAccountId: string | null,
+  ): Promise<PodTiktokAccount> {
+    const res = await apiClient.patch<ApiResponse<PodTiktokAccount>>(
+      `${BASE_PATH}/${id}/fulfillment-provider`,
+      { fulfillmentAccountId },
+    );
+    return res.data.data;
+  },
+
   async assignSeller(id: string, sellerId: string | null): Promise<PodTiktokAccount> {
     const res = await apiClient.patch<ApiResponse<PodTiktokAccount>>(
       `${BASE_PATH}/${id}/seller`,

@@ -8,6 +8,7 @@ import {
   Loader2,
   RefreshCw,
   RotateCw,
+  Link2,
   Send,
   Truck,
   XCircle,
@@ -19,14 +20,16 @@ import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import { cn } from '@/lib/utils';
 import { useApiError } from '@/hooks/use-api-error';
+import { MappingFormDialog } from './mapping-form-dialog';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import {
   useFulfillmentActions,
   useFulfillmentErrors,
   useFulfillmentHistory,
   useFulfillmentState,
+  useProductMappingActions,
 } from '../hooks/use-fulfillment';
-import type { FulfillmentStatus } from '../types';
+import type { FulfillmentIssue, FulfillmentStatus } from '../types';
 
 interface FulfillmentPanelProps {
   podOrderId: string;
@@ -66,6 +69,9 @@ export function FulfillmentPanel({ podOrderId, canFulfill, canCancel }: Fulfillm
   const translateApiError = useApiError();
   const { formatDateTime } = useLocaleFormat();
   const [historyOpen, setHistoryOpen] = useState(false);
+  // Lỗi thiếu ánh xạ đang được xử lý — mở dialog ánh xạ nhanh với SKU điền sẵn.
+  const [mappingIssue, setMappingIssue] = useState<FulfillmentIssue | null>(null);
+  const mappingActions = useProductMappingActions();
   const stateQuery = useFulfillmentState(podOrderId);
   const historyQuery = useFulfillmentHistory(podOrderId, historyOpen);
   const errorsQuery = useFulfillmentErrors(podOrderId, historyOpen);
@@ -122,6 +128,21 @@ export function FulfillmentPanel({ podOrderId, canFulfill, canCancel }: Fulfillm
         <div className="flex flex-wrap items-center gap-2">
           <Factory className="size-4 text-muted-foreground" />
           <span className="text-sm font-semibold">{t('title')}</span>
+          {/* Trạng thái cấu hình nhà cung cấp — vàng khi chưa gán, xanh khi sẵn sàng. */}
+          {state?.provider ? (
+            <>
+              <Badge variant={state.provider.isActive ? 'success' : 'warning'}>
+                {state.provider.isActive
+                  ? t('readiness.ready')
+                  : t('readiness.notConfigured')}
+              </Badge>
+              <span className="text-xs text-muted-foreground">{state.provider.name}</span>
+            </>
+          ) : (
+            <Badge variant="warning" title={t('readiness.notConfiguredHint')}>
+              {t('readiness.notConfigured')}
+            </Badge>
+          )}
           {record ? (
             <>
               <Badge variant={STATUS_VARIANT[record.status]}>
@@ -209,6 +230,18 @@ export function FulfillmentPanel({ podOrderId, canFulfill, canCancel }: Fulfillm
               <dd className="font-mono">{record.providerOrderId}</dd>
             </div>
           )}
+          {record.submittedAt && (
+            <div className="flex gap-2">
+              <dt className="text-muted-foreground">{t('submittedAt')}</dt>
+              <dd>{formatDateTime(record.submittedAt)}</dd>
+            </div>
+          )}
+          {record.completedAt && (
+            <div className="flex gap-2">
+              <dt className="text-muted-foreground">{t('completedAt')}</dt>
+              <dd>{formatDateTime(record.completedAt)}</dd>
+            </div>
+          )}
           <div className="flex gap-2">
             <dt className="text-muted-foreground">{t('syncedAt')}</dt>
             <dd>{formatDateTime(record.lastSyncedAt)}</dd>
@@ -249,11 +282,59 @@ export function FulfillmentPanel({ podOrderId, canFulfill, canCancel }: Fulfillm
           <p className="font-medium">{t('notReady')}</p>
           <ul className="list-inside list-disc space-y-0.5">
             {state.issues.map((issue, index) => (
-              <li key={`${issue.code}-${index}`}>{issue.message}</li>
+              <li key={`${issue.code}-${index}`} className="flex flex-wrap items-center gap-2">
+                <span>{issue.message}</span>
+                {/* Ánh xạ nhanh: chỉ hiện đúng ở lỗi thiếu ánh xạ và khi có ngữ cảnh SKU. */}
+                {issue.code === 'MAPPING_MISSING' && (issue.sellerSku ?? issue.tiktokSkuId) && (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    onClick={() => setMappingIssue(issue)}
+                  >
+                    <Link2 className="size-3.5" />
+                    {t('mapping.quickMap')}
+                  </Button>
+                )}
+              </li>
             ))}
           </ul>
         </div>
       )}
+
+      {/* Ánh xạ nhanh ngay trong màn hình đơn — không phải sang màn hình Product Mapping. */}
+      <MappingFormDialog
+        open={Boolean(mappingIssue)}
+        presetAccountId={state?.provider?.id ?? null}
+        presetTiktok={
+          mappingIssue
+            ? {
+                tiktokProductId: mappingIssue.tiktokProductId ?? null,
+                tiktokSkuId: mappingIssue.tiktokSkuId ?? null,
+                sellerSku: mappingIssue.sellerSku ?? null,
+                productName: mappingIssue.productName ?? null,
+                skuName: mappingIssue.skuName ?? null,
+                productCategory: mappingIssue.productCategory ?? null,
+                skuImage: null,
+                mapped: false,
+              }
+            : null
+        }
+        submitting={mappingActions.create.isPending}
+        onClose={() => setMappingIssue(null)}
+        onSubmit={(_accountId, input) => {
+          void mappingActions.create
+            .mutateAsync(input)
+            .then(() => {
+              toast.success(t('mapping.createSuccess'), { description: input.providerSku });
+              setMappingIssue(null);
+            })
+            .catch((error: unknown) =>
+              toast.error(t('mapping.createSuccess'), { description: translateApiError(error) }),
+            );
+        }}
+        onRefreshCatalog={(accountId) => void mappingActions.refreshCatalog.mutateAsync(accountId)}
+      />
 
       <Modal
         open={historyOpen}

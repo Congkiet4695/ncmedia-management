@@ -93,7 +93,7 @@ export class FulfillmentSyncService {
       const startedDate = new Date(startedAt);
       const syncLog = await this.repo.startSyncLog({
         organizationId: organizationId ?? orders[0].organizationId,
-        provider: FulfillmentProvider.MANGOTEE,
+        provider: FulfillmentProvider.MANGO,
         trigger,
         triggeredBy: triggeredBy ?? null,
         startedAt: startedDate,

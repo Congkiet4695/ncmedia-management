@@ -209,6 +209,15 @@ export interface MangoProduct {
   currency?: string;
   images?: string[];
   is_active?: boolean;
+  /** Số biến thể của sản phẩm — hiển thị để người dùng biết trước sẽ chọn trong bao nhiêu. */
+  variations_count?: number;
+  min_order_quantity?: number;
+  max_order_quantity?: number | null;
+  /**
+   * Thuộc tính động do nhà cung cấp định nghĩa. Tài liệu KHÔNG có trường `brand` riêng;
+   * nếu nhà cung cấp có gửi thì nó nằm ở đây. Đọc khoan dung, không giả định khoá nào tồn tại.
+   */
+  attributes?: Record<string, unknown>;
 }
 
 export interface MangoProductsData {
@@ -227,6 +236,7 @@ export interface MangoVariation {
   price?: string;
   stock_quantity?: number;
   is_available?: boolean;
+  attributes?: Record<string, unknown>;
 }
 
 export interface MangoVariationsData {

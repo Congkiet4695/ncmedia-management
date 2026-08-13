@@ -12,6 +12,7 @@ import {
   IsUUID,
   Max,
   MaxLength,
+  MinLength,
   Min,
 } from 'class-validator';
 import { FulfillmentProvider, FulfillmentStatus } from '@prisma/client';
@@ -32,7 +33,7 @@ const toBool = ({ value }: { value: unknown }): unknown => {
 // ---------------------------------------------------------------------------
 
 export class CreateFulfillmentAccountDto {
-  @ApiProperty({ enum: FulfillmentProvider, example: FulfillmentProvider.MANGOTEE })
+  @ApiProperty({ enum: FulfillmentProvider, example: FulfillmentProvider.MANGO })
   @IsEnum(FulfillmentProvider, { message: 'Nhà cung cấp không hợp lệ' })
   provider!: FulfillmentProvider;
 
@@ -42,9 +43,14 @@ export class CreateFulfillmentAccountDto {
   @MaxLength(255)
   name!: string;
 
-  @ApiProperty({ description: 'API key của nhà cung cấp. Được mã hoá trước khi lưu.' })
+  @ApiProperty({
+    description:
+      'API key của nhà cung cấp. Được MÃ HOÁ AES-256-GCM trước khi lưu và KHÔNG BAO GIỜ ' +
+      'trả lại qua API — response chỉ có `apiKeyHint` (4 ký tự cuối).',
+  })
   @Transform(trim)
   @IsString()
+  @MinLength(8, { message: 'API key quá ngắn — kiểm tra lại khoá đã sao chép' })
   @MaxLength(500)
   apiKey!: string;
 
@@ -147,11 +153,97 @@ export class FulfillmentAccountDto {
   @ApiProperty({ nullable: true, type: String }) lastUsedAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) lastErrorMsg!: string | null;
   @ApiProperty() createdAt!: string;
+  @ApiProperty() updatedAt!: string;
+  @ApiProperty({
+    enum: ['ACTIVE', 'INACTIVE'],
+    description: 'Dạng đọc được của `isActive` — dùng cho bảng quản trị.',
+  })
+  status!: 'ACTIVE' | 'INACTIVE';
+  @ApiProperty({ nullable: true, type: String, description: 'Base URL đang dùng để gọi API.' })
+  baseUrl!: string | null;
+  @ApiProperty({ description: 'Số kết nối TikTok đang dùng nhà cung cấp này.' })
+  linkedTiktokAccounts!: number;
+}
+
+/** Nhà cung cấp gán cho đơn — hiển thị ở Order Detail. KHÔNG chứa API key. */
+export class FulfillmentStateProviderDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() name!: string;
+  @ApiProperty({ enum: FulfillmentProvider }) type!: FulfillmentProvider;
+  @ApiProperty() isActive!: boolean;
+}
+
+/** Mục trong dropdown "Fulfillment Provider" ở màn hình TikTok Account. */
+export class FulfillmentProviderOptionDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() name!: string;
+  @ApiProperty({ enum: FulfillmentProvider }) provider!: FulfillmentProvider;
+}
+
+/** Kết quả xoá — nêu rõ hệ quả thay vì chỉ báo "đã xoá". */
+export class DeleteFulfillmentAccountResultDto {
+  @ApiProperty() id!: string;
+  @ApiProperty({ description: 'Số kết nối TikTok bị gỡ liên kết do xoá nhà cung cấp.' })
+  unlinkedTiktokAccounts!: number;
+  @ApiProperty({ description: 'Số đơn đã từng gửi qua nhà cung cấp này (lịch sử giữ nguyên).' })
+  submittedOrders!: number;
+}
+
+/** Kết quả Test Connection — không bao giờ chứa API key. */
+export class TestConnectionResultDto {
+  @ApiProperty() connected!: boolean;
+  @ApiProperty({ description: 'Thông báo hiển thị cho người dùng (lấy từ nhà cung cấp khi lỗi).' })
+  message!: string;
+  @ApiProperty({ nullable: true, type: Number, description: 'Thời gian gọi (ms).' })
+  durationMs!: number | null;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description: 'Số production line đọc được — bằng chứng key thực sự dùng được.',
+  })
+  productionLineCount!: number | null;
 }
 
 // ---------------------------------------------------------------------------
 // Ánh xạ sản phẩm
 // ---------------------------------------------------------------------------
+
+/** Một sản phẩm TikTok đã đồng bộ — nguồn để chọn ở bước 2 của luồng tạo ánh xạ. */
+export class TiktokProductOptionDto {
+  @ApiProperty({ nullable: true, type: String }) tiktokProductId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) tiktokSkuId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) sellerSku!: string | null;
+  @ApiProperty({ nullable: true, type: String }) productName!: string | null;
+  @ApiProperty({ nullable: true, type: String }) skuName!: string | null;
+  @ApiProperty({ nullable: true, type: String }) productCategory!: string | null;
+  @ApiProperty({ nullable: true, type: String }) skuImage!: string | null;
+  @ApiProperty({ description: 'Đã có ánh xạ cho SKU này chưa.' }) mapped!: boolean;
+}
+
+/** Sản phẩm trong danh mục nhà cung cấp (đọc trực tiếp từ API nhà cung cấp). */
+export class ProviderCatalogProductDto {
+  @ApiProperty() id!: string;
+  @ApiProperty({ nullable: true, type: String }) sku!: string | null;
+  @ApiProperty() name!: string;
+  @ApiProperty({ nullable: true, type: String }) catalogName!: string | null;
+  @ApiProperty({ nullable: true, type: String }) basePrice!: string | null;
+  @ApiProperty({ nullable: true, type: String }) currency!: string | null;
+  @ApiProperty({ nullable: true, type: String }) imageUrl!: string | null;
+  @ApiProperty() isActive!: boolean;
+  @ApiProperty({ nullable: true, type: Number, description: 'Số biến thể nhà cung cấp báo.' })
+  variationsCount!: number | null;
+}
+
+/** Biến thể trong danh mục nhà cung cấp. `sku` là giá trị gửi khi tạo đơn. */
+export class ProviderCatalogVariationDto {
+  @ApiProperty() id!: string;
+  @ApiProperty() sku!: string;
+  @ApiProperty() name!: string;
+  @ApiProperty({ nullable: true, type: String }) color!: string | null;
+  @ApiProperty({ nullable: true, type: String }) size!: string | null;
+  @ApiProperty({ nullable: true, type: String }) price!: string | null;
+  @ApiProperty() isAvailable!: boolean;
+}
 
 export class UpsertProductMappingDto {
   @ApiPropertyOptional({ description: 'TikTok product_id — áp cho mọi biến thể.' })
@@ -189,6 +281,10 @@ export class UpsertProductMappingDto {
 
   @ApiPropertyOptional() @IsOptional() @Transform(trim) @IsString() @MaxLength(500)
   providerProductName?: string;
+
+  @ApiPropertyOptional({ description: 'Tên biến thể nguyên văn từ nhà cung cấp (vd "Black / L").' })
+  @IsOptional() @Transform(trim) @IsString() @MaxLength(255)
+  providerVariantName?: string;
 
   @ApiPropertyOptional() @IsOptional() @Transform(trim) @IsString() @MaxLength(100)
   providerColor?: string;
@@ -230,9 +326,23 @@ export class ProductMappingQueryDto {
   @IsOptional() @Type(() => Number) @IsInt() @Min(1) @Max(100)
   limit?: number = 20;
 
-  @ApiPropertyOptional({ description: 'Tìm theo SKU hoặc tên sản phẩm.' })
+  @ApiPropertyOptional({
+    description: 'Tìm đồng thời trong tên sản phẩm nhà cung cấp, Seller SKU và Provider SKU.',
+  })
   @IsOptional() @Transform(trim) @IsString() @MaxLength(255)
   search?: string;
+
+  @ApiPropertyOptional({ enum: FulfillmentProvider, description: 'Lọc theo loại nhà cung cấp.' })
+  @IsOptional() @IsEnum(FulfillmentProvider)
+  provider?: FulfillmentProvider;
+
+  @ApiPropertyOptional({ format: 'uuid', description: 'Lọc theo MỘT nhà cung cấp cụ thể.' })
+  @IsOptional() @IsUUID('4')
+  accountId?: string;
+
+  @ApiPropertyOptional({ enum: ['ACTIVE', 'INACTIVE'] })
+  @IsOptional() @IsIn(['ACTIVE', 'INACTIVE'])
+  status?: 'ACTIVE' | 'INACTIVE';
 }
 
 export class ProductMappingDto {
@@ -241,14 +351,34 @@ export class ProductMappingDto {
   @ApiProperty({ nullable: true, type: String }) tiktokSkuId!: string | null;
   @ApiProperty({ nullable: true, type: String }) sellerSku!: string | null;
   @ApiProperty() providerSku!: string;
+  @ApiProperty({ nullable: true, type: String }) providerProductId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) providerVariantId!: string | null;
   @ApiProperty({ nullable: true, type: String }) providerProductName!: string | null;
+  @ApiProperty({ nullable: true, type: String }) providerVariantName!: string | null;
   @ApiProperty({ nullable: true, type: String }) providerColor!: string | null;
   @ApiProperty({ nullable: true, type: String }) providerSize!: string | null;
   @ApiProperty({ nullable: true, type: String }) productionConfig!: string | null;
   @ApiProperty({ nullable: true, type: Object }) placementMap!: unknown;
   @ApiProperty() isActive!: boolean;
   @ApiProperty({ nullable: true, type: String }) note!: string | null;
+  @ApiProperty({ enum: ['ACTIVE', 'INACTIVE'] }) status!: 'ACTIVE' | 'INACTIVE';
+  @ApiProperty({ nullable: true, type: String, description: 'Tên nhà cung cấp (hiển thị).' })
+  providerName!: string | null;
   @ApiProperty() createdAt!: string;
+  @ApiProperty() updatedAt!: string;
+}
+
+/** Meta phân trang chuẩn (ADR-023). */
+export class FulfillmentPaginationMetaDto {
+  @ApiProperty() total!: number;
+  @ApiProperty() page!: number;
+  @ApiProperty() limit!: number;
+  @ApiProperty() totalPages!: number;
+}
+
+export class PaginatedProductMappingDto {
+  @ApiProperty({ type: ProductMappingDto, isArray: true }) items!: ProductMappingDto[];
+  @ApiProperty({ type: FulfillmentPaginationMetaDto }) meta!: FulfillmentPaginationMetaDto;
 }
 
 // ---------------------------------------------------------------------------
@@ -272,6 +402,12 @@ export class TriggerFulfillmentSyncDto {
 }
 
 export class FulfillmentIssueDto {
+  @ApiProperty({ nullable: true, type: String }) tiktokProductId?: string | null;
+  @ApiProperty({ nullable: true, type: String }) tiktokSkuId?: string | null;
+  @ApiProperty({ nullable: true, type: String }) sellerSku?: string | null;
+  @ApiProperty({ nullable: true, type: String }) productName?: string | null;
+  @ApiProperty({ nullable: true, type: String }) skuName?: string | null;
+  @ApiProperty({ nullable: true, type: String }) productCategory?: string | null;
   @ApiProperty({ example: 'MAPPING_MISSING' }) code!: string;
   @ApiProperty() message!: string;
   @ApiProperty({ nullable: true, type: String }) podOrderItemId!: string | null;
@@ -316,6 +452,12 @@ export class FulfillmentOrderDto {
   @ApiProperty({ nullable: true, type: String }) submittedAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) lastSyncedAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) cancelledAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'Thời điểm đơn hoàn tất tại nhà cung cấp (DELIVERED). Ghi một lần.',
+  })
+  completedAt!: string | null;
   @ApiProperty({ type: FulfillmentItemDto, isArray: true }) items!: FulfillmentItemDto[];
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
@@ -331,6 +473,12 @@ export class FulfillmentStateDto {
   issues!: FulfillmentIssueDto[];
   @ApiProperty({ description: 'Có thể bấm Fulfill lúc này không' }) canFulfill!: boolean;
   @ApiProperty({ description: 'Có thể huỷ ở xưởng in không' }) canCancel!: boolean;
+  @ApiProperty({
+    nullable: true,
+    type: FulfillmentStateProviderDto,
+    description: 'Nhà cung cấp gán cho kết nối TikTok của đơn. NULL = chưa cấu hình.',
+  })
+  provider!: FulfillmentStateProviderDto | null;
 }
 
 export class FulfillmentHistoryDto {

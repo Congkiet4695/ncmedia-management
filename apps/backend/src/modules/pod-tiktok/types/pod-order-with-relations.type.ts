@@ -31,6 +31,12 @@ export const POD_ORDER_INCLUDE = {
       accountName: true,
       sellerId: true,
       seller: { select: { id: true, user: { select: { fullName: true, email: true } } } },
+      // Nhà cung cấp fulfillment cũng đi qua ACCOUNT (không lưu trên đơn) — cùng lý do với
+      // seller: đổi nhà cung cấp là mọi đơn phản ánh ngay, không cần backfill.
+      fulfillmentAccountId: true,
+      fulfillmentAccount: {
+        select: { id: true, name: true, provider: true, isActive: true },
+      },
     },
   },
 } as const satisfies Prisma.PodOrderInclude;

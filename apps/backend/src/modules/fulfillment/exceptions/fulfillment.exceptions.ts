@@ -76,6 +76,44 @@ export class FulfillmentAccountNotFoundException extends NotFoundException {
   }
 }
 
+/**
+ * TikTok Account chưa được gán nhà cung cấp fulfillment.
+ *
+ * Đây là lỗi cấu hình PHỔ BIẾN NHẤT của module này, nên thông báo phải nói đúng việc cần làm
+ * và ở đâu, thay vì một câu chung chung.
+ */
+export class FulfillmentProviderNotAssignedException extends UnprocessableEntityException {
+  constructor(accountName?: string) {
+    super({
+      code: 'FULFILLMENT_PROVIDER_NOT_ASSIGNED',
+      message: accountName
+        ? `Kết nối TikTok "${accountName}" chưa được gán nhà cung cấp fulfillment. ` +
+          'Vào POD → TikTok Accounts để chọn nhà cung cấp cho kết nối này.'
+        : 'Please configure a Fulfillment Provider for this TikTok Account.',
+    });
+  }
+}
+
+/** Nhà cung cấp tồn tại nhưng đang bị tắt ⇒ không được dùng để gửi đơn. */
+export class FulfillmentProviderInactiveException extends UnprocessableEntityException {
+  constructor(name: string) {
+    super({
+      code: 'FULFILLMENT_PROVIDER_INACTIVE',
+      message: `Nhà cung cấp "${name}" đang ở trạng thái INACTIVE. Bật lại ở POD → Fulfillment Providers.`,
+    });
+  }
+}
+
+/** Nhà cung cấp thiếu trường bắt buộc (API Key / Base URL) ⇒ chặn trước khi gọi API. */
+export class FulfillmentProviderMisconfiguredException extends UnprocessableEntityException {
+  constructor(name: string, missingField: string) {
+    super({
+      code: 'FULFILLMENT_PROVIDER_MISCONFIGURED',
+      message: `Nhà cung cấp "${name}" chưa có ${missingField}. Cập nhật ở POD → Fulfillment Providers.`,
+    });
+  }
+}
+
 export class FulfillmentOrderNotFoundException extends NotFoundException {
   constructor() {
     super({

@@ -74,6 +74,20 @@ export class AssignPodSellerDto {
   sellerId?: string | null;
 }
 
+/** Gán nhà cung cấp fulfillment cho một kết nối TikTok. */
+export class AssignFulfillmentProviderDto {
+  @ApiPropertyOptional({
+    format: 'uuid',
+    nullable: true,
+    description:
+      'ID nhà cung cấp fulfillment. Truyền null (hoặc bỏ trống) để BỎ GÁN — ' +
+      'khi đó kết nối không gửi đơn sản xuất được cho tới khi gán lại.',
+  })
+  @IsOptional()
+  @IsUUID('4', { message: 'fulfillmentAccountId phải là UUID hợp lệ' })
+  fulfillmentAccountId?: string | null;
+}
+
 /** Tìm kiếm trong danh sách Seller có thể chọn. */
 export class PodSellerOptionQueryDto {
   @ApiPropertyOptional({ description: 'Lọc theo họ tên hoặc email.' })

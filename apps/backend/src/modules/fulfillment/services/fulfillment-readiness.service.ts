@@ -16,6 +16,17 @@ export interface ReadinessIssue {
   message: string;
   /** Line item liên quan (nếu lỗi thuộc về một sản phẩm cụ thể). */
   podOrderItemId?: string;
+  /**
+   * Ngữ cảnh đủ để SỬA lỗi ngay tại chỗ — chỉ có với `MAPPING_MISSING`.
+   * Nhờ nó, màn hình đơn mở được dialog ánh xạ với SKU điền sẵn, người dùng không phải
+   * rời đơn đi tìm lại đúng dòng hàng ở màn hình Product Mapping.
+   */
+  tiktokProductId?: string | null;
+  tiktokSkuId?: string | null;
+  sellerSku?: string | null;
+  productName?: string | null;
+  skuName?: string | null;
+  productCategory?: string | null;
 }
 
 /** Kết quả kiểm tra: hoặc sẵn sàng (kèm dữ liệu đã ghép), hoặc kèm danh sách lý do. */
@@ -168,6 +179,12 @@ export class FulfillmentReadinessService {
         issues.push({
           code: READINESS_CODES.MAPPING_MISSING,
           podOrderItemId: item.id,
+          tiktokProductId: item.productId,
+          tiktokSkuId: item.skuId,
+          sellerSku: item.sellerSku,
+          productName: item.productName,
+          skuName: item.skuName,
+          productCategory: item.productCategory,
           message:
             `Chưa khai báo ánh xạ sản phẩm cho "${item.productName ?? item.sellerSku ?? item.id}"` +
             `${item.sellerSku ? ` (Seller SKU: ${item.sellerSku})` : ''}. ` +

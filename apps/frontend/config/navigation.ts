@@ -12,6 +12,8 @@
 import {
   BarChart3,
   ClipboardList,
+  Factory,
+  Link2,
   LayoutDashboard,
   Package,
   ShoppingBag,
@@ -115,6 +117,18 @@ export const NAVIGATION: NavItemConfig[] = [
         href: '/dashboard/pod/orders',
         icon: ClipboardList,
         permission: 'pod.tiktok.order.read',
+      },
+      {
+        labelKey: 'podFulfillmentProviders',
+        href: '/dashboard/pod/fulfillment-providers',
+        icon: Factory,
+        permission: 'fulfillment.config',
+      },
+      {
+        labelKey: 'podProductMapping',
+        href: '/dashboard/pod/product-mapping',
+        icon: Link2,
+        permission: 'fulfillment.config',
       },
       {
         labelKey: 'podPayout',

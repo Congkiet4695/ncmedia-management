@@ -10,9 +10,11 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PodOrderRepository } from '../../../pod-tiktok/repositories/pod-order.repository';
-import { TiktokEncryptionService } from '../../../pod-tiktok/services/tiktok-encryption.service';
+import type { PodOrderWithRelations } from '../../../pod-tiktok/types/pod-order-with-relations.type';
 import {
   FulfillmentAccountNotFoundException,
+  FulfillmentProviderInactiveException,
+  FulfillmentProviderNotAssignedException,
   FulfillmentAlreadySubmittedException,
   FulfillmentCannotCancelException,
   FulfillmentClientError,
@@ -31,6 +33,7 @@ import {
 } from '../../repositories/fulfillment.repository';
 import { FulfillmentReadinessService } from '../../services/fulfillment-readiness.service';
 import { MangoApiClient, MangoCallContext } from '../clients/mango-api.client';
+import { MangoCredentialService } from './mango-credential.service';
 import { MangoOrderMapper } from '../mappers/mango-order.mapper';
 import type { MangoShippingMethod } from '../constants/mango.constants';
 import type { MangoOrderResponse } from '../types/mango-api.types';
@@ -63,7 +66,7 @@ const RESUBMITTABLE_STATUSES: readonly FulfillmentStatus[] = [
 export class MangoFulfillmentService {
   private readonly logger = new Logger(MangoFulfillmentService.name);
 
-  private static readonly PROVIDER = FulfillmentProvider.MANGOTEE;
+  private static readonly PROVIDER = FulfillmentProvider.MANGO;
 
   constructor(
     private readonly config: ConfigService,
@@ -72,7 +75,7 @@ export class MangoFulfillmentService {
     private readonly readiness: FulfillmentReadinessService,
     private readonly client: MangoApiClient,
     private readonly mapper: MangoOrderMapper,
-    private readonly encryption: TiktokEncryptionService,
+    private readonly credentials: MangoCredentialService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -92,8 +95,6 @@ export class MangoFulfillmentService {
     podOrderId: string,
     trigger: FulfillmentTrigger = FulfillmentTrigger.MANUAL,
   ): Promise<FulfillmentOrderWithRelations> {
-    const account = await this.requireAccount(organizationId);
-
     const existing = await this.repo.findByPodOrder(
       organizationId,
       podOrderId,
@@ -106,6 +107,11 @@ export class MangoFulfillmentService {
 
     const order = await this.podOrderRepo.findById(organizationId, podOrderId);
     if (!order) throw new FulfillmentOrderNotFoundException();
+
+    // Nhà cung cấp được suy ra TỪ TIKTOK ACCOUNT sở hữu đơn, không phải "tài khoản mặc định
+    // của tổ chức". Nhờ vậy mỗi shop gửi đúng xưởng in của mình, và không tồn tại đường nào
+    // để một đơn âm thầm đi nhầm nhà cung cấp.
+    const account = await this.requireProviderForOrder(organizationId, order);
 
     const mappings = await this.repo.listMappings(organizationId, account.id);
     const check = this.readiness.check(order, mappings, this.publicBaseUrl());
@@ -219,7 +225,7 @@ export class MangoFulfillmentService {
 
       this.logger.log({
         module: 'fulfillment',
-        provider: 'MANGOTEE',
+        provider: 'MANGO',
         operation: 'create',
         organizationId,
         podOrderId,
@@ -336,6 +342,11 @@ export class MangoFulfillmentService {
       ...(nextStatus === FulfillmentStatus.CANCELLED && !record.cancelledAt
         ? { cancelledAt: new Date() }
         : {}),
+      // Mốc hoàn tất ghi MỘT LẦN. Trạng thái nhà cung cấp có thể dao động quanh DELIVERED
+      // (vd webhook tới sau lượt đồng bộ); ghi đè sẽ làm sai số liệu đối soát.
+      ...(nextStatus === FulfillmentStatus.DELIVERED && !record.completedAt
+        ? { completedAt: new Date() }
+        : {}),
     });
 
     if (statusChanged) {
@@ -448,16 +459,99 @@ export class MangoFulfillmentService {
     return this.requireRecord(organizationId, record.id);
   }
 
+  /**
+   * Kiểm tra kết nối tới nhà cung cấp.
+   *
+   * Dùng `GET /production-lines` — endpoint CÓ TRONG tài liệu, cần xác thực, chỉ đọc và
+   * không tạo ra dữ liệu nào ở phía nhà cung cấp. Gọi được nghĩa là API key + Base URL đúng.
+   *
+   * Không bao giờ ném lỗi ra ngoài: đây là thao tác CHẨN ĐOÁN, người dùng cần đọc được
+   * thông báo lỗi của nhà cung cấp chứ không phải nhận một trang lỗi.
+   */
+  async testConnection(
+    account: FulfillmentAccount,
+  ): Promise<{
+    connected: boolean;
+    message: string;
+    durationMs: number | null;
+    productionLineCount: number | null;
+  }> {
+    try {
+      const result = await this.client.listProductionLines(this.credentials.buildContext(account));
+      const count = result.data?.items?.length ?? 0;
+
+      await this.repo.updateAccount(account.id, { lastUsedAt: new Date(), lastErrorMsg: null });
+
+      this.logger.log({
+        module: 'fulfillment',
+        provider: 'MANGO',
+        operation: 'account.testConnection',
+        accountId: account.id,
+        durationMs: result.durationMs,
+        productionLineCount: count,
+        msg: 'Kiểm tra kết nối thành công',
+      });
+
+      return {
+        connected: true,
+        message: 'Connected',
+        durationMs: result.durationMs,
+        productionLineCount: count,
+      };
+    } catch (error) {
+      // Thông báo NGUYÊN VĂN từ nhà cung cấp — người vận hành cần biết chính xác vì sao hỏng.
+      const message =
+        error instanceof FulfillmentClientError
+          ? error.message
+          : (error as Error).message || 'Không kết nối được tới nhà cung cấp';
+
+      await this.repo.updateAccount(account.id, {
+        lastErrorAt: new Date(),
+        lastErrorMsg: message.slice(0, 1000),
+      });
+
+      this.logger.warn({
+        module: 'fulfillment',
+        provider: 'MANGO',
+        operation: 'account.testConnection',
+        accountId: account.id,
+        errorClass: error instanceof FulfillmentClientError ? error.errorClass : 'UNKNOWN',
+        msg: `Kiểm tra kết nối thất bại: ${message}`,
+      });
+
+      return { connected: false, message, durationMs: null, productionLineCount: null };
+    }
+  }
+
   // ---------------------------------------------------------------------------
   // Private
   // ---------------------------------------------------------------------------
 
-  private async requireAccount(organizationId: string): Promise<FulfillmentAccount> {
-    const account = await this.repo.findActiveAccount(
-      organizationId,
-      MangoFulfillmentService.PROVIDER,
-    );
-    if (!account) throw new FulfillmentAccountNotFoundException();
+  /**
+   * Nhà cung cấp fulfillment của một đơn = nhà cung cấp gán cho TikTok Account sở hữu đơn.
+   *
+   * Kiểm đủ ba điều kiện của Mục 7 (đã gán · đang ACTIVE · đủ API key và Base URL) TẠI ĐÂY,
+   * trước khi chạm tới bất kỳ dữ liệu đơn nào — lỗi cấu hình phải hiện ra ngay và nói rõ
+   * phải sửa ở màn hình nào.
+   */
+  private async requireProviderForOrder(
+    organizationId: string,
+    order: PodOrderWithRelations,
+  ): Promise<FulfillmentAccount> {
+    const assignedId = order.account?.fulfillmentAccountId;
+    if (!assignedId) {
+      throw new FulfillmentProviderNotAssignedException(order.account?.accountName);
+    }
+
+    const account = await this.repo.findAccountById(organizationId, assignedId);
+    if (!account) {
+      // Nhà cung cấp đã bị xoá sau khi gán ⇒ coi như chưa gán, hướng dẫn gán lại.
+      throw new FulfillmentProviderNotAssignedException(order.account?.accountName);
+    }
+    if (!account.isActive) throw new FulfillmentProviderInactiveException(account.name);
+
+    // Ném sớm nếu thiếu API key / Base URL, thay vì để lộ ra ở giữa luồng gửi đơn.
+    this.credentials.buildContext(account);
     return account;
   }
 
@@ -479,12 +573,14 @@ export class MangoFulfillmentService {
     return record;
   }
 
-  /** API key được giải mã ngay tại điểm dùng, không giữ ở biến dài hạn. */
+/**
+   * Ngữ cảnh gọi API cho một tài khoản.
+   *
+   * Việc chọn API key (biến môi trường hay key riêng của tài khoản) nằm trọn trong
+   * `MangoCredentialService` — service này không cần biết key đến từ đâu.
+   */
   private callContext(account: FulfillmentAccount): MangoCallContext {
-    return {
-      apiKey: this.encryption.decrypt(account.apiKeyEnc),
-      baseUrl: account.baseUrlOverride,
-    };
+    return this.credentials.buildContext(account);
   }
 
   /** Base URL công khai để dựng link design khi lưu trữ trả đường dẫn tương đối. */
@@ -560,7 +656,7 @@ export class MangoFulfillmentService {
 
     this.logger.error({
       module: 'fulfillment',
-      provider: 'MANGOTEE',
+      provider: 'MANGO',
       operation,
       organizationId,
       fulfillmentOrderId,

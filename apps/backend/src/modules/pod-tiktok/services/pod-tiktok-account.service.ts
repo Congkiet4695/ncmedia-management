@@ -16,6 +16,7 @@ import { TiktokApiClient } from '../clients/tiktok-api.client';
 import { TiktokAuthClient } from '../clients/tiktok-auth.client';
 import { LinkTiktokAccountDto } from '../dto/link-account.dto';
 import {
+  AssignFulfillmentProviderDto,
   AssignPodSellerDto,
   PodSellerOptionQueryDto,
   PodTiktokAccountQueryDto,
@@ -36,6 +37,7 @@ import {
   PodTiktokNoShopException,
   PodTiktokRateLimitedException,
   PodTiktokScopeMissingException,
+  PodTiktokFulfillmentProviderInvalidException,
   PodTiktokSellerInvalidException,
   PodTiktokShopAlreadyLinkedException,
   TiktokClientError,
@@ -197,6 +199,49 @@ export class PodTiktokAccountService {
    * Đổi người phụ trách có hiệu lực NGAY trên toàn hệ thống (Order, Payout, Dashboard)
    * vì các nơi đó join ngược qua account chứ không lưu bản sao seller.
    */
+  /**
+   * Gán nhà cung cấp fulfillment cho một kết nối TikTok.
+   *
+   * Chỉ chấp nhận nhà cung cấp CÙNG TỔ CHỨC và đang ACTIVE — chặn ngay tại đây thay vì để
+   * lỗi hiện ra lúc gửi đơn, khi người dùng đã tưởng mọi thứ đã cấu hình xong.
+   */
+  async assignFulfillmentAccount(
+    organizationId: string,
+    actorUserId: string,
+    id: string,
+    dto: AssignFulfillmentProviderDto,
+  ): Promise<PodTiktokAccountResponseDto> {
+    const existing = await this.repo.findById(organizationId, id);
+    if (!existing) throw new PodTiktokAccountNotFoundException();
+
+    if (dto.fulfillmentAccountId) {
+      const eligible = await this.repo.isEligibleFulfillmentAccount(
+        organizationId,
+        dto.fulfillmentAccountId,
+      );
+      if (!eligible) throw new PodTiktokFulfillmentProviderInvalidException();
+    }
+
+    await this.repo.assignFulfillmentAccount(
+      existing.id,
+      dto.fulfillmentAccountId ?? null,
+      actorUserId,
+    );
+    this.logger.log({
+      module: 'pod-tiktok',
+      operation: 'account.assign-fulfillment-provider',
+      organizationId,
+      accountId: id,
+      fulfillmentAccountId: dto.fulfillmentAccountId ?? null,
+      previousFulfillmentAccountId: existing.fulfillmentAccountId,
+      msg: dto.fulfillmentAccountId
+        ? 'Đã gán nhà cung cấp fulfillment'
+        : 'Đã bỏ gán nhà cung cấp fulfillment',
+    });
+
+    return this.findOne(organizationId, id);
+  }
+
   async assignSeller(
     organizationId: string,
     actorUserId: string,

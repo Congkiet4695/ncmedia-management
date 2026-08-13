@@ -83,6 +83,59 @@ export class FulfillmentRepository {
     return this.prisma.fulfillmentAccount.create({ data });
   }
 
+  /**
+   * Xoá MỀM nhà cung cấp.
+   *
+   * Không xoá cứng: `fulfillment_orders` tham chiếu tới đây bằng RESTRICT, và lịch sử đơn
+   * đã gửi phải tra ngược được về nhà cung cấp nào đã sản xuất. Kết nối TikTok đang trỏ
+   * tới bản ghi này được gỡ liên kết trong CÙNG một giao dịch.
+   */
+  async softDeleteAccount(id: string, actorUserId: string) {
+    return this.prisma.$transaction(async (tx) => {
+      await tx.podTiktokAccount.updateMany({
+        where: { fulfillmentAccountId: id, deletedAt: null },
+        data: { fulfillmentAccountId: null, updatedBy: actorUserId },
+      });
+      return tx.fulfillmentAccount.update({
+        where: { id },
+        data: { deletedAt: new Date(), isActive: false, updatedBy: actorUserId },
+      });
+    });
+  }
+
+  /**
+   * Số kết nối TikTok theo từng nhà cung cấp, gom trong MỘT truy vấn.
+   * Dùng cho màn hình danh sách — đếm trong vòng lặp sẽ thành N+1.
+   */
+  async countTiktokAccountsGroupedByProvider(organizationId: string): Promise<Map<string, number>> {
+    const rows = await this.prisma.podTiktokAccount.groupBy({
+      by: ['fulfillmentAccountId'],
+      where: { organizationId, deletedAt: null, fulfillmentAccountId: { not: null } },
+      _count: { _all: true },
+    });
+    return new Map(
+      rows
+        .filter((row): row is typeof row & { fulfillmentAccountId: string } =>
+          Boolean(row.fulfillmentAccountId),
+        )
+        .map((row) => [row.fulfillmentAccountId, row._count._all]),
+    );
+  }
+
+  /** Đếm kết nối TikTok đang trỏ tới nhà cung cấp — dùng để cảnh báo trước khi xoá. */
+  countTiktokAccountsByProvider(organizationId: string, accountId: string) {
+    return this.prisma.podTiktokAccount.count({
+      where: { organizationId, fulfillmentAccountId: accountId, deletedAt: null },
+    });
+  }
+
+  /** Đếm đơn đã gửi qua nhà cung cấp — dùng để cảnh báo trước khi xoá. */
+  countOrdersByAccount(organizationId: string, accountId: string) {
+    return this.prisma.fulfillmentOrder.count({
+      where: { organizationId, accountId, deletedAt: null },
+    });
+  }
+
   updateAccount(id: string, data: Prisma.FulfillmentAccountUncheckedUpdateInput) {
     return this.prisma.fulfillmentAccount.update({ where: { id }, data });
   }
@@ -104,6 +157,94 @@ export class FulfillmentRepository {
    * Toàn bộ ánh xạ đang hiệu lực của một tài khoản.
    * Nạp MỘT lần rồi khớp trong bộ nhớ ⇒ kiểm N đơn vẫn chỉ một truy vấn (không N+1).
    */
+  /**
+   * Danh sách ánh xạ có lọc + phân trang (màn hình quản trị).
+   *
+   * `keyword` tìm đồng thời trên tên sản phẩm nhà cung cấp, Seller SKU và Provider SKU —
+   * ba thứ người dùng thực sự nhớ khi đi tìm một ánh xạ.
+   */
+  async listMappingsPaged(params: {
+    organizationId: string;
+    accountId?: string;
+    provider?: FulfillmentProvider;
+    isActive?: boolean;
+    keyword?: string;
+    page: number;
+    limit: number;
+  }): Promise<{ items: FulfillmentProductMapping[]; total: number }> {
+    const keyword = params.keyword?.trim();
+    const where: Prisma.FulfillmentProductMappingWhereInput = {
+      organizationId: params.organizationId,
+      deletedAt: null,
+      ...(params.accountId ? { accountId: params.accountId } : {}),
+      ...(params.provider ? { provider: params.provider } : {}),
+      ...(params.isActive !== undefined ? { isActive: params.isActive } : {}),
+      ...(keyword
+        ? {
+            OR: [
+              { providerProductName: { contains: keyword, mode: 'insensitive' } },
+              { sellerSku: { contains: keyword, mode: 'insensitive' } },
+              { providerSku: { contains: keyword, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.fulfillmentProductMapping.findMany({
+        where,
+        orderBy: { updatedAt: 'desc' },
+        skip: (params.page - 1) * params.limit,
+        take: params.limit,
+      }),
+      this.prisma.fulfillmentProductMapping.count({ where }),
+    ]);
+    return { items, total };
+  }
+
+  /**
+   * Các SKU TikTok phân biệt đã từng xuất hiện trong đơn của tổ chức.
+   *
+   * Gom nhóm ở tầng DATABASE thay vì tải hết dòng hàng rồi lọc trong bộ nhớ — một tổ chức
+   * chạy lâu có hàng chục nghìn dòng hàng nhưng chỉ vài chục SKU khác nhau.
+   */
+  async listDistinctTiktokSkus(
+    organizationId: string,
+    search?: string,
+  ): Promise<
+    Array<{
+      productId: string | null;
+      skuId: string | null;
+      sellerSku: string | null;
+      productName: string | null;
+      skuName: string | null;
+      productCategory: string | null;
+      skuImage: string | null;
+    }>
+  > {
+    const keyword = search?.trim();
+    const like = keyword ? `%${keyword}%` : null;
+
+    return this.prisma.$queryRaw`
+      SELECT DISTINCT ON (i.sku_id, i.seller_sku)
+             i.product_id        AS "productId",
+             i.sku_id            AS "skuId",
+             i.seller_sku        AS "sellerSku",
+             i.product_name      AS "productName",
+             i.sku_name          AS "skuName",
+             i.product_category  AS "productCategory",
+             i.sku_image         AS "skuImage"
+      FROM pod_order_items i
+      WHERE i.organization_id = ${organizationId}::uuid
+        AND i.deleted_at IS NULL
+        AND (${like}::text IS NULL
+             OR i.product_name ILIKE ${like}
+             OR i.seller_sku   ILIKE ${like}
+             OR i.sku_name     ILIKE ${like})
+      ORDER BY i.sku_id, i.seller_sku, i.created_at DESC
+      LIMIT 200`;
+  }
+
   listMappings(organizationId: string, accountId: string): Promise<FulfillmentProductMapping[]> {
     return this.prisma.fulfillmentProductMapping.findMany({
       where: { organizationId, accountId, deletedAt: null },
@@ -262,6 +403,9 @@ export class FulfillmentRepository {
         providerOrderId: { not: null },
         status: {
           in: [
+            // SUBMITTING = đơn đã có mã bên nhà cung cấp nhưng tiến trình chết giữa chừng
+            // trước khi kịp ghi trạng thái. Không hỏi lại thì bản ghi kẹt vĩnh viễn.
+            FulfillmentStatus.SUBMITTING,
             FulfillmentStatus.SUBMITTED,
             FulfillmentStatus.IN_PRODUCTION,
             FulfillmentStatus.ON_HOLD,

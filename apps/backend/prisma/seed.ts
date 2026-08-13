@@ -99,7 +99,7 @@ const PERMISSIONS: Array<{
   { code: 'fulfillment.read',   module: 'FULFILLMENT', resource: 'fulfillment', action: 'read',   description: 'Xem trạng thái, lịch sử và lỗi fulfillment' },
   { code: 'fulfillment.create', module: 'FULFILLMENT', resource: 'fulfillment', action: 'create', description: 'Gửi đơn sang xưởng in (Fulfill / Retry)' },
   { code: 'fulfillment.cancel', module: 'FULFILLMENT', resource: 'fulfillment', action: 'cancel', description: 'Huỷ đơn tại xưởng in' },
-  { code: 'fulfillment.config', module: 'FULFILLMENT', resource: 'fulfillment', action: 'config', description: 'Cấu hình tài khoản nhà cung cấp và ánh xạ sản phẩm' },
+  { code: 'fulfillment.config', module: 'FULFILLMENT', resource: 'fulfillment', action: 'config', description: 'Quản lý Fulfillment Provider (thêm/sửa/xoá/bật-tắt/test kết nối) và ánh xạ sản phẩm' },
   // Storage Module (core) — API lưu trữ file dùng chung cho mọi module
   { code: 'storage.read',   module: 'STORAGE', resource: 'storage', action: 'read',   description: 'Xem/tải file trong kho lưu trữ' },
   { code: 'storage.upload', module: 'STORAGE', resource: 'storage', action: 'upload', description: 'Tải file lên kho lưu trữ' },
