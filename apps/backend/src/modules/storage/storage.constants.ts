@@ -51,11 +51,26 @@ export const STORAGE_BLOCKED_EXTENSIONS: readonly string[] = [
 ];
 
 /**
- * Trần cứng ở tầng multer (chặn sớm, không nạp file khổng lồ vào RAM).
- * Giới hạn nghiệp vụ thực tế lấy từ ENV `STORAGE_MAX_FILE_BYTES` và kiểm tra lại
- * ở `StorageService` để báo lỗi theo đúng cấu hình.
+ * Giá trị mặc định của `STORAGE_MAX_FILE_BYTES` khi biến môi trường không được đặt.
+ * 100 MB — cùng con số với `client_max_body_size` của Nginx và với thông báo trên giao diện.
  */
-export const STORAGE_HARD_MAX_BYTES = 100 * 1024 * 1024;
+export const STORAGE_DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Giới hạn dung lượng một file — NGUỒN DUY NHẤT cho mọi tầng upload.
+ *
+ * Đọc thẳng `process.env` thay vì `ConfigService` vì hàm này được gọi lúc dựng `MulterOptions`,
+ * tức tại thời điểm nạp module — trước khi DI của Nest tồn tại. Đây là chỗ DUY NHẤT trong
+ * mã nguồn đọc trực tiếp biến môi trường cho giới hạn upload; các tầng còn lại (StorageService,
+ * PodOrderDesignService) đều lấy qua `ConfigService` từ cùng một biến, nên không có hai con số
+ * khác nhau tồn tại song song.
+ *
+ * Giá trị được `env.validation.ts` kiểm tra khi khởi động, nên tới đây luôn hợp lệ.
+ */
+export function resolveStorageMaxBytes(): number {
+  const parsed = Number.parseInt(process.env.STORAGE_MAX_FILE_BYTES ?? '', 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : STORAGE_DEFAULT_MAX_BYTES;
+}
 
 /** Số file tối đa cho một lần upload nhiều file. */
 export const STORAGE_MAX_FILES_PER_REQUEST = 20;
@@ -84,7 +99,7 @@ export const STORAGE_ERROR_CODES = {
  * import Excel đang có), lọc sơ bộ theo mime. Kiểm tra đầy đủ nằm ở `StorageService`.
  */
 export const storageUploadOptions: MulterOptions = {
-  limits: { fileSize: STORAGE_HARD_MAX_BYTES, files: STORAGE_MAX_FILES_PER_REQUEST },
+  limits: { fileSize: resolveStorageMaxBytes(), files: STORAGE_MAX_FILES_PER_REQUEST },
   fileFilter: (_req, file, cb) => {
     if (!STORAGE_ALLOWED_MIME_TYPES.includes(file.mimetype)) {
       cb(

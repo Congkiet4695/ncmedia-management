@@ -48,8 +48,11 @@ export const envValidationSchema = Joi.object({
   // --- Storage Module (core) ---
   // Nhà cung cấp đang dùng. Production đặt CLOUDFLARE_R2.
   STORAGE_PROVIDER: Joi.string().valid('CLOUDFLARE_R2', 'LOCAL_DISK').default('LOCAL_DISK'),
-  STORAGE_MAX_FILE_BYTES: Joi.number().integer().min(1024).max(104857600).default(26214400),
-  STORAGE_TIMEOUT_MS: Joi.number().integer().min(1000).max(300000).default(30000),
+  // Trần 100MB khớp `client_max_body_size` của Nginx — đặt cao hơn chỉ tạo ra lỗi 413
+  // ở tầng proxy mà ứng dụng không hề biết lý do.
+  STORAGE_MAX_FILE_BYTES: Joi.number().integer().min(1024).max(104857600).default(104857600),
+  // Đủ dài cho file 100MB trên đường truyền chậm; tối đa 10 phút.
+  STORAGE_TIMEOUT_MS: Joi.number().integer().min(1000).max(600000).default(120000),
 
   // Cloudflare R2 — BẮT BUỘC khi STORAGE_PROVIDER=CLOUDFLARE_R2, bỏ qua khi dùng LOCAL_DISK.
   R2_ACCOUNT_ID: Joi.string().when('STORAGE_PROVIDER', {
@@ -93,6 +96,8 @@ export const envValidationSchema = Joi.object({
   TIKTOK_AUTHORIZE_BASE_URL_US: Joi.string().uri().default('https://services.us.tiktokshop.com'),
   TIKTOK_AUTHORIZE_BASE_URL_ROW: Joi.string().uri().default('https://services.tiktokshop.com'),
   TIKTOK_DEFAULT_REGION: Joi.string().valid('US', 'ROW').default('US'),
+  // Trống = chuyển hướng tương đối (frontend và backend cùng domain qua Nginx).
+  TIKTOK_CALLBACK_REDIRECT_BASE: Joi.string().uri().allow('').default(''),
   // Khoá mã hoá RIÊNG cho token TikTok (AES-256-GCM). Base64 của đúng 32 byte.
   TIKTOK_ENCRYPTION_KEY: Joi.string().required(),
   TIKTOK_HTTP_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).default(15000),

@@ -23,7 +23,8 @@ const ORG_ID = '11111111-1111-1111-1111-111111111111';
 const USER_ID = '22222222-2222-2222-2222-222222222222';
 const ITEM_ID = '33333333-3333-3333-3333-333333333333';
 const FILE_ID = '44444444-4444-4444-4444-444444444444';
-const MAX_BYTES = 1024 * 1024;
+/** Giới hạn thật của production: 100MB. Test bám đúng con số đang chạy. */
+const MAX_BYTES = 100 * 1024 * 1024;
 
 function file(overrides: Partial<Express.Multer.File> = {}): Express.Multer.File {
   return {
@@ -176,11 +177,50 @@ describe('StorageService', () => {
       expect(provider.put).not.toHaveBeenCalled();
     });
 
-    it('vượt giới hạn dung lượng → STORAGE_FILE_TOO_LARGE', async () => {
-      await expect(
-        service.upload(file({ buffer: Buffer.alloc(MAX_BYTES + 1) }), context()),
-      ).rejects.toBeInstanceOf(StorageFileTooLargeException);
+    /**
+     * Biên dung lượng quanh mốc 100MB.
+     *
+     * Dùng Buffer THẬT vì luồng upload còn tính checksum trên nội dung — buffer giả chỉ có
+     * `length` sẽ hỏng ở bước băm chứ không phải ở bước kiểm dung lượng, tức test sẽ xanh/đỏ
+     * vì lý do sai. `Buffer.alloc` cấp phát ngoài heap V8 và được giải phóng ngay sau mỗi case.
+     */
+    const sizedFile = (bytes: number) => file({ buffer: Buffer.alloc(bytes) });
+
+    it.each([
+      ['10 MB', 10 * 1024 * 1024],
+      ['50 MB', 50 * 1024 * 1024],
+      ['99 MB', 99 * 1024 * 1024],
+    ])('cho phép upload file %s', async (_label, bytes) => {
+      await expect(service.upload(sizedFile(bytes), context())).resolves.toBeDefined();
+      expect(provider.put).toHaveBeenCalled();
+    });
+
+    it('cho phép upload file ĐÚNG bằng giới hạn (100MB)', async () => {
+      // Ranh giới phải là "nhỏ hơn hoặc bằng": đúng 100MB là hợp lệ, không được chặn.
+      await expect(service.upload(sizedFile(MAX_BYTES), context())).resolves.toBeDefined();
+      expect(provider.put).toHaveBeenCalled();
+    });
+
+    it('chặn file lớn hơn giới hạn dù chỉ 1 byte', async () => {
+      await expect(service.upload(sizedFile(MAX_BYTES + 1), context())).rejects.toBeInstanceOf(
+        StorageFileTooLargeException,
+      );
       expect(provider.put).not.toHaveBeenCalled();
+    });
+
+    it('thông báo lỗi nêu đúng giới hạn theo MB và tên file', async () => {
+      try {
+        await service.upload(sizedFile(MAX_BYTES + 1), context());
+        fail('phải ném lỗi');
+      } catch (error) {
+        const body = (error as StorageFileTooLargeException).getResponse() as {
+          code: string;
+          message: string;
+        };
+        expect(body.code).toBe('STORAGE_FILE_TOO_LARGE');
+        expect(body.message).toContain(String(Math.round(MAX_BYTES / (1024 * 1024))));
+        expect(body.message).toContain('design.png');
+      }
     });
 
     it('🔴 file thực thi (.exe) → bị chặn dù mime trông hợp lệ', async () => {

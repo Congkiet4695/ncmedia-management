@@ -78,9 +78,10 @@
     "deleted": "Đã xoá {{placement}}",
     "dialogDescription": "Tải file thiết kế cho từng vị trí in của sản phẩm.",
     "dialogTitle": "Upload Design",
-    "fileHint": "PNG, JPEG hoặc WEBP · tối đa 10MB",
+    "fileHint": "PNG, JPEG hoặc WEBP · tối đa {{size}} MB",
     "firstVersion": "Bản đầu tiên",
     "front": "Mặt trước",
+    "maxSizeLabel": "Maximum file size: {{size}} MB",
     "missing": "Chưa có design",
     "pickFile": "Chọn file",
     "placement": {
@@ -93,6 +94,8 @@
     "productName": "Product Name",
     "replace": "Thay design",
     "replacedTimes": "Đã thay {{count}} lần",
+    "tooLarge": "The selected file exceeds the maximum allowed size of {{size}} MB.",
+    "tooLargeDetail": "File đã chọn nặng {{actual}}.",
     "upload": "Upload design",
     "uploadFailed": "Upload thất bại",
     "uploaded": "Đã tải lên {{placement}}",
@@ -123,6 +126,21 @@
     "submit": "Link Account",
     "title": "Link TikTok Shop",
     "urlFailed": "Không lấy được Authorization URL. Kiểm tra cấu hình TikTok của hệ thống."
+  },
+  "linkSuccess": {
+    "authCodeLabel": "Authorization Code",
+    "authorizationTime": "Authorization Time",
+    "back": "Back",
+    "copied": "Authorization Code copied successfully.",
+    "copy": "Copy Authorization Code",
+    "copyFailed": "Could not copy automatically. Please select the code and copy it manually.",
+    "details": "Details",
+    "expiryNotice": "This code can be used only once and expires in 30 minutes. Paste it into Link TikTok Shop to finish.",
+    "failedSubtitle": "Authorization Code not found.",
+    "failedTitle": "Authorization failed.",
+    "securityNotice": "For your security this code is only displayed here — it is not stored in your browser.",
+    "subtitle": "Your TikTok Shop account has been authorized successfully. Below is your Authorization Code.",
+    "title": "TikTok Shop Account Linked Successfully"
   },
   "orderDetail": {
     "buyer": "Người mua",

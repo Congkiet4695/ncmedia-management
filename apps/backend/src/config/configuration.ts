@@ -48,10 +48,14 @@ export default () => ({
    */
   storage: {
     provider: process.env.STORAGE_PROVIDER ?? 'LOCAL_DISK',
-    /** Giới hạn dung lượng một file (byte). Mặc định 25MB. */
-    maxFileBytes: parseInt(process.env.STORAGE_MAX_FILE_BYTES ?? '26214400', 10),
-    /** Timeout gọi nhà cung cấp lưu trữ (ms). */
-    timeoutMs: parseInt(process.env.STORAGE_TIMEOUT_MS ?? '30000', 10),
+    /** Giới hạn dung lượng một file (byte). Mặc định 100MB — xem storage.constants.ts. */
+    maxFileBytes: parseInt(process.env.STORAGE_MAX_FILE_BYTES ?? '104857600', 10),
+    /**
+     * Timeout gọi nhà cung cấp lưu trữ (ms). Mặc định 120s.
+     * 30s là quá ngắn cho file 100MB: chỉ cần đường truyền ~30 Mbps là đã hết giờ giữa chừng
+     * và upload hỏng dù mọi thứ khác đều đúng.
+     */
+    timeoutMs: parseInt(process.env.STORAGE_TIMEOUT_MS ?? '120000', 10),
 
     r2: {
       accountId: process.env.R2_ACCOUNT_ID,
@@ -128,6 +132,15 @@ export default () => ({
       process.env.TIKTOK_AUTHORIZE_BASE_URL_US ?? 'https://services.us.tiktokshop.com',
     authorizeBaseUrlRow:
       process.env.TIKTOK_AUTHORIZE_BASE_URL_ROW ?? 'https://services.tiktokshop.com',
+    /**
+     * Gốc URL để chuyển hướng sau khi TikTok gọi callback.
+     *
+     * Bỏ trống (mặc định) ⇒ chuyển hướng TƯƠNG ĐỐI `/tiktok/link-success`. Đúng cho cách
+     * triển khai hiện tại: Nginx phục vụ frontend và backend trên CÙNG một domain.
+     * Chỉ cần đặt giá trị khi frontend nằm ở domain khác.
+     */
+    callbackRedirectBase: process.env.TIKTOK_CALLBACK_REDIRECT_BASE ?? '',
+
     /** Thị trường mặc định khi dựng authorization link: US | ROW (PO chốt: US). */
     defaultRegion: process.env.TIKTOK_DEFAULT_REGION ?? 'US',
     encryptionKey: process.env.TIKTOK_ENCRYPTION_KEY,

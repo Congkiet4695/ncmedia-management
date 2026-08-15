@@ -16,6 +16,7 @@ import { PodOrderController } from './pod-order.controller';
 import { PodOrderDesignController } from './pod-order-design.controller';
 import { PodPayoutController } from './pod-payout.controller';
 import { PodTiktokAccountController } from './pod-tiktok-account.controller';
+import { TiktokCallbackController } from './tiktok-callback.controller';
 import { PodOrderDesignRepository } from './repositories/pod-order-design.repository';
 import { PodOrderRepository } from './repositories/pod-order.repository';
 import { PodPayoutReportRepository } from './repositories/pod-payout-report.repository';
@@ -52,6 +53,7 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
 @Module({
   imports: [AuthModule, ScheduleModule.forRoot()],
   controllers: [
+    TiktokCallbackController,
     PodTiktokAccountController,
     PodOrderController,
     PodOrderDesignController,

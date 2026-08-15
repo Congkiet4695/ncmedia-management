@@ -30,6 +30,7 @@ import {
 } from './exceptions/storage.exceptions';
 import { StorageProvider } from './interfaces/storage-provider.interface';
 import {
+  STORAGE_DEFAULT_MAX_BYTES,
   STORAGE_ALLOWED_EXTENSIONS,
   STORAGE_ALLOWED_TYPES,
   STORAGE_BLOCKED_EXTENSIONS,
@@ -77,7 +78,7 @@ export class StorageService {
     private readonly repo: StorageRepository,
     private readonly provider: StorageProvider,
   ) {
-    this.maxFileBytes = this.config.get<number>('storage.maxFileBytes', 25 * 1024 * 1024);
+    this.maxFileBytes = this.config.get<number>('storage.maxFileBytes', STORAGE_DEFAULT_MAX_BYTES);
   }
 
   /** Nhà cung cấp đang hoạt động — dùng cho health check / hiển thị cấu hình. */

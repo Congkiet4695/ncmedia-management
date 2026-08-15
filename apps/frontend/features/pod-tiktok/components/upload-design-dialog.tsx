@@ -10,6 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Modal } from '@/components/ui/modal';
 import { useAuth } from '@/hooks/use-auth';
 import { useApiError } from '@/hooks/use-api-error';
+import { MAX_UPLOAD_MB, exceedsMaxUploadSize, formatFileSize } from '@/lib/file-size';
 import { useDeleteDesign, useUploadDesign } from '../hooks/use-pod-orders';
 import { ImageLightbox } from './image-lightbox';
 import {
@@ -50,7 +51,9 @@ export function UploadDesignDialog({ open, item, onClose }: UploadDesignDialogPr
         open={open}
         onClose={onClose}
         title={t('design.dialogTitle')}
-        description={t('design.dialogDescription')}
+        description={`${t('design.dialogDescription')} ${t('design.maxSizeLabel', {
+          size: MAX_UPLOAD_MB,
+        })}`}
         className="max-w-3xl"
       >
         {item && (
@@ -143,6 +146,17 @@ function DesignSlot({
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return;
+
+    // Chặn NGAY tại trình duyệt: gửi 100MB lên rồi mới nhận lỗi là lãng phí băng thông của
+    // người dùng và thời gian chờ. Backend vẫn kiểm lại — đây chỉ là lớp cải thiện trải nghiệm.
+    if (exceedsMaxUploadSize(file)) {
+      toast.error(t('design.tooLarge', { size: MAX_UPLOAD_MB }), {
+        description: t('design.tooLargeDetail', { actual: formatFileSize(file.size) }),
+      });
+      // Xoá lựa chọn để chọn lại đúng file đó lần nữa vẫn kích hoạt onChange.
+      if (inputRef.current) inputRef.current.value = '';
+      return;
+    }
     setProgress(0);
     try {
       const saved = await uploadMutation.mutateAsync({
@@ -292,7 +306,9 @@ function DesignSlot({
           </Button>
         )}
       </div>
-      <p className="text-xs text-muted-foreground">{t('design.fileHint')}</p>
+      <p className="text-xs text-muted-foreground">
+        {t('design.fileHint', { size: MAX_UPLOAD_MB })}
+      </p>
     </div>
   );
 }
