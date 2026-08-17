@@ -1,4 +1,3 @@
-import { ConfigService } from '@nestjs/config';
 import { PodTiktokAccountStatus, PodTiktokTokenAction } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { TiktokErrorClass, TIKTOK_ERROR_CODES } from '../constants/tiktok-error-code.constants';
@@ -28,6 +27,8 @@ const ORG_ID = '11111111-1111-1111-1111-111111111111';
 const OTHER_ORG_ID = '22222222-2222-2222-2222-222222222222';
 const USER_ID = '33333333-3333-3333-3333-333333333333';
 const ACCOUNT_ID = '44444444-4444-4444-4444-444444444444';
+/** Tên kết nối người dùng nhập ở bước tạo Authorization URL. */
+const ACCOUNT_NAME = 'NCMedia US Store';
 
 /** Response mẫu của Get Access Token (đúng shape tài liệu Authorization overview). */
 const TOKEN_RESPONSE = {
@@ -76,27 +77,15 @@ interface AuditArg {
 describe('PodTiktokAccountService', () => {
   let service: PodTiktokAccountService;
   let prisma: { $transaction: jest.Mock };
-  let config: { get: jest.Mock; getOrThrow: jest.Mock };
   let repo: jest.Mocked<Partial<PodTiktokAccountRepository>>;
   let encryption: { encrypt: jest.Mock };
   let authClient: { getAccessToken: jest.Mock };
   let apiClient: { getAuthorizedShops: jest.Mock };
 
-  const CONFIG_VALUES: Record<string, string> = {
-    'tiktok.defaultRegion': 'US',
-    'tiktok.authorizeBaseUrlUs': 'https://services.us.tiktokshop.com',
-    'tiktok.authorizeBaseUrlRow': 'https://services.tiktokshop.com',
-    'tiktok.serviceId': 'svc-123',
-  };
-
   beforeEach(() => {
     // $transaction chạy callback với `tx` giả — không chạm DB thật.
     prisma = {
       $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb({})),
-    };
-    config = {
-      get: jest.fn((key: string, fallback?: string) => CONFIG_VALUES[key] ?? fallback),
-      getOrThrow: jest.fn((key: string) => CONFIG_VALUES[key]),
     };
     repo = {
       findByOpenIdIncludingDeleted: jest.fn().mockResolvedValue(null),
@@ -121,7 +110,6 @@ describe('PodTiktokAccountService', () => {
 
     service = new PodTiktokAccountService(
       prisma as unknown as PrismaService,
-      config as unknown as ConfigService,
       repo as unknown as PodTiktokAccountRepository,
       new PodTiktokAccountMapper(),
       encryption as unknown as TiktokEncryptionService,
@@ -165,14 +153,11 @@ describe('PodTiktokAccountService', () => {
     });
   }
 
-  describe('link — luồng thành công', () => {
+  describe('completeAuthorization — luồng thành công', () => {
     beforeEach(() => mockFindByIdResult());
 
     it('thực hiện đúng thứ tự: đổi code → Get Authorized Shops → lưu DB', async () => {
-      const result = await service.link(ORG_ID, USER_ID, {
-        accountName: 'NCMedia US Store',
-        authorizationCode: 'TTP_auth_code',
-      });
+      const result = await service.completeAuthorization(ORG_ID, USER_ID, 'TTP_auth_code', ACCOUNT_NAME);
 
       expect(authClient.getAccessToken).toHaveBeenCalledWith('TTP_auth_code');
       expect(apiClient.getAuthorizedShops).toHaveBeenCalledWith(TOKEN_RESPONSE.access_token);
@@ -182,10 +167,7 @@ describe('PodTiktokAccountService', () => {
     });
 
     it('MÃ HOÁ access_token, refresh_token và shop_cipher trước khi lưu', async () => {
-      await service.link(ORG_ID, USER_ID, {
-        accountName: 'NCMedia US Store',
-        authorizationCode: 'code',
-      });
+      await service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME);
 
       expect(encryption.encrypt).toHaveBeenCalledWith(TOKEN_RESPONSE.access_token);
       expect(encryption.encrypt).toHaveBeenCalledWith(TOKEN_RESPONSE.refresh_token);
@@ -205,10 +187,7 @@ describe('PodTiktokAccountService', () => {
     });
 
     it('KHÔNG trả về token/shop_cipher trong response', async () => {
-      const result = await service.link(ORG_ID, USER_ID, {
-        accountName: 'NCMedia US Store',
-        authorizationCode: 'code',
-      });
+      const result = await service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME);
       const serialized = JSON.stringify(result);
       expect(serialized).not.toContain(TOKEN_RESPONSE.access_token);
       expect(serialized).not.toContain(TOKEN_RESPONSE.refresh_token);
@@ -216,7 +195,7 @@ describe('PodTiktokAccountService', () => {
     });
 
     it('ghi audit ISSUE khi tạo kết nối mới', async () => {
-      await service.link(ORG_ID, USER_ID, { accountName: 'A', authorizationCode: 'code' });
+      await service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME);
       const audit = callArg<AuditArg>(repo.insertTokenAudit as jest.Mock, 0, 1);
       expect(audit.action).toBe(PodTiktokTokenAction.ISSUE);
       expect(audit.success).toBe(true);
@@ -233,7 +212,7 @@ describe('PodTiktokAccountService', () => {
         ],
       });
 
-      await service.link(ORG_ID, USER_ID, { accountName: 'A', authorizationCode: 'code' });
+      await service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME);
 
       expect(repo.upsertShop).toHaveBeenCalledTimes(2);
       expect(repo.softDeleteShopsNotIn).toHaveBeenCalledWith(
@@ -248,9 +227,10 @@ describe('PodTiktokAccountService', () => {
       (repo.findByOpenIdIncludingDeleted as jest.Mock).mockResolvedValue({
         id: ACCOUNT_ID,
         deletedAt: null,
+        accountName: 'NCMedia US Store',
       });
 
-      await service.link(ORG_ID, USER_ID, { accountName: 'A', authorizationCode: 'code' });
+      await service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME);
 
       expect(repo.createAccount).not.toHaveBeenCalled();
       expect(repo.updateAccountTokens).toHaveBeenCalled();
@@ -259,7 +239,7 @@ describe('PodTiktokAccountService', () => {
     });
 
     it('truyền đúng organizationId từ tham số (tenant isolation)', async () => {
-      await service.link(OTHER_ORG_ID, USER_ID, { accountName: 'A', authorizationCode: 'code' });
+      await service.completeAuthorization(OTHER_ORG_ID, USER_ID, 'code', ACCOUNT_NAME);
       expect(repo.findByOpenIdIncludingDeleted).toHaveBeenCalledWith(
         expect.anything(),
         OTHER_ORG_ID,
@@ -274,7 +254,7 @@ describe('PodTiktokAccountService', () => {
     });
   });
 
-  describe('link — validation & lỗi', () => {
+  describe('completeAuthorization — validation & lỗi', () => {
     it('Authorization Code sai/hết hạn (36004004) → POD_TIKTOK_INVALID_AUTH_CODE', async () => {
       authClient.getAccessToken.mockRejectedValue(
         new TiktokClientError(
@@ -287,7 +267,7 @@ describe('PodTiktokAccountService', () => {
       );
 
       await expect(
-        service.link(ORG_ID, USER_ID, { accountName: 'A', authorizationCode: 'used-code' }),
+        service.completeAuthorization(ORG_ID, USER_ID, 'used-code', ACCOUNT_NAME),
       ).rejects.toBeInstanceOf(PodTiktokInvalidAuthCodeException);
       expect(apiClient.getAuthorizedShops).not.toHaveBeenCalled();
     });
@@ -303,7 +283,7 @@ describe('PodTiktokAccountService', () => {
       );
 
       await expect(
-        service.link(ORG_ID, USER_ID, { accountName: 'A', authorizationCode: 'code' }),
+        service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME),
       ).rejects.toBeInstanceOf(PodTiktokScopeMissingException);
     });
 
@@ -318,7 +298,7 @@ describe('PodTiktokAccountService', () => {
       );
 
       await expect(
-        service.link(ORG_ID, USER_ID, { accountName: 'A', authorizationCode: 'code' }),
+        service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME),
       ).rejects.toBeInstanceOf(PodTiktokRateLimitedException);
     });
 
@@ -328,7 +308,7 @@ describe('PodTiktokAccountService', () => {
       );
 
       await expect(
-        service.link(ORG_ID, USER_ID, { accountName: 'A', authorizationCode: 'code' }),
+        service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME),
       ).rejects.toBeInstanceOf(PodTiktokApiException);
     });
 
@@ -338,7 +318,7 @@ describe('PodTiktokAccountService', () => {
       });
 
       await expect(
-        service.link(ORG_ID, USER_ID, { accountName: 'A', authorizationCode: 'code' }),
+        service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME),
       ).rejects.toBeInstanceOf(PodTiktokInvalidUserTypeException);
       expect(apiClient.getAuthorizedShops).not.toHaveBeenCalled();
     });
@@ -350,7 +330,7 @@ describe('PodTiktokAccountService', () => {
       mockFindByIdResult();
 
       await expect(
-        service.link(ORG_ID, USER_ID, { accountName: 'A', authorizationCode: 'code' }),
+        service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME),
       ).resolves.toBeDefined();
     });
 
@@ -358,7 +338,7 @@ describe('PodTiktokAccountService', () => {
       apiClient.getAuthorizedShops.mockResolvedValue({ shops: [] });
 
       await expect(
-        service.link(ORG_ID, USER_ID, { accountName: 'A', authorizationCode: 'code' }),
+        service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME),
       ).rejects.toBeInstanceOf(PodTiktokNoShopException);
       expect(repo.createAccount).not.toHaveBeenCalled();
     });
@@ -369,7 +349,7 @@ describe('PodTiktokAccountService', () => {
       ]);
 
       await expect(
-        service.link(ORG_ID, USER_ID, { accountName: 'A', authorizationCode: 'code' }),
+        service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME),
       ).rejects.toBeInstanceOf(PodTiktokShopAlreadyLinkedException);
       expect(repo.createAccount).not.toHaveBeenCalled();
       expect(repo.upsertShop).not.toHaveBeenCalled();
@@ -381,28 +361,99 @@ describe('PodTiktokAccountService', () => {
       });
       mockFindByIdResult();
 
-      await service.link(ORG_ID, USER_ID, { accountName: 'A', authorizationCode: 'code' });
+      await service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME);
 
       const shopData = callArg<PodTiktokShopWriteData>(repo.upsertShop as jest.Mock, 0, 4);
       expect(shopData.sellerType).toBe('LOCAL');
     });
   });
 
-  describe('buildAuthorizeUrl', () => {
-    it('dùng domain US theo cấu hình mặc định', () => {
-      const result = service.buildAuthorizeUrl();
-      expect(result.region).toBe('US');
-      expect(result.authorizeUrl).toBe(
-        'https://services.us.tiktokshop.com/open/authorize?service_id=svc-123',
-      );
+  /**
+   * Tên kết nối do người dùng nhập ở bước tạo Authorization URL, đi theo bản ghi `state`
+   * để callback (request vô danh) vẫn gán được đúng tên. Thiếu tên thì suy ra từ dữ liệu
+   * TikTok — cột `account_name` là NOT NULL nên không bao giờ được rỗng.
+   */
+  describe('tên kết nối', () => {
+    beforeEach(() => mockFindByIdResult());
+
+    it('dùng ĐÚNG tên người dùng đã nhập', async () => {
+      await service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME);
+
+      const writeData = callArg<PodTiktokAccountWriteData>(repo.createAccount as jest.Mock, 0, 3);
+      expect(writeData.accountName).toBe(ACCOUNT_NAME);
     });
 
-    it('dùng domain ROW khi chỉ định region = ROW', () => {
-      const result = service.buildAuthorizeUrl('ROW');
-      expect(result.region).toBe('ROW');
-      expect(result.authorizeUrl).toBe(
-        'https://services.tiktokshop.com/open/authorize?service_id=svc-123',
+    it('cắt khoảng trắng thừa của tên người dùng nhập', async () => {
+      await service.completeAuthorization(ORG_ID, USER_ID, 'code', '   Shop A   ');
+
+      const writeData = callArg<PodTiktokAccountWriteData>(repo.createAccount as jest.Mock, 0, 3);
+      expect(writeData.accountName).toBe('Shop A');
+    });
+
+    it('không có tên người dùng → lấy seller_name của TikTok', async () => {
+      await service.completeAuthorization(ORG_ID, USER_ID, 'code');
+
+      const writeData = callArg<PodTiktokAccountWriteData>(repo.createAccount as jest.Mock, 0, 3);
+      expect(writeData.accountName).toBe(TOKEN_RESPONSE.seller_name);
+    });
+
+    it('không có tên người dùng lẫn seller_name → dùng tên shop đầu tiên', async () => {
+      authClient.getAccessToken.mockResolvedValue({
+        data: { ...TOKEN_RESPONSE, seller_name: '' },
+      });
+
+      await service.completeAuthorization(ORG_ID, USER_ID, 'code');
+
+      const writeData = callArg<PodTiktokAccountWriteData>(repo.createAccount as jest.Mock, 0, 3);
+      expect(writeData.accountName).toBe(SHOP_RESPONSE.name);
+    });
+
+    it('không có nguồn nào → vẫn có tên nhận diện (cột NOT NULL)', async () => {
+      authClient.getAccessToken.mockResolvedValue({
+        data: { ...TOKEN_RESPONSE, seller_name: null },
+      });
+      apiClient.getAuthorizedShops.mockResolvedValue({
+        shops: [{ ...SHOP_RESPONSE, name: '' }],
+      });
+
+      await service.completeAuthorization(ORG_ID, USER_ID, 'code');
+
+      const writeData = callArg<PodTiktokAccountWriteData>(repo.createAccount as jest.Mock, 0, 3);
+      expect(writeData.accountName).toContain(TOKEN_RESPONSE.open_id);
+    });
+
+    it('uỷ quyền lại có nhập tên mới → CẬP NHẬT tên theo người dùng', async () => {
+      (repo.findByOpenIdIncludingDeleted as jest.Mock).mockResolvedValue({
+        id: ACCOUNT_ID,
+        deletedAt: null,
+        accountName: 'Tên cũ',
+      });
+
+      await service.completeAuthorization(ORG_ID, USER_ID, 'code', 'Tên mới');
+
+      const writeData = callArg<PodTiktokAccountWriteData>(
+        repo.updateAccountTokens as jest.Mock,
+        0,
+        3,
       );
+      expect(writeData.accountName).toBe('Tên mới');
+    });
+
+    it('uỷ quyền lại KHÔNG nhập tên → giữ nguyên tên cũ, không ghi đè bằng tên suy ra', async () => {
+      (repo.findByOpenIdIncludingDeleted as jest.Mock).mockResolvedValue({
+        id: ACCOUNT_ID,
+        deletedAt: null,
+        accountName: 'Tên do tổ chức đặt',
+      });
+
+      await service.completeAuthorization(ORG_ID, USER_ID, 'code');
+
+      const writeData = callArg<PodTiktokAccountWriteData>(
+        repo.updateAccountTokens as jest.Mock,
+        0,
+        3,
+      );
+      expect(writeData.accountName).toBe('Tên do tổ chức đặt');
     });
   });
 

@@ -23,6 +23,7 @@ import { PodPayoutReportRepository } from './repositories/pod-payout-report.repo
 import { PodPayoutRepository } from './repositories/pod-payout.repository';
 import { PodSyncLogRepository } from './repositories/pod-sync-log.repository';
 import { PodTiktokAccountRepository } from './repositories/pod-tiktok-account.repository';
+import { PodTiktokOAuthStateRepository } from './repositories/pod-tiktok-oauth-state.repository';
 import { PodOrderSyncJob } from './schedulers/pod-order-sync.job';
 import { PodOrderIngestionService } from './services/pod-order-ingestion.service';
 import { PodOrderSyncService } from './services/pod-order-sync.service';
@@ -32,6 +33,7 @@ import { PodPayoutService } from './services/pod-payout.service';
 import { PodPayoutSyncService } from './services/pod-payout-sync.service';
 import { PodSyncOrchestratorService } from './services/pod-sync-orchestrator.service';
 import { PodTiktokAccountService } from './services/pod-tiktok-account.service';
+import { PodTiktokOAuthService } from './services/pod-tiktok-oauth.service';
 import { PodTiktokTokenService } from './services/pod-tiktok-token.service';
 import { TiktokEncryptionService } from './services/tiktok-encryption.service';
 
@@ -60,9 +62,11 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     PodPayoutController,
   ],
   providers: [
-    // Sprint 1 — Link Account
+    // Sprint 1 — Link Account (luồng OAuth tự động)
     PodTiktokAccountService,
+    PodTiktokOAuthService,
     PodTiktokAccountRepository,
+    PodTiktokOAuthStateRepository,
     PodTiktokAccountMapper,
     // Sprint 2 — Orders & Sync
     PodOrderService,

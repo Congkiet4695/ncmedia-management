@@ -117,6 +117,18 @@ enum PodTiktokAccountStatus {
   @@map("pod_tiktok_account_status")
 }
 
+/// Vòng đời của một `state` trong luồng uỷ quyền OAuth TikTok.
+/// PENDING: vừa sinh, chờ callback · USED: đã tiêu thụ (một lần duy nhất)
+/// EXPIRED: quá hạn trước khi callback về · FAILED: đã tiêu thụ nhưng luồng lỗi
+enum PodTiktokOAuthStateStatus {
+  PENDING
+  USED
+  EXPIRED
+  FAILED
+
+  @@map("pod_tiktok_oauth_state_status")
+}
+
 /// Hành động trên token — phục vụ audit bảo mật. KHÔNG lưu giá trị token.
 enum PodTiktokTokenAction {
   ISSUE
@@ -872,13 +884,14 @@ model PodTiktokAccount {
   createdBy String?   @map("created_by") @db.Uuid
   updatedBy String?   @map("updated_by") @db.Uuid
 
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  authorizer   User?        @relation("PodTiktokAuthorizer", fields: [authorizedBy], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  seller       Employee?    @relation("PodTiktokSeller", fields: [sellerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  organization       Organization        @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  authorizer         User?               @relation("PodTiktokAuthorizer", fields: [authorizedBy], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  seller             Employee?           @relation("PodTiktokSeller", fields: [sellerId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   fulfillmentAccount FulfillmentAccount? @relation("PodTiktokFulfillmentAccount", fields: [fulfillmentAccountId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   shops                 PodTiktokShop[]
   tokenAudits           PodTiktokTokenAudit[]
+  oauthStates           PodTiktokOAuthState[]
   orders                PodOrder[]
   syncLogs              PodSyncLog[]
   payments              PodTiktokPayment[]
@@ -893,6 +906,9 @@ model PodTiktokAccount {
   @@index([accessTokenExpiresAt])
   @@index([refreshTokenExpiresAt])
   @@index([sellerId])
+  // Đã tồn tại trong DB từ migration `fulfillment_provider_management` nhưng thiếu khai báo ở
+  // schema ⇒ mọi lần `migrate dev` sau đó đều sinh lệnh DROP nhầm. Khai báo lại để hết lệch.
+  @@index([fulfillmentAccountId])
   @@map("pod_tiktok_accounts")
 }
 
@@ -1001,6 +1017,66 @@ model PodTiktokTokenAudit {
   @@index([accountId, createdAt])
   @@index([organizationId])
   @@map("pod_tiktok_token_audits")
+}
+
+// ---------------------------------------------------------------------------
+// PodTiktokOAuthState — tham số `state` của luồng uỷ quyền TikTok.
+//
+// 🔴 Vì sao BẮT BUỘC: một app TikTok chỉ khai báo được MỘT Redirect URL cho tất cả
+// tenant. Khi TikTok gọi callback, request đó KHÔNG mang danh tính người dùng
+// (không cookie, không JWT) ⇒ `state` là thứ DUY NHẤT ánh xạ callback về đúng
+// Organization/User đã bấm "Link Account". Đồng thời chống CSRF & replay.
+//
+// Lưu ở DB (không phải Redis) để có vết kiểm toán: ai bắt đầu uỷ quyền, lúc nào,
+// kết thúc ra sao. Bản ghi hết hạn được dọn định kỳ (không phải dữ liệu nghiệp vụ
+// lâu dài) nên KHÔNG dùng soft delete — cùng nguyên tắc với các bảng log vận hành.
+// ---------------------------------------------------------------------------
+
+model PodTiktokOAuthState {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  /// User đã bấm "Link TikTok Account" — người sẽ được ghi là `authorized_by`.
+  userId         String @map("user_id") @db.Uuid
+
+  /// Tên kết nối do người dùng đặt TRƯỚC khi mở authorization link.
+  ///
+  /// 🔴 Phải lưu ở đây vì callback của TikTok là request vô danh: lúc đó không còn form,
+  /// không còn session nào để hỏi lại tên. Bản ghi `state` là nơi duy nhất mang được
+  /// thông tin người dùng đã nhập đi qua chuyến vòng sang TikTok và quay về.
+  accountName String @map("account_name") @db.VarChar(255)
+
+  /// Giá trị ngẫu nhiên gửi kèm authorization link (32 byte, base64url).
+  /// UNIQUE ⇒ hàng rào cuối cùng chống trùng ở tầng DB.
+  state  String                    @db.VarChar(128)
+  /// Thị trường đã dùng để dựng link (US | ROW) — phục vụ chẩn đoán.
+  region String                    @db.VarChar(10)
+  status PodTiktokOAuthStateStatus @default(PENDING)
+
+  /// Hết hạn ⇒ callback bị từ chối. Ngắn hơn nhiều so với hạn 30 phút của auth_code.
+  expiresAt DateTime  @map("expires_at") @db.Timestamptz(6)
+  /// Thời điểm state bị tiêu thụ (chuyển sang USED) — chống dùng lại.
+  usedAt    DateTime? @map("used_at") @db.Timestamptz(6)
+
+  /// Vé một lần để TRANG KẾT QUẢ (công khai) đọc tóm tắt phi nhạy cảm:
+  /// tên shop, region, thời điểm liên kết. KHÔNG bao giờ mang token.
+  resultToken String? @map("result_token") @db.VarChar(128)
+  /// Kết nối được tạo/cập nhật khi luồng thành công.
+  accountId   String? @map("account_id") @db.Uuid
+
+  /// Nguyên nhân thất bại (mã lỗi nghiệp vụ, vd POD_TIKTOK_INVALID_AUTH_CODE).
+  /// 🔴 KHÔNG bao giờ lưu `auth_code` hay token ở đây.
+  errorCode String? @map("error_code") @db.VarChar(64)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account PodTiktokAccount? @relation(fields: [accountId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([state])
+  @@unique([resultToken])
+  @@index([organizationId])
+  @@index([expiresAt])
+  @@map("pod_tiktok_oauth_states")
 }
 
 // ===========================================================================

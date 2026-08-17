@@ -1,29 +1,29 @@
 'use client';
 
-import { useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
-import { Copy, ExternalLink, Loader2 } from 'lucide-react';
+import { Check, Copy, ExternalLink, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Modal } from '@/components/ui/modal';
-import { usePodTiktokAuthorizeUrl } from '../hooks/use-pod-tiktok';
+import { useApiError } from '@/hooks/use-api-error';
+import { useStartTiktokAuthorization } from '../hooks/use-pod-tiktok';
 import {
-  createLinkTiktokAccountSchema,
-  type LinkTiktokAccountInput,
+  createStartTiktokAuthorizationSchema,
+  type StartTiktokAuthorizationInput,
 } from '../schemas/pod-tiktok.schema';
+import type { PodTiktokAuthorizeUrl } from '../types';
 
 interface LinkAccountDialogProps {
   open: boolean;
-  submitting?: boolean;
   onClose: () => void;
-  onSubmit: (values: LinkTiktokAccountInput) => void;
 }
 
-const DEFAULTS: LinkTiktokAccountInput = { accountName: '', authorizationCode: '' };
+const DEFAULTS: StartTiktokAuthorizationInput = { accountName: '' };
 
 function FieldError({ message }: { message?: string }) {
   if (!message) return null;
@@ -33,104 +33,72 @@ function FieldError({ message }: { message?: string }) {
 /**
  * Dialog Link TikTok Shop Account.
  *
- * Luồng: Seller mở Authorization URL → đăng nhập TikTok → Approve →
- * TikTok redirect kèm tham số `code` → Seller copy `code` → dán vào ô Authorization Code.
+ * Hai bước, người dùng chỉ làm hai việc: **nhập Account Name** và **copy Authorization URL**.
  *
- * ⚠️ Authorization Code chỉ dùng được MỘT LẦN và hết hạn sau 30 phút (tài liệu TikTok).
+ * 🔴 KHÔNG còn Authorization Code ở bất kỳ đâu: sau khi Seller Approve trên TikTok, callback
+ * của backend tự đổi code lấy token, tự lấy shop và tự lưu kết nối với đúng Account Name đã
+ * nhập (tên được lưu kèm `state`). Đây là điều kiện TikTok App Review yêu cầu.
  */
-export function LinkAccountDialog({
-  open,
-  submitting,
-  onClose,
-  onSubmit,
-}: LinkAccountDialogProps) {
+export function LinkAccountDialog({ open, onClose }: LinkAccountDialogProps) {
   const { t } = useTranslation(['pod', 'common']);
   const { t: tv } = useTranslation('validation');
-  const schema = useMemo(() => createLinkTiktokAccountSchema(tv), [tv]);
-  const authorizeUrlQuery = usePodTiktokAuthorizeUrl(open);
+  const translateApiError = useApiError();
+  const schema = useMemo(() => createStartTiktokAuthorizationSchema(tv), [tv]);
+
+  const startAuthorization = useStartTiktokAuthorization();
+  const [session, setSession] = useState<PodTiktokAuthorizeUrl | null>(null);
+  const [copied, setCopied] = useState(false);
+  const urlInputRef = useRef<HTMLInputElement>(null);
+
   const {
     register,
     handleSubmit,
     reset,
     formState: { errors },
-  } = useForm<LinkTiktokAccountInput>({
+  } = useForm<StartTiktokAuthorizationInput>({
     resolver: zodResolver(schema),
     defaultValues: DEFAULTS,
   });
 
-  // Mỗi lần mở lại dialog phải sạch form — tránh gửi nhầm code cũ (code chỉ dùng 1 lần).
+  // Mỗi lần mở lại dialog phải sạch: link cũ mang `state` đã hết hạn hoặc đã dùng.
   useEffect(() => {
-    if (open) reset(DEFAULTS);
+    if (open) {
+      reset(DEFAULTS);
+      setSession(null);
+      setCopied(false);
+    }
   }, [open, reset]);
 
-  const authorizeUrl = authorizeUrlQuery.data?.authorizeUrl;
+  const handleGenerate = async (values: StartTiktokAuthorizationInput) => {
+    try {
+      setSession(await startAuthorization.mutateAsync({ accountName: values.accountName }));
+      setCopied(false);
+    } catch (error) {
+      toast.error(t('link.urlFailed'), { description: translateApiError(error) });
+    }
+  };
 
   const handleCopyUrl = async () => {
-    if (!authorizeUrl) return;
+    if (!session) return;
     try {
-      await navigator.clipboard.writeText(authorizeUrl);
+      await navigator.clipboard.writeText(session.authorizeUrl);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
       toast.success(t('link.copySuccess'));
     } catch {
+      // Clipboard API cần ngữ cảnh bảo mật (HTTPS) và quyền — trên vài trình duyệt sẽ bị
+      // chặn. Bôi đen sẵn nội dung để người dùng copy tay được ngay.
+      urlInputRef.current?.select();
       toast.error(t('link.copyFailed'));
     }
   };
 
   return (
-    <Modal
-      open={open}
-      onClose={onClose}
-      title={t('link.title')}
-      description={t('link.description')}
-    >
+    <Modal open={open} onClose={onClose} title={t('link.title')} description={t('link.description')}>
       <div className="space-y-5">
-        {/* Bước 1 — hướng dẫn lấy Authorization Code */}
-        <div className="rounded-md border bg-muted/40 p-3 text-sm">
-          <p className="font-medium">{t('link.step1')}</p>
-          <ol className="mt-2 list-decimal space-y-1 pl-4 text-muted-foreground">
-            <li>{t('link.step1Item1')}</li>
-            <li>{t('link.step1Item2')}</li>
-            <li>
-              {t('link.step1Item3Prefix')} <code>code=...</code> {t('link.step1Item3Suffix')}{' '}
-              <code>code</code>.
-            </li>
-          </ol>
-
-          {authorizeUrlQuery.isLoading && (
-            <p className="mt-3 flex items-center gap-2 text-muted-foreground">
-              <Loader2 className="size-4 animate-spin" /> {t('link.loadingUrl')}
-            </p>
-          )}
-
-          {authorizeUrlQuery.isError && (
-            <p className="mt-3 text-destructive">
-              {t('link.urlFailed')}
-            </p>
-          )}
-
-          {authorizeUrl && (
-            <div className="mt-3 space-y-2">
-              <p className="break-all rounded bg-background p-2 font-mono text-xs">
-                {authorizeUrl}
-              </p>
-              <div className="flex flex-wrap gap-2">
-                <Button type="button" variant="outline" size="sm" onClick={handleCopyUrl}>
-                  <Copy className="size-4" />
-                  {t('link.copyUrl')}
-                </Button>
-                <Button asChild type="button" variant="outline" size="sm">
-                  <a href={authorizeUrl} target="_blank" rel="noopener noreferrer">
-                    <ExternalLink className="size-4" />
-                    {t('link.openAuthorize')}
-                  </a>
-                </Button>
-              </div>
-            </div>
-          )}
-        </div>
-
-        {/* Bước 2 — nhập thông tin */}
-        <form onSubmit={handleSubmit(onSubmit)} className="space-y-4">
-          <p className="text-sm font-medium">{t('link.step2')}</p>
+        {/* Bước 1 — nhập tên kết nối rồi tạo Authorization URL */}
+        <form onSubmit={handleSubmit(handleGenerate)} className="space-y-4">
+          <p className="text-sm font-medium">{t('link.step1')}</p>
 
           <div className="space-y-2">
             <Label htmlFor="accountName">
@@ -140,39 +108,75 @@ export function LinkAccountDialog({
               id="accountName"
               placeholder={t('link.accountNamePlaceholder')}
               autoComplete="off"
+              disabled={Boolean(session)}
               {...register('accountName')}
             />
             <FieldError message={errors.accountName?.message} />
+            <p className="text-xs text-muted-foreground">{t('link.accountNameHint')}</p>
           </div>
 
-          <div className="space-y-2">
-            <Label htmlFor="authorizationCode">
-              {t('link.authorizationCode')} <span className="text-destructive">*</span>
-            </Label>
-            <Input
-              id="authorizationCode"
-              placeholder={t('link.authorizationCodePlaceholder')}
-              autoComplete="off"
-              spellCheck={false}
-              {...register('authorizationCode')}
-            />
-            <FieldError message={errors.authorizationCode?.message} />
-            <p className="text-xs text-muted-foreground">
-              {t('link.codeHintPrefix')} <strong>{t('link.codeHintOnce')}</strong>{' '}
-              {t('link.codeHintMiddle')} <strong>{t('link.codeHintMinutes')}</strong>.
-            </p>
-          </div>
-
-          <div className="flex justify-end gap-2 pt-2">
-            <Button type="button" variant="outline" onClick={onClose} disabled={submitting}>
-              {t('common:action.cancel')}
-            </Button>
-            <Button type="submit" disabled={submitting}>
-              {submitting && <Loader2 className="animate-spin" />}
-              {t('link.submit')}
-            </Button>
-          </div>
+          {!session && (
+            <div className="flex justify-end gap-2 pt-2">
+              <Button
+                type="button"
+                variant="outline"
+                onClick={onClose}
+                disabled={startAuthorization.isPending}
+              >
+                {t('common:action.cancel')}
+              </Button>
+              <Button type="submit" disabled={startAuthorization.isPending}>
+                {startAuthorization.isPending && <Loader2 className="animate-spin" />}
+                {t('link.generateUrl')}
+              </Button>
+            </div>
+          )}
         </form>
+
+        {/* Bước 2 — copy Authorization URL và dán vào TikTok Partner */}
+        {session && (
+          <div className="space-y-4 border-t pt-4">
+            <p className="text-sm font-medium">{t('link.step2')}</p>
+
+            <div className="space-y-2">
+              <Label htmlFor="authorizeUrl">{t('link.authorizationUrl')}</Label>
+              <Input
+                id="authorizeUrl"
+                ref={urlInputRef}
+                readOnly
+                value={session.authorizeUrl}
+                // Bấm vào là bôi đen toàn bộ — thao tác quen thuộc khi cần copy tay.
+                onFocus={(event) => event.currentTarget.select()}
+                onClick={(event) => event.currentTarget.select()}
+                className="break-all font-mono text-xs"
+                spellCheck={false}
+              />
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              <Button type="button" onClick={() => void handleCopyUrl()}>
+                {copied ? <Check className="size-4" /> : <Copy className="size-4" />}
+                {t('link.copyUrl')}
+              </Button>
+              <Button asChild type="button" variant="outline">
+                <a href={session.authorizeUrl} target="_blank" rel="noopener noreferrer">
+                  <ExternalLink className="size-4" />
+                  {t('link.openAuthorize')}
+                </a>
+              </Button>
+            </div>
+
+            <p className="rounded-md bg-muted/60 p-3 text-xs text-muted-foreground">
+              {t('link.autoNotice')}
+            </p>
+
+            <div className="flex justify-end pt-2">
+              <Button type="button" variant="outline" onClick={onClose}>
+                {t('common:action.close')}
+              </Button>
+            </div>
+          </div>
+        )}
       </div>
     </Modal>
   );

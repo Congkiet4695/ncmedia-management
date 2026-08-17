@@ -10,6 +10,20 @@ import {
 } from '@nestjs/common';
 import { TiktokErrorClass } from '../constants/tiktok-error-code.constants';
 
+/**
+ * Mã lỗi nghiệp vụ dùng ở luồng uỷ quyền OAuth.
+ *
+ * Tách thành hằng số vì luồng callback KHÔNG trả JSON lỗi (trình duyệt Seller đang
+ * đứng ở đó) — nó lưu mã vào bản ghi `state` rồi chuyển hướng, nên mã phải dùng được
+ * cả ở nơi ném exception lẫn nơi chỉ ghi nhận. Frontend dịch mã sang thông điệp.
+ */
+export const POD_TIKTOK_OAUTH_ERROR_CODES = {
+  INVALID_STATE: 'POD_TIKTOK_INVALID_STATE',
+  AUTH_DENIED: 'POD_TIKTOK_AUTH_DENIED',
+  LINK_RESULT_NOT_FOUND: 'POD_TIKTOK_LINK_RESULT_NOT_FOUND',
+  API_ERROR: 'POD_TIKTOK_API_ERROR',
+} as const;
+
 /** Không tìm thấy kết nối TikTok trong Organization. */
 export class PodTiktokAccountNotFoundException extends NotFoundException {
   constructor() {
@@ -54,6 +68,43 @@ export class PodTiktokInvalidAuthCodeException extends BadRequestException {
       message:
         'Authorization Code không hợp lệ, đã được sử dụng hoặc đã hết hạn. ' +
         'Mã chỉ dùng được MỘT LẦN và hết hạn sau 30 phút — vui lòng lấy mã mới rồi thử lại.',
+    });
+  }
+}
+
+/**
+ * `state` của callback không hợp lệ: không tồn tại, đã dùng, hoặc đã hết hạn.
+ *
+ * 🔴 Gộp chung ba nguyên nhân vào MỘT thông điệp là có chủ ý — trả lời chi tiết hơn
+ * chỉ giúp người tấn công dò xem state nào từng tồn tại. Chi tiết nằm ở log.
+ */
+export class PodTiktokInvalidStateException extends BadRequestException {
+  constructor() {
+    super({
+      code: POD_TIKTOK_OAUTH_ERROR_CODES.INVALID_STATE,
+      message:
+        'Phiên uỷ quyền không hợp lệ hoặc đã hết hạn. Vui lòng bấm "Liên kết TikTok Shop" ' +
+        'trong hệ thống để bắt đầu lại.',
+    });
+  }
+}
+
+/** Seller bấm Từ chối ở màn hình uỷ quyền (`error=auth_denied`). */
+export class PodTiktokAuthorizationDeniedException extends BadRequestException {
+  constructor() {
+    super({
+      code: POD_TIKTOK_OAUTH_ERROR_CODES.AUTH_DENIED,
+      message: 'Bạn đã từ chối cấp quyền cho ứng dụng trên TikTok Shop.',
+    });
+  }
+}
+
+/** Không tra được kết quả uỷ quyền (vé đã hết hạn hoặc sai). */
+export class PodTiktokLinkResultNotFoundException extends NotFoundException {
+  constructor() {
+    super({
+      code: POD_TIKTOK_OAUTH_ERROR_CODES.LINK_RESULT_NOT_FOUND,
+      message: 'Không tìm thấy kết quả uỷ quyền cho phiên này.',
     });
   }
 }
@@ -158,7 +209,7 @@ export class PodTiktokSyncInProgressException extends ConflictException {
 /** Lỗi nghiệp vụ/hệ thống khi gọi TikTok API — không lộ message gốc ra người dùng. */
 export class PodTiktokApiException extends BadGatewayException {
   constructor(message = 'TikTok API trả về lỗi. Vui lòng thử lại sau.') {
-    super({ code: 'POD_TIKTOK_API_ERROR', message });
+    super({ code: POD_TIKTOK_OAUTH_ERROR_CODES.API_ERROR, message });
   }
 }
 

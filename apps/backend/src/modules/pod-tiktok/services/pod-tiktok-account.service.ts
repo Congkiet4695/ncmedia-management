@@ -1,20 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
 import { PodTiktokAccountStatus, PodTiktokTokenAction, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
-import {
-  TIKTOK_AUTHORIZE_PATH,
-  TIKTOK_SELLER_USER_TYPES,
-  TIKTOK_SELLER_TYPES,
-  type TiktokRegion,
-} from '../constants/tiktok.constants';
+import { TIKTOK_SELLER_USER_TYPES, TIKTOK_SELLER_TYPES } from '../constants/tiktok.constants';
 import {
   TIKTOK_ERROR_CODES,
   TiktokErrorClass,
 } from '../constants/tiktok-error-code.constants';
 import { TiktokApiClient } from '../clients/tiktok-api.client';
 import { TiktokAuthClient } from '../clients/tiktok-auth.client';
-import { LinkTiktokAccountDto } from '../dto/link-account.dto';
 import {
   AssignFulfillmentProviderDto,
   AssignPodSellerDto,
@@ -25,7 +18,6 @@ import {
   PaginatedPodTiktokAccountResponseDto,
   PodSellerOptionDto,
   PodTiktokAccountResponseDto,
-  PodTiktokAuthorizeUrlDto,
 } from '../dto/pod-tiktok-response.dto';
 import {
   PodTiktokAccountAlreadyLinkedException,
@@ -57,14 +49,16 @@ export interface PodTiktokRequestMeta {
 }
 
 /**
- * PodTiktokAccountService — nghiệp vụ Link TikTok Shop Account (Sprint 1).
+ * PodTiktokAccountService — nghiệp vụ kết nối TikTok Shop Account.
  *
- * Luồng đúng theo tài liệu chính thức TikTok:
+ * Luồng đúng theo tài liệu chính thức TikTok (chạy TỰ ĐỘNG trong callback,
+ * người dùng không thao tác gì — xem `PodTiktokOAuthService`):
  *   Bước 1: đổi `auth_code` → access_token + refresh_token (+ expire time, open_id, user_type).
  *   Bước 2: gọi Get Authorized Shops → toàn bộ shop (có thể NHIỀU shop) + shop_cipher.
  *   Bước 3: lưu DB trong MỘT transaction (token & cipher đã mã hoá AES-256-GCM).
  *
- * Tenant isolation: mọi thao tác nhận `organizationId` từ JWT (ADR-004).
+ * Tenant isolation: `organizationId` đến từ JWT (thao tác quản trị) hoặc từ bản ghi
+ * `state` đã được xác thực (luồng callback) — không bao giờ từ query string (ADR-004).
  */
 @Injectable()
 export class PodTiktokAccountService {
@@ -72,7 +66,6 @@ export class PodTiktokAccountService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly config: ConfigService,
     private readonly repo: PodTiktokAccountRepository,
     private readonly mapper: PodTiktokAccountMapper,
     private readonly encryption: TiktokEncryptionService,
@@ -81,38 +74,24 @@ export class PodTiktokAccountService {
   ) {}
 
   /**
-   * Sinh authorization link để Seller mở, đăng nhập và Approve.
-   * Domain theo thị trường (Authorization overview):
-   *   US  → https://services.us.tiktokshop.com/open/authorize?service_id=...
-   *   ROW → https://services.tiktokshop.com/open/authorize?service_id=...
-   */
-  buildAuthorizeUrl(region?: TiktokRegion): PodTiktokAuthorizeUrlDto {
-    const effectiveRegion =
-      region ?? (this.config.get<string>('tiktok.defaultRegion', 'US') as TiktokRegion);
-    const base =
-      effectiveRegion === 'US'
-        ? this.config.getOrThrow<string>('tiktok.authorizeBaseUrlUs')
-        : this.config.getOrThrow<string>('tiktok.authorizeBaseUrlRow');
-
-    const url = new URL(TIKTOK_AUTHORIZE_PATH, base);
-    url.searchParams.set('service_id', this.config.getOrThrow<string>('tiktok.serviceId'));
-    return { authorizeUrl: url.toString(), region: effectiveRegion };
-  }
-
-  /**
-   * Link TikTok Shop Account bằng Authorization Code do Seller dán vào.
+   * Hoàn tất uỷ quyền: đổi Authorization Code → lấy shop → lưu kết nối.
+   *
+   * Được gọi TỪ CALLBACK, sau khi `state` đã được xác thực. `accountName` là tên người
+   * dùng đã nhập ở bước tạo authorization link (đi theo bản ghi `state`); bỏ trống thì
+   * suy ra từ dữ liệu TikTok để cột NOT NULL không bao giờ rỗng.
    *
    * Gọi TikTok TRƯỚC transaction (I/O ngoài không nằm trong transaction DB),
    * sau đó ghi DB nguyên tử ở bước cuối.
    */
-  async link(
+  async completeAuthorization(
     organizationId: string,
     actorUserId: string,
-    dto: LinkTiktokAccountDto,
+    authorizationCode: string,
+    accountName?: string,
     meta: PodTiktokRequestMeta = {},
   ): Promise<PodTiktokAccountResponseDto> {
     // --- Bước 1: đổi Authorization Code lấy token ---
-    const tokenResult = await this.exchangeAuthorizationCode(dto.authorizationCode);
+    const tokenResult = await this.exchangeAuthorizationCode(authorizationCode);
     const token = tokenResult.data;
 
     // Chỉ chấp nhận token của Seller (0) / Global Selling seller (4,5).
@@ -129,9 +108,9 @@ export class PodTiktokAccountService {
     const accountId = await this.persistLink(
       organizationId,
       actorUserId,
-      dto.accountName,
       token,
       shops,
+      accountName,
       { requestId: tokenResult.requestId, ...meta },
     );
 
@@ -339,17 +318,33 @@ export class PodTiktokAccountService {
     }
   }
 
+  /**
+   * Tên hiển thị của kết nối.
+   *
+   * Thứ tự ưu tiên: tên người dùng nhập → tên seller (token) → tên shop đầu tiên →
+   * mã nhận diện dựa trên `open_id` (không bao giờ để trống vì cột là NOT NULL).
+   */
+  private resolveAccountName(
+    userProvidedName: string | undefined,
+    token: TiktokTokenData,
+    shops: TiktokShopItem[],
+  ): string {
+    const candidate =
+      userProvidedName?.trim() || token.seller_name?.trim() || shops[0]?.name?.trim() || '';
+    return (candidate || `TikTok Shop ${token.open_id}`).slice(0, 255);
+  }
+
   /** Bước 3 — ghi DB nguyên tử: kết nối + shop + audit. */
   private async persistLink(
     organizationId: string,
     actorUserId: string,
-    accountName: string,
     token: TiktokTokenData & { userTypeSafe: number },
     shops: TiktokShopItem[],
+    userProvidedName: string | undefined,
     meta: PodTiktokRequestMeta & { requestId?: string },
   ): Promise<string> {
     const writeData: PodTiktokAccountWriteData = {
-      accountName,
+      accountName: this.resolveAccountName(userProvidedName, token, shops),
       openId: token.open_id,
       sellerName: token.seller_name ?? null,
       sellerBaseRegion: token.seller_base_region ?? null,
@@ -391,7 +386,14 @@ export class PodTiktokAccountService {
           action = existing.deletedAt
             ? PodTiktokTokenAction.ISSUE
             : PodTiktokTokenAction.REAUTHORIZE;
-          await this.repo.updateAccountTokens(tx, accountId, actorUserId, writeData);
+          // Uỷ quyền lại: tên người dùng vừa nhập được ưu tiên (họ vừa gõ nó một cách có
+          // chủ đích); không nhập thì giữ nguyên tên cũ thay vì ghi đè bằng tên suy ra.
+          await this.repo.updateAccountTokens(tx, accountId, actorUserId, {
+            ...writeData,
+            accountName: userProvidedName?.trim()
+              ? writeData.accountName
+              : existing.accountName,
+          });
         } else {
           const created = await this.repo.createAccount(
             tx,

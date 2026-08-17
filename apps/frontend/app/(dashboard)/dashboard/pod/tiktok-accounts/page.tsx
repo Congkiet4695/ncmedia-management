@@ -16,11 +16,9 @@ import { useApiError } from '@/hooks/use-api-error';
 import { LinkAccountDialog } from '@/features/pod-tiktok/components/link-account-dialog';
 import { TiktokAccountTable } from '@/features/pod-tiktok/components/tiktok-account-table';
 import {
-  useLinkPodTiktokAccount,
   usePodTiktokAccounts,
   useUnlinkPodTiktokAccount,
 } from '@/features/pod-tiktok/hooks/use-pod-tiktok';
-import type { LinkTiktokAccountInput } from '@/features/pod-tiktok/schemas/pod-tiktok.schema';
 import {
   POD_TIKTOK_STATUSES,
   type PodTiktokAccountListItem,
@@ -58,7 +56,6 @@ function PodTiktokAccountsView() {
   const canAssignSeller = hasPermission('pod.tiktok.account.update');
 
   const accountsQuery = usePodTiktokAccounts(query);
-  const linkMutation = useLinkPodTiktokAccount();
   const unlinkMutation = useUnlinkPodTiktokAccount();
 
   const patchQuery = (patch: Partial<PodTiktokAccountQuery>) =>
@@ -71,21 +68,6 @@ function PodTiktokAccountsView() {
 
   const items = accountsQuery.data?.items ?? [];
   const meta = accountsQuery.data?.meta;
-
-  const handleLink = async (values: LinkTiktokAccountInput) => {
-    try {
-      const account = await linkMutation.mutateAsync(values);
-      toast.success(t('account.linkSuccess'), {
-        description: t('account.linkSuccessDetail', {
-          name: account.accountName,
-          count: account.shops.length,
-        }),
-      });
-      setLinkOpen(false);
-    } catch (error) {
-      toast.error(t('account.linkFailed'), { description: translateApiError(error) });
-    }
-  };
 
   const handleConfirmUnlink = async () => {
     if (!unlinking) return;
@@ -193,12 +175,7 @@ function PodTiktokAccountsView() {
         </CardContent>
       </Card>
 
-      <LinkAccountDialog
-        open={linkOpen}
-        submitting={linkMutation.isPending}
-        onClose={() => setLinkOpen(false)}
-        onSubmit={handleLink}
-      />
+      <LinkAccountDialog open={linkOpen} onClose={() => setLinkOpen(false)} />
 
       <Modal
         open={Boolean(unlinking)}

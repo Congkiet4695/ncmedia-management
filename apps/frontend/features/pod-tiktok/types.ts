@@ -97,16 +97,38 @@ export interface PodTiktokAccountQuery extends PaginationParams {
   sortOrder?: 'asc' | 'desc';
 }
 
-/** Payload Link Account — đúng 2 field theo yêu cầu Sprint 1. */
-export interface LinkTiktokAccountPayload {
+/** Payload tạo Authorization URL — chỉ Account Name là do người dùng nhập. */
+export interface StartTiktokAuthorizationPayload {
   accountName: string;
-  authorizationCode: string;
+  region?: TiktokRegion;
 }
 
-/** Link uỷ quyền để Seller mở. */
+/**
+ * Authorization URL để người dùng copy.
+ * `state` KHÔNG được trả về đây — nó chỉ nằm trong `authorizeUrl` do backend dựng.
+ */
 export interface PodTiktokAuthorizeUrl {
   authorizeUrl: string;
+  /** Tên kết nối đã nhập — backend gán khi callback hoàn tất. */
+  accountName: string;
   region: string;
+  /** Thời điểm phiên uỷ quyền hết hạn (ISO-8601). */
+  expiresAt: string;
+}
+
+/**
+ * Kết quả một phiên uỷ quyền, đọc bằng vé `ref` trên trang kết quả công khai.
+ * KHÔNG chứa auth_code hay token — backend không bao giờ trả những giá trị đó ra frontend.
+ */
+export interface PodTiktokLinkResult {
+  success: boolean;
+  accountName: string | null;
+  sellerName: string | null;
+  shopName: string | null;
+  region: string | null;
+  shopCount: number;
+  linkedAt: string | null;
+  errorCode: string | null;
 }
 
 /** Một lựa chọn trong dropdown "Seller phụ trách" (Employee ACTIVE + Role EMPLOYEE). */

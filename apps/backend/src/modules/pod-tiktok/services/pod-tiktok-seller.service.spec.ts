@@ -1,4 +1,3 @@
-import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../../database/prisma.service';
 import { TiktokApiClient } from '../clients/tiktok-api.client';
 import { TiktokAuthClient } from '../clients/tiktok-auth.client';
@@ -59,7 +58,6 @@ describe('PodTiktokAccountService — Seller phụ trách', () => {
 
     service = new PodTiktokAccountService(
       {} as unknown as PrismaService,
-      { get: jest.fn(), getOrThrow: jest.fn(() => 'x') } as unknown as ConfigService,
       repo as unknown as PodTiktokAccountRepository,
       new PodTiktokAccountMapper(),
       {} as unknown as TiktokEncryptionService,

@@ -17,7 +17,6 @@ import {
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
-  ApiConflictResponse,
   ApiCreatedResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
@@ -31,7 +30,7 @@ import { RequirePermissions } from '../auth/decorators/require-permissions.decor
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
-import { AuthorizeUrlQueryDto, LinkTiktokAccountDto } from './dto/link-account.dto';
+import { StartTiktokAuthorizationDto } from './dto/tiktok-oauth.dto';
 import {
   AssignFulfillmentProviderDto,
   AssignPodSellerDto,
@@ -45,6 +44,7 @@ import {
   PodTiktokAuthorizeUrlDto,
 } from './dto/pod-tiktok-response.dto';
 import { PodTiktokAccountService } from './services/pod-tiktok-account.service';
+import { PodTiktokOAuthService } from './services/pod-tiktok-oauth.service';
 
 /**
  * PodTiktokAccountController — Link/quản lý TikTok Shop Account (Module POD, Sprint 1).
@@ -59,44 +59,34 @@ import { PodTiktokAccountService } from './services/pod-tiktok-account.service';
 @UseGuards(JwtAuthGuard, PermissionsGuard)
 @Controller('pod/tiktok/accounts')
 export class PodTiktokAccountController {
-  constructor(private readonly service: PodTiktokAccountService) {}
+  constructor(
+    private readonly service: PodTiktokAccountService,
+    private readonly oauthService: PodTiktokOAuthService,
+  ) {}
 
-  @Get('authorize-url')
-  @RequirePermissions('pod.tiktok.account.create')
-  @ApiOperation({
-    summary: 'Lấy Authorization URL để Seller uỷ quyền',
-    description:
-      'Trả về link uỷ quyền theo thị trường (US mặc định). Seller mở link, đăng nhập TikTok, ' +
-      'Approve rồi copy tham số `code` trên URL callback để dán vào form Link Account.',
-  })
-  @ApiOkResponse({ type: PodTiktokAuthorizeUrlDto })
-  authorizeUrl(@Query() query: AuthorizeUrlQueryDto): PodTiktokAuthorizeUrlDto {
-    return this.service.buildAuthorizeUrl(query.region);
-  }
-
-  @Post('link')
+  @Post('authorize-url')
   @HttpCode(HttpStatus.CREATED)
   @RequirePermissions('pod.tiktok.account.create')
   @ApiOperation({
-    summary: 'Link TikTok Shop Account bằng Authorization Code',
+    summary: 'Tạo Authorization URL cho một phiên uỷ quyền TikTok',
     description:
-      'Đổi Authorization Code lấy Access/Refresh Token, sau đó gọi Get Authorized Shops ' +
-      'để lấy toàn bộ shop (có thể nhiều shop) và lưu vào hệ thống. ' +
-      'Authorization Code chỉ dùng được MỘT LẦN và hết hạn sau 30 phút.',
+      'Nhận `accountName` (tên kết nối), sinh `state` một lần (lưu server-side kèm tên đó, có ' +
+      'hạn) và trả về Authorization URL đầy đủ để người dùng copy. Sau khi Seller Approve, ' +
+      'TikTok gọi callback và hệ thống TỰ ĐỘNG đổi token, lấy shop, lưu kết nối với đúng tên ' +
+      'đã nhập — người dùng KHÔNG phải copy hay dán Authorization Code.',
   })
-  @ApiCreatedResponse({ type: PodTiktokAccountResponseDto })
-  @ApiBadRequestResponse({ description: 'Authorization Code không hợp lệ / hết hạn / sai loại tài khoản' })
-  @ApiConflictResponse({ description: 'Shop hoặc tài khoản Seller đã được liên kết' })
-  link(
+  @ApiCreatedResponse({ type: PodTiktokAuthorizeUrlDto })
+  @ApiBadRequestResponse({ description: 'Thiếu hoặc sai Account Name' })
+  startAuthorization(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: LinkTiktokAccountDto,
-    @Ip() ip: string,
-    @Headers('user-agent') userAgent?: string,
-  ): Promise<PodTiktokAccountResponseDto> {
-    return this.service.link(user.organizationId, user.userId, dto, {
-      ipAddress: ip,
-      userAgent,
-    });
+    @Body() dto: StartTiktokAuthorizationDto,
+  ): Promise<PodTiktokAuthorizeUrlDto> {
+    return this.oauthService.startAuthorization(
+      user.organizationId,
+      user.userId,
+      dto.accountName,
+      dto.region,
+    );
   }
 
   @Get()

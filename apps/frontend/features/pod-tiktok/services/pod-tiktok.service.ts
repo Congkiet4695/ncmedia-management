@@ -1,16 +1,18 @@
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse } from '@/types/api';
 import type {
-  LinkTiktokAccountPayload,
   PodTiktokAccount,
   PodTiktokAccountListResult,
   PodTiktokAccountQuery,
   PodSellerOption,
   PodTiktokAuthorizeUrl,
-  TiktokRegion,
+  PodTiktokLinkResult,
+  StartTiktokAuthorizationPayload,
 } from '../types';
 
 const BASE_PATH = '/pod/tiktok/accounts';
+/** Endpoint CÔNG KHAI — trang kết quả chạy khi người dùng có thể chưa đăng nhập. */
+const LINK_RESULT_PATH = '/tiktok/link-result';
 
 function clean<T extends Record<string, unknown>>(obj: T): Partial<T> {
   return Object.fromEntries(
@@ -31,18 +33,26 @@ export const podTiktokService = {
     return res.data.data;
   },
 
-  /** Link Account: đổi Authorization Code → token → lấy shop → lưu DB (backend xử lý). */
-  async link(payload: LinkTiktokAccountPayload): Promise<PodTiktokAccount> {
-    const res = await apiClient.post<ApiResponse<PodTiktokAccount>>(`${BASE_PATH}/link`, payload);
+  /**
+   * Tạo Authorization URL: backend sinh `state`, lưu server-side kèm Account Name rồi trả
+   * link đầy đủ để người dùng copy. Sau khi Seller Approve, backend tự hoàn tất — frontend
+   * KHÔNG bao giờ đụng tới Authorization Code.
+   */
+  async startAuthorization(
+    payload: StartTiktokAuthorizationPayload,
+  ): Promise<PodTiktokAuthorizeUrl> {
+    const res = await apiClient.post<ApiResponse<PodTiktokAuthorizeUrl>>(
+      `${BASE_PATH}/authorize-url`,
+      clean(payload as unknown as Record<string, unknown>),
+    );
     return res.data.data;
   },
 
-  /** Lấy link uỷ quyền để Seller mở và lấy Authorization Code. */
-  async authorizeUrl(region?: TiktokRegion): Promise<PodTiktokAuthorizeUrl> {
-    const res = await apiClient.get<ApiResponse<PodTiktokAuthorizeUrl>>(
-      `${BASE_PATH}/authorize-url`,
-      { params: clean({ region }) },
-    );
+  /** Tóm tắt kết quả uỷ quyền cho trang công khai (chỉ tên shop, region, thời điểm). */
+  async linkResult(ref: string): Promise<PodTiktokLinkResult> {
+    const res = await apiClient.get<ApiResponse<PodTiktokLinkResult>>(LINK_RESULT_PATH, {
+      params: { ref },
+    });
     return res.data.data;
   },
 

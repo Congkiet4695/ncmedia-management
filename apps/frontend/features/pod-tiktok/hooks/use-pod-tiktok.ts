@@ -2,7 +2,7 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { podTiktokService } from '../services/pod-tiktok.service';
-import type { LinkTiktokAccountPayload, PodTiktokAccountQuery, TiktokRegion } from '../types';
+import type { PodTiktokAccountQuery, StartTiktokAuthorizationPayload } from '../types';
 
 const POD_TIKTOK_KEY = 'pod-tiktok-accounts';
 
@@ -23,23 +23,29 @@ export function usePodTiktokAccount(id?: string) {
 }
 
 /**
- * Link uỷ quyền — chỉ fetch khi dialog mở (`enabled`) để không gọi thừa.
- * URL này ít thay đổi nên cache dài.
+ * Tạo Authorization URL cho một phiên uỷ quyền.
+ *
+ * Là MUTATION chứ không phải query: mỗi lần tạo phải sinh một `state` mới dùng một lần —
+ * cache lại link cũ đồng nghĩa đưa người dùng đi với `state` đã tiêu thụ hoặc hết hạn.
  */
-export function usePodTiktokAuthorizeUrl(enabled: boolean, region?: TiktokRegion) {
-  return useQuery({
-    queryKey: [POD_TIKTOK_KEY, 'authorize-url', region ?? 'default'],
-    queryFn: () => podTiktokService.authorizeUrl(region),
-    enabled,
-    staleTime: 30 * 60 * 1000,
+export function useStartTiktokAuthorization() {
+  return useMutation({
+    mutationFn: (payload: StartTiktokAuthorizationPayload) =>
+      podTiktokService.startAuthorization(payload),
   });
 }
 
-export function useLinkPodTiktokAccount() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: (payload: LinkTiktokAccountPayload) => podTiktokService.link(payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [POD_TIKTOK_KEY] }),
+/**
+ * Kết quả uỷ quyền cho trang công khai. KHÔNG retry: vé chỉ tra được đúng một phiên,
+ * hỏng thì thử lại cũng vậy — hiện thông báo ngay cho người dùng.
+ */
+export function usePodTiktokLinkResult(ref?: string) {
+  return useQuery({
+    queryKey: [POD_TIKTOK_KEY, 'link-result', ref],
+    queryFn: () => podTiktokService.linkResult(ref as string),
+    enabled: Boolean(ref),
+    retry: false,
+    staleTime: Infinity,
   });
 }
 

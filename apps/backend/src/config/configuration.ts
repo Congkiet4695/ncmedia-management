@@ -141,6 +141,18 @@ export default () => ({
      */
     callbackRedirectBase: process.env.TIKTOK_CALLBACK_REDIRECT_BASE ?? '',
 
+    /**
+     * Hạn dùng của tham số `state` (giây). Mặc định 15 phút — đủ để Seller đăng nhập
+     * TikTok và Approve, nhưng ngắn hơn hẳn hạn 30 phút của `auth_code` để cửa sổ
+     * tấn công CSRF/replay nhỏ nhất có thể.
+     */
+    oauthStateTtlSeconds: parseInt(process.env.TIKTOK_OAUTH_STATE_TTL_SECONDS ?? '900', 10),
+    /**
+     * Giữ bản ghi `state` đã dùng/hết hạn thêm bao nhiêu giờ trước khi dọn.
+     * Không xoá ngay để còn tra được "vì sao lần uỷ quyền đó hỏng".
+     */
+    oauthStateRetentionHours: parseInt(process.env.TIKTOK_OAUTH_STATE_RETENTION_HOURS ?? '72', 10),
+
     /** Thị trường mặc định khi dựng authorization link: US | ROW (PO chốt: US). */
     defaultRegion: process.env.TIKTOK_DEFAULT_REGION ?? 'US',
     encryptionKey: process.env.TIKTOK_ENCRYPTION_KEY,

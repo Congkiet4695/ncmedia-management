@@ -6,6 +6,7 @@ import { LoggerModule } from 'nestjs-pino';
 import configuration from './config/configuration';
 import { envValidationSchema } from './config/env.validation';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
+import { maskSensitiveQuery } from './common/utils/mask-sensitive-query.util';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
 import { PrismaModule } from './database/prisma.module';
 import { RedisModule } from './redis/redis.module';
@@ -75,6 +76,17 @@ import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
               '*.sign',
             ],
             censor: '[REDACTED]',
+          },
+          serializers: {
+            // `req.url` là chuỗi ⇒ phải che bằng serializer, `redact` ở trên không với tới.
+            req(req: { id?: unknown; method?: string; url?: string; remoteAddress?: string }) {
+              return {
+                id: req.id,
+                method: req.method,
+                url: typeof req.url === 'string' ? maskSensitiveQuery(req.url) : req.url,
+                remoteAddress: req.remoteAddress,
+              };
+            },
           },
         },
       }),

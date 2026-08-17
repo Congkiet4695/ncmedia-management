@@ -135,16 +135,62 @@ export class PaginatedPodTiktokAccountResponseDto {
   @ApiProperty({ type: PodTiktokPaginationMetaDto }) meta!: PodTiktokPaginationMetaDto;
 }
 
-/** Link uỷ quyền để Seller mở trên trình duyệt. */
+/**
+ * Link uỷ quyền để người dùng copy (hoặc mở trực tiếp).
+ * ⚠️ KHÔNG trả `state` thành trường riêng: nó là bí mật phía server, chỉ đi kèm trong `authorizeUrl`.
+ */
 export class PodTiktokAuthorizeUrlDto {
   @ApiProperty({
-    example: 'https://services.us.tiktokshop.com/open/authorize?service_id=xxx',
-    description: 'Mở link này, đăng nhập TikTok và Approve để nhận Authorization Code',
+    example: 'https://services.us.tiktokshop.com/open/authorize?service_id=xxx&state=yyy',
+    description:
+      'Authorization URL đầy đủ (đã kèm service_id + state). Sau khi Seller Approve, TikTok ' +
+      'gọi callback và hệ thống tự hoàn tất việc liên kết — người dùng KHÔNG phải xử lý auth_code.',
   })
   authorizeUrl!: string;
 
+  @ApiProperty({
+    example: 'NCMedia US Store',
+    description: 'Tên kết nối người dùng đã nhập — sẽ được gán khi callback hoàn tất',
+  })
+  accountName!: string;
+
   @ApiProperty({ example: 'US', description: 'Thị trường dùng để dựng link' })
   region!: string;
+
+  @ApiProperty({
+    description: 'Thời điểm phiên uỷ quyền hết hạn (ISO-8601). Quá hạn phải bắt đầu lại.',
+  })
+  expiresAt!: string;
+}
+
+/**
+ * Kết quả một phiên uỷ quyền — đọc bằng vé một lần ở trang công khai
+ * `/tiktok/link-success` và `/tiktok/link-failed`.
+ *
+ * 🔴 Chỉ chứa dữ liệu hiển thị được. KHÔNG có auth_code, access_token, refresh_token,
+ * shop_cipher hay bất kỳ định danh nội bộ nào của tổ chức.
+ */
+export class PodTiktokLinkResultDto {
+  @ApiProperty({ description: 'Phiên uỷ quyền đã hoàn tất thành công hay chưa' })
+  success!: boolean;
+
+  @ApiProperty({ nullable: true, type: String, example: 'NCMedia US Store' })
+  accountName!: string | null;
+  @ApiProperty({ nullable: true, type: String }) sellerName!: string | null;
+  @ApiProperty({ nullable: true, type: String, example: 'Maomao beauty shop' })
+  shopName!: string | null;
+  @ApiProperty({ nullable: true, type: String, example: 'US' }) region!: string | null;
+  @ApiProperty({ description: 'Số shop đã liên kết trong phiên này' }) shopCount!: number;
+  @ApiProperty({ nullable: true, type: String, description: 'Thời điểm liên kết (ISO-8601)' })
+  linkedAt!: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'POD_TIKTOK_INVALID_AUTH_CODE',
+    description: 'Mã lỗi nghiệp vụ khi thất bại — frontend dịch sang thông điệp người dùng',
+  })
+  errorCode!: string | null;
 }
 
 /**

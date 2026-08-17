@@ -121,6 +121,32 @@ export type TiktokRegion = (typeof TIKTOK_REGIONS)[number];
 /** Path màn hình uỷ quyền Seller (nối sau authorize base URL theo region). */
 export const TIKTOK_AUTHORIZE_PATH = '/open/authorize';
 
+/**
+ * Tham số đính kèm authorization link (Authorization overview — Seller authorization guide).
+ * TikTok trả `state` NGUYÊN VĂN về Redirect URL ⇒ đây là thứ DUY NHẤT ánh xạ callback
+ * về đúng Organization, vì một app chỉ khai báo được MỘT Redirect URL cho mọi tenant.
+ */
+export const TIKTOK_AUTHORIZE_STATE_PARAM = 'state';
+export const TIKTOK_AUTHORIZE_SERVICE_ID_PARAM = 'service_id';
+
+/**
+ * Tên tham số TikTok gửi về Redirect URL sau khi Seller Approve:
+ * `{redirect_url}?code=FeBoANmHP3yqdoUI9fZOCw&state={state}`
+ *
+ * Tài liệu dùng `code` ở trang "Seller authorization guide" §1.3, còn trang
+ * "Get Access Token" gọi tham số gửi lên là `auth_code` ("`code` nhận từ callback").
+ * ⇒ Đọc `code` TRƯỚC, chấp nhận `auth_code` như bí danh để không phụ thuộc vào việc
+ * TikTok dùng tên nào trong từng thị trường. KHÔNG suy đoán thêm tên nào khác.
+ */
+export const TIKTOK_CALLBACK_CODE_PARAMS = ['code', 'auth_code'] as const;
+
+/** Seller bấm Từ chối: TikTok vẫn redirect nhưng `code=null&error=auth_denied`. */
+export const TIKTOK_CALLBACK_ERROR_PARAM = 'error';
+export const TIKTOK_CALLBACK_AUTH_DENIED = 'auth_denied';
+
+/** Độ dài `state` (byte ngẫu nhiên trước khi encode base64url) — 256 bit. */
+export const TIKTOK_OAUTH_STATE_BYTES = 32;
+
 /** Mã thành công của TikTok API (mọi endpoint). */
 export const TIKTOK_SUCCESS_CODE = 0;
 

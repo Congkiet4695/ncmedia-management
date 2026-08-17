@@ -4,7 +4,7 @@ import { env } from '@/lib/env';
 import { LinkSuccessView } from '@/features/pod-tiktok/components/link-success-view';
 
 /**
- * Trang CÔNG KHAI hiển thị Authorization Code sau khi Seller uỷ quyền TikTok Shop.
+ * Trang CÔNG KHAI xác nhận đã liên kết TikTok Shop.
  *
  * Nằm ngoài nhóm route `(dashboard)` nên không có sidebar, không có guard đăng nhập —
  * Seller tới đây từ redirect của TikTok khi chưa (hoặc không) đăng nhập hệ thống.
@@ -12,7 +12,7 @@ import { LinkSuccessView } from '@/features/pod-tiktok/components/link-success-v
  */
 export const metadata: Metadata = {
   title: env.appName,
-  // Trang chứa mã uỷ quyền dùng một lần — không để công cụ tìm kiếm lập chỉ mục.
+  // Trang kết quả của một phiên uỷ quyền — không để công cụ tìm kiếm lập chỉ mục.
   robots: { index: false, follow: false },
 };
 

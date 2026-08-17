@@ -79,10 +79,10 @@ export class PodTiktokAccountRepository {
     tx: Prisma.TransactionClient,
     organizationId: string,
     openId: string,
-  ): Promise<{ id: string; deletedAt: Date | null } | null> {
+  ): Promise<{ id: string; deletedAt: Date | null; accountName: string } | null> {
     return tx.podTiktokAccount.findFirst({
       where: { organizationId, openId },
-      select: { id: true, deletedAt: true },
+      select: { id: true, deletedAt: true, accountName: true },
     });
   }
 

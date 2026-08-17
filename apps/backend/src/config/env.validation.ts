@@ -102,6 +102,9 @@ export const envValidationSchema = Joi.object({
   TIKTOK_ENCRYPTION_KEY: Joi.string().required(),
   TIKTOK_HTTP_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).default(15000),
   TIKTOK_MAX_RETRY: Joi.number().integer().min(0).max(5).default(3),
+  // Hạn `state` của luồng uỷ quyền: 1–30 phút (auth_code của TikTok sống 30 phút).
+  TIKTOK_OAUTH_STATE_TTL_SECONDS: Joi.number().integer().min(60).max(1800).default(900),
+  TIKTOK_OAUTH_STATE_RETENTION_HOURS: Joi.number().integer().min(1).max(720).default(72),
 
   // --- Đồng bộ đơn hàng (Sprint 2) ---
   TIKTOK_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
