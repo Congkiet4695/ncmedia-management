@@ -70,7 +70,7 @@
     "POD_TIKTOK_API_TIMEOUT": "TikTok phản hồi quá chậm, vui lòng thử lại",
     "POD_TIKTOK_AUTH_DENIED": "Bạn đã từ chối cấp quyền cho ứng dụng trên TikTok Shop.",
     "POD_TIKTOK_FULFILLMENT_PROVIDER_INVALID": "Nhà cung cấp fulfillment không hợp lệ hoặc đang bị tắt.",
-    "POD_TIKTOK_INVALID_AUTH_CODE": "Authorization Code không hợp lệ hoặc đã hết hạn",
+    "POD_TIKTOK_INVALID_AUTH_CODE": "Mã uỷ quyền TikTok không hợp lệ, đã dùng hoặc đã hết hạn. Vui lòng tạo lại Authorization URL và uỷ quyền lại.",
     "POD_TIKTOK_INVALID_STATE": "Phiên uỷ quyền không hợp lệ hoặc đã hết hạn. Vui lòng bắt đầu lại từ hệ thống.",
     "POD_TIKTOK_INVALID_USER_TYPE": "Loại tài khoản TikTok không được hỗ trợ",
     "POD_TIKTOK_LINK_RESULT_NOT_FOUND": "Không còn tra được kết quả của phiên uỷ quyền này.",

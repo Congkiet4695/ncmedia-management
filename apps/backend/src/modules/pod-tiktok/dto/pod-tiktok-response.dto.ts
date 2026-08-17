@@ -164,6 +164,43 @@ export class PodTiktokAuthorizeUrlDto {
 }
 
 /**
+ * Kết quả `POST /tiktok/oauth/complete` — trang kết quả dựng giao diện từ đúng object này.
+ *
+ * 🔴 Chỉ chứa dữ liệu hiển thị được. KHÔNG có `code`, `access_token`, `refresh_token`,
+ * `shop_cipher`. Thất bại cũng trả HTTP 200 với `success = false`: trang cần hiển thị
+ * nguyên nhân thân thiện chứ không phải một lỗi mạng.
+ */
+export class PodTiktokOAuthCompleteDto {
+  @ApiProperty({ description: 'Đã liên kết thành công hay chưa' })
+  success!: boolean;
+
+  @ApiProperty({ nullable: true, type: String, example: 'NCMedia US Store' })
+  accountName!: string | null;
+  @ApiProperty({ nullable: true, type: String, example: 'Maomao beauty shop' })
+  shopName!: string | null;
+  @ApiProperty({ nullable: true, type: String, example: 'US' })
+  region!: string | null;
+  @ApiProperty({ description: 'Số shop đã liên kết trong phiên này' })
+  shopCount!: number;
+  @ApiProperty({ nullable: true, type: String, description: 'Thời điểm liên kết (ISO-8601)' })
+  linkedAt!: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'POD_TIKTOK_INVALID_STATE',
+    description: 'Mã lỗi nghiệp vụ khi thất bại — frontend dịch sang thông điệp người dùng',
+  })
+  errorCode!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'Thông điệp thân thiện kèm theo (dự phòng khi frontend chưa có bản dịch)',
+  })
+  message!: string | null;
+}
+
+/**
  * Kết quả một phiên uỷ quyền — đọc bằng vé một lần ở trang công khai
  * `/tiktok/link-success` và `/tiktok/link-failed`.
  *

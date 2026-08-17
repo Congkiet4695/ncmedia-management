@@ -2,7 +2,11 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { podTiktokService } from '../services/pod-tiktok.service';
-import type { PodTiktokAccountQuery, StartTiktokAuthorizationPayload } from '../types';
+import type {
+  CompleteTiktokOAuthPayload,
+  PodTiktokAccountQuery,
+  StartTiktokAuthorizationPayload,
+} from '../types';
 
 const POD_TIKTOK_KEY = 'pod-tiktok-accounts';
 
@@ -32,6 +36,19 @@ export function useStartTiktokAuthorization() {
   return useMutation({
     mutationFn: (payload: StartTiktokAuthorizationPayload) =>
       podTiktokService.startAuthorization(payload),
+  });
+}
+
+/**
+ * Hoàn tất uỷ quyền ngay khi trang kết quả mở ra.
+ *
+ * KHÔNG retry: `code` của TikTok chỉ dùng được MỘT LẦN — gọi lại lần hai chắc chắn hỏng
+ * và còn làm mất luôn thông báo lỗi thật của lần đầu.
+ */
+export function useCompleteTiktokOAuth() {
+  return useMutation({
+    mutationFn: (payload: CompleteTiktokOAuthPayload) => podTiktokService.completeOAuth(payload),
+    retry: false,
   });
 }
 

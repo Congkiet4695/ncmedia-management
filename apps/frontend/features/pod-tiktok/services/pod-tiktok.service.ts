@@ -1,6 +1,8 @@
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse } from '@/types/api';
 import type {
+  CompleteTiktokOAuthPayload,
+  PodTiktokOAuthCompleteResult,
   PodTiktokAccount,
   PodTiktokAccountListResult,
   PodTiktokAccountQuery,
@@ -13,6 +15,7 @@ import type {
 const BASE_PATH = '/pod/tiktok/accounts';
 /** Endpoint CÔNG KHAI — trang kết quả chạy khi người dùng có thể chưa đăng nhập. */
 const LINK_RESULT_PATH = '/tiktok/link-result';
+const OAUTH_COMPLETE_PATH = '/tiktok/oauth/complete';
 
 function clean<T extends Record<string, unknown>>(obj: T): Partial<T> {
   return Object.fromEntries(
@@ -43,6 +46,22 @@ export const podTiktokService = {
   ): Promise<PodTiktokAuthorizeUrl> {
     const res = await apiClient.post<ApiResponse<PodTiktokAuthorizeUrl>>(
       `${BASE_PATH}/authorize-url`,
+      clean(payload as unknown as Record<string, unknown>),
+    );
+    return res.data.data;
+  },
+
+  /**
+   * Hoàn tất uỷ quyền: đẩy `code` + `state` TikTok vừa trả về xuống backend.
+   *
+   * 🔴 Frontend KHÔNG xử lý OAuth — không đổi token, không đọc `code`, không lưu nó ở đâu.
+   * Toàn bộ nghiệp vụ (validate state, exchange token, lấy shop, lưu account) ở backend.
+   */
+  async completeOAuth(
+    payload: CompleteTiktokOAuthPayload,
+  ): Promise<PodTiktokOAuthCompleteResult> {
+    const res = await apiClient.post<ApiResponse<PodTiktokOAuthCompleteResult>>(
+      OAUTH_COMPLETE_PATH,
       clean(payload as unknown as Record<string, unknown>),
     );
     return res.data.data;

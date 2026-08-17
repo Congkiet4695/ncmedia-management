@@ -14,12 +14,18 @@ import {
 } from '../dto/pod-tiktok-response.dto';
 import {
   POD_TIKTOK_OAUTH_ERROR_CODES,
+  PodTiktokAuthorizationDeniedException,
+  PodTiktokInvalidStateException,
   PodTiktokLinkResultNotFoundException,
 } from '../exceptions/pod-tiktok.exceptions';
+
+/** Thông điệp dự phòng khi lỗi không mang mã nghiệp vụ nào (không lộ chi tiết kỹ thuật). */
+const GENERIC_ERROR_MESSAGE =
+  'Không hoàn tất được việc liên kết TikTok Shop. Vui lòng thử lại.';
 import { PodTiktokOAuthStateRepository } from '../repositories/pod-tiktok-oauth-state.repository';
 import { PodTiktokAccountService, PodTiktokRequestMeta } from './pod-tiktok-account.service';
 
-/** Tham số TikTok gửi về Redirect URL (đã tách khỏi query string ở controller). */
+/** Tham số TikTok gửi về Redirect URL (đã tách khỏi query string / body ở controller). */
 export interface TiktokCallbackParams {
   /** `code` (bí danh `auth_code`) — 🔴 KHÔNG BAO GIỜ log giá trị này. */
   authorizationCode?: string;
@@ -28,13 +34,29 @@ export interface TiktokCallbackParams {
   error?: string;
 }
 
-/** Kết quả xử lý callback — controller chỉ cần biết chuyển hướng đi đâu. */
+/**
+ * Kết quả xử lý callback.
+ *
+ * Một cấu trúc dùng cho CẢ HAI đường vào: trang kết quả gọi
+ * `POST /tiktok/oauth/complete` (đường chính) và endpoint chuyển hướng
+ * `GET /tiktok/callback` (tương thích ngược). Nhờ vậy nghiệp vụ OAuth chỉ có
+ * MỘT bản cài đặt duy nhất.
+ */
 export interface TiktokCallbackOutcome {
   success: boolean;
-  /** Vé một lần để trang kết quả đọc tóm tắt. Không có khi state không hợp lệ. */
+  /** Vé một lần để trang kết quả đọc lại tóm tắt. Không có khi state không hợp lệ. */
   resultToken?: string;
-  /** Mã lỗi nghiệp vụ (chỉ khi thất bại). */
+  /** Mã lỗi nghiệp vụ (chỉ khi thất bại) — frontend dịch sang thông điệp người dùng. */
   errorCode?: string;
+  /** Thông điệp thân thiện kèm theo mã lỗi (dự phòng khi frontend chưa có bản dịch). */
+  message?: string;
+
+  // --- Tóm tắt phi nhạy cảm khi thành công (KHÔNG BAO GIỜ chứa token) ---
+  accountName?: string | null;
+  shopName?: string | null;
+  region?: string | null;
+  shopCount?: number;
+  linkedAt?: string | null;
 }
 
 /**
@@ -144,7 +166,7 @@ export class PodTiktokOAuthService {
         operation: 'oauth.callback',
         msg: 'Callback không có state — từ chối',
       });
-      return { success: false, errorCode: POD_TIKTOK_OAUTH_ERROR_CODES.INVALID_STATE };
+      return { success: false, ...this.describeError(new PodTiktokInvalidStateException()) };
     }
 
     // Tiêu thụ state: PENDING + còn hạn → USED, nguyên tử, chỉ một lần.
@@ -160,7 +182,7 @@ export class PodTiktokOAuthService {
           ? 'State đã dùng hoặc hết hạn — từ chối'
           : 'State không tồn tại — từ chối',
       });
-      return { success: false, errorCode: POD_TIKTOK_OAUTH_ERROR_CODES.INVALID_STATE };
+      return { success: false, ...this.describeError(new PodTiktokInvalidStateException()) };
     }
 
     // Từ đây đã biết phiên thuộc Organization nào ⇒ mọi kết cục đều tra cứu được.
@@ -168,20 +190,22 @@ export class PodTiktokOAuthService {
 
     // Seller bấm Từ chối: TikTok vẫn redirect, nhưng không có code.
     if (params.error || !params.authorizationCode) {
-      const errorCode: string = params.error
-        ? POD_TIKTOK_OAUTH_ERROR_CODES.AUTH_DENIED
-        : POD_TIKTOK_OAUTH_ERROR_CODES.INVALID_STATE;
-      await this.stateRepo.markFailed(consumed.id, errorCode, resultToken);
+      const described = this.describeError(
+        params.error
+          ? new PodTiktokAuthorizationDeniedException()
+          : new PodTiktokInvalidStateException(),
+      );
+      await this.stateRepo.markFailed(consumed.id, described.errorCode, resultToken);
       this.logger.warn({
         module: 'pod-tiktok',
         operation: 'oauth.callback',
         organizationId: consumed.organizationId,
-        errorCode,
+        errorCode: described.errorCode,
         // Giá trị `error` do TikTok định nghĩa (vd auth_denied) — an toàn để log.
         tiktokError: params.error ?? null,
         msg: 'Uỷ quyền không hoàn tất',
       });
-      return { success: false, resultToken, errorCode };
+      return { success: false, resultToken, ...described };
     }
 
     try {
@@ -204,18 +228,26 @@ export class PodTiktokOAuthService {
         shopCount: account.shops.length,
         msg: 'Hoàn tất uỷ quyền TikTok tự động',
       });
-      return { success: true, resultToken };
+      return {
+        success: true,
+        resultToken,
+        accountName: account.accountName,
+        shopName: account.shops[0]?.name ?? null,
+        region: account.shops[0]?.region ?? null,
+        shopCount: account.shops.length,
+        linkedAt: now.toISOString(),
+      };
     } catch (error) {
-      const errorCode = this.extractErrorCode(error);
-      await this.stateRepo.markFailed(consumed.id, errorCode, resultToken);
+      const described = this.describeError(error);
+      await this.stateRepo.markFailed(consumed.id, described.errorCode, resultToken);
       this.logger.error({
         module: 'pod-tiktok',
         operation: 'oauth.callback',
         organizationId: consumed.organizationId,
-        errorCode,
+        errorCode: described.errorCode,
         msg: error instanceof Error ? error.message : 'Lỗi không xác định khi hoàn tất uỷ quyền',
       });
-      return { success: false, resultToken, errorCode };
+      return { success: false, resultToken, ...described };
     }
   }
 
@@ -264,15 +296,32 @@ export class PodTiktokOAuthService {
     }
   }
 
-  /** Lấy `code` nghiệp vụ trong exception của NestJS để trang lỗi hiển thị đúng nguyên nhân. */
-  private extractErrorCode(error: unknown): string {
+  /**
+   * Rút `code` + `message` nghiệp vụ từ exception của NestJS.
+   *
+   * Trả về CẢ HAI vì trang kết quả là trang công khai: `errorCode` để frontend dịch theo
+   * ngôn ngữ đang chọn, `message` làm phương án dự phòng khi mã đó chưa có bản dịch —
+   * người dùng luôn đọc được nguyên nhân thay vì thấy một chuỗi kỹ thuật.
+   *
+   * Lỗi không phải HttpException (vd đứt mạng, lỗi lập trình) được quy về lỗi API chung:
+   * chi tiết kỹ thuật chỉ nằm ở log, không đẩy ra ngoài.
+   */
+  private describeError(error: unknown): { errorCode: string; message: string } {
     if (error instanceof HttpException) {
       const response = error.getResponse();
-      if (typeof response === 'object' && response !== null && 'code' in response) {
-        const code = (response as { code?: unknown }).code;
-        if (typeof code === 'string') return code;
+      if (typeof response === 'object' && response !== null) {
+        const { code, message } = response as { code?: unknown; message?: unknown };
+        if (typeof code === 'string') {
+          return {
+            errorCode: code,
+            message: typeof message === 'string' ? message : GENERIC_ERROR_MESSAGE,
+          };
+        }
       }
     }
-    return POD_TIKTOK_OAUTH_ERROR_CODES.API_ERROR;
+    return {
+      errorCode: POD_TIKTOK_OAUTH_ERROR_CODES.API_ERROR,
+      message: GENERIC_ERROR_MESSAGE,
+    };
   }
 }

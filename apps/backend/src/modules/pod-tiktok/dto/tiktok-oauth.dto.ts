@@ -34,6 +34,56 @@ export class StartTiktokAuthorizationDto {
   region?: TiktokRegion;
 }
 
+/**
+ * Hoàn tất uỷ quyền — body do TRANG KẾT QUẢ gửi lên ngay khi TikTok redirect về.
+ *
+ * 🔴 Redirect URI đăng ký với TikTok trỏ thẳng vào trang frontend `/tiktok/link-success`,
+ * nên `code` rơi vào trình duyệt trước. Trang đó KHÔNG hiển thị và KHÔNG lưu `code`: nó
+ * chuyển ngay xuống endpoint này, backend làm toàn bộ phần OAuth còn lại.
+ *
+ * `appKey`, `locale`, `shopRegion` là các tham số TikTok gửi kèm — nhận để chẩn đoán,
+ * KHÔNG dùng làm cơ sở xác thực (danh tính chỉ đến từ `state`).
+ */
+export class CompleteTiktokOAuthDto {
+  @ApiProperty({
+    description: 'Tham số `code` TikTok trả về. Dùng MỘT LẦN, hết hạn sau 30 phút.',
+    maxLength: 512,
+  })
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(512)
+  code!: string;
+
+  @ApiProperty({
+    description: 'Tham số `state` do backend sinh ra khi tạo Authorization URL',
+    maxLength: 128,
+  })
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(128)
+  state!: string;
+
+  @ApiPropertyOptional({ description: 'Tham số `app_key` TikTok gửi kèm', maxLength: 128 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(128)
+  appKey?: string;
+
+  @ApiPropertyOptional({ description: 'Tham số `locale` TikTok gửi kèm', maxLength: 32 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(32)
+  locale?: string;
+
+  @ApiPropertyOptional({ description: 'Tham số `shop_region` TikTok gửi kèm', maxLength: 16 })
+  @IsOptional()
+  @IsString()
+  @MaxLength(16)
+  shopRegion?: string;
+}
+
 /** Tra kết quả một phiên uỷ quyền bằng vé một lần do backend phát ra. */
 export class TiktokLinkResultQueryDto {
   @ApiProperty({

@@ -7,9 +7,14 @@ import { TiktokCallbackController } from './tiktok-callback.controller';
 
 const IP = '203.0.113.10';
 
+const APP_KEY = 'app-key-123';
+
 function build(redirectBase = '') {
   const config = {
-    get: (_key: string, fallback?: string) => redirectBase || fallback,
+    get: (key: string, fallback?: string) => {
+      if (key === 'tiktok.appKey') return APP_KEY;
+      return redirectBase || fallback;
+    },
   } as unknown as ConfigService;
 
   const handleCallback = jest.fn().mockResolvedValue({ success: true, resultToken: 'RESULT_TOKEN' });
@@ -204,6 +209,109 @@ describe('TiktokCallbackController', () => {
       await controller.linkResult({ ref: 'RESULT_TOKEN' });
 
       expect(getLinkResult).toHaveBeenCalledWith('RESULT_TOKEN');
+    });
+  });
+
+  /**
+   * Đường chính: Redirect URI trỏ thẳng vào trang frontend, nên trang đó gửi `code` + `state`
+   * xuống đây. Toàn bộ OAuth vẫn nằm ở backend.
+   */
+  describe('POST oauth/complete', () => {
+    const BODY = {
+      code: 'THE_CODE',
+      state: 'THE_STATE',
+      appKey: APP_KEY,
+      locale: 'en-US',
+      shopRegion: 'US',
+    };
+
+    it('chuyển `code` + `state` xuống service kèm IP/User-Agent để ghi audit', async () => {
+      const { controller, handleCallback } = build();
+
+      await controller.completeOAuth(BODY, IP, 'jest-agent');
+
+      expect(callArg<CallbackParams>(handleCallback, 0, 0)).toEqual({
+        authorizationCode: 'THE_CODE',
+        state: 'THE_STATE',
+      });
+      expect(callArg<Record<string, string>>(handleCallback, 0, 1)).toEqual({
+        ipAddress: IP,
+        userAgent: 'jest-agent',
+      });
+    });
+
+    it('thành công → trả tóm tắt để trang dựng màn hình (KHÔNG có token)', async () => {
+      const { controller, handleCallback } = build();
+      handleCallback.mockResolvedValue({
+        success: true,
+        resultToken: 'RESULT_TOKEN',
+        accountName: 'NCMedia US Store',
+        shopName: 'Maomao beauty shop',
+        region: 'US',
+        shopCount: 1,
+        linkedAt: '2026-08-18T03:00:00.000Z',
+      });
+
+      const result = await controller.completeOAuth(BODY, IP);
+
+      expect(result).toEqual({
+        success: true,
+        accountName: 'NCMedia US Store',
+        shopName: 'Maomao beauty shop',
+        region: 'US',
+        shopCount: 1,
+        linkedAt: '2026-08-18T03:00:00.000Z',
+        errorCode: null,
+        message: null,
+      });
+      // 🔴 Vé nội bộ không được rò ra ngoài response của đường chính.
+      expect(JSON.stringify(result)).not.toContain('RESULT_TOKEN');
+    });
+
+    it('thất bại → vẫn HTTP 200 kèm mã lỗi + thông điệp thân thiện', async () => {
+      const { controller, handleCallback } = build();
+      handleCallback.mockResolvedValue({
+        success: false,
+        errorCode: 'POD_TIKTOK_INVALID_STATE',
+        message: 'Phiên uỷ quyền không hợp lệ hoặc đã hết hạn.',
+      });
+
+      const result = await controller.completeOAuth(BODY, IP);
+
+      expect(result.success).toBe(false);
+      expect(result.errorCode).toBe('POD_TIKTOK_INVALID_STATE');
+      expect(result.message).toContain('hết hạn');
+      expect(result.shopCount).toBe(0);
+    });
+
+    it('🔴 KHÔNG ghi `code`/`state` vào log; vẫn ghi locale/shop_region để chẩn đoán', async () => {
+      const { controller } = build();
+      const logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation();
+
+      await controller.completeOAuth(
+        { code: 'SUPER_SECRET_CODE', state: 'SECRET_STATE', locale: 'en-US', shopRegion: 'US' },
+        IP,
+      );
+
+      const serialized = JSON.stringify(logSpy.mock.calls);
+      expect(serialized).not.toContain('SUPER_SECRET_CODE');
+      expect(serialized).not.toContain('SECRET_STATE');
+      expect(serialized).toContain('en-US');
+
+      logSpy.mockRestore();
+    });
+
+    it('app_key lệch cấu hình → chỉ cảnh báo, KHÔNG chặn luồng', async () => {
+      const { controller, handleCallback } = build();
+      const warnSpy = jest.spyOn(Logger.prototype, 'warn').mockImplementation();
+
+      const result = await controller.completeOAuth({ ...BODY, appKey: 'app-key-KHAC' }, IP);
+
+      expect(warnSpy).toHaveBeenCalled();
+      expect(handleCallback).toHaveBeenCalled();
+      expect(result.success).toBe(true);
+
+      warnSpy.mockRestore();
     });
   });
 });

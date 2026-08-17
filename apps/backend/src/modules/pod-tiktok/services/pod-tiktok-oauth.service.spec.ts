@@ -213,6 +213,21 @@ describe('PodTiktokOAuthService', () => {
       );
     });
 
+    it('thành công → trả kèm tóm tắt để trang kết quả dựng ngay, không phải gọi thêm', async () => {
+      const outcome = await service.handleCallback({ authorizationCode: 'C', state: 'S' });
+
+      expect(outcome).toMatchObject({
+        success: true,
+        accountName: 'Test Seller',
+        shopName: 'Maomao beauty shop',
+        region: 'US',
+        shopCount: 1,
+      });
+      expect(outcome.linkedAt).toEqual(expect.any(String));
+      // 🔴 Không có bất kỳ dấu vết token nào trong outcome.
+      expect(JSON.stringify(outcome)).not.toContain('token"');
+    });
+
     it('đổi token lỗi → giữ mã lỗi nghiệp vụ để trang thất bại hiển thị', async () => {
       accountService.completeAuthorization.mockRejectedValue(
         new PodTiktokInvalidAuthCodeException(),
@@ -222,6 +237,11 @@ describe('PodTiktokOAuthService', () => {
 
       expect(outcome.success).toBe(false);
       expect(outcome.errorCode).toBe('POD_TIKTOK_INVALID_AUTH_CODE');
+      // Kèm thông điệp thân thiện để trang kết quả vẫn nói được nguyên nhân dù chưa có bản dịch.
+      // Không so khớp nguyên văn: nội dung thuộc về exception, đổi chữ không được làm vỡ test.
+      expect(outcome.message).toBe(
+        (new PodTiktokInvalidAuthCodeException().getResponse() as { message: string }).message,
+      );
       expect(stateRepo.markFailed).toHaveBeenCalledWith(
         STATE_ROW_ID,
         'POD_TIKTOK_INVALID_AUTH_CODE',
@@ -246,6 +266,8 @@ describe('PodTiktokOAuthService', () => {
 
       expect(outcome.success).toBe(false);
       expect(outcome.errorCode).toBe('POD_TIKTOK_API_ERROR');
+      // Không lộ chi tiết kỹ thuật ('socket hang up') ra ngoài.
+      expect(outcome.message).not.toContain('socket');
     });
   });
 

@@ -117,6 +117,31 @@ export interface PodTiktokAuthorizeUrl {
 }
 
 /**
+ * Body gửi lên `POST /tiktok/oauth/complete` — đúng các tham số TikTok đặt trên URL callback.
+ * 🔴 `code` chỉ đi qua bộ nhớ của trang rồi gửi thẳng xuống backend: không hiển thị,
+ * không lưu localStorage/sessionStorage, không log.
+ */
+export interface CompleteTiktokOAuthPayload {
+  code: string;
+  state: string;
+  appKey?: string;
+  locale?: string;
+  shopRegion?: string;
+}
+
+/** Kết quả `POST /tiktok/oauth/complete` — đủ để dựng màn hình kết quả. */
+export interface PodTiktokOAuthCompleteResult {
+  success: boolean;
+  accountName: string | null;
+  shopName: string | null;
+  region: string | null;
+  shopCount: number;
+  linkedAt: string | null;
+  errorCode: string | null;
+  message: string | null;
+}
+
+/**
  * Kết quả một phiên uỷ quyền, đọc bằng vé `ref` trên trang kết quả công khai.
  * KHÔNG chứa auth_code hay token — backend không bao giờ trả những giá trị đó ra frontend.
  */

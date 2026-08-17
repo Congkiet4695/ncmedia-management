@@ -66,8 +66,9 @@ export class PodTiktokInvalidAuthCodeException extends BadRequestException {
     super({
       code: 'POD_TIKTOK_INVALID_AUTH_CODE',
       message:
-        'Authorization Code không hợp lệ, đã được sử dụng hoặc đã hết hạn. ' +
-        'Mã chỉ dùng được MỘT LẦN và hết hạn sau 30 phút — vui lòng lấy mã mới rồi thử lại.',
+        'Mã uỷ quyền TikTok không hợp lệ, đã được sử dụng hoặc đã hết hạn (mã chỉ dùng ' +
+        'MỘT LẦN và hết hạn sau 30 phút). Vui lòng tạo lại Authorization URL trong hệ thống ' +
+        'và uỷ quyền lại.',
     });
   }
 }

@@ -70,7 +70,7 @@
     "POD_TIKTOK_API_TIMEOUT": "TikTok took too long to respond, please try again",
     "POD_TIKTOK_AUTH_DENIED": "You declined to grant access to the app on TikTok Shop.",
     "POD_TIKTOK_FULFILLMENT_PROVIDER_INVALID": "The selected fulfillment provider is invalid or inactive.",
-    "POD_TIKTOK_INVALID_AUTH_CODE": "The authorization code is invalid or has expired",
+    "POD_TIKTOK_INVALID_AUTH_CODE": "The TikTok authorization code is invalid, already used or expired. Please create a new Authorization URL and authorize again.",
     "POD_TIKTOK_INVALID_STATE": "The authorization session is invalid or has expired. Please start again from the platform.",
     "POD_TIKTOK_INVALID_USER_TYPE": "This TikTok account type is not supported",
     "POD_TIKTOK_LINK_RESULT_NOT_FOUND": "This authorization result is no longer available.",
