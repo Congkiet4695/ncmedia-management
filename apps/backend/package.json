@@ -10,13 +10,15 @@
     "npm": ">=10.0.0"
   },
   "scripts": {
-    "build": "nest build",
+    "build:sdk": "tsc -p vendor/tiktok-shop-sdk/tsconfig.json",
+    "build": "npm run build:sdk && nest build",
     "format": "prettier --write \"src/**/*.ts\" \"test/**/*.ts\"",
     "start": "nest start",
     "start:dev": "nest start --watch",
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main.js",
     "lint": "eslint \"{src,test}/**/*.ts\" --fix",
+    "pretest": "npm run build:sdk",
     "test": "jest --passWithNoTests",
     "test:watch": "jest --watch",
     "test:e2e": "jest --config ./test/jest-e2e.json --passWithNoTests",
@@ -40,6 +42,7 @@
     "@nestjs/schedule": "^6.1.3",
     "@nestjs/swagger": "^11.0.3",
     "@prisma/client": "^6.3.1",
+    "@tiktok-shop/nodejs-sdk": "file:vendor/tiktok-shop-sdk",
     "bcrypt": "^5.1.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
@@ -101,6 +104,10 @@
       "**/*.(t|j)s"
     ],
     "coverageDirectory": "../coverage",
-    "testEnvironment": "node"
+    "testEnvironment": "node",
+    "transformIgnorePatterns": [
+      "/node_modules/",
+      "<rootDir>/../vendor/"
+    ]
   }
 }

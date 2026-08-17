@@ -260,6 +260,66 @@
     "uploadDesign": "Upload Design",
     "variant": "Variant"
   },
+  "products": {
+    "title": "Sản phẩm",
+    "subtitle": "Sản phẩm TikTok Shop đã đồng bộ về hệ thống (bản sao chỉ đọc).",
+    "noPermission": "Bạn không có quyền xem sản phẩm.",
+    "empty": "Chưa có sản phẩm nào. Bấm \"Đồng bộ ngay\" để kéo sản phẩm từ TikTok Shop.",
+    "searchPlaceholder": "Tìm theo tên sản phẩm, TikTok Product ID hoặc Seller SKU",
+    "columns": {
+      "product": "Sản phẩm",
+      "status": "Trạng thái",
+      "category": "Danh mục",
+      "skus": "Số SKU",
+      "price": "Giá",
+      "inventory": "Tồn kho",
+      "shop": "Shop",
+      "lastSynced": "Đồng bộ lần cuối"
+    },
+    "filters": {
+      "allShops": "Tất cả shop",
+      "allCategories": "Tất cả danh mục",
+      "allBrands": "Tất cả thương hiệu"
+    },
+    "sync": {
+      "now": "Đồng bộ ngay",
+      "full": "Đồng bộ toàn bộ",
+      "fullHint": "Quét lại mọi sản phẩm và làm mới danh mục/thương hiệu. Tốn nhiều quota API của TikTok hơn.",
+      "success": "Đã đồng bộ xong",
+      "successDetail": "Lấy về {{fetched}} · tạo mới {{created}} · cập nhật {{updated}} · lỗi {{failed}}",
+      "failed": "Đồng bộ thất bại"
+    },
+    "resync": {
+      "action": "Đồng bộ lại sản phẩm này",
+      "success": "Đã đồng bộ lại sản phẩm từ TikTok",
+      "failed": "Không đồng bộ lại được sản phẩm này"
+    },
+    "syncHistory": {
+      "action": "Lịch sử đồng bộ",
+      "title": "Lịch sử đồng bộ sản phẩm",
+      "description": "Từng lượt chạy đã lấy về những gì và lỗi ở đâu.",
+      "empty": "Chưa có lượt đồng bộ nào.",
+      "counters": "lấy về {{fetched}} · tạo mới {{created}} · cập nhật {{updated}} · bỏ qua {{skipped}} · lỗi {{failed}}",
+      "apiCalls": "{{count}} lượt gọi API"
+    },
+    "detail": {
+      "back": "Về danh sách sản phẩm",
+      "variants": "Biến thể (SKU)",
+      "variant": "Biến thể",
+      "sellerSku": "Seller SKU",
+      "info": "Thông tin",
+      "account": "Kết nối TikTok",
+      "brand": "Thương hiệu",
+      "weight": "Khối lượng kiện",
+      "dimensions": "Kích thước kiện",
+      "salesRegions": "Thị trường bán",
+      "updatedOnTiktok": "Cập nhật trên TikTok",
+      "media": "Hình ảnh & video",
+      "openVideo": "Mở video sản phẩm",
+      "attributes": "Thuộc tính",
+      "description": "Mô tả"
+    }
+  },
   "status": {
     "AWAITING_COLLECTION": "Chờ lấy hàng",
     "AWAITING_SHIPMENT": "Chờ giao vận",

@@ -1,0 +1,37 @@
+{
+  // ---------------------------------------------------------------------------
+  // Cấu hình RIÊNG cho SDK sinh tự động của TikTok.
+  //
+  // 🔴 Vì sao tách khỏi tsconfig của backend: mã sinh bởi OpenAPI Generator không
+  // qua được `strict` (≈1.4k lỗi `implicit any` trong callback của `request`).
+  // Nới lỏng cho riêng thư mục này để backend GIỮ NGUYÊN `strict: true` —
+  // đổi lại, mọi thứ SDK phơi ra đều đi qua Wrapper có kiểu tường minh.
+  //
+  // Build ra `dist/` (JS + .d.ts). Backend tiêu thụ qua dependency `file:` nên
+  // `skipLibCheck` của backend áp dụng cho .d.ts ở đây.
+  // ---------------------------------------------------------------------------
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "lib": ["ES2022"],
+    "types": ["node"],
+    "declaration": true,
+    "esModuleInterop": true,
+    "allowSyntheticDefaultImports": true,
+    "skipLibCheck": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "strictNullChecks": false,
+    "removeComments": true,
+    "sourceMap": false,
+    "rootDir": ".",
+    "outDir": "dist",
+    // Build lần đầu ~30s (3.2k file). `incremental` giúp các lần sau gần như tức thì,
+    // nhờ đó có thể gắn `build:sdk` vào `pretest`/`build` mà không làm chậm vòng lặp dev.
+    "incremental": true,
+    "tsBuildInfoFile": "dist/.tsbuildinfo"
+  },
+  "include": ["index.ts", "api/**/*.ts", "client/**/*.ts", "model/**/*.ts", "utils/**/*.ts"],
+  "exclude": ["dist", "node_modules"]
+}

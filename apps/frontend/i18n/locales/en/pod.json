@@ -260,6 +260,66 @@
     "uploadDesign": "Upload design",
     "variant": "Variant"
   },
+  "products": {
+    "title": "Products",
+    "subtitle": "TikTok Shop products synced into the platform (read-only mirror).",
+    "noPermission": "You do not have permission to view products.",
+    "empty": "No products yet. Run \"Sync Now\" to pull products from TikTok Shop.",
+    "searchPlaceholder": "Search by product name, TikTok Product ID or Seller SKU",
+    "columns": {
+      "product": "Product",
+      "status": "Status",
+      "category": "Category",
+      "skus": "SKUs",
+      "price": "Price",
+      "inventory": "Inventory",
+      "shop": "Shop",
+      "lastSynced": "Last synced"
+    },
+    "filters": {
+      "allShops": "All shops",
+      "allCategories": "All categories",
+      "allBrands": "All brands"
+    },
+    "sync": {
+      "now": "Sync Now",
+      "full": "Full sync",
+      "fullHint": "Rescans every product and refreshes categories/brands. Uses more TikTok API quota.",
+      "success": "Sync finished",
+      "successDetail": "Fetched {{fetched}} · created {{created}} · updated {{updated}} · failed {{failed}}",
+      "failed": "Sync failed"
+    },
+    "resync": {
+      "action": "Re-sync this product",
+      "success": "Product re-synced from TikTok",
+      "failed": "Could not re-sync this product"
+    },
+    "syncHistory": {
+      "action": "Sync history",
+      "title": "Product sync history",
+      "description": "Every sync run, what it pulled and what failed.",
+      "empty": "No sync has run yet.",
+      "counters": "fetched {{fetched}} · created {{created}} · updated {{updated}} · skipped {{skipped}} · failed {{failed}}",
+      "apiCalls": "{{count}} API calls"
+    },
+    "detail": {
+      "back": "Back to products",
+      "variants": "Variants (SKUs)",
+      "variant": "Variant",
+      "sellerSku": "Seller SKU",
+      "info": "Information",
+      "account": "TikTok account",
+      "brand": "Brand",
+      "weight": "Package weight",
+      "dimensions": "Package dimensions",
+      "salesRegions": "Sales regions",
+      "updatedOnTiktok": "Updated on TikTok",
+      "media": "Images & video",
+      "openVideo": "Open product video",
+      "attributes": "Attributes",
+      "description": "Description"
+    }
+  },
   "status": {
     "AWAITING_COLLECTION": "Awaiting collection",
     "AWAITING_SHIPMENT": "Awaiting shipment",

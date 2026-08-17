@@ -113,6 +113,12 @@ export const NAVIGATION: NavItemConfig[] = [
         permission: 'pod.tiktok.account.read',
       },
       {
+        labelKey: 'podProducts',
+        href: '/dashboard/pod/products',
+        icon: Package,
+        permission: 'pod.product.read',
+      },
+      {
         labelKey: 'podOrders',
         href: '/dashboard/pod/orders',
         icon: ClipboardList,

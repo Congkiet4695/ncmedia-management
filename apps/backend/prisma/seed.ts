@@ -93,6 +93,9 @@ const PERMISSIONS: Array<{
   { code: 'pod.tiktok.design.upload',  module: 'POD_TIKTOK', resource: 'pod.tiktok.design',  action: 'upload', description: 'Upload/thay thế design in cho sản phẩm POD' },
   { code: 'pod.tiktok.design.delete',  module: 'POD_TIKTOK', resource: 'pod.tiktok.design',  action: 'delete', description: 'Xoá design in của sản phẩm POD' },
   // Sprint Payout Report: thong ke chi tra tu TikTok Finance API
+  { code: 'pod.product.read',          module: 'POD_TIKTOK', resource: 'pod.product',       action: 'read',   description: 'Xem san pham TikTok da dong bo' },
+  { code: 'pod.product.sync',          module: 'POD_TIKTOK', resource: 'pod.product',       action: 'sync',   description: 'Dong bo san pham tu TikTok Shop' },
+
   { code: 'pod.tiktok.payout.read',    module: 'POD_TIKTOK', resource: 'pod.tiktok.payout',  action: 'read',   description: 'Xem báo cáo Payout TikTok' },
   { code: 'pod.tiktok.payout.sync',    module: 'POD_TIKTOK', resource: 'pod.tiktok.payout',  action: 'sync',   description: 'Đồng bộ dữ liệu Payout từ TikTok Finance API' },
   // Module Fulfillment — gui don sang xuong in (MangoTeePrints)

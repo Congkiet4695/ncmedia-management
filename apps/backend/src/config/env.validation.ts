@@ -130,6 +130,11 @@ export const envValidationSchema = Joi.object({
   TIKTOK_SYNC_FAILURE_THRESHOLD: Joi.number().integer().min(1).max(50).default(5),
   TIKTOK_TOKEN_REFRESH_BEFORE_SECONDS: Joi.number().integer().min(60).max(604800).default(86400),
 
+  // --- Đồng bộ sản phẩm (Sprint Product) ---
+  TIKTOK_PRODUCT_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  TIKTOK_PRODUCT_SYNC_CRON: Joi.string().default('0 */6 * * *'),
+  TIKTOK_PRODUCT_SYNC_INCLUDE_CATALOG: Joi.boolean().truthy('true').falsy('false').default(false),
+
   // --- Đồng bộ Payout (Finance API) ---
   TIKTOK_PAYOUT_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   TIKTOK_PAYOUT_WINDOW_DAYS: Joi.number().integer().min(1).max(3650).default(90),

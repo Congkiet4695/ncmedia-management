@@ -20,6 +20,8 @@ import { AccountModule } from './modules/account/account.module';
 import { OrderModule } from './modules/order/order.module';
 import { ReportModule } from './modules/report/report.module';
 import { PodTiktokModule } from './modules/pod-tiktok/pod-tiktok.module';
+import { PodProductModule } from './modules/pod-product/pod-product.module';
+import { TikTokSdkModule } from './modules/tiktok-sdk/tiktok-sdk.module';
 import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
 
 @Module({
@@ -97,6 +99,8 @@ import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
     RedisModule,
     // Storage (@Global) — cửa duy nhất để mọi module lưu trữ file
     StorageModule,
+    // Cửa duy nhất ra SDK Node.js chính thức của TikTok Shop (hạ tầng, @Global)
+    TikTokSdkModule,
 
     // Health check
     HealthModule,
@@ -111,6 +115,8 @@ import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
     ReportModule,
     // Module POD — TikTok Shop (Sprint 1: Link Account)
     PodTiktokModule,
+    // Module POD — Product Synchronization (chi doc tu TikTok)
+    PodProductModule,
     // Gửi đơn POD sang xưởng in (MangoTeePrints)
     FulfillmentModule,
   ],

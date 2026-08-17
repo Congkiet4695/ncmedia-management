@@ -12,6 +12,9 @@ WORKDIR /app
 RUN apk add --no-cache openssl python3 make g++
 COPY package*.json ./
 COPY prisma ./prisma
+# SDK TikTok là dependency `file:vendor/tiktok-shop-sdk` ⇒ phải có mặt TRƯỚC `npm ci`,
+# nếu không npm không resolve được đường dẫn cục bộ.
+COPY vendor ./vendor
 RUN npm ci
 
 # ---- Stage 2: build (generate client + nest build) ----
@@ -38,6 +41,11 @@ COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/prisma ./prisma
 COPY --from=build /app/package*.json ./
+# `node_modules/@tiktok-shop/nodejs-sdk` là SYMLINK trỏ vào `vendor/tiktok-shop-sdk`.
+# Không copy thì symlink treo và app không khởi động được. Chỉ lấy `dist` + `package.json`
+# (mã nguồn .ts của SDK không cần cho runtime).
+COPY --from=build /app/vendor/tiktok-shop-sdk/package.json ./vendor/tiktok-shop-sdk/package.json
+COPY --from=build /app/vendor/tiktok-shop-sdk/dist ./vendor/tiktok-shop-sdk/dist
 
 # Prisma CLI (khớp version @prisma/client) để chạy `prisma migrate deploy` (deploy.sh),
 # offline — không fetch npm lúc deploy. build-deps chỉ tồn tại trong layer này rồi gỡ đi.

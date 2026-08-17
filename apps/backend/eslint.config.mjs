@@ -6,7 +6,8 @@ import globals from 'globals';
 
 export default tseslint.config(
   {
-    ignores: ['dist', 'node_modules', 'coverage', 'prisma/migrations'],
+    // `vendor/` là SDK sinh tự động của TikTok — không lint, không sửa tay.
+    ignores: ['dist', 'node_modules', 'coverage', 'prisma/migrations', 'vendor'],
   },
   eslint.configs.recommended,
   ...tseslint.configs.recommendedTypeChecked,

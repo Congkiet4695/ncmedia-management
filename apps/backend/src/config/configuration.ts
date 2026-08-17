@@ -213,6 +213,19 @@ export default () => ({
     },
 
     /**
+     * Đồng bộ SẢN PHẨM (Sprint Product) — tách hoàn toàn khỏi lịch đồng bộ đơn hàng.
+     *
+     * Sản phẩm đổi chậm hơn đơn hàng rất nhiều nên mặc định 6 giờ/lần: quét dày chỉ
+     * đốt quota TikTok (cấp phát động theo App × Shop, dùng chung cho mọi Organization).
+     */
+    productSync: {
+      enabled: (process.env.TIKTOK_PRODUCT_SYNC_ENABLED ?? 'false') === 'true',
+      cron: process.env.TIKTOK_PRODUCT_SYNC_CRON ?? '0 */6 * * *',
+      /** Đồng bộ kèm cây danh mục + thương hiệu trong lượt theo lịch (chậm hơn nhiều). */
+      includeCatalog: (process.env.TIKTOK_PRODUCT_SYNC_INCLUDE_CATALOG ?? 'false') === 'true',
+    },
+
+    /**
      * Đồng bộ Payout (Finance API) — docs/pod-tiktok/10-payout-report.md.
      *
      * Không có watermark riêng: lần đầu (shop chưa có payment nào) kéo toàn bộ lịch sử,
