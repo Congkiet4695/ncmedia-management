@@ -15,7 +15,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Combobox } from '@/components/ui/combobox';
 import { RequirePermission } from '@/components/require-permission';
 import { useAuth } from '@/hooks/use-auth';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
@@ -200,50 +200,45 @@ function PodOrdersView() {
                 patchQuery({ datePreset: preset, orderedFrom: from, orderedTo: to, page: 1 })
               }
             />
-            <NativeSelect
+            <Combobox
               value={query.status ?? ''}
-              onChange={(e) =>
-                patchQuery({
-                  status: (e.target.value || undefined) as PodOrderStatus | undefined,
-                  page: 1,
-                })
+              onChange={(value) =>
+                patchQuery({ status: (value || undefined) as PodOrderStatus | undefined, page: 1 })
               }
+              options={[
+                { value: '', label: t('common:filter.allStatuses') },
+                ...POD_ORDER_STATUSES.map((status) => ({
+                  value: status,
+                  label: statusLabel(status),
+                })),
+              ]}
               className="w-[190px]"
-            >
-              <option value="">{t('common:filter.allStatuses')}</option>
-              {POD_ORDER_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {statusLabel(status)}
-                </option>
-              ))}
-            </NativeSelect>
+            />
             {/* Lọc theo KẾT NỐI (account) — danh sách lấy từ Sprint 1. */}
-            <NativeSelect
+            <Combobox
               value={query.accountId ?? ''}
-              onChange={(e) => patchQuery({ accountId: e.target.value || undefined, page: 1 })}
+              onChange={(value) => patchQuery({ accountId: value || undefined, page: 1 })}
+              options={[
+                { value: '', label: t('orders.allAccounts') },
+                ...(accountsQuery.data?.items ?? []).map((account) => ({
+                  value: account.id,
+                  label: account.shopName ?? account.accountName,
+                })),
+              ]}
               className="w-[200px]"
-            >
-              <option value="">{t('orders.allAccounts')}</option>
-              {(accountsQuery.data?.items ?? []).map((account) => (
-                <option key={account.id} value={account.id}>
-                  {account.shopName ?? account.accountName}
-                </option>
-              ))}
-            </NativeSelect>
-            <NativeSelect
+            />
+            <Combobox
               value={query.hasPodItem === undefined ? '' : String(query.hasPodItem)}
-              onChange={(e) =>
-                patchQuery({
-                  hasPodItem: e.target.value === '' ? undefined : e.target.value === 'true',
-                  page: 1,
-                })
+              onChange={(value) =>
+                patchQuery({ hasPodItem: value === '' ? undefined : value === 'true', page: 1 })
               }
+              options={[
+                { value: '', label: t('orders.allProducts') },
+                { value: 'true', label: t('orders.onlyPod') },
+                { value: 'false', label: t('orders.notPod') },
+              ]}
               className="w-[170px]"
-            >
-              <option value="">{t('orders.allProducts')}</option>
-              <option value="true">{t('orders.onlyPod')}</option>
-              <option value="false">{t('orders.notPod')}</option>
-            </NativeSelect>
+            />
           </div>
         </CardHeader>
         <CardContent className="space-y-4">

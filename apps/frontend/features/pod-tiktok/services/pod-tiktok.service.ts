@@ -100,6 +100,24 @@ export const podTiktokService = {
     return res.data.data;
   },
 
+  /**
+   * Đặt kho mặc định cho MỘT shop (Warehouse Mapping).
+   *
+   * 🔴 Kho thuộc về shop, không thuộc về sản phẩm — Draft Product không gắn kho, kho chỉ
+   * được quyết lúc Publish.
+   */
+  async setShopWarehouse(
+    accountId: string,
+    shopId: string,
+    warehouseId: string | null,
+  ): Promise<PodTiktokAccount> {
+    const res = await apiClient.patch<ApiResponse<PodTiktokAccount>>(
+      `${BASE_PATH}/${accountId}/shops/${shopId}/warehouse`,
+      { warehouseId },
+    );
+    return res.data.data;
+  },
+
   async assignSeller(id: string, sellerId: string | null): Promise<PodTiktokAccount> {
     const res = await apiClient.patch<ApiResponse<PodTiktokAccount>>(
       `${BASE_PATH}/${id}/seller`,

@@ -111,6 +111,72 @@ export class PodProductController {
     return this.service.triggerSync(user.organizationId, user.userId, dto);
   }
 
+  @Get('categories')
+  @RequirePermissions('pod.product.read')
+  @ApiOperation({
+    summary: 'Cây danh mục TikTok đã đồng bộ',
+    description:
+      'Dùng cho màn hình Categories và bộ chọn danh mục của Category Template. ' +
+      '`leafOnly=true` chỉ trả danh mục lá (danh mục đăng bán được). ' +
+      '`search` khớp tên · đường dẫn · `category_id`. ' +
+      '`tiktokCategoryId` tra CHÍNH XÁC một danh mục — dùng khi mở lại template đã lưu.',
+  })
+  findCategories(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('shopId') shopId?: string,
+    @Query('search') search?: string,
+    @Query('leafOnly') leafOnly?: string,
+    @Query('tiktokCategoryId') tiktokCategoryId?: string,
+  ) {
+    return this.service.findCategories(user.organizationId, {
+      shopId,
+      search,
+      leafOnly: leafOnly === 'true',
+      tiktokCategoryId,
+    });
+  }
+
+  @Get('categories/:categoryId/attributes')
+  @RequirePermissions('pod.product.read')
+  @ApiOperation({
+    summary: 'Thuộc tính của một danh mục (đã đồng bộ từ TikTok)',
+    description:
+      'Category Template render form từ đây — bắt buộc/tuỳ chọn, kiểu, danh sách giá trị hợp lệ. ' +
+      'KHÔNG hardcode thuộc tính nào ở frontend. ' +
+      '🔴 `categoryId` nhận CẢ HAI: UUID nội bộ hoặc `category_id` của TikTok — template lưu ' +
+      'mã TikTok, nên mở ra sửa là nạp được thuộc tính ngay mà không cần tra ngược.',
+  })
+  findCategoryAttributes(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('categoryId') categoryId: string,
+  ) {
+    return this.service.findCategoryAttributes(user.organizationId, categoryId);
+  }
+
+  @Get('brands')
+  @RequirePermissions('pod.product.read')
+  @ApiOperation({
+    summary: 'Thương hiệu TikTok đã đồng bộ (có phân trang + tìm kiếm)',
+    description:
+      'Bộ chọn brand tìm kiếm phía SERVER: một shop có thể có hàng chục nghìn thương hiệu, ' +
+      'tải hết về máy là không tưởng. `keyword` tìm theo tên hoặc `brand_id`. ' +
+      '🔴 "No brand" luôn đứng đầu danh sách.',
+  })
+  findBrands(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query('shopId') shopId?: string,
+    @Query('keyword') keyword?: string,
+    @Query('page') page?: string,
+    @Query('pageSize') pageSize?: string,
+  ) {
+    return this.service.findBrands(user.organizationId, {
+      shopId,
+      keyword,
+      page: page ? Number(page) : undefined,
+      pageSize: pageSize ? Number(pageSize) : undefined,
+    });
+  }
+
   @Get(':id')
   @RequirePermissions('pod.product.read')
   @ApiOperation({ summary: 'Chi tiết sản phẩm (biến thể, ảnh, video, thuộc tính)' })

@@ -11,16 +11,24 @@
 
 import {
   BarChart3,
+  BadgeCheck,
   ClipboardList,
   Factory,
+  FileStack,
+  History,
   Link2,
   LayoutDashboard,
   Package,
+  RefreshCw,
+  Rocket,
+  Send,
   ShoppingBag,
   Store,
+  Tags,
   UserRound,
   Users,
   Wallet,
+  Warehouse,
   type LucideIcon,
 } from 'lucide-react';
 import type { Namespace } from '@/i18n/config';
@@ -117,6 +125,66 @@ export const NAVIGATION: NavItemConfig[] = [
         href: '/dashboard/pod/products',
         icon: Package,
         permission: 'pod.product.read',
+      },
+      {
+        labelKey: 'podCategories',
+        href: '/dashboard/pod/categories',
+        icon: Tags,
+        permission: 'pod.product.read',
+      },
+      {
+        labelKey: 'podBrands',
+        href: '/dashboard/pod/brands',
+        icon: BadgeCheck,
+        permission: 'pod.product.read',
+      },
+      {
+        labelKey: 'podWarehouses',
+        href: '/dashboard/pod/warehouses',
+        icon: Warehouse,
+        permission: 'pod.template.read',
+      },
+      // Cửa duy nhất kéo dữ liệu dùng chung của TikTok về cache (Category / Brand /
+      // Attribute / Warehouse) — đặt ngay trên Templates vì phải chạy trước.
+      {
+        labelKey: 'podResources',
+        href: '/dashboard/pod/resources',
+        icon: RefreshCw,
+        permission: 'pod.product.read',
+      },
+      // Sáu loại template điều hướng bằng THANH TAB trong chính màn hình
+      // (`app/(dashboard)/dashboard/pod/templates/layout.tsx`), không phải bằng menu con.
+      //
+      // 🔴 Đừng thêm `children` ở đây: sidebar chỉ mở menu con cho nhóm CẤP MỘT
+      // (`NavGroup`), còn mục nằm trong nhóm được vẽ bằng `NavLink` — vốn bỏ qua `children`.
+      // Thêm vào chỉ tạo cấu hình chết, và làm người sau tưởng menu con đang hoạt động.
+      {
+        labelKey: 'podTemplates',
+        href: '/dashboard/pod/templates',
+        icon: FileStack,
+        permission: 'pod.template.read',
+      },
+      // Auto Listing = danh sách LƯỢT ĐĂNG (Listing Session). Import Product và Draft
+      // Product không có menu riêng: chúng là các bước BÊN TRONG một lượt đăng.
+      {
+        labelKey: 'podAutoListing',
+        href: '/dashboard/pod/auto-listing',
+        icon: Rocket,
+        permission: 'pod.session.read',
+      },
+      // Draft Listing = danh sách listing ĐÃ DỰNG XONG, chờ đưa lên sàn. Đây là nơi bấm
+      // Publish; Auto Listing chỉ dừng ở việc tạo Draft trên TikTok.
+      {
+        labelKey: 'podDraftListings',
+        href: '/dashboard/pod/draft-listings',
+        icon: Send,
+        permission: 'pod.draft.read',
+      },
+      {
+        labelKey: 'podPublishHistory',
+        href: '/dashboard/pod/publish-history',
+        icon: History,
+        permission: 'pod.listing.read',
       },
       {
         labelKey: 'podOrders',

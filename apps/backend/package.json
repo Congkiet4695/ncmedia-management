@@ -48,6 +48,7 @@
     "class-validator": "^0.14.1",
     "exceljs": "^4.4.0",
     "helmet": "^8.0.0",
+    "image-size": "^1.2.1",
     "ioredis": "^5.4.2",
     "joi": "^17.13.3",
     "nestjs-pino": "^4.3.0",

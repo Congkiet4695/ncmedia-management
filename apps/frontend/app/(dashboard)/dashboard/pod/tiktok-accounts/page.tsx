@@ -8,7 +8,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Combobox } from '@/components/ui/combobox';
 import { RequirePermission } from '@/components/require-permission';
 import { useAuth } from '@/hooks/use-auth';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
@@ -107,23 +107,23 @@ function PodTiktokAccountsView() {
                 className="pl-9"
               />
             </div>
-            <NativeSelect
+            <Combobox
               value={query.status ?? ''}
-              onChange={(e) =>
+              onChange={(value) =>
                 patchQuery({
-                  status: (e.target.value || undefined) as PodTiktokStatus | undefined,
+                  status: (value || undefined) as PodTiktokStatus | undefined,
                   page: 1,
                 })
               }
+              options={[
+                { value: '', label: t('common:filter.allStatuses') },
+                ...POD_TIKTOK_STATUSES.map((status) => ({
+                  value: status,
+                  label: t(`account.status.${status}`),
+                })),
+              ]}
               className="w-[200px]"
-            >
-              <option value="">{t('common:filter.allStatuses')}</option>
-              {POD_TIKTOK_STATUSES.map((status) => (
-                <option key={status} value={status}>
-                  {t(`account.status.${status}`)}
-                </option>
-              ))}
-            </NativeSelect>
+            />
           </div>
         </CardHeader>
         <CardContent className="space-y-4">

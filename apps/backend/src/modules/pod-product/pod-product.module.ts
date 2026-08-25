@@ -42,6 +42,11 @@ import { PodProductSyncService } from './services/pod-product-sync.service';
     // Sprint 3 (Template) và Sprint Listing sẽ đọc lại dữ liệu sản phẩm từ đây.
     PodProductRepository,
     PodProductService,
+    // PodWarehouseService (module pod-listing) dùng lại đúng cách chọn shop hợp lệ để
+    // gọi TikTok — không nhân bản logic lọc shop/token sang module khác.
+    PodProductSyncRepository,
+    // Màn hình Resources gọi từng lệnh đồng bộ danh mục / thương hiệu / thuộc tính riêng lẻ.
+    PodProductCatalogService,
   ],
 })
 export class PodProductModule {}

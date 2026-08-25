@@ -9,7 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Combobox } from '@/components/ui/combobox';
 import {
   Table,
   TableBody,
@@ -130,32 +130,33 @@ function MappingView() {
                 className="pl-9"
               />
             </div>
-            <NativeSelect
+            <Combobox
               value={query.accountId ?? ''}
-              onChange={(e) => patchQuery({ accountId: e.target.value || undefined, page: 1 })}
+              onChange={(value) => patchQuery({ accountId: value || undefined, page: 1 })}
+              options={[
+                { value: '', label: t('mapping.allProviders') },
+                ...(providers.data ?? []).map((provider) => ({
+                  value: provider.id,
+                  label: provider.name,
+                })),
+              ]}
               className="w-[200px]"
-            >
-              <option value="">{t('mapping.allProviders')}</option>
-              {providers.data?.map((provider) => (
-                <option key={provider.id} value={provider.id}>
-                  {provider.name}
-                </option>
-              ))}
-            </NativeSelect>
-            <NativeSelect
+            />
+            <Combobox
               value={query.status ?? ''}
-              onChange={(e) =>
+              onChange={(value) =>
                 patchQuery({
-                  status: (e.target.value || undefined) as ProductMappingQuery['status'],
+                  status: (value || undefined) as ProductMappingQuery['status'],
                   page: 1,
                 })
               }
+              options={[
+                { value: '', label: t('common:filter.allStatuses') },
+                { value: 'ACTIVE', label: t('mapping.statusValue.ACTIVE') },
+                { value: 'INACTIVE', label: t('mapping.statusValue.INACTIVE') },
+              ]}
               className="w-[170px]"
-            >
-              <option value="">{t('common:filter.allStatuses')}</option>
-              <option value="ACTIVE">{t('mapping.statusValue.ACTIVE')}</option>
-              <option value="INACTIVE">{t('mapping.statusValue.INACTIVE')}</option>
-            </NativeSelect>
+            />
           </div>
         </CardHeader>
 

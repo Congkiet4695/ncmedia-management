@@ -132,10 +132,20 @@ export class StorageRepository {
    * Dùng để chặn xoá trực tiếp file vẫn đang được dùng (FK là `Restrict`).
    * Thêm quan hệ mới ⇒ cộng thêm phép đếm tại đây.
    */
+  /**
+   * Đếm số thực thể nghiệp vụ đang dùng file.
+   *
+   * 🔴 Phải liệt kê ĐỦ mọi bảng có khoá ngoại tới `storage_files`. Thiếu một bảng thì
+   * người dùng xoá file ở màn hình Storage sẽ nhận lỗi ràng buộc thô của Postgres thay vì
+   * thông điệp "file đang được sử dụng" — hoặc tệ hơn, ảnh của template khác bị vỡ.
+   */
   async countReferences(id: string): Promise<number> {
-    return this.prisma.podOrderItemDesign.count({
-      where: { storageFileId: id, deletedAt: null },
-    });
+    const [designs, imageTemplateItems, skuTemplateItems] = await Promise.all([
+      this.prisma.podOrderItemDesign.count({ where: { storageFileId: id, deletedAt: null } }),
+      this.prisma.podImageTemplateItem.count({ where: { fileId: id } }),
+      this.prisma.podSkuTemplateItem.count({ where: { imageFileId: id } }),
+    ]);
+    return designs + imageTemplateItems + skuTemplateItems;
   }
 
 }

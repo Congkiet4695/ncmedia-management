@@ -1,18 +1,27 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
   TIKTOK_BRAND_PAGE_SIZE,
+  TIKTOK_CATEGORY_VERSION,
+  TIKTOK_IMAGE_USE_CASE,
   TIKTOK_PRODUCT_MAX_PAGES_PER_RUN,
+  TIKTOK_PRODUCT_SAVE_MODE,
   TIKTOK_PRODUCT_SEARCH_PAGE_SIZE,
   TIKTOK_SDK_CONTENT_TYPE,
+  type TiktokImageUseCase,
 } from './tiktok-sdk.constants';
 import { TikTokSdkService } from './tiktok-sdk.service';
 import type {
   TiktokBrand,
   TiktokCategoryAttribute,
   TiktokCategoryNode,
+  TiktokCreateProductRequest,
+  TiktokCreateProductResult,
+  TiktokEditProductRequest,
+  TiktokEditProductResult,
   TiktokProductDetail,
   TiktokProductSearchFilter,
   TiktokProductSummary,
+  TiktokUploadedImage,
 } from './types/tiktok-product.types';
 import type {
   TiktokPage,
@@ -30,6 +39,7 @@ import type {
  * Version đang dùng (chọn theo những gì SDK cung cấp — xem `tiktok-sdk.constants.ts`):
  *  - Search Products: **202502** (bản mới nhất; có `update_time_ge` cho sync tăng dần)
  *  - Get Product, Categories, Attributes, Brands: **202309**
+ *  - Create Product, Edit Product (Publish), Upload Image, Delete: **202309**
  *
  * Toàn bộ phân trang dùng `page_token` do TikTok cấp — hàm `*All` tự đi hết mọi trang.
  */
@@ -146,6 +156,136 @@ export class TiktokProductApiService {
   }
 
   // ---------------------------------------------------------------------------
+  // Ghi dữ liệu lên TikTok (Sprint 4 — Bulk Listing)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Upload Product Image — đẩy MỘT tấm ảnh lên TikTok, nhận `uri` để gắn vào sản phẩm.
+   *
+   * 🔴 Đây là API **multipart**, không phải JSON: SDK gửi qua `formData` và phần chữ ký chỉ
+   * ký path + query (`generate-sign.ts` bỏ qua body khi multipart), nên không được tự dựng
+   * request tay. Buffer phải kèm `filename` + `contentType`, thiếu là TikTok từ chối file.
+   *
+   * Ảnh không gắn với shop nào: TikTok cấp `uri` ở phạm vi app, dùng lại được cho mọi shop —
+   * đúng thứ Bulk Listing cần, vì một bộ mockup dùng cho hàng nghìn listing ở nhiều shop.
+   */
+  async uploadImage(
+    ctx: TiktokShopContext,
+    image: { buffer: Buffer; fileName: string; contentType: string },
+    useCase: TiktokImageUseCase = TIKTOK_IMAGE_USE_CASE.MAIN_IMAGE,
+  ): Promise<TiktokSdkResult<TiktokUploadedImage>> {
+    return this.sdk.execute<TiktokUploadedImage>({
+      endpoint: 'PRODUCT_IMAGE_UPLOAD',
+      invoke: () =>
+        this.sdk.api.ProductV202309Api.ImagesUploadPost(
+          ctx.accessToken,
+          TIKTOK_SDK_CONTENT_TYPE,
+          {
+            value: image.buffer,
+            options: { filename: image.fileName, contentType: image.contentType },
+          },
+          useCase,
+        ),
+    });
+  }
+
+  /**
+   * Create Product — tạo sản phẩm trên shop đích.
+   *
+   * 🔴 Mặc định `save_mode = AS_DRAFT`: sản phẩm vào mục Draft của Seller Center, KHÔNG lên
+   * sàn và KHÔNG vào hàng chờ duyệt. Muốn đăng bán phải truyền `LISTING` tường minh — để
+   * không ai publish nhầm chỉ vì quên một tham số.
+   *
+   * `idempotencyKey` do phía gọi cấp (hash của payload): thử lại sau lỗi mạng sẽ nhận lại
+   * đúng sản phẩm cũ thay vì đẻ ra bản trùng trên shop thật.
+   */
+  async createProduct(
+    ctx: TiktokShopContext,
+    request: TiktokCreateProductRequest,
+  ): Promise<TiktokSdkResult<TiktokCreateProductResult>> {
+    const body = {
+      categoryVersion: TIKTOK_CATEGORY_VERSION,
+      saveMode: TIKTOK_PRODUCT_SAVE_MODE.AS_DRAFT,
+      ...request,
+    };
+
+    return this.sdk.execute<TiktokCreateProductResult>({
+      endpoint: 'PRODUCT_CREATE',
+      invoke: () =>
+        this.sdk.api.ProductV202309Api.ProductsPost(
+          ctx.accessToken,
+          TIKTOK_SDK_CONTENT_TYPE,
+          ctx.shopCipher,
+          body,
+        ),
+    });
+  }
+
+  /**
+   * **Publish** — đưa một sản phẩm ĐÃ TỒN TẠI trên shop vào hàng chờ duyệt.
+   *
+   * 🔴 Vì sao là Edit Product chứ không phải một endpoint "publish": TikTok Shop **không có**
+   * endpoint publish cho sản phẩm local. Toàn bộ dòng `ProductV2023..V2026` của SDK chỉ có
+   * Create / Edit / Partial Edit / Activate / Deactivate; `save_mode` mới là thứ quyết định
+   * sản phẩm nằm ở Draft hay vào hàng chờ duyệt. (`Publish Global Product` là API khác, chỉ
+   * dành cho global product của seller xuyên biên giới — không dùng ở đây.)
+   *
+   * 🔴 Gọi hàm này KHÔNG tạo sản phẩm mới: `productId` là id của Draft đã có, TikTok cập
+   * nhật đúng bản ghi đó và trả lại chính id ấy. Đây là hàng rào chống trùng sản phẩm — mọi
+   * đường publish trong hệ thống đều phải đi qua đây, không qua `createProduct`.
+   *
+   * ⚠️ Edit Product là **full edit**: trường nào không gửi sẽ bị ghi đè thành rỗng. Phía gọi
+   * phải gửi NGUYÊN payload đã tạo ra Draft, không gửi một tập con.
+   */
+  async publishProduct(
+    ctx: TiktokShopContext,
+    productId: string,
+    request: TiktokEditProductRequest,
+  ): Promise<TiktokSdkResult<TiktokEditProductResult>> {
+    const body = {
+      categoryVersion: TIKTOK_CATEGORY_VERSION,
+      ...request,
+      // Đặt SAU phần spread: `LISTING` là toàn bộ ý nghĩa của lời gọi này, không cho phía
+      // gọi vô tình ghi đè bằng `AS_DRAFT` rồi tưởng đã publish.
+      saveMode: TIKTOK_PRODUCT_SAVE_MODE.LISTING,
+    };
+
+    return this.sdk.execute<TiktokEditProductResult>({
+      endpoint: 'PRODUCT_PUBLISH',
+      invoke: () =>
+        this.sdk.api.ProductV202309Api.ProductsProductIdPut(
+          productId,
+          ctx.accessToken,
+          TIKTOK_SDK_CONTENT_TYPE,
+          ctx.shopCipher,
+          body,
+        ),
+    });
+  }
+
+  /**
+   * Delete Products — xoá sản phẩm khỏi shop.
+   *
+   * Dùng để **dọn dẹp**: draft tạo nhầm (chạy thử, job lỗi) phải xoá được từ hệ thống thay
+   * vì bắt người vận hành vào Seller Center xoá tay từng cái.
+   */
+  async deleteProducts(
+    ctx: TiktokShopContext,
+    productIds: string[],
+  ): Promise<TiktokSdkResult<{ errors?: Array<{ code?: number; message?: string }> }>> {
+    return this.sdk.execute<{ errors?: Array<{ code?: number; message?: string }> }>({
+      endpoint: 'PRODUCT_DELETE',
+      invoke: () =>
+        this.sdk.api.ProductV202309Api.ProductsDelete(
+          ctx.accessToken,
+          TIKTOK_SDK_CONTENT_TYPE,
+          ctx.shopCipher,
+          { productIds },
+        ),
+    });
+  }
+
+  // ---------------------------------------------------------------------------
   // Danh mục / Thương hiệu / Thuộc tính
   // ---------------------------------------------------------------------------
 
@@ -162,7 +302,7 @@ export class TiktokProductApiService {
           TIKTOK_SDK_CONTENT_TYPE,
           options.locale,
           options.keyword,
-          options.categoryVersion,
+          options.categoryVersion ?? TIKTOK_CATEGORY_VERSION,
           options.listingPlatform,
           undefined,
           ctx.shopCipher,
@@ -185,7 +325,7 @@ export class TiktokProductApiService {
           ctx.accessToken,
           TIKTOK_SDK_CONTENT_TYPE,
           options.locale,
-          options.categoryVersion,
+          options.categoryVersion ?? TIKTOK_CATEGORY_VERSION,
           ctx.shopCipher,
         ),
     });

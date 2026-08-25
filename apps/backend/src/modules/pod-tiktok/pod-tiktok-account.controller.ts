@@ -35,6 +35,7 @@ import {
   AssignFulfillmentProviderDto,
   AssignPodSellerDto,
   PodSellerOptionQueryDto,
+  SetShopWarehouseDto,
   PodTiktokAccountQueryDto,
 } from './dto/pod-tiktok-query.dto';
 import {
@@ -175,6 +176,30 @@ export class PodTiktokAccountController {
     @Body() dto: AssignFulfillmentProviderDto,
   ): Promise<PodTiktokAccountResponseDto> {
     return this.service.assignFulfillmentAccount(user.organizationId, user.userId, id, dto);
+  }
+
+  @Patch(':id/shops/:shopId/warehouse')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('pod.tiktok.account.update')
+  @ApiOperation({
+    summary: 'Đặt kho mặc định cho MỘT shop (Warehouse Mapping)',
+    description:
+      '🔴 Kho là dữ liệu CỦA SHOP, không phải của sản phẩm: cùng một Draft Product đăng lên ' +
+      'ba shop là ba kho khác nhau. Draft không gắn kho và cổng validate cũng không đòi kho; ' +
+      'kho chỉ được quyết lúc Publish. Truyền `warehouseId: null` để bỏ cấu hình — khi đó hệ ' +
+      'thống tự suy (kho của Category Template nếu thuộc shop này → shop chỉ có một kho → ' +
+      'kho TikTok đánh dấu mặc định).',
+  })
+  @ApiOkResponse({ type: PodTiktokAccountResponseDto })
+  @ApiBadRequestResponse({ description: 'Kho không thuộc shop này (POD_TIKTOK_WAREHOUSE_INVALID)' })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy kết nối hoặc shop (POD_TIKTOK_ACCOUNT_NOT_FOUND)' })
+  setShopWarehouse(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Param('shopId', ParseUUIDPipe) shopId: string,
+    @Body() dto: SetShopWarehouseDto,
+  ): Promise<PodTiktokAccountResponseDto> {
+    return this.service.setShopWarehouse(user.organizationId, user.userId, id, shopId, dto);
   }
 
   @Delete(':id')

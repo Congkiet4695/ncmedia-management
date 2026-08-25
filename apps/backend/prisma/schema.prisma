@@ -524,6 +524,8 @@ model Platform {
 
   accounts Account[]
 
+  podListingSessions PodListingSession[]
+
   @@map("platforms")
 }
 
@@ -894,6 +896,7 @@ model PodTiktokAccount {
   oauthStates           PodTiktokOAuthState[]
   products              PodProduct[]
   productSyncHistories  PodProductSyncHistory[]
+  listingPayloads       PodListingPayload[]
   orders                PodOrder[]
   syncLogs              PodSyncLog[]
   payments              PodTiktokPayment[]
@@ -941,6 +944,13 @@ model PodTiktokShop {
 
   // --- Dự trù Sprint sau ---
   /// Bật/tắt đồng bộ theo từng shop (Sprint 3 — Sync Orders).
+  /// 🔴 **Warehouse Mapping của shop** — kho mặc định dùng khi Publish sản phẩm lên shop này.
+  ///
+  /// Kho là dữ liệu CỦA SHOP, không phải của sản phẩm: cùng một Draft Product đăng lên ba
+  /// shop là ba kho khác nhau. Draft vì thế không gắn kho; kho chỉ được quyết ở bước Publish,
+  /// và đây là chỗ người vận hành khai báo lựa chọn của từng shop.
+  defaultWarehouseId String? @map("default_warehouse_id") @db.Uuid
+
   syncEnabled         Boolean   @default(true) @map("sync_enabled")
   /// Watermark `update_time` (Unix seconds) đã đồng bộ xong (Sprint 3).
   lastOrderSyncCursor BigInt?   @map("last_order_sync_cursor")
@@ -981,15 +991,20 @@ model PodTiktokShop {
   updatedBy String?   @map("updated_by") @db.Uuid
 
   account               PodTiktokAccount                @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  defaultWarehouse      PodTiktokWarehouse?             @relation("PodShopDefaultWarehouse", fields: [defaultWarehouseId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   orders                PodOrder[]
   syncLogs              PodSyncLog[]
   products              PodProduct[]
   productCategories     PodProductCategory[]
   productBrands         PodProductBrand[]
   productSyncHistories  PodProductSyncHistory[]
+  warehouses            PodTiktokWarehouse[]
+  listingPayloads       PodListingPayload[]
+  listingJobItems       PodListingJobItem[]
   payments              PodTiktokPayment[]
   statements            PodTiktokStatement[]
   statementTransactions PodTiktokStatementTransaction[]
+  listingSessionShops   PodListingSessionShop[]
 
   // Chống link trùng Shop trong cùng Organization (hàng rào ở tầng DB).
   @@unique([organizationId, tiktokShopId])
@@ -1531,6 +1546,8 @@ enum StorageModuleName {
 /// Khai báo SẴN các loại đã thấy trong lộ trình để mở rộng không cần migration.
 enum StorageReferenceType {
   POD_ORDER_ITEM_DESIGN
+  /// Ảnh/video thuộc một Image Template của module Listing (Sprint 3).
+  POD_LISTING_ASSET
   EMPLOYEE_AVATAR
   EMPLOYEE_CCCD
   ACCOUNT_DOCUMENT
@@ -1606,7 +1623,12 @@ model StorageFile {
   uploader     User         @relation("StorageUploader", fields: [uploadedBy], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   /// File được dùng làm design của sản phẩm POD (0..n — thực tế 0 hoặc 1).
-  podDesigns PodOrderItemDesign[]
+  podDesigns           PodOrderItemDesign[]
+  /// Ảnh trong một bộ ảnh mẫu (mockup) của Image Template.
+  imageTemplateItems   PodImageTemplateItem[]
+  /// File dùng làm ảnh riêng của một tổ hợp SKU trong SKU Template.
+  skuTemplateItems     PodSkuTemplateItem[]            @relation("PodSkuTemplateItemImage")
+  sessionProductImages PodListingSessionProductImage[] @relation("PodListingSessionProductImageFile")
 
   @@index([organizationId])
   @@index([organizationId, module])
@@ -2441,12 +2463,14 @@ model PodProduct {
   brand    PodProductBrand?    @relation(fields: [brandId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   category PodProductCategory? @relation(fields: [categoryId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
-  variants   PodProductVariant[]
-  images     PodProductImage[]
-  videos     PodProductVideo[]
-  attributes PodProductAttribute[]
-  rawData    PodProductRawData[]
-  syncLogs   PodProductSyncLog[]
+  variants        PodProductVariant[]
+  images          PodProductImage[]
+  videos          PodProductVideo[]
+  attributes      PodProductAttribute[]
+  rawData         PodProductRawData[]
+  syncLogs        PodProductSyncLog[]
+  listingPayloads PodListingPayload[]
+  listingJobItems PodListingJobItem[]
 
   @@unique([shopId, tiktokProductId])
   @@index([organizationId])
@@ -2689,6 +2713,14 @@ model PodProductBrand {
   authorizedStatus String? @map("authorized_status") @db.VarChar(40)
   brandStatus      String? @map("brand_status") @db.VarChar(40)
 
+  /// 🔴 "No brand" — lựa chọn LUÔN hợp lệ trong Seller Center và là mặc định của hàng POD.
+  /// Đánh dấu bằng cột riêng thay vì so tên ở mỗi chỗ dùng: tên hiển thị đổi theo ngôn ngữ
+  /// và theo lần đồng bộ, còn cờ này thì không.
+  isNoBrand Boolean @default(false) @map("is_no_brand")
+  /// Bản ghi do HỆ THỐNG tạo vì TikTok không trả về (xem `ensureNoBrand`). Lần đồng bộ sau
+  /// TikTok trả về thật thì bản ghi được cập nhật tại chỗ và cờ này tắt đi.
+  isSystem  Boolean @default(false) @map("is_system")
+
   syncedAt  DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -2700,6 +2732,7 @@ model PodProductBrand {
   @@unique([shopId, tiktokBrandId])
   @@index([organizationId])
   @@index([name])
+  @@index([organizationId, isNoBrand])
   @@map("pod_product_brands")
 }
 
@@ -2818,4 +2851,1719 @@ model PodProductRawData {
   @@index([productId])
   @@index([fetchedAt])
   @@map("pod_product_raw_data")
+}
+
+// ===========================================================================
+// MODULE POD — LISTING TEMPLATE MANAGEMENT (Sprint 3)
+//
+// Mục tiêu: người dùng chọn NHIỀU sản phẩm × NHIỀU shop + một Listing Template
+// ⇒ sinh ra **Draft Listing** lưu trong DB. Sprint 4 chỉ việc đọc draft, dựng
+// payload TikTok và gọi Create/Publish qua SDK — KHÔNG phải sửa lại schema.
+//
+// 🔴 Sprint 3 TUYỆT ĐỐI không gọi API ghi của TikTok: không Create Product,
+// không Publish, không Upload Product.
+//
+// Nguyên tắc chống hardcode (yêu cầu bắt buộc):
+//   · Category / Attribute / Brand / Warehouse đều là **dữ liệu đã đồng bộ** từ TikTok
+//     (bảng `pod_product_categories`, `pod_category_attributes`, `pod_product_brands`,
+//     `pod_tiktok_warehouses`). Template chỉ LƯU LỰA CHỌN, không định nghĩa danh mục.
+//   · Template tham chiếu TikTok bằng **ID chuỗi của TikTok + market**, không phải FK tới
+//     bản ghi cache theo shop ⇒ một template dùng được cho MỌI shop cùng thị trường
+//     (đúng mô hình Public App: nhiều seller, nhiều shop).
+// ===========================================================================
+
+/// Thị trường của template. Mỗi thị trường có cây danh mục và quy tắc riêng
+/// ⇒ template phải gắn thị trường, không dùng lẫn.
+/// Sales Market của template — mã vùng marketplace của TikTok Shop.
+/// `EU`/`AU` là hai vùng gộp có từ bản đầu, giữ lại để không phá dữ liệu cũ.
+enum PodListingMarket {
+  US
+  UK
+  EU
+  AU
+  DE
+  FR
+  IT
+  ES
+  IE
+  JP
+  SG
+  MY
+  TH
+  VN
+  PH
+  ID
+  BR
+  MX
+
+  @@map("pod_listing_market")
+}
+
+/// VAI TRÒ của một tấm ảnh trong bộ ảnh mẫu (mockup) của một phôi.
+///
+/// 🔴 Đây là ảnh **của phôi**, không phải ảnh của sản phẩm: "Comfort Colors — mặt trước",
+/// "bảng size", "hướng dẫn giặt". Một bộ dùng cho hàng nghìn listing.
+enum PodImageAssetType {
+  /// Mockup mặt trước.
+  MAIN_FRONT
+  /// Mockup mặt sau.
+  MAIN_BACK
+  /// Ảnh đời thường (người mặc, bối cảnh).
+  LIFESTYLE
+  /// Ảnh cận cảnh chi tiết (đường may, chất vải).
+  DETAIL
+  /// Bảng size.
+  SIZE_CHART
+  /// Ảnh đóng gói / hộp.
+  PACKAGING
+  /// Loại khác do người dùng tự đặt tên ở `title` (vd hướng dẫn giặt).
+  CUSTOM
+
+  @@map("pod_image_asset_type")
+}
+
+/// Cách một biến thể điều chỉnh giá so với giá do Pricing Template tính ra.
+enum PodPriceAdjustmentType {
+  /// Không điều chỉnh — dùng đúng giá của Pricing Template.
+  NONE
+  /// Cộng/trừ một số tiền (vd size XXL +2.00).
+  AMOUNT
+  /// Cộng/trừ theo phần trăm (vd +10%).
+  PERCENT
+
+  @@map("pod_price_adjustment_type")
+}
+
+/// Tài nguyên dùng chung phải kéo từ TikTok về trước khi dựng Template.
+///
+/// 🔴 Template CHỈ ĐỌC những bảng cache này. Cách duy nhất để dữ liệu vào là bấm Sync —
+/// không màn hình nào được gọi thẳng TikTok khi mở dropdown.
+enum PodResourceType {
+  /// Cây danh mục (`pod_product_categories`).
+  CATEGORY
+  /// Thương hiệu (`pod_product_brands`).
+  BRAND
+  /// Kho hàng (`pod_tiktok_warehouses`).
+  WAREHOUSE
+  /// Định nghĩa thuộc tính theo danh mục (`pod_category_attributes`).
+  CATEGORY_ATTRIBUTE
+
+  @@map("pod_resource_type")
+}
+
+/// Trạng thái một lượt đồng bộ tài nguyên.
+enum PodResourceSyncStatus {
+  /// Chưa chạy lần nào.
+  IDLE
+  RUNNING
+  SUCCESS
+  /// Có shop thành công, có shop lỗi — nói rõ thay vì báo xanh giả.
+  PARTIAL
+  FAILED
+
+  @@map("pod_resource_sync_status")
+}
+
+// ---------------------------------------------------------------------------
+// PodResourceSync — TRẠNG THÁI HIỆN TẠI của mỗi tài nguyên trong một Organization.
+//
+// Một dòng cho mỗi (tổ chức × loại tài nguyên). Chi tiết từng lượt chạy và từng shop nằm
+// ở `pod_resource_sync_logs`; bảng này chỉ trả lời nhanh câu "còn mới không, bao nhiêu bản
+// ghi, lần cuối có lỗi gì" cho màn hình Resources.
+// ---------------------------------------------------------------------------
+
+model PodResourceSync {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  resource       PodResourceType
+
+  status       PodResourceSyncStatus @default(IDLE)
+  /// Thời điểm kết thúc lượt đồng bộ gần nhất.
+  lastSyncAt   DateTime?             @map("last_sync_at") @db.Timestamptz(6)
+  /// Số bản ghi ghi được ở lượt gần nhất.
+  totalRecords Int                   @default(0) @map("total_records")
+  /// Thời gian chạy lượt gần nhất (ms).
+  durationMs   Int?                  @map("duration_ms")
+  /// Lỗi của lượt gần nhất — NULL khi thành công.
+  lastError    String?               @map("last_error") @db.VarChar(2000)
+  /// Mã lượt chạy gần nhất, để nối sang bảng log.
+  jobId        String?               @map("job_id") @db.Uuid
+  lastRunBy    String?               @map("last_run_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([organizationId, resource])
+  @@index([organizationId])
+  @@map("pod_resource_syncs")
+}
+
+// ---------------------------------------------------------------------------
+// PodResourceSyncLog — NHẬT KÝ từng lượt, tách theo shop.
+//
+// Bảng vận hành (xoá cứng theo retention, không soft delete) — giống các bảng log khác.
+// Một `jobId` sinh ra nhiều dòng: mỗi shop một dòng, cộng một dòng tổng kết khi cần.
+// ---------------------------------------------------------------------------
+
+model PodResourceSyncLog {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  resource       PodResourceType
+  /// Gom các dòng của cùng một lần bấm Sync.
+  jobId          String          @map("job_id") @db.Uuid
+
+  status PodResourceSyncStatus
+
+  /// Shop tương ứng. NULL = dòng tổng kết của cả lượt.
+  shopId   String? @map("shop_id") @db.Uuid
+  shopName String? @map("shop_name") @db.VarChar(255)
+
+  totalRecords Int     @default(0) @map("total_records")
+  durationMs   Int     @default(0) @map("duration_ms")
+  /// Thông điệp lỗi nguyên trạng — đây là thứ người vận hành cần đọc khi sync hỏng.
+  errorMessage String? @map("error_message") @db.VarChar(2000)
+
+  startedAt   DateTime  @map("started_at") @db.Timestamptz(6)
+  finishedAt  DateTime? @map("finished_at") @db.Timestamptz(6)
+  triggeredBy String?   @map("triggered_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([organizationId, resource, startedAt])
+  @@index([jobId])
+  @@map("pod_resource_sync_logs")
+}
+
+/// Cách một Listing Template chọn ra tập sản phẩm mà nó áp dụng.
+///
+/// 🔴 Quan hệ đi theo chiều **Template → Product**: template mô tả "tôi áp cho những sản
+/// phẩm nào", sản phẩm KHÔNG mang cột trỏ về template. Đây là điều kiện để Bulk Listing —
+/// gắn template vào từng sản phẩm thì 10.000 sản phẩm là 10.000 lần gán tay.
+enum PodListingScopeMatch {
+  /// Mọi sản phẩm đã đồng bộ của tổ chức.
+  ALL
+  /// Theo danh mục TikTok (`tiktok_category_id`).
+  CATEGORY
+  /// Theo thương hiệu (`tiktok_brand_id`).
+  BRAND
+  /// Theo shop.
+  SHOP
+  /// Tiêu đề CHỨA từ khoá.
+  TITLE_KEYWORD
+  /// Có biến thể với Seller SKU bắt đầu bằng tiền tố.
+  SELLER_SKU_PREFIX
+  /// Theo trạng thái sản phẩm phía TikTok (ACTIVATE / DRAFT / …).
+  PRODUCT_STATUS
+
+  @@map("pod_listing_scope_match")
+}
+
+/// Cách tính giá bán từ giá vốn.
+enum PodPricingMarkupType {
+  /// Cộng theo phần trăm giá vốn: sale = (cost + shipping) × (1 + value/100)
+  PERCENT
+  /// Cộng số tiền cố định: sale = cost + shipping + value
+  FIXED
+  /// Biểu thức số học do người dùng nhập (`formula`), chỉ dùng biến trong danh sách trắng.
+  /// KHÔNG eval — biểu thức được phân tích bằng parser riêng (`pod-pricing.formula.ts`).
+  FORMULA
+
+  @@map("pod_pricing_markup_type")
+}
+
+/// Thành phần cấu thành một Listing Template.
+enum PodListingTemplateItemType {
+  CATEGORY
+  SKU
+  DESCRIPTION
+  IMAGE
+  PRICING
+
+  @@map("pod_listing_template_item_type")
+}
+
+/// Vòng đời một Draft Listing.
+/// DRAFT: vừa sinh, còn lỗi validate · READY: đủ dữ liệu, chờ Sprint 4 publish
+/// PUBLISHING/PUBLISHED/FAILED: do Sprint 4 cập nhật · ARCHIVED: người dùng bỏ
+enum PodListingPayloadStatus {
+  DRAFT
+  READY
+  PUBLISHING
+  /// 🔴 Sprint 4: đã tạo **Draft Product** trên TikTok (có `tiktok_product_id`) nhưng CHƯA
+  /// đăng bán. Đây là đích của Bulk Listing Engine và là ĐẦU VÀO của Sprint 5.
+  TIKTOK_DRAFT
+  /// 🔴 Sprint 5: đã gửi Publish và TikTok nhận. Sản phẩm vào hàng chờ duyệt — trạng thái
+  /// duyệt thật nằm ở cột `review_status`, không nằm ở đây.
+  PUBLISHED
+  FAILED
+  ARCHIVED
+
+  @@map("pod_listing_payload_status")
+}
+
+// ---------------------------------------------------------------------------
+// PodTiktokWarehouse — kho hàng đồng bộ từ TikTok (Get Warehouse List).
+// Người dùng CHỌN kho ở Listing Template; không tự nhập, không hardcode.
+// ---------------------------------------------------------------------------
+
+model PodTiktokWarehouse {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  shopId         String @map("shop_id") @db.Uuid
+
+  /// `warehouses[].id` phía TikTok.
+  tiktokWarehouseId String  @map("tiktok_warehouse_id") @db.VarChar(64)
+  name              String? @db.VarChar(255)
+  /// `type` (SALES_WAREHOUSE / RETURN_WAREHOUSE) và `sub_type`.
+  type              String? @db.VarChar(40)
+  subType           String? @map("sub_type") @db.VarChar(40)
+  effectStatus      String? @map("effect_status") @db.VarChar(40)
+  isDefault         Boolean @default(false) @map("is_default")
+  /// Vùng/quốc gia của kho — dùng để lọc theo thị trường của template.
+  regionCode        String? @map("region_code") @db.VarChar(10)
+  /// Địa chỉ nguyên trạng (JSON) — chỉ hiển thị, không tách cột vì không truy vấn theo.
+  address           Json?
+
+  syncedAt  DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  shop              PodTiktokShop         @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  listingTemplates  PodListingTemplate[]
+  categoryTemplates PodCategoryTemplate[]
+
+  /// Các shop đang lấy kho này làm kho mặc định lúc Publish.
+  defaultForShops PodTiktokShop[] @relation("PodShopDefaultWarehouse")
+
+  @@unique([shopId, tiktokWarehouseId])
+  @@index([organizationId])
+  @@map("pod_tiktok_warehouses")
+}
+
+// ---------------------------------------------------------------------------
+// PodCategoryTemplate — mẫu cho MỘT danh mục TikTok: brand, kiện hàng, size chart,
+// video mặc định và **giá trị thuộc tính** của danh mục đó.
+// ---------------------------------------------------------------------------
+
+model PodCategoryTemplate {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  name           String           @db.VarChar(255)
+  market         PodListingMarket
+
+  /// Danh mục TikTok đã chọn — lưu ID CHUỖI của TikTok (không phải FK theo shop)
+  /// để template dùng lại được cho mọi shop cùng thị trường.
+  tiktokCategoryId String  @map("tiktok_category_id") @db.VarChar(64)
+  /// Ảnh chụp tên + đường dẫn danh mục tại thời điểm tạo — hiển thị được ngay cả khi
+  /// cache danh mục của shop chưa đồng bộ.
+  categoryName     String? @map("category_name") @db.VarChar(255)
+  categoryPath     String? @map("category_path") @db.VarChar(1024)
+
+  /// Thương hiệu (đồng bộ từ TikTok). NULL = không gắn brand.
+  tiktokBrandId String? @map("tiktok_brand_id") @db.VarChar(64)
+  brandName     String? @map("brand_name") @db.VarChar(255)
+
+  /// Kiện hàng mặc định. Lưu CHUỖI đúng như TikTok yêu cầu (không ép số).
+  packageWeight String? @map("package_weight") @db.VarChar(32)
+  weightUnit    String? @map("weight_unit") @db.VarChar(16)
+  packageLength String? @map("package_length") @db.VarChar(32)
+  packageWidth  String? @map("package_width") @db.VarChar(32)
+  packageHeight String? @map("package_height") @db.VarChar(32)
+  dimensionUnit String? @map("dimension_unit") @db.VarChar(16)
+
+  /// Size chart & product video mặc định — trỏ tới file trong Storage Module (R2).
+  sizeChartFileId String? @map("size_chart_file_id") @db.Uuid
+  videoFileId     String? @map("video_file_id") @db.Uuid
+
+  /// Kho mặc định của template (kho đã đồng bộ từ TikTok — không tự nhập, không hardcode).
+  warehouseId String? @map("warehouse_id") @db.Uuid
+
+  isDefault    Boolean @default(false) @map("is_default")
+  isActive     Boolean @default(true) @map("is_active")
+  /// Thứ tự hiển thị do người dùng đặt — danh sách sắp theo cột này trước khi sắp theo tên.
+  displayOrder Int     @default(0) @map("display_order")
+  note         String? @db.VarChar(500)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  warehouse        PodTiktokWarehouse?            @relation(fields: [warehouseId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  attributes       PodCategoryTemplateAttribute[]
+  listingTemplates PodListingTemplate[]
+  sessionTemplates PodListingSessionTemplate[]
+
+  @@index([organizationId, market])
+  @@index([organizationId, displayOrder])
+  @@index([tiktokCategoryId])
+  @@map("pod_category_templates")
+}
+
+// ---------------------------------------------------------------------------
+// PodCategoryTemplateAttribute — GIÁ TRỊ thuộc tính người dùng nhập cho template.
+//
+// 🔴 Danh sách thuộc tính KHÔNG hardcode: UI đọc `pod_category_attributes` (đã đồng bộ
+// từ Get Category Attributes) rồi render động. Bảng này chỉ lưu giá trị đã chọn, kèm
+// ẢNH CHỤP tên/độ bắt buộc để draft cũ vẫn tái dựng được khi TikTok đổi thuộc tính.
+// ---------------------------------------------------------------------------
+
+model PodCategoryTemplateAttribute {
+  id                 String @id @default(uuid()) @db.Uuid
+  organizationId     String @map("organization_id") @db.Uuid
+  categoryTemplateId String @map("category_template_id") @db.Uuid
+
+  tiktokAttributeId   String  @map("tiktok_attribute_id") @db.VarChar(64)
+  attributeName       String? @map("attribute_name") @db.VarChar(255)
+  /// Ảnh chụp `type` của TikTok (PRODUCT_PROPERTY / SALES_PROPERTY) — nhờ đó màn hình
+  /// tách được "Product Attributes" và "Sale Attributes" mà không phải gọi lại API.
+  attributeType       String? @map("attribute_type") @db.VarChar(40)
+  /// Ảnh chụp `is_required` lúc nhập — biết được vì sao ngày đó bắt buộc.
+  isRequired          Boolean @default(false) @map("is_required")
+  /// Ảnh chụp `is_multiple_selection` / `is_customizable` lúc nhập.
+  isMultipleSelection Boolean @default(false) @map("is_multiple_selection")
+  isCustomizable      Boolean @default(false) @map("is_customizable")
+
+  sortOrder Int @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  categoryTemplate PodCategoryTemplate                       @relation(fields: [categoryTemplateId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  values           PodCategoryTemplateAttributeValue[]
+  customValues     PodCategoryTemplateAttributeCustomValue[]
+
+  @@unique([categoryTemplateId, tiktokAttributeId])
+  @@index([organizationId])
+  @@map("pod_category_template_attributes")
+}
+
+// ---------------------------------------------------------------------------
+// PodCategoryTemplateAttributeValue — MỘT giá trị đã chọn của một thuộc tính.
+//
+// Tách bảng thay vì mảng JSON: thuộc tính nhiều lựa chọn (`is_multiple_selection`)
+// sinh ra quan hệ 1—n thật sự, và truy vấn "template nào đang dùng giá trị X" chỉ
+// làm được khi giá trị nằm ở cột, không nằm trong JSON.
+// ---------------------------------------------------------------------------
+
+model PodCategoryTemplateAttributeValue {
+  id                  String @id @default(uuid()) @db.Uuid
+  organizationId      String @map("organization_id") @db.Uuid
+  templateAttributeId String @map("template_attribute_id") @db.Uuid
+
+  /// `id` của giá trị phía TikTok (lấy từ `pod_category_attributes.values`).
+  tiktokValueId String  @map("tiktok_value_id") @db.VarChar(64)
+  /// Ảnh chụp tên hiển thị lúc chọn.
+  valueName     String? @map("value_name") @db.VarChar(255)
+  sortOrder     Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  attribute PodCategoryTemplateAttribute @relation(fields: [templateAttributeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([templateAttributeId, tiktokValueId])
+  @@index([organizationId])
+  @@map("pod_category_template_attribute_values")
+}
+
+// ---------------------------------------------------------------------------
+// PodCategoryTemplateAttributeCustomValue — giá trị NGƯỜI DÙNG tự nhập cho một thuộc tính.
+//
+// 🔴 Vì sao tách bảng riêng thay vì nhét chung với giá trị chính thức: dữ liệu của TikTok là
+// BẤT BIẾN — đồng bộ lại là ghi đè. Trộn giá trị tự nhập vào đó thì lần sync sau sẽ xoá mất,
+// hoặc tệ hơn là gửi lên TikTok một `value_id` không tồn tại. Hai nguồn, hai bảng:
+//
+//   pod_category_template_attribute_values        → chọn từ danh sách TikTok (có `value_id`)
+//   pod_category_template_attribute_custom_values → người dùng gõ tay (chỉ có tên)
+//
+// Lúc dựng listing cả hai được ghép lại thành `product_attributes[].values[]`: giá trị chính
+// thức đi kèm `id`, giá trị tự nhập chỉ có `name` — đúng cách TikTok nhận custom value.
+//
+// ⚠️ Chỉ được phép nhập khi ĐỊNH NGHĨA thuộc tính từ TikTok có `is_customizable = true`
+// (`pod_category_attributes.is_customizable`). Backend kiểm tra lại, không tin cờ do client gửi.
+// ---------------------------------------------------------------------------
+
+model PodCategoryTemplateAttributeCustomValue {
+  id                  String @id @default(uuid()) @db.Uuid
+  organizationId      String @map("organization_id") @db.Uuid
+  templateAttributeId String @map("template_attribute_id") @db.Uuid
+
+  /// Chuỗi người dùng nhập, đã trim. Không có `value_id` — TikTok cấp id, người dùng thì không.
+  value        String @db.VarChar(500)
+  displayOrder Int    @default(0) @map("display_order")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  attribute PodCategoryTemplateAttribute @relation(fields: [templateAttributeId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// Hàng rào cuối cùng chống trùng; phần so sánh KHÔNG phân biệt hoa thường nằm ở service.
+  @@unique([templateAttributeId, value])
+  @@index([organizationId])
+  @@map("pod_category_template_attribute_custom_values")
+}
+
+// ---------------------------------------------------------------------------
+// SKU TEMPLATE — bốn bảng, không còn JSON:
+//
+//   pod_sku_templates              quy tắc chung (tiền tố mã, giá/tồn mặc định)
+//     └── pod_sku_template_variants          TRỤC biến thể      (Color, Size, Style…)
+//           └── pod_sku_template_variant_values   GIÁ TRỊ của trục (Black, White…)
+//     └── pod_sku_template_items             TỔ HỢP đã sinh     (Black / S)
+//           └── pod_sku_template_item_values      tổ hợp ⇄ giá trị (n—n)
+//
+// Vì sao tách hết ra bảng: trục biến thể là dữ liệu người dùng truy vấn và sửa
+// (đổi tên một màu phải đổi cho mọi tổ hợp), còn "Black / S ↔ Black + S" là quan hệ
+// n—n thật sự. Nhét vào JSON thì mọi thao tác đó thành đọc-sửa-ghi cả cục.
+// ---------------------------------------------------------------------------
+
+model PodSkuTemplate {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  name           String @db.VarChar(255)
+
+  /// Quy tắc sinh mã SKU: `{prefix}-{sản phẩm}-{mã tổ hợp}-{suffix}` — người dùng tự đặt.
+  skuPrefix String? @map("sku_prefix") @db.VarChar(64)
+  skuSuffix String? @map("sku_suffix") @db.VarChar(64)
+
+  /// Giá trị mặc định áp cho mọi tổ hợp khi sinh (vẫn sửa được từng dòng).
+  /// `retail` = giá gốc (gạch ngang), `sale` = giá bán thực tế — đúng cặp
+  /// `original_price` / `sale_price` của TikTok Shop.
+  defaultRetailPrice Decimal? @map("default_retail_price") @db.Decimal(18, 4)
+  defaultSalePrice   Decimal? @map("default_sale_price") @db.Decimal(18, 4)
+  defaultQuantity    Int      @default(0) @map("default_quantity")
+  defaultDiscount    Decimal? @map("default_discount") @db.Decimal(9, 4)
+  currency           String?  @db.VarChar(10)
+
+  isDefault    Boolean @default(false) @map("is_default")
+  isActive     Boolean @default(true) @map("is_active")
+  displayOrder Int     @default(0) @map("display_order")
+  note         String? @db.VarChar(500)
+
+  /// 🔴 Hai mốc thời gian này là toàn bộ cơ chế "SKU đã cũ so với trục biến thể".
+  ///
+  /// Lưu template chỉ ghi TRỤC; bảng SKU chỉ đổi khi người dùng bấm **Tạo SKU**. Sửa trục
+  /// xong mà chưa tạo lại ⇒ `axes_updated_at > items_generated_at` ⇒ màn hình cảnh báo, dữ
+  /// liệu giá/tồn đã nhập tay KHÔNG bị ghi đè. Tự sinh lại sau mỗi lần sửa là cách chắc chắn
+  /// nhất để xoá sạch bảng giá của hàng chục SKU chỉ vì gõ nhầm một chữ trong tên trục.
+  axesUpdatedAt    DateTime  @default(now()) @map("axes_updated_at") @db.Timestamptz(6)
+  /// NULL = chưa bấm Tạo SKU lần nào.
+  itemsGeneratedAt DateTime? @map("items_generated_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  variants         PodSkuTemplateVariant[]
+  items            PodSkuTemplateItem[]
+  listingTemplates PodListingTemplate[]
+  sessionTemplates PodListingSessionTemplate[]
+
+  @@index([organizationId])
+  @@index([organizationId, displayOrder])
+  @@map("pod_sku_templates")
+}
+
+/// PodSkuTemplateVariant — MỘT trục biến thể (Color, Size, Style…).
+/// Số trục do người dùng quyết định; hệ thống không biết trước tên trục nào.
+model PodSkuTemplateVariant {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  skuTemplateId  String @map("sku_template_id") @db.Uuid
+
+  name      String @db.VarChar(64)
+  sortOrder Int    @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  skuTemplate PodSkuTemplate               @relation(fields: [skuTemplateId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  values      PodSkuTemplateVariantValue[]
+
+  @@unique([skuTemplateId, name])
+  @@index([organizationId])
+  @@map("pod_sku_template_variants")
+}
+
+/// PodSkuTemplateVariantValue — MỘT giá trị của trục (Black, White, S, M…).
+model PodSkuTemplateVariantValue {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  variantId      String @map("variant_id") @db.Uuid
+
+  value     String  @db.VarChar(128)
+  /// Mã rút gọn dùng khi ghép SKU Code (vd Black → BLK). Bỏ trống ⇒ suy từ `value`.
+  code      String? @db.VarChar(32)
+  sortOrder Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  variant    PodSkuTemplateVariant     @relation(fields: [variantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  itemValues PodSkuTemplateItemValue[]
+
+  @@unique([variantId, value])
+  @@index([organizationId])
+  @@map("pod_sku_template_variant_values")
+}
+
+/// PodSkuTemplateItem — MỘT tổ hợp đã sinh ("Black / S") = một SKU sẽ đăng bán.
+/// Vật chất hoá thay vì tính lúc chạy: người dùng chỉnh giá/tồn/ảnh/barcode cho TỪNG dòng.
+model PodSkuTemplateItem {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  skuTemplateId  String @map("sku_template_id") @db.Uuid
+
+  /// Tên hiển thị ghép sẵn ("Black / S") để UI và draft khỏi ghép lại.
+  variantName String  @map("variant_name") @db.VarChar(512)
+  /// Phần đuôi mã SKU của riêng tổ hợp (vd "BLK-S").
+  skuCode     String? @map("sku_code") @db.VarChar(128)
+  /// Mã vạch (GTIN/UPC/EAN) — TikTok cho phép khai báo ở mức SKU.
+  barcode     String? @db.VarChar(64)
+
+  /// **Điều chỉnh giá theo biến thể** — cách đúng để một SKU Template dùng chung cho nhiều
+  /// sản phẩm có giá vốn khác nhau: "size XXL cộng thêm 2.00" hoặc "+10%", áp lên giá do
+  /// Pricing Template tính ra. Đây là QUY TẮC, không phải giá của một sản phẩm cụ thể.
+  priceAdjustmentType  PodPriceAdjustmentType @default(NONE) @map("price_adjustment_type")
+  priceAdjustmentValue Decimal                @default(0) @map("price_adjustment_value") @db.Decimal(18, 4)
+
+  /// Giá TUYỆT ĐỐI, tuỳ chọn — chỉ dùng khi cả bộ SKU bán đúng một giá cố định bất kể
+  /// sản phẩm nào (vd phôi đồng giá). Để trống là bình thường và được khuyến khích.
+  /// `retailPrice` = giá gốc (hiển thị gạch ngang) · `salePrice` = giá bán thực tế.
+  retailPrice Decimal? @map("retail_price") @db.Decimal(18, 4)
+  salePrice   Decimal? @map("sale_price") @db.Decimal(18, 4)
+  /// Tồn kho mặc định gán cho biến thể khi dựng listing (quy tắc, không phải tồn thật).
+  quantity    Int      @default(0)
+  discount    Decimal? @db.Decimal(9, 4)
+
+  /// Ảnh riêng của tổ hợp (Storage Module).
+  imageFileId     String?   @map("image_file_id") @db.Uuid
+  /// `uri` phía TikTok của ảnh biến thể sau lần upload đầu — cùng cơ chế tiết kiệm với bộ
+  /// ảnh mẫu: ảnh "màu Đen" chỉ upload một lần rồi dùng cho mọi listing về sau.
+  tiktokImageUri  String?   @map("tiktok_image_uri") @db.VarChar(512)
+  imageUploadedAt DateTime? @map("image_uploaded_at") @db.Timestamptz(6)
+  /// Enable / Disable — tổ hợp tắt sẽ không sinh SKU khi làm listing.
+  isActive        Boolean   @default(true) @map("is_active")
+  sortOrder       Int       @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  skuTemplate PodSkuTemplate            @relation(fields: [skuTemplateId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  image       StorageFile?              @relation("PodSkuTemplateItemImage", fields: [imageFileId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  values      PodSkuTemplateItemValue[]
+
+  @@unique([skuTemplateId, variantName])
+  @@index([organizationId])
+  @@index([skuTemplateId, sortOrder])
+  @@map("pod_sku_template_items")
+}
+
+/// PodSkuTemplateItemValue — nối tổ hợp với từng giá trị trục đã tạo ra nó.
+/// Đây là bảng thay cho mảng JSON `option_values` của thiết kế cũ.
+model PodSkuTemplateItemValue {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  itemId         String @map("item_id") @db.Uuid
+  variantValueId String @map("variant_value_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  item         PodSkuTemplateItem         @relation(fields: [itemId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  variantValue PodSkuTemplateVariantValue @relation(fields: [variantValueId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([itemId, variantValueId])
+  @@index([organizationId])
+  @@index([variantValueId])
+  @@map("pod_sku_template_item_values")
+}
+
+// ---------------------------------------------------------------------------
+// PodDescriptionTemplate — mẫu mô tả (HTML từ rich text editor).
+// ---------------------------------------------------------------------------
+
+model PodDescriptionTemplate {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  name           String @db.VarChar(255)
+
+  /// HTML do editor sinh ra. Cho phép token `{{PRODUCT.TITLE}}`, `{{MATERIAL}}` … được
+  /// thay ở bước resolve. Token hệ thống là DANH SÁCH TRẮNG trong mã; token tự đặt nằm ở
+  /// bảng `pod_description_template_tokens`. Không có eval ở bất kỳ đâu.
+  contentHtml String @map("content_html") @db.Text
+
+  isDefault    Boolean @default(false) @map("is_default")
+  isActive     Boolean @default(true) @map("is_active")
+  displayOrder Int     @default(0) @map("display_order")
+  note         String? @db.VarChar(500)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  tokens           PodDescriptionTemplateToken[]
+  listingTemplates PodListingTemplate[]
+  sessionTemplates PodListingSessionTemplate[]
+
+  @@index([organizationId])
+  @@index([organizationId, displayOrder])
+  @@map("pod_description_templates")
+}
+
+// ---------------------------------------------------------------------------
+// PodDescriptionTemplateToken — token DO NGƯỜI DÙNG tự đặt cho một mẫu mô tả.
+//
+// Đây là chỗ làm cho Token Engine "mở rộng được" mà không phải sửa mã: `{{MATERIAL}}`,
+// `{{CARE}}`, `{{SHIPPING}}`… là dữ liệu, không phải hằng số trong code. Token hệ thống
+// (lấy từ sản phẩm/shop/template) vẫn là danh sách trắng cố định để không ai bơm được
+// biểu thức tuỳ ý vào server đa tenant.
+// ---------------------------------------------------------------------------
+
+model PodDescriptionTemplateToken {
+  id                    String @id @default(uuid()) @db.Uuid
+  organizationId        String @map("organization_id") @db.Uuid
+  descriptionTemplateId String @map("description_template_id") @db.Uuid
+
+  /// Mã token viết trong HTML, KHÔNG kèm dấu ngoặc: `MATERIAL`, `CARE`, `SIZE`…
+  code      String  @db.VarChar(64)
+  /// Nhãn hiển thị trên form soạn thảo.
+  label     String? @db.VarChar(255)
+  /// Nội dung sẽ thay vào chỗ `{{code}}`.
+  value     String  @db.Text
+  sortOrder Int     @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  descriptionTemplate PodDescriptionTemplate @relation(fields: [descriptionTemplateId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([descriptionTemplateId, code])
+  @@index([organizationId])
+  @@map("pod_description_template_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// PodImageTemplate — BỘ ẢNH MẪU (mockup) của một phôi.
+//
+//   Comfort Colors
+//     ├── Front Mockup      MAIN_FRONT
+//     ├── Back Mockup       MAIN_BACK
+//     ├── Lifestyle 1..3    LIFESTYLE
+//     ├── Size Chart        SIZE_CHART
+//     └── Care Instruction  CUSTOM
+//
+// 🔴 Đây là ảnh CỐ ĐỊNH của phôi, KHÔNG phải ảnh của sản phẩm và không lấy từ ảnh sản
+// phẩm. Upload một lần, dùng cho hàng nghìn listing — lúc listing chỉ việc lấy nguyên bộ,
+// không phải upload lại.
+// ---------------------------------------------------------------------------
+
+model PodImageTemplate {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  name           String @db.VarChar(255)
+
+  /// Mô tả bộ ảnh (phôi nào, chụp ở đâu, dùng cho dòng sản phẩm nào).
+  description String? @db.Text
+
+  isDefault    Boolean @default(false) @map("is_default")
+  isActive     Boolean @default(true) @map("is_active")
+  displayOrder Int     @default(0) @map("display_order")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  items            PodImageTemplateItem[]
+  listingTemplates PodListingTemplate[]
+  listingJobs      PodListingJob[]
+  sessionTemplates PodListingSessionTemplate[]
+
+  @@index([organizationId])
+  @@index([organizationId, displayOrder])
+  @@map("pod_image_templates")
+}
+
+// ---------------------------------------------------------------------------
+// PodImageTemplateItem — MỘT TẤM ẢNH trong bộ ảnh mẫu.
+//
+// Ảnh nằm trên Cloudflare R2 (Storage Module). Bảng này giữ `fileId` để vòng đời file vẫn
+// do Storage Module quản, ĐỒNG THỜI chép sẵn `imageUrl` / `imageKey` / kích thước: lúc
+// dựng listing hàng loạt chỉ cần đọc một bảng, không phải join sang `storage_files`.
+// ---------------------------------------------------------------------------
+
+model PodImageTemplateItem {
+  id              String @id @default(uuid()) @db.Uuid
+  organizationId  String @map("organization_id") @db.Uuid
+  imageTemplateId String @map("image_template_id") @db.Uuid
+
+  /// Tên người vận hành đặt: "Front Mockup", "Care Instruction".
+  title     String            @db.VarChar(255)
+  /// Vai trò của ảnh trong listing.
+  assetType PodImageAssetType @map("asset_type")
+
+  /// File trong Storage Module — nguồn sự thật về vòng đời của object trên R2.
+  fileId String @map("file_id") @db.Uuid
+
+  /// Ảnh chụp thông tin file để không phải join khi sinh listing hàng loạt.
+  imageUrl    String @map("image_url") @db.VarChar(2048)
+  imageKey    String @map("image_key") @db.VarChar(1024)
+  contentType String @map("content_type") @db.VarChar(150)
+  fileSize    Int    @map("file_size")
+  /// NULL khi không đọc được kích thước (định dạng lạ) — không chặn upload vì lý do đó.
+  width       Int?
+  height      Int?
+
+  /// Ảnh bắt buộc phải có trong listing (vd mockup mặt trước).
+  isRequired   Boolean @default(false) @map("is_required")
+  /// Thứ tự ảnh trong bộ — cũng là thứ tự ảnh trên listing.
+  displayOrder Int     @default(0) @map("display_order")
+
+  /// 🔴 Ô CHỜ cho sprint publish: sau khi Upload Product Image, TikTok trả `uri` — lưu vào
+  /// đây để hàng nghìn listing sau dùng lại, khỏi upload cùng một tấm mockup nhiều lần.
+  tiktokImageUri String?   @map("tiktok_image_uri") @db.VarChar(512)
+  uploadedAt     DateTime? @map("uploaded_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  imageTemplate PodImageTemplate @relation(fields: [imageTemplateId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  file          StorageFile      @relation(fields: [fileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@index([organizationId])
+  @@index([imageTemplateId, displayOrder])
+  @@map("pod_image_template_items")
+}
+
+// ---------------------------------------------------------------------------
+// PodPricingStrategy — công thức giá. Không hardcode con số nào trong mã.
+//
+//   base   = cost + shipping
+//   sale   = PERCENT  → base × (1 + markupValue/100)
+//            FIXED    → base + markupValue
+//            FORMULA  → giá trị của biểu thức `formula` (parser riêng, KHÔNG eval)
+//   sale   = làm tròn LÊN tới bội số roundingIncrement
+//   retail = sale × retailPriceMultiplier          (giá gốc gạch ngang)
+//   final  = sale × (1 − discountPercent/100)      (giá sau khuyến mãi)
+// ---------------------------------------------------------------------------
+
+model PodPricingStrategy {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  name           String @db.VarChar(255)
+
+  cost         Decimal              @db.Decimal(18, 4)
+  shippingCost Decimal              @default(0) @map("shipping_cost") @db.Decimal(18, 4)
+  markupType   PodPricingMarkupType @default(PERCENT) @map("markup_type")
+  markupValue  Decimal              @default(0) @map("markup_value") @db.Decimal(18, 4)
+
+  /// Biểu thức khi `markupType = FORMULA`, vd `(cost + shipping) * 1.8 + 2`.
+  /// Chỉ dùng biến trong danh sách trắng và bốn phép tính — xem `pod-pricing.formula.ts`.
+  formula String? @db.VarChar(500)
+
+  /// Giá gốc (gạch ngang) = giá bán × hệ số này. 1 = không hiển thị giá gạch.
+  retailPriceMultiplier Decimal @default(1) @map("retail_price_multiplier") @db.Decimal(9, 4)
+  /// Khuyến mãi mặc định (%).
+  discountPercent       Decimal @default(0) @map("discount_percent") @db.Decimal(9, 4)
+  /// Làm tròn tới bội số này (vd 0.99 → giá đẹp). 0 = không làm tròn.
+  roundingIncrement     Decimal @default(0) @map("rounding_increment") @db.Decimal(9, 4)
+
+  currency     String  @default("USD") @db.VarChar(10)
+  isDefault    Boolean @default(false) @map("is_default")
+  isActive     Boolean @default(true) @map("is_active")
+  displayOrder Int     @default(0) @map("display_order")
+  note         String? @db.VarChar(500)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  listingTemplates PodListingTemplate[]
+  sessionTemplates PodListingSessionTemplate[]
+
+  @@index([organizationId])
+  @@index([organizationId, displayOrder])
+  @@map("pod_pricing_strategies")
+}
+
+// ---------------------------------------------------------------------------
+// PodListingTemplate — template LỚN NHẤT, ghép mọi mảnh lại.
+// ---------------------------------------------------------------------------
+
+model PodListingTemplate {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @map("organization_id") @db.Uuid
+  name           String           @db.VarChar(255)
+  market         PodListingMarket
+
+  categoryTemplateId    String? @map("category_template_id") @db.Uuid
+  skuTemplateId         String? @map("sku_template_id") @db.Uuid
+  descriptionTemplateId String? @map("description_template_id") @db.Uuid
+  imageTemplateId       String? @map("image_template_id") @db.Uuid
+  pricingStrategyId     String? @map("pricing_strategy_id") @db.Uuid
+  /// Kho đã đồng bộ từ TikTok (theo shop). NULL = lấy kho mặc định của shop lúc sinh draft.
+  warehouseId           String? @map("warehouse_id") @db.Uuid
+
+  /// Brand ghi đè brand của Category Template (một số dòng sản phẩm dùng brand khác).
+  tiktokBrandId String? @map("tiktok_brand_id") @db.VarChar(64)
+  brandName     String? @map("brand_name") @db.VarChar(255)
+
+  /// Vận chuyển: `shipping_template_id` phía TikTok + thời gian xử lý (ngày).
+  shippingTemplateId String? @map("shipping_template_id") @db.VarChar(64)
+  handlingDays       Int?    @map("handling_days")
+
+  /// Kiện hàng GHI ĐÈ kiện hàng của Category Template. Cùng một danh mục nhưng phôi khác
+  /// nhau (áo 1 lớp vs hoodie) có khối lượng khác nhau — ghi đè ở đây thay vì phải nhân
+  /// bản cả Category Template chỉ để đổi một con số.
+  packageWeight String? @map("package_weight") @db.VarChar(32)
+  weightUnit    String? @map("weight_unit") @db.VarChar(16)
+  packageLength String? @map("package_length") @db.VarChar(32)
+  packageWidth  String? @map("package_width") @db.VarChar(32)
+  packageHeight String? @map("package_height") @db.VarChar(32)
+  dimensionUnit String? @map("dimension_unit") @db.VarChar(16)
+
+  isDefault    Boolean @default(false) @map("is_default")
+  isActive     Boolean @default(true) @map("is_active")
+  displayOrder Int     @default(0) @map("display_order")
+  note         String? @db.VarChar(500)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  categoryTemplate    PodCategoryTemplate?    @relation(fields: [categoryTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  skuTemplate         PodSkuTemplate?         @relation(fields: [skuTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  descriptionTemplate PodDescriptionTemplate? @relation(fields: [descriptionTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  imageTemplate       PodImageTemplate?       @relation(fields: [imageTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pricingStrategy     PodPricingStrategy?     @relation(fields: [pricingStrategyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  warehouse           PodTiktokWarehouse?     @relation(fields: [warehouseId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  items           PodListingTemplateItem[]
+  scopes          PodListingTemplateScope[]
+  listingPayloads PodListingPayload[]
+  listingJobs     PodListingJob[]
+  listingJobItems PodListingJobItem[]
+
+  @@index([organizationId, market])
+  @@index([organizationId, displayOrder])
+  @@map("pod_listing_templates")
+}
+
+// ---------------------------------------------------------------------------
+// PodListingTemplateScope — QUY TẮC CHỌN SẢN PHẨM mà một Listing Template áp dụng.
+//
+// 🔴 Đây là mảnh khiến Bulk Listing khả thi. Quan hệ đi theo chiều
+//
+//     Listing Template ──(scope)──► tập sản phẩm
+//
+// chứ KHÔNG phải mỗi sản phẩm mang một cột `listing_template_id`. Gắn template vào từng
+// sản phẩm thì 10.000 sản phẩm là 10.000 lần gán tay, và mỗi lần đồng bộ về sản phẩm mới
+// lại phải gán lại. Với scope, sản phẩm mới đồng bộ về là **tự động** nằm trong phạm vi
+// của template phù hợp.
+//
+// Nhiều dòng INCLUDE = hợp (OR) trong cùng một loại, giao (AND) giữa các loại khác nhau.
+// Dòng `isExclude` luôn loại trừ sau cùng — "tất cả áo thun US, TRỪ mấy mã sample".
+// ---------------------------------------------------------------------------
+
+model PodListingTemplateScope {
+  id                String @id @default(uuid()) @db.Uuid
+  organizationId    String @map("organization_id") @db.Uuid
+  listingTemplateId String @map("listing_template_id") @db.Uuid
+
+  matchType  PodListingScopeMatch @map("match_type")
+  /// Giá trị so khớp — id danh mục, id brand, id shop, từ khoá, tiền tố SKU…
+  /// Bỏ trống khi `matchType = ALL`.
+  value      String?              @db.VarChar(255)
+  /// Nhãn hiển thị của `value` (tên danh mục/brand/shop) — để bảng đọc được mà không join.
+  valueLabel String?              @map("value_label") @db.VarChar(255)
+  /// `true` = LOẠI TRỪ những sản phẩm khớp dòng này.
+  isExclude  Boolean              @default(false) @map("is_exclude")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  listingTemplate PodListingTemplate @relation(fields: [listingTemplateId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([organizationId])
+  @@index([listingTemplateId])
+  @@map("pod_listing_template_scopes")
+}
+
+// ---------------------------------------------------------------------------
+// PodListingTemplateItem — thành phần đã ghép vào Listing Template.
+//
+// Vì sao có bảng này khi Listing Template đã có sẵn các FK: FK cho biết "đang dùng
+// template nào", còn bảng này giữ **thứ tự và ảnh chụp tên** của từng thành phần tại
+// thời điểm ghép — nhờ đó màn hình Listing Template hiển thị đúng cấu trúc kể cả khi
+// một template con bị đổi tên, và sau này mở rộng "nhiều Image Template" không phải
+// đổi cấu trúc bảng cha.
+// ---------------------------------------------------------------------------
+
+model PodListingTemplateItem {
+  id                String @id @default(uuid()) @db.Uuid
+  organizationId    String @map("organization_id") @db.Uuid
+  listingTemplateId String @map("listing_template_id") @db.Uuid
+
+  itemType  PodListingTemplateItemType @map("item_type")
+  /// ID của template con tương ứng (category/sku/description/image/pricing).
+  refId     String                     @map("ref_id") @db.Uuid
+  /// Ảnh chụp tên lúc ghép.
+  refName   String?                    @map("ref_name") @db.VarChar(255)
+  sortOrder Int                        @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  listingTemplate PodListingTemplate @relation(fields: [listingTemplateId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([listingTemplateId, itemType, refId])
+  @@index([organizationId])
+  @@map("pod_listing_template_items")
+}
+
+// ===========================================================================
+// SPRINT — IMPORT PRODUCT & DRAFT LISTING ENGINE
+//
+//   Excel / CSV  →  Import  →  Draft Listing (NỘI BỘ)  →  Review · Edit · Validate
+//                                      ↓  Start Listing
+//                              Listing Job (hàng đợi có sẵn)
+//                                      ↓
+//                        Upload ảnh → Create Product (AS_DRAFT)
+//                                      ↓
+//                              TikTok Draft  →  (sprint sau) Publish
+//
+// 🔴 "Draft" ở đây là draft CỦA NCMEDIA, không phải TikTok Draft: người vận hành nhập từ
+// file, sửa thoải mái, chưa có gì rời khỏi hệ thống. Chỉ khi bấm Start Listing mới có
+// request đi ra ngoài.
+//
+// 🔴 Thiết kế cho NHIỀU SÀN: draft trỏ tới `platforms` (bảng global), nội dung là dữ liệu
+// trung lập (tiêu đề, ảnh, biến thể, giá). Thêm eBay/Etsy/Amazon chỉ cần một bộ template và
+// một publisher mới — bảng draft không phải đổi.
+// ===========================================================================
+
+/// Vòng đời một Draft Listing nội bộ.
+// ===========================================================================
+// LISTING SESSION — MỘT LƯỢT ĐĂNG HÀNG, từ lúc chọn cấu hình tới lúc lên sàn.
+//
+//   New Listing → Market → Shops → 5 Template → Import file → Draft Product
+//        → Review → Start Listing → Draft trên sàn  (→ Publish: sprint sau)
+//
+// 🔴 Draft Product KHÔNG phải thực thể độc lập: nó chỉ tồn tại BÊN TRONG một session và
+// chết theo session (`onDelete: Cascade`). Đây là điểm khác căn bản với thiết kế cũ
+// (`pod_draft_listings`), nơi mỗi draft tự mang lấy market + shop + 5 template của riêng
+// nó — cùng một lô hàng nhập vào bị nhân bản cấu hình hàng trăm lần, và không có chỗ nào
+// trả lời được câu "lô hôm nay gồm những gì, đã lên sàn tới đâu".
+//
+// 🔴 Nhiều sàn: session trỏ `platform_id` sang bảng global `platforms`. Nội dung Draft
+// Product là dữ liệu TRUNG LẬP (tiêu đề, mô tả, ảnh, biến thể, giá, tồn) — thêm eBay/
+// Amazon/Etsy/Shopify chỉ cần thêm publisher và bộ template của sàn đó, không đụng tới
+// bốn bảng dưới đây.
+// ===========================================================================
+
+/// Vòng đời một Listing Session.
+enum PodListingSessionStatus {
+  /// Đang cấu hình hoặc đang sửa Draft Product — chưa đủ điều kiện chạy.
+  DRAFT
+  /// Mọi Draft Product đã qua cổng validate, được phép Start Listing.
+  READY
+  /// Đang chạy: Listing Job của session đang đưa hàng lên sàn.
+  LISTING
+  /// Chạy xong, KHÔNG sản phẩm nào lỗi.
+  COMPLETED
+  /// Chạy xong nhưng có sản phẩm lỗi — nói rõ thay vì báo xanh giả.
+  COMPLETED_WITH_ERRORS
+  /// Chạy xong và KHÔNG sản phẩm nào thành công.
+  FAILED
+  /// Người dùng huỷ lượt chạy.
+  CANCELLED
+
+  @@map("pod_listing_session_status")
+}
+
+/// Vòng đời MỘT Draft Product bên trong session.
+enum PodListingSessionProductStatus {
+  /// Vừa import hoặc vừa sửa — chưa validate sạch.
+  DRAFT
+  /// Qua hết cổng validate, được phép Start Listing.
+  READY
+  /// Đã đưa vào Listing Job, đang chờ/đang chạy.
+  QUEUED
+  /// 🔴 Đã tạo được **Draft Product trên sàn** (TikTok Draft). CHƯA đăng bán.
+  UPLOADED
+  /// 🔴 Sprint 5: đã bấm Publish và TikTok nhận — sản phẩm vào hàng chờ duyệt.
+  PUBLISHED
+  /// Lượt đưa lên gần nhất thất bại — sửa rồi chạy lại.
+  FAILED
+  /// Bị cổng validate chặn ngay trong lượt chạy, không gửi request nào lên sàn.
+  SKIPPED
+
+  @@map("pod_listing_session_product_status")
+}
+
+/// Loại template mà một session đã chọn. Mỗi loại đúng MỘT dòng.
+enum PodListingSessionTemplateType {
+  CATEGORY
+  SKU
+  DESCRIPTION
+  IMAGE
+  PRICING
+
+  @@map("pod_listing_session_template_type")
+}
+
+/// Vai trò của một tấm ảnh trong Draft Product.
+enum PodListingSessionImageType {
+  /// Ảnh chính của sản phẩm.
+  MAIN
+  /// Ảnh của một biến thể.
+  VARIANT
+  /// Ảnh chèn trong mô tả.
+  DESCRIPTION
+  /// Bảng size.
+  SIZE_CHART
+
+  @@map("pod_listing_session_image_type")
+}
+
+// ---------------------------------------------------------------------------
+// PodListingSession — HỘP CHỨA của cả lượt đăng.
+//
+// Market + Shops + 5 Template nằm ở ĐÂY, không nằm ở từng sản phẩm: người vận hành chọn
+// một lần cho cả lô. Import chỉ đổ nội dung vào cái hộp đã cấu hình sẵn.
+//
+// KHÔNG lưu cột đếm (`total/ready/failed`): số liệu được tính từ chính trạng thái của
+// Draft Product mỗi lần đọc. Cột đếm phải cập nhật ở 6 chỗ khác nhau (import, sửa, xoá,
+// validate, start, kết thúc job) và chỉ cần sót MỘT chỗ là màn hình nói dối vĩnh viễn.
+// ---------------------------------------------------------------------------
+
+model PodListingSession {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  /// Sàn đích — `platforms` là bảng global (TikTok Shop, eBay, Amazon, Etsy, Shopify).
+  platformId String @map("platform_id") @db.Uuid
+
+  name   String                  @db.VarChar(255)
+  market PodListingMarket
+  status PodListingSessionStatus @default(DRAFT)
+
+  note String? @db.VarChar(2000)
+
+  /// File import gần nhất — truy ngược "lô này đến từ file nào".
+  sourceFile String?   @map("source_file") @db.VarChar(512)
+  importedAt DateTime? @map("imported_at") @db.Timestamptz(6)
+
+  /// Mốc Start Listing và mốc lượt chạy kết thúc.
+  startedAt  DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)
+  /// Lỗi làm hỏng cả lượt (vd template bị xoá giữa chừng).
+  lastError  String?   @map("last_error") @db.VarChar(2000)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  platform Platform @relation(fields: [platformId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  shops     PodListingSessionShop[]
+  templates PodListingSessionTemplate[]
+  products  PodListingSessionProduct[]
+  jobs      PodListingJob[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, market])
+  @@map("pod_listing_sessions")
+}
+
+// ---------------------------------------------------------------------------
+// PodListingSessionShop — các shop mà cả lượt này sẽ đăng lên.
+//
+// Bảng nối thay vì cột `shop_ids`: một session đăng lên 5 shop là 5 dòng, và câu hỏi
+// "shop X đang có lượt nào chạy" thành một phép JOIN thay vì quét chuỗi.
+// ---------------------------------------------------------------------------
+
+model PodListingSessionShop {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  sessionId      String @map("session_id") @db.Uuid
+  shopId         String @map("shop_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  session PodListingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  shop    PodTiktokShop     @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([sessionId, shopId])
+  @@index([organizationId])
+  @@map("pod_listing_session_shops")
+}
+
+// ---------------------------------------------------------------------------
+// PodListingSessionTemplate — MỘT dòng cho MỖI loại template session đã chọn.
+//
+// 🔴 Vì sao là bảng riêng chứ không phải 5 cột trên `pod_listing_sessions`: bộ template
+// của một lượt đăng phụ thuộc vào SÀN. TikTok cần Category/SKU/Description/Image/Pricing;
+// eBay sẽ cần Item Specifics + Shipping Policy + Return Policy. Thêm sàn = thêm giá trị
+// enum + cột khoá ngoại tương ứng, KHÔNG phải sửa bảng session.
+//
+// Mỗi dòng chỉ điền ĐÚNG MỘT cột khoá ngoại — cột nào thì do `template_type` quyết định.
+// Ràng buộc CHECK ở migration canh đúng điều đó, nên không thể có dòng "type = SKU nhưng
+// trỏ vào Category Template". Giữ khoá ngoại THẬT (thay vì một cột `template_id` đa hình)
+// để database tự chặn việc xoá template đang có lượt đăng dùng dở.
+// ---------------------------------------------------------------------------
+
+model PodListingSessionTemplate {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  sessionId      String @map("session_id") @db.Uuid
+
+  templateType PodListingSessionTemplateType @map("template_type")
+
+  categoryTemplateId    String? @map("category_template_id") @db.Uuid
+  skuTemplateId         String? @map("sku_template_id") @db.Uuid
+  descriptionTemplateId String? @map("description_template_id") @db.Uuid
+  imageTemplateId       String? @map("image_template_id") @db.Uuid
+  pricingStrategyId     String? @map("pricing_strategy_id") @db.Uuid
+
+  /// Ảnh chụp tên template lúc chọn — lượt đăng cũ vẫn đọc được dù template bị đổi tên.
+  templateName String? @map("template_name") @db.VarChar(255)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  session             PodListingSession       @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  categoryTemplate    PodCategoryTemplate?    @relation(fields: [categoryTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  skuTemplate         PodSkuTemplate?         @relation(fields: [skuTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  descriptionTemplate PodDescriptionTemplate? @relation(fields: [descriptionTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  imageTemplate       PodImageTemplate?       @relation(fields: [imageTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  pricingStrategy     PodPricingStrategy?     @relation(fields: [pricingStrategyId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([sessionId, templateType])
+  @@index([organizationId])
+  @@map("pod_listing_session_templates")
+}
+
+// ---------------------------------------------------------------------------
+// PodListingSessionProduct — MỘT Draft Product bên trong session.
+//
+// 🔴 Chỉ giữ ĐÚNG HAI thứ do người dùng cung cấp: **tiêu đề** và **danh sách ảnh gốc**.
+// Danh mục, thuộc tính, biến thể, giá, tồn, mô tả, kiện hàng — tất cả được dựng từ bộ
+// template của session lúc Start Listing. File import vì thế chỉ cần 11 cột
+// (`title` + `URL1..URL10`), và người vận hành không phải khai lại quy tắc cho từng dòng.
+//
+// 🔴 KHÔNG có cột `remote_product_id`: một Draft Product đăng lên N shop sinh ra N sản
+// phẩm trên sàn, mỗi shop một id. Id đó nằm ở `pod_listing_job_items.remote_product_id`
+// (một dòng cho mỗi cặp sản phẩm × shop) — chỗ duy nhất diễn tả đúng quan hệ 1-N.
+// ---------------------------------------------------------------------------
+
+model PodListingSessionProduct {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  sessionId      String @map("session_id") @db.Uuid
+
+  title String @db.VarChar(1024)
+
+  /// Số dòng trong file import — người dùng sửa đúng dòng đó rồi nhập lại.
+  sourceRow Int? @map("source_row")
+
+  status PodListingSessionProductStatus @default(DRAFT)
+
+  /// Dòng dữ liệu gốc trong file import (`{ title, urls: [...] }`) — giữ NGUYÊN TRẠNG để
+  /// đối chiếu khi nghi ngờ hệ thống đọc sai cột. Đây là blob đúng nghĩa nên để JSON.
+  rawData     Json? @map("raw_data")
+  /// Payload xem trước gần nhất (kết quả áp template). Chỉ để xem lại nhanh; nguồn sự thật
+  /// là `pod_listing_payloads` lúc thực sự gửi đi.
+  previewData Json? @map("preview_data")
+
+  /// Kết quả validate gần nhất: `[{ level, field, code, message }]`.
+  issues     Json?
+  errorCount Int   @default(0) @map("error_count")
+
+  /// Lỗi của lượt đưa lên gần nhất (gộp từ các shop) — màn Review đọc thẳng cột này.
+  uploadError String?   @map("upload_error") @db.VarChar(2000)
+  uploadedAt  DateTime? @map("uploaded_at") @db.Timestamptz(6)
+  /// Mốc publish gần nhất (gộp từ các shop) — Sprint 5 ghi khi lượt Publish kết thúc.
+  publishedAt DateTime? @map("published_at") @db.Timestamptz(6)
+
+  /// Thứ tự sản phẩm trong lượt đăng — đúng thứ tự dòng của file, cộng dồn qua các lần
+  /// import bổ sung. Danh sách luôn hiện theo đúng thứ tự người dùng đã nạp vào.
+  importOrder Int @default(0) @map("import_order")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  session PodListingSession @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// Ảnh GỐC của sản phẩm (URL1 → URL10 của file import).
+  images   PodListingSessionProductImage[]
+  payloads PodListingPayload[]
+  jobItems PodListingJobItem[]
+
+  @@index([organizationId, status])
+  @@index([sessionId, importOrder])
+  @@index([sessionId, status])
+  @@map("pod_listing_session_products")
+}
+
+// ---------------------------------------------------------------------------
+// PodListingSessionProductImage — ẢNH GỐC của một Draft Product (URL1 → URL10).
+//
+// Ảnh đến từ file import là **URL ngoài** (Google Drive, CDN của xưởng in…): lưu URL, tới
+// lúc Start Listing mới tải về rồi đẩy lên sàn. `file_id` chỉ có khi người dùng tự upload
+// ảnh qua Storage Module.
+//
+// `sort_order` giữ đúng thứ tự cột trong file: URL1 là ảnh đại diện (thumbnail) và cũng là
+// ảnh đầu tiên của listing.
+// ---------------------------------------------------------------------------
+
+model PodListingSessionProductImage {
+  id               String @id @default(uuid()) @db.Uuid
+  organizationId   String @map("organization_id") @db.Uuid
+  sessionProductId String @map("session_product_id") @db.Uuid
+
+  imageUrl  String                     @map("image_url") @db.VarChar(2048)
+  imageType PodListingSessionImageType @default(MAIN) @map("image_type")
+  sortOrder Int                        @default(0) @map("sort_order")
+
+  /// File trong Storage Module khi ảnh do người dùng tải lên (không phải URL ngoài).
+  fileId     String?   @map("file_id") @db.Uuid
+  /// `uri` phía sàn sau lần upload đầu — lần sau dùng lại, không tải/đẩy lại cùng một ảnh.
+  remoteUri  String?   @map("remote_uri") @db.VarChar(512)
+  uploadedAt DateTime? @map("uploaded_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  product PodListingSessionProduct @relation(fields: [sessionProductId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  file    StorageFile?             @relation("PodListingSessionProductImageFile", fields: [fileId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@index([organizationId])
+  @@index([sessionProductId, sortOrder])
+  @@map("pod_listing_session_product_images")
+}
+
+// ---------------------------------------------------------------------------
+// PodListingPayload — NỘI DUNG ĐÃ GIẢI của một listing: nguồn × shop × template.
+//
+// Đây là artifact của máy: ảnh chụp payload hệ thống ĐÃ GỬI lên sàn, giữ để đối chiếu.
+//
+//   pod_listing_session_products → người dùng nhập/sửa (đầu vào)
+//   pod_listing_payloads         → hệ thống giải ra rồi gửi đi (đầu ra, chỉ đọc)
+// ---------------------------------------------------------------------------
+
+model PodListingPayload {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  /// Sản phẩm đã đồng bộ dùng làm nguồn. NULL khi nguồn là Draft Product của session.
+  productId        String? @map("product_id") @db.Uuid
+  /// Draft Product trong Listing Session. NULL khi nguồn là sản phẩm đã đồng bộ.
+  sessionProductId String? @map("session_product_id") @db.Uuid
+  /// Shop đích sẽ đăng bán.
+  shopId           String  @map("shop_id") @db.Uuid
+  accountId        String  @map("account_id") @db.Uuid
+
+  /// 🔴 NULL khi nguồn là Listing Session: session chọn 5 template rời chứ không bắt buộc
+  /// phải có một Listing Template gộp. Không cho NULL thì mỗi lượt đăng lại phải đẻ ra một
+  /// Listing Template rác chỉ để thoả khoá ngoại.
+  listingTemplateId String? @map("listing_template_id") @db.Uuid
+  /// Image Template ghi đè cho riêng sản phẩm này (màn hình Auto Listing cho phép).
+  imageTemplateId   String? @map("image_template_id") @db.Uuid
+
+  market PodListingMarket
+  status PodListingPayloadStatus @default(DRAFT)
+
+  /// Nội dung đã giải: title, description, category, brand, attributes, images,
+  /// variants (giá đã tính theo Pricing Strategy), package, warehouse…
+  payload     Json
+  /// sha256 của payload — sinh lại cùng dữ liệu thì nhận diện được là không đổi.
+  payloadHash String @map("payload_hash") @db.Char(64)
+
+  /// Lỗi/cảnh báo validate: `[{ level, field, code, message }]`.
+  /// Còn lỗi mức ERROR ⇒ giữ trạng thái DRAFT, Sprint 4 không được publish.
+  issues     Json?
+  errorCount Int   @default(0) @map("error_count")
+
+  title        String? @db.VarChar(1024)
+  variantCount Int     @default(0) @map("variant_count")
+
+  /// `product_id` của listing phía TikTok — GIỮ NGUYÊN qua cả hai giai đoạn.
+  ///
+  /// 🔴 TikTok KHÔNG cấp id mới khi publish: Draft và sản phẩm đã đăng là cùng một bản ghi,
+  /// chỉ đổi `save_mode`. Vì thế `tiktok_draft_id` và cột này bằng nhau sau khi publish —
+  /// tách hai cột để màn hình phân biệt được "đã tạo draft" với "đã gửi duyệt", không phải
+  /// vì TikTok có hai id.
+  tiktokProductId   String?   @map("tiktok_product_id") @db.VarChar(64)
+  /// Id nhận được ở lần tạo Draft (`save_mode = AS_DRAFT`). Có giá trị ⇒ **cấm Create lại**.
+  tiktokDraftId     String?   @map("tiktok_draft_id") @db.VarChar(64)
+  publishedAt       DateTime? @map("published_at") @db.Timestamptz(6)
+  publishError      String?   @map("publish_error") @db.VarChar(2000)
+  /// Số lần đã thử publish (cộng dồn qua các lượt) — Publish History đọc thẳng cột này.
+  publishRetryCount Int       @default(0) @map("publish_retry_count")
+
+  /// Thân request Edit Product đã gửi khi publish — bằng chứng "đã gửi đúng cái gì".
+  publishRequest  Json? @map("publish_request")
+  /// Response TikTok trả về (product_id, sku_id, warnings, audit) — màn Publish History mở ra xem.
+  publishResponse Json? @map("publish_response")
+
+  /// 🔴 Trạng thái DUYỆT phía TikTok — scheduler 5 phút/lần ghi vào đây.
+  reviewStatus    PodListingReviewStatus? @map("review_status")
+  /// Chuỗi trạng thái GỐC của TikTok (`ACTIVATE`, `SELLER_DEACTIVATED`…) — giữ nguyên để
+  /// đối chiếu khi TikTok thêm giá trị mới mà bảng ánh xạ chưa biết.
+  reviewStatusRaw String?                 @map("review_status_raw") @db.VarChar(64)
+  /// Lý do bị từ chối, gộp từ `audit_failed_reasons[]`.
+  reviewReason    String?                 @map("review_reason") @db.VarChar(2000)
+  reviewCheckedAt DateTime?               @map("review_checked_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  product         PodProduct?               @relation(fields: [productId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  sessionProduct  PodListingSessionProduct? @relation(fields: [sessionProductId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  shop            PodTiktokShop             @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  account         PodTiktokAccount          @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  listingTemplate PodListingTemplate?       @relation(fields: [listingTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  items    PodListingPayloadItem[]
+  jobItems PodListingJobItem[]
+
+  /// Mỗi nguồn chỉ có MỘT payload đang sống trên mỗi shop — giải lại thì ghi đè.
+  @@unique([shopId, productId, listingTemplateId])
+  @@unique([shopId, sessionProductId])
+  @@index([organizationId, status])
+  @@index([shopId, status])
+  @@index([listingTemplateId])
+  /// Scheduler quét đúng những listing đã publish mà trạng thái duyệt còn chuyển tiếp.
+  @@index([reviewStatus, reviewCheckedAt])
+  @@map("pod_listing_payloads")
+}
+
+// ---------------------------------------------------------------------------
+// PodListingPayloadItem — một biến thể (SKU) trong payload đã giải.
+// Tách bảng để UI liệt kê nhanh mà không phải mở JSON, và để ghi `tiktok_sku_id`
+// trả về sau khi tạo sản phẩm.
+// ---------------------------------------------------------------------------
+
+model PodListingPayloadItem {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  payloadId      String @map("payload_id") @db.Uuid
+
+  variantName  String @map("variant_name") @db.VarChar(512)
+  sellerSku    String @map("seller_sku") @db.VarChar(255)
+  /// `[{ name, value }]` — trục thuộc tính bán hàng của biến thể.
+  optionValues Json?
+
+  retailPrice Decimal? @map("retail_price") @db.Decimal(18, 4)
+  listPrice   Decimal? @map("list_price") @db.Decimal(18, 4)
+  currency    String?  @db.VarChar(10)
+  quantity    Int      @default(0)
+
+  imageFileId String? @map("image_file_id") @db.Uuid
+  sortOrder   Int     @default(0) @map("sort_order")
+
+  /// `sku_id` do TikTok cấp — khớp theo `seller_sku` sau Create/Edit Product.
+  tiktokSkuId String? @map("tiktok_sku_id") @db.VarChar(64)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  payload PodListingPayload @relation(fields: [payloadId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([payloadId, sellerSku])
+  @@index([organizationId])
+  @@map("pod_listing_payload_items")
+}
+
+// ===========================================================================
+// SPRINT 4 — BULK LISTING ENGINE
+//
+//   Product × Shop × Listing Template
+//        ↓  (Listing Job)
+//   Listing Job Item  →  Draft Listing (payload đã giải)
+//        ↓  (Queue: concurrency 5 · retry 3 · exponential backoff)
+//   Upload Product Image  →  Create Product (save_mode = AS_DRAFT)
+//        ↓
+//   remote_product_id + Listing Log từng bước
+//
+// 🔴 Sprint này CHỈ tạo Draft Product trên TikTok. Không Activate, không Publish.
+// ===========================================================================
+
+/// Vòng đời một lượt chạy hàng loạt.
+enum PodListingJobStatus {
+  /// Đã tạo, chưa có worker nào nhận.
+  PENDING
+  /// Đang chạy — ít nhất một item đang được xử lý.
+  PROCESSING
+  /// Chạy xong, KHÔNG item nào lỗi.
+  COMPLETED
+  /// Chạy xong nhưng có item lỗi — nói rõ thay vì báo xanh giả.
+  COMPLETED_WITH_ERRORS
+  /// Chạy xong và KHÔNG item nào thành công.
+  FAILED
+  /// Người dùng huỷ giữa chừng; item chưa chạy chuyển sang CANCELLED.
+  CANCELLED
+
+  @@map("pod_listing_job_status")
+}
+
+/// Vòng đời MỘT sản phẩm × MỘT shop trong lượt chạy.
+enum PodListingJobItemStatus {
+  /// Đang xếp hàng.
+  PENDING
+  /// Worker đang chạy pipeline (merge → validate → upload ảnh → create draft).
+  PROCESSING
+  /// Lỗi tạm thời, đang chờ tới `next_attempt_at` để chạy lại.
+  RETRYING
+  /// Đã tạo được Draft Product trên TikTok, có `remote_product_id`.
+  SUCCESS
+  /// Hết lượt thử hoặc lỗi không thể thử lại (TikTok từ chối nội dung).
+  FAILED
+  /// Bị chặn ở cổng Validate — KHÔNG gửi request nào lên TikTok.
+  SKIPPED
+  /// Người dùng huỷ job trước khi item được chạy.
+  CANCELLED
+
+  @@map("pod_listing_job_item_status")
+}
+
+/// Mức độ của một dòng log.
+enum PodListingLogLevel {
+  DEBUG
+  INFO
+  WARN
+  ERROR
+
+  @@map("pod_listing_log_level")
+}
+
+/// Bước trong pipeline của MỘT item — log ghi theo bước để đọc được "chết ở đâu".
+enum PodListingStep {
+  LOAD_PRODUCT
+  LOAD_TEMPLATE
+  MERGE
+  VALIDATE
+  UPLOAD_IMAGE
+  CREATE_DRAFT
+  SAVE_REMOTE_ID
+  /// 🔴 Sprint 5: đưa Draft đã có trên sàn vào hàng chờ duyệt (`save_mode = LISTING`).
+  PUBLISH
+  /// Đọc lại trạng thái duyệt của sản phẩm đã publish (scheduler 5 phút/lần).
+  REVIEW_SYNC
+  RETRY
+  CANCEL
+
+  @@map("pod_listing_step")
+}
+
+/// Lượt chạy này LÀM GÌ với TikTok — hai việc khác nhau, chung một cỗ máy hàng đợi.
+enum PodListingJobType {
+  /// Tạo Draft Product trên TikTok (`save_mode = AS_DRAFT`) — Sprint 4.
+  CREATE_DRAFT
+  /// Đưa Draft đã có sẵn vào hàng chờ duyệt (`save_mode = LISTING`) — Sprint 5.
+  PUBLISH
+
+  @@map("pod_listing_job_type")
+}
+
+/// Trạng thái DUYỆT của một listing phía TikTok — đọc về từ Get Product.
+///
+/// 🔴 Đây là trục khác với `PodListingPayloadStatus`: cột kia nói "hệ thống đã gửi tới đâu",
+/// cột này nói "TikTok đã xử lý tới đâu". Gộp hai trục vào một enum là mất thông tin ngay
+/// lần đầu một sản phẩm publish thành công nhưng bị từ chối duyệt.
+enum PodListingReviewStatus {
+  /// TikTok đang duyệt (`status = PENDING` hoặc `audit.status = AUDITING`).
+  UNDER_REVIEW
+  /// Qua duyệt nhưng chưa lên sàn (`PRE_APPROVED` / `SCHEDULED`).
+  APPROVED
+  /// Bị từ chối (`status = FAILED` hoặc `audit.status = FAILED`) — lý do ở `review_reason`.
+  REJECTED
+  /// Đang bán (`status = ACTIVATE`).
+  ACTIVE
+  /// Đã tắt: người bán tắt, sàn tắt, hoặc bị đóng băng.
+  OFFLINE
+  /// Đã xoá khỏi shop.
+  DELETED
+
+  @@map("pod_listing_review_status")
+}
+
+// ---------------------------------------------------------------------------
+// PodListingJob — MỘT lượt bulk listing (một lần bấm "Generate Draft").
+//
+// Số đếm `total/success/failed` được cập nhật ngay sau mỗi item thay vì tính lại bằng
+// COUNT: màn hình progress hỏi lại mỗi vài giây, và đếm lại hàng nghìn dòng mỗi lần hỏi là
+// cách nhanh nhất để tự làm chậm chính mình.
+// ---------------------------------------------------------------------------
+
+model PodListingJob {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  /// Tên do người dùng đặt, hoặc sinh từ tên session/template nếu để trống.
+  name   String              @db.VarChar(255)
+  market PodListingMarket
+  status PodListingJobStatus @default(PENDING)
+
+  /// 🔴 CREATE_DRAFT hay PUBLISH. Cùng một hàng đợi, cùng retry, cùng log — chỉ khác lời gọi
+  /// cuối cùng tới TikTok. Mặc định CREATE_DRAFT để mọi lượt chạy cũ giữ nguyên ý nghĩa.
+  type PodListingJobType @default(CREATE_DRAFT)
+
+  /// 🔴 Listing Session đã bấm Start Listing. NULL khi job chạy từ sản phẩm đã đồng bộ.
+  sessionId String? @map("session_id") @db.Uuid
+
+  /// Template dùng cho cả lượt (item vẫn giữ bản sao id để tra được sau này).
+  /// NULL khi nguồn là Listing Session — session mang 5 template rời của nó.
+  listingTemplateId String? @map("listing_template_id") @db.Uuid
+  /// Image Template ghi đè cho cả lượt. NULL = dùng bộ ảnh của Listing Template.
+  imageTemplateId   String? @map("image_template_id") @db.Uuid
+
+  totalItems   Int @default(0) @map("total_items")
+  successItems Int @default(0) @map("success_items")
+  failedItems  Int @default(0) @map("failed_items")
+
+  /// Tham số queue của LƯỢT NÀY — lưu lại để lượt cũ vẫn giải thích được bằng số của nó,
+  /// kể cả sau khi cấu hình mặc định đổi.
+  concurrency Int @default(5)
+  maxRetries  Int @default(3) @map("max_retries")
+
+  startedAt  DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)
+  /// Thời lượng chạy (ms) — Publish History hiển thị trực tiếp, không tự trừ hai mốc.
+  durationMs Int?      @map("duration_ms")
+  /// Lỗi làm cả lượt chết (vd template bị xoá giữa chừng).
+  lastError  String?   @map("last_error") @db.VarChar(2000)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  session         PodListingSession?  @relation(fields: [sessionId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  listingTemplate PodListingTemplate? @relation(fields: [listingTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  imageTemplate   PodImageTemplate?   @relation(fields: [imageTemplateId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  items PodListingJobItem[]
+  logs  PodListingLog[]
+
+  @@index([organizationId, status])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, type, createdAt])
+  @@index([sessionId, createdAt])
+  @@map("pod_listing_jobs")
+}
+
+// ---------------------------------------------------------------------------
+// PodListingJobItem — MỘT (sản phẩm × shop) trong lượt chạy.
+//
+// `draft_listing_id` trỏ sang bản draft đã giải (nội dung listing), `remote_product_id` là
+// id sản phẩm phía TikTok. Hai thứ khác nhau và đều cần: cái trước để xem hệ thống ĐÃ GỬI
+// gì, cái sau để mở sản phẩm trên Seller Center.
+// ---------------------------------------------------------------------------
+
+model PodListingJobItem {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  jobId          String @map("job_id") @db.Uuid
+
+  /// 🔴 Item có ĐÚNG MỘT nguồn: sản phẩm đã đồng bộ, hoặc Draft Product của Listing Session.
+  /// Cả hai cùng NULL (hoặc cùng có) là dữ liệu hỏng — ràng buộc CHECK ở migration.
+  productId         String? @map("product_id") @db.Uuid
+  sessionProductId  String? @map("session_product_id") @db.Uuid
+  shopId            String  @map("shop_id") @db.Uuid
+  /// NULL khi nguồn là Listing Session (session không bắt buộc có Listing Template gộp).
+  listingTemplateId String? @map("listing_template_id") @db.Uuid
+  /// Payload đã giải (nội dung gửi lên sàn). NULL khi chết trước bước Merge.
+  payloadId         String? @map("payload_id") @db.Uuid
+
+  status PodListingJobItemStatus @default(PENDING)
+
+  /// `product_id` do TikTok trả về cho Draft Product vừa tạo.
+  remoteProductId String? @map("remote_product_id") @db.VarChar(64)
+  /// Thông điệp lỗi gần nhất (đã kèm mã lỗi TikTok nếu có).
+  error           String? @db.VarChar(2000)
+  /// Mã lỗi TikTok của lần thất bại gần nhất — lọc/thống kê theo mã, không parse chuỗi.
+  errorCode       String? @map("error_code") @db.VarChar(64)
+
+  /// Số lần ĐÃ THỬ LẠI (không tính lần chạy đầu).
+  retryCount    Int       @default(0) @map("retry_count")
+  /// Mốc được phép chạy lại — exponential backoff ghi vào đây.
+  nextAttemptAt DateTime? @map("next_attempt_at") @db.Timestamptz(6)
+
+  startedAt  DateTime? @map("started_at") @db.Timestamptz(6)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)
+  durationMs Int?      @map("duration_ms")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  job             PodListingJob             @relation(fields: [jobId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product         PodProduct?               @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  sessionProduct  PodListingSessionProduct? @relation(fields: [sessionProductId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  shop            PodTiktokShop             @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  listingTemplate PodListingTemplate?       @relation(fields: [listingTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  payload         PodListingPayload?        @relation(fields: [payloadId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  logs PodListingLog[]
+
+  /// Mỗi nguồn chỉ xuất hiện MỘT lần cho mỗi shop trong cùng lượt chạy.
+  @@unique([jobId, productId, shopId])
+  @@unique([jobId, sessionProductId, shopId])
+  @@index([organizationId, status])
+  @@index([jobId, status])
+  @@index([status, nextAttemptAt])
+  @@map("pod_listing_job_items")
+}
+
+// ---------------------------------------------------------------------------
+// PodListingLog — nhật ký TỪNG BƯỚC của từng item.
+//
+// `payload` giữ mảnh dữ liệu gọn của bước (số ảnh đã upload, mã lỗi TikTok, request_id) —
+// KHÔNG chép cả payload listing vào đây: nội dung đã gửi nằm ở `pod_draft_listings.payload`,
+// nhân bản nó hàng nghìn lần chỉ làm bảng log phình ra vô ích.
+// ---------------------------------------------------------------------------
+
+model PodListingLog {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  jobId          String  @map("job_id") @db.Uuid
+  /// NULL cho log mức JOB (bắt đầu lượt, huỷ lượt).
+  listingItemId  String? @map("listing_item_id") @db.Uuid
+
+  level   PodListingLogLevel @default(INFO)
+  step    PodListingStep
+  message String             @db.VarChar(2000)
+  payload Json?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  job  PodListingJob      @relation(fields: [jobId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  item PodListingJobItem? @relation(fields: [listingItemId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([organizationId])
+  @@index([jobId, createdAt])
+  @@index([listingItemId, createdAt])
+  @@map("pod_listing_logs")
 }

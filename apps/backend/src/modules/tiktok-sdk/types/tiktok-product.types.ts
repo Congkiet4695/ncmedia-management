@@ -117,6 +117,20 @@ export interface TiktokProductAudit {
   preApprovedReasons?: string[];
 }
 
+/**
+ * Lý do TRƯỢT duyệt (`audit_failed_reasons[]`).
+ *
+ * `reasons` là lý do ngắn, `suggestions` là hướng dẫn sửa — Sprint 5 gộp cả hai vào
+ * `pod_listing_payloads.review_reason` để người vận hành đọc được ngay trên màn hình mà
+ * không phải mở Seller Center.
+ */
+export interface TiktokProductAuditFailedReason {
+  listingPlatform?: string;
+  position?: string;
+  reasons?: string[];
+  suggestions?: string[];
+}
+
 /** Bản TÓM TẮT trả về từ Search Products — KHÔNG có ảnh/mô tả/thuộc tính. */
 export interface TiktokProductSummary {
   id?: string;
@@ -151,6 +165,13 @@ export interface TiktokProductDetail extends TiktokProductSummary {
   productTypes?: string[];
   /** Cấu hình POD (chỉ thị trường US) — Sprint sau dùng, sync sẵn để không mất dữ liệu. */
   podInfo?: unknown;
+  /**
+   * Trạng thái bán hàng THUẦN (không gộp audit): INITIAL / DRAFT / ACTIVATE /
+   * SELLER_DEACTIVATED / PLATFORM_DEACTIVATED / FREEZE / DELETED.
+   */
+  productStatus?: string;
+  /** Lý do trượt duyệt — chỉ có khi `status = FAILED`. */
+  auditFailedReasons?: TiktokProductAuditFailedReason[];
 }
 
 /** Bộ lọc của Search Products — đúng các trường SDK khai báo, không tự thêm. */
@@ -202,4 +223,86 @@ export interface TiktokCategoryAttribute {
   isCustomizable?: boolean;
   valueDataFormat?: string;
   values?: Array<{ id?: string; name?: string; iconUrl?: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// Ghi dữ liệu lên TikTok — Upload Product Image & Create Product
+// ---------------------------------------------------------------------------
+
+/** Ảnh vừa tải lên TikTok. `uri` là thứ Create Product cần, `url` chỉ để xem lại. */
+export interface TiktokUploadedImage {
+  uri?: string;
+  url?: string;
+  width?: number;
+  height?: number;
+  useCase?: string;
+}
+
+/** Một biến thể trong request Create Product. */
+export interface TiktokCreateProductSku {
+  sellerSku?: string;
+  /** Giá bán — `amount` là giá thực bán, `salePrice` là giá khuyến mãi (nếu có). */
+  price?: { amount?: string; currency?: string; salePrice?: string };
+  /** Giá gốc gạch ngang. */
+  listPrice?: { amount?: string; currency?: string };
+  inventory?: Array<{ warehouseId?: string; quantity?: number }>;
+  salesAttributes?: Array<{
+    id?: string;
+    name?: string;
+    valueId?: string;
+    valueName?: string;
+    skuImg?: { uri?: string };
+  }>;
+  identifierCode?: { code?: string; type?: string };
+}
+
+/**
+ * Thân request Create Product — chỉ những trường hệ thống thực sự gửi.
+ *
+ * Cố ý KHÔNG khai báo lại toàn bộ 30+ trường của SDK: trường nào chưa dùng thì thêm khi
+ * cần, để hợp đồng này đọc được như một danh sách "hệ thống gửi đúng chừng này".
+ */
+export interface TiktokCreateProductRequest {
+  title?: string;
+  description?: string;
+  categoryId?: string;
+  categoryVersion?: string;
+  brandId?: string;
+  /** `AS_DRAFT` (Sprint 4) hoặc `LISTING`. */
+  saveMode?: string;
+  /** Chống tạo trùng khi client thử lại — TikTok trả về đúng sản phẩm đã tạo. */
+  idempotencyKey?: string;
+  mainImages?: Array<{ uri?: string }>;
+  packageWeight?: { value?: string; unit?: string };
+  packageDimensions?: { length?: string; width?: string; height?: string; unit?: string };
+  productAttributes?: Array<{ id?: string; values?: Array<{ id?: string; name?: string }> }>;
+  skus?: TiktokCreateProductSku[];
+  sizeChart?: { image?: { uri?: string } };
+  video?: { id?: string };
+  isCodAllowed?: boolean;
+  minimumOrderQuantity?: number;
+}
+
+/** Kết quả Create Product. */
+export interface TiktokCreateProductResult {
+  productId?: string;
+  skus?: Array<{ id?: string; sellerSku?: string; salesAttributes?: Array<{ id?: string }> }>;
+  warnings?: Array<{ message?: string }>;
+}
+
+/**
+ * Thân request Edit Product — **cách duy nhất publish một Draft đã có** trên TikTok.
+ *
+ * 🔴 Edit Product là FULL EDIT: trường nào không gửi sẽ bị ghi đè thành rỗng. Vì thế nó
+ * dùng lại đúng shape của Create Product (trừ `idempotencyKey`, thứ chỉ có ý nghĩa lúc tạo)
+ * — hệ thống gửi lại NGUYÊN payload đã tạo ra Draft, không gửi một tập con.
+ */
+export type TiktokEditProductRequest = Omit<TiktokCreateProductRequest, 'idempotencyKey'>;
+
+/** Kết quả Edit Product — kèm `audit` để biết ngay sản phẩm đã vào hàng chờ duyệt chưa. */
+export interface TiktokEditProductResult {
+  productId?: string;
+  skus?: Array<{ id?: string; sellerSku?: string; salesAttributes?: Array<{ id?: string }> }>;
+  warnings?: Array<{ message?: string }>;
+  audit?: TiktokProductAudit;
 }

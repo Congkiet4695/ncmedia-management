@@ -5,7 +5,7 @@ import { Loader2, RefreshCw, Wallet } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Combobox } from '@/components/ui/combobox';
 import { useAuth } from '@/hooks/use-auth';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useApiError } from '@/hooks/use-api-error';
@@ -162,24 +162,23 @@ export default function TiktokPayoutPage() {
           to={filter.toDate}
           onChange={handleDateChange}
         />
-        <NativeSelect
+        <Combobox
           value={filter.payoutStatus ?? ''}
-          onChange={(e) =>
+          onChange={(value) =>
             setFilter((prev) => ({
               ...prev,
-              payoutStatus: (e.target.value || undefined) as PodPayoutStatus | undefined,
+              payoutStatus: (value || undefined) as PodPayoutStatus | undefined,
             }))
           }
-          aria-label={t('payout.statusFilterLabel')}
+          options={[
+            { value: '', label: t('common:filter.allStatuses') },
+            ...POD_PAYOUT_STATUSES.map((status) => ({
+              value: status,
+              label: t(`payout.status.${status}`),
+            })),
+          ]}
           className="w-[180px]"
-        >
-          <option value="">{t('common:filter.allStatuses')}</option>
-          {POD_PAYOUT_STATUSES.map((status) => (
-            <option key={status} value={status}>
-              {t(`payout.status.${status}`)}
-            </option>
-          ))}
-        </NativeSelect>
+        />
         <span className="flex items-center gap-1 text-xs text-muted-foreground">
           <Wallet className="size-3.5" />
           {t('payout.statusNote')}

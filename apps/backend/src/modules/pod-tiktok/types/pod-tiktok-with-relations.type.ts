@@ -8,6 +8,8 @@ export const POD_TIKTOK_ACCOUNT_INCLUDE = {
   shops: {
     where: { deletedAt: null },
     orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+    // Kho mặc định của shop (Warehouse Mapping) — màn hình cần TÊN, không chỉ id.
+    include: { defaultWarehouse: { select: { id: true, name: true, tiktokWarehouseId: true } } },
   },
   // Seller phụ trách (Employee) — kèm User để lấy họ tên + email hiển thị.
   // Nạp bằng include ⇒ danh sách account chỉ tốn MỘT truy vấn, không N+1.

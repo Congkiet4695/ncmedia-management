@@ -135,6 +135,10 @@ export const envValidationSchema = Joi.object({
   TIKTOK_PRODUCT_SYNC_CRON: Joi.string().default('0 */6 * * *'),
   TIKTOK_PRODUCT_SYNC_INCLUDE_CATALOG: Joi.boolean().truthy('true').falsy('false').default(false),
 
+  // --- Trạng thái duyệt listing (Sprint Publish) ---
+  TIKTOK_LISTING_REVIEW_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+  TIKTOK_LISTING_REVIEW_CRON: Joi.string().default('*/5 * * * *'),
+
   // --- Đồng bộ Payout (Finance API) ---
   TIKTOK_PAYOUT_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   TIKTOK_PAYOUT_WINDOW_DAYS: Joi.number().integer().min(1).max(3650).default(90),

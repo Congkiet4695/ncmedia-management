@@ -7,7 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Combobox } from '@/components/ui/combobox';
 import { RequirePermission } from '@/components/require-permission';
 import { useApiError } from '@/hooks/use-api-error';
 import { useAuth } from '@/hooks/use-auth';
@@ -138,57 +138,54 @@ function PodProductsView() {
               />
             </div>
 
-            <NativeSelect
+            <Combobox
               value={query.shopId ?? ''}
-              onChange={(event) => patchQuery({ shopId: event.target.value || undefined })}
+              onChange={(value) => patchQuery({ shopId: value || undefined })}
+              options={[
+                { value: '', label: t('products.filters.allShops') },
+                ...(filters?.shops ?? []).map((shop) => ({
+                  value: shop.id,
+                  label: shop.name,
+                })),
+              ]}
               className="w-[190px]"
-            >
-              <option value="">{t('products.filters.allShops')}</option>
-              {filters?.shops.map((shop) => (
-                <option key={shop.id} value={shop.id}>
-                  {shop.name}
-                </option>
-              ))}
-            </NativeSelect>
+            />
 
-            <NativeSelect
+            <Combobox
               value={query.status ?? ''}
-              onChange={(event) => patchQuery({ status: event.target.value || undefined })}
+              onChange={(value) => patchQuery({ status: value || undefined })}
+              options={[
+                { value: '', label: t('common:filter.allStatuses') },
+                ...(filters?.statuses ?? []).map((status) => ({ value: status, label: status })),
+              ]}
               className="w-[170px]"
-            >
-              <option value="">{t('common:filter.allStatuses')}</option>
-              {filters?.statuses.map((status) => (
-                <option key={status} value={status}>
-                  {status}
-                </option>
-              ))}
-            </NativeSelect>
+            />
 
-            <NativeSelect
+            <Combobox
               value={query.categoryId ?? ''}
-              onChange={(event) => patchQuery({ categoryId: event.target.value || undefined })}
+              onChange={(value) => patchQuery({ categoryId: value || undefined })}
+              options={[
+                { value: '', label: t('products.filters.allCategories') },
+                ...(filters?.categories ?? []).map((category) => ({
+                  value: category.id,
+                  label: category.name,
+                })),
+              ]}
               className="w-[220px]"
-            >
-              <option value="">{t('products.filters.allCategories')}</option>
-              {filters?.categories.map((category) => (
-                <option key={category.id} value={category.id}>
-                  {category.name}
-                </option>
-              ))}
-            </NativeSelect>
+            />
 
-            <NativeSelect
+            <Combobox
               value={query.brandId ?? ''}
-              onChange={(event) => patchQuery({ brandId: event.target.value || undefined })}
+              onChange={(value) => patchQuery({ brandId: value || undefined })}
+              options={[
+                { value: '', label: t('products.filters.allBrands') },
+                ...(filters?.brands ?? []).map((brand) => ({
+                  value: brand.id,
+                  label: brand.name,
+                })),
+              ]}
               className="w-[180px]"
-            >
-              <option value="">{t('products.filters.allBrands')}</option>
-              {filters?.brands.map((brand) => (
-                <option key={brand.id} value={brand.id}>
-                  {brand.name}
-                </option>
-              ))}
-            </NativeSelect>
+            />
           </div>
         </CardHeader>
 

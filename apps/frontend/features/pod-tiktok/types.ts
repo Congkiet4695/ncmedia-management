@@ -23,6 +23,9 @@ export interface PodTiktokShop {
   region: string;
   sellerType: string;
   syncEnabled: boolean;
+  /** Kho mặc định dùng khi Publish lên shop này. NULL = để hệ thống tự suy lúc Publish. */
+  defaultWarehouseId: string | null;
+  defaultWarehouseName: string | null;
   lastOrderSyncAt: string | null;
   createdAt: string;
 }

@@ -96,6 +96,22 @@ const PERMISSIONS: Array<{
   { code: 'pod.product.read',          module: 'POD_TIKTOK', resource: 'pod.product',       action: 'read',   description: 'Xem san pham TikTok da dong bo' },
   { code: 'pod.product.sync',          module: 'POD_TIKTOK', resource: 'pod.product',       action: 'sync',   description: 'Dong bo san pham tu TikTok Shop' },
 
+  { code: 'pod.template.read',         module: 'POD_TIKTOK', resource: 'pod.template',      action: 'read',   description: 'Xem Listing Template va cac template thanh phan' },
+  { code: 'pod.template.write',        module: 'POD_TIKTOK', resource: 'pod.template',      action: 'write',  description: 'Tao/sua/xoa Listing Template va cac template thanh phan' },
+  { code: 'pod.draft.read',            module: 'POD_TIKTOK', resource: 'pod.draft',         action: 'read',   description: 'Xem Draft Listing va preview listing' },
+  { code: 'pod.draft.generate',        module: 'POD_TIKTOK', resource: 'pod.draft',         action: 'generate', description: 'Sinh Draft Listing tu Product + Template' },
+  // Sprint Listing Session: mot luot dang hang (Market + Shops + Template + Import)
+  { code: 'pod.session.read',         module: 'POD_TIKTOK', resource: 'pod.session',       action: 'read',   description: 'Xem Listing Session, Draft Product va preview' },
+  { code: 'pod.session.write',        module: 'POD_TIKTOK', resource: 'pod.session',       action: 'write',  description: 'Tao/sua/xoa Listing Session va Draft Product ben trong' },
+  { code: 'pod.session.import',       module: 'POD_TIKTOK', resource: 'pod.session',       action: 'import', description: 'Import Draft Product vao Listing Session tu file Excel/CSV' },
+  // Sprint Bulk Listing Engine: day hang loat len TikTok duoi dang Draft Product
+  { code: 'pod.listing.read',          module: 'POD_TIKTOK', resource: 'pod.listing',       action: 'read',   description: 'Xem Listing Job, tien do, log va Publish History' },
+  { code: 'pod.listing.run',           module: 'POD_TIKTOK', resource: 'pod.listing',       action: 'run',    description: 'Chay Bulk Listing (tao Draft Product tren TikTok), retry, huy, xoa job' },
+  // Sprint Publish: dua Draft da co tren TikTok vao hang cho duyet (save_mode = LISTING).
+  // Tach khoi pod.listing.run vi day la hanh dong DUA HANG LEN SAN — khong the gop chung
+  // quyen voi viec tao Draft (von khong anh huong gi toi shop that).
+  { code: 'pod.listing.publish',       module: 'POD_TIKTOK', resource: 'pod.listing',       action: 'publish', description: 'Publish Draft len TikTok (gui duyet), retry publish va dong bo trang thai duyet' },
+
   { code: 'pod.tiktok.payout.read',    module: 'POD_TIKTOK', resource: 'pod.tiktok.payout',  action: 'read',   description: 'Xem báo cáo Payout TikTok' },
   { code: 'pod.tiktok.payout.sync',    module: 'POD_TIKTOK', resource: 'pod.tiktok.payout',  action: 'sync',   description: 'Đồng bộ dữ liệu Payout từ TikTok Finance API' },
   // Module Fulfillment — gui don sang xuong in (MangoTeePrints)

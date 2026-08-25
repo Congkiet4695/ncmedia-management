@@ -42,3 +42,32 @@ export const POD_PRODUCT_SYNC_LOCK_TTL_MS = 10 * 60 * 1000;
 
 /** Số lượt lỗi liên tiếp thì tạm ngưng đồng bộ shop (circuit breaker). */
 export const POD_PRODUCT_SYNC_FAILURE_THRESHOLD = 5;
+
+// ---------------------------------------------------------------------------
+// "No brand"
+// ---------------------------------------------------------------------------
+
+/**
+ * `brand_id` của **No brand** trên TikTok Shop.
+ *
+ * 🔴 Đây là brand toàn cầu, dùng chung cho mọi seller và mọi vùng — không phải dữ liệu riêng
+ * của shop nào. Nó nằm ở đây (một hằng số duy nhất, có chú thích) vì lúc `Get Brands` không
+ * liệt kê "No brand" thì hệ thống vẫn phải gửi được một `brand_id` HỢP LỆ khi tạo sản phẩm.
+ *
+ * Không convert thành `null`, không bỏ field: TikTok từ chối sản phẩm thiếu brand ở phần lớn
+ * danh mục, và "để trống" không đồng nghĩa với "No brand".
+ */
+export const POD_TIKTOK_NO_BRAND_ID = '7082427311584347905';
+
+/** Tên hiển thị của bản ghi No brand do hệ thống tạo. */
+export const POD_TIKTOK_NO_BRAND_NAME = 'No brand';
+
+/**
+ * Nhận diện "No brand" từ tên TikTok trả về.
+ *
+ * TikTok viết hoa/thường không nhất quán giữa các vùng ("No Brand", "no brand", "NoBrand"),
+ * nên so khớp sau khi bỏ khoảng trắng và hạ chữ thường.
+ */
+export function isNoBrandName(name: string | null | undefined): boolean {
+  return (name ?? '').replace(/\s+/g, '').toLowerCase() === 'nobrand';
+}

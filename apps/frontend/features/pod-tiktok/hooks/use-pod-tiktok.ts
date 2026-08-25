@@ -119,6 +119,23 @@ export function useAssignPodSeller() {
   });
 }
 
+/** Đặt kho mặc định của một shop (Shop Settings → Warehouse Mapping). */
+export function useSetShopWarehouse() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({
+      accountId,
+      shopId,
+      warehouseId,
+    }: {
+      accountId: string;
+      shopId: string;
+      warehouseId: string | null;
+    }) => podTiktokService.setShopWarehouse(accountId, shopId, warehouseId),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [POD_TIKTOK_KEY] }),
+  });
+}
+
 export function useUnlinkPodTiktokAccount() {
   const queryClient = useQueryClient();
   return useMutation({

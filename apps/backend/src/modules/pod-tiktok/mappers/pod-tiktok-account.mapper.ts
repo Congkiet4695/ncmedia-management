@@ -83,6 +83,8 @@ export class PodTiktokAccountMapper {
       region: shop.region,
       sellerType: shop.sellerType,
       syncEnabled: shop.syncEnabled,
+      defaultWarehouseId: shop.defaultWarehouseId,
+      defaultWarehouseName: shop.defaultWarehouse?.name ?? null,
       lastOrderSyncAt: shop.lastOrderSyncAt?.toISOString() ?? null,
       createdAt: shop.createdAt.toISOString(),
     };

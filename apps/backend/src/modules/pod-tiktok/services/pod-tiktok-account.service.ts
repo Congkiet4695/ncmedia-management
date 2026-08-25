@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PodTiktokAccountStatus, PodTiktokTokenAction, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { TIKTOK_SELLER_USER_TYPES, TIKTOK_SELLER_TYPES } from '../constants/tiktok.constants';
@@ -13,6 +13,7 @@ import {
   AssignPodSellerDto,
   PodSellerOptionQueryDto,
   PodTiktokAccountQueryDto,
+  SetShopWarehouseDto,
 } from '../dto/pod-tiktok-query.dto';
 import {
   PaginatedPodTiktokAccountResponseDto,
@@ -247,6 +248,60 @@ export class PodTiktokAccountService {
     });
 
     return this.findOne(organizationId, id);
+  }
+
+  /**
+   * Đặt **kho mặc định của một shop** (Warehouse Mapping).
+   *
+   * 🔴 Kho là dữ liệu CỦA SHOP. Draft Product không gắn kho, và cổng validate cũng không đòi
+   * kho — cùng một Draft đăng lên ba shop là ba kho khác nhau. Đây là nơi khai báo lựa chọn
+   * của từng shop; `PodListingPublisherService` đọc nó ngay trước khi tạo sản phẩm.
+   *
+   * Kho phải thuộc CHÍNH shop này: `warehouse_id` là mã riêng của từng shop, gán kho của shop
+   * khác thì TikTok từ chối cả sản phẩm.
+   */
+  async setShopWarehouse(
+    organizationId: string,
+    actorUserId: string,
+    accountId: string,
+    shopId: string,
+    dto: SetShopWarehouseDto,
+  ): Promise<PodTiktokAccountResponseDto> {
+    const account = await this.repo.findById(organizationId, accountId);
+    if (!account) throw new PodTiktokAccountNotFoundException();
+
+    const shop = account.shops.find((item) => item.id === shopId);
+    if (!shop) throw new PodTiktokAccountNotFoundException();
+
+    if (dto.warehouseId) {
+      const warehouse = await this.prisma.podTiktokWarehouse.findFirst({
+        where: { id: dto.warehouseId, organizationId, shopId, deletedAt: null },
+        select: { id: true },
+      });
+      if (!warehouse) {
+        throw new BadRequestException({
+          code: 'POD_TIKTOK_WAREHOUSE_INVALID',
+          message: 'Kho không tồn tại hoặc không thuộc shop này.',
+        });
+      }
+    }
+
+    await this.prisma.podTiktokShop.update({
+      where: { id: shopId },
+      data: { defaultWarehouseId: dto.warehouseId ?? null, updatedBy: actorUserId },
+    });
+
+    this.logger.log({
+      module: 'pod-tiktok',
+      operation: 'shop.set-warehouse',
+      organizationId,
+      accountId,
+      shopId,
+      warehouseId: dto.warehouseId ?? null,
+      msg: dto.warehouseId ? 'Đã đặt kho mặc định cho shop' : 'Đã bỏ kho mặc định của shop',
+    });
+
+    return this.findOne(organizationId, accountId);
   }
 
   /**

@@ -35,6 +35,16 @@
     "viewDetail": "View detail"
   },
   "appName": "NCMedia Management",
+  "combobox": {
+    "addCustom": "Add \"{{value}}\"",
+    "clear": "Clear",
+    "loading": "Loading…",
+    "more": "{{count}} more — keep typing to narrow it down",
+    "noResult": "No match",
+    "placeholder": "Select…",
+    "remove": "Remove",
+    "searchPlaceholder": "Type to search…"
+  },
   "dashboard": {
     "fullName": "Full name",
     "organization": "Organization",

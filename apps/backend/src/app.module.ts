@@ -21,6 +21,9 @@ import { OrderModule } from './modules/order/order.module';
 import { ReportModule } from './modules/report/report.module';
 import { PodTiktokModule } from './modules/pod-tiktok/pod-tiktok.module';
 import { PodProductModule } from './modules/pod-product/pod-product.module';
+import { PodListingSessionModule } from './modules/pod-listing-session/pod-listing-session.module';
+import { PodListingModule } from './modules/pod-listing/pod-listing.module';
+import { PodResourceModule } from './modules/pod-resource/pod-resource.module';
 import { TikTokSdkModule } from './modules/tiktok-sdk/tiktok-sdk.module';
 import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
 
@@ -117,6 +120,11 @@ import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
     PodTiktokModule,
     // Module POD — Product Synchronization (chi doc tu TikTok)
     PodProductModule,
+    // Module POD — Listing Template Management (Sprint 3: template + draft, KHONG publish)
+    PodListingModule,
+    PodListingSessionModule,
+    // Module POD — Resource Synchronization (Category / Brand / Attribute / Warehouse)
+    PodResourceModule,
     // Gửi đơn POD sang xưởng in (MangoTeePrints)
     FulfillmentModule,
   ],

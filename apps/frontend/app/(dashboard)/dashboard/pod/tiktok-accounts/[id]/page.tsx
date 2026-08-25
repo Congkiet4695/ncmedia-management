@@ -18,6 +18,7 @@ import { useTranslation } from 'react-i18next';
 import { RequirePermission } from '@/components/require-permission';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { useApiError } from '@/hooks/use-api-error';
+import { ShopWarehouseSelect } from '@/features/pod-tiktok/components/shop-warehouse-select';
 import { TiktokStatusBadge } from '@/features/pod-tiktok/components/tiktok-status-badge';
 import { usePodTiktokAccount } from '@/features/pod-tiktok/hooks/use-pod-tiktok';
 
@@ -191,6 +192,8 @@ function DetailView({ id }: { id: string }) {
                     <TableHead>Region</TableHead>
                     <TableHead>Seller Type</TableHead>
                     <TableHead>Sync</TableHead>
+                    {/* Kho là dữ liệu CỦA SHOP — khai báo ở đây, không phải ở Draft Product. */}
+                    <TableHead>{t('account.warehouseColumn')}</TableHead>
                     <TableHead>Last Sync</TableHead>
                   </TableRow>
                 </TableHeader>
@@ -210,6 +213,15 @@ function DetailView({ id }: { id: string }) {
                         <Badge variant={shop.syncEnabled ? 'success' : 'muted'}>
                           {t(shop.syncEnabled ? 'account.syncOn' : 'account.syncOff')}
                         </Badge>
+                      </TableCell>
+                      <TableCell>
+                        <ShopWarehouseSelect
+                          accountId={account.id}
+                          shopId={shop.id}
+                          shopName={shop.name}
+                          currentWarehouseId={shop.defaultWarehouseId}
+                          currentWarehouseName={shop.defaultWarehouseName}
+                        />
                       </TableCell>
                       <TableCell className="text-muted-foreground">
                         {formatDate(shop.lastOrderSyncAt)}

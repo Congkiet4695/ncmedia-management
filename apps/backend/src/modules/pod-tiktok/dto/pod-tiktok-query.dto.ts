@@ -74,6 +74,24 @@ export class AssignPodSellerDto {
   sellerId?: string | null;
 }
 
+/**
+ * Đặt kho mặc định cho MỘT shop (Warehouse Mapping).
+ *
+ * 🔴 Kho là dữ liệu của shop, không phải của sản phẩm: cùng một Draft Product đăng lên ba
+ * shop là ba kho khác nhau. Đây là chỗ khai báo lựa chọn của từng shop; để trống thì lúc
+ * Publish hệ thống tự suy (shop chỉ có một kho, hoặc kho TikTok đánh dấu mặc định).
+ */
+export class SetShopWarehouseDto {
+  @ApiPropertyOptional({
+    format: 'uuid',
+    nullable: true,
+    description: 'ID kho đã đồng bộ của CHÍNH shop này. Truyền null để bỏ cấu hình.',
+  })
+  @IsOptional()
+  @IsUUID('4', { message: 'warehouseId phải là UUID hợp lệ' })
+  warehouseId?: string | null;
+}
+
 /** Gán nhà cung cấp fulfillment cho một kết nối TikTok. */
 export class AssignFulfillmentProviderDto {
   @ApiPropertyOptional({

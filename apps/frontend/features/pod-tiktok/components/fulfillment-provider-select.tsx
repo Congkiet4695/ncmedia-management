@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Combobox } from '@/components/ui/combobox';
 import { useApiError } from '@/hooks/use-api-error';
 import { useFulfillmentProviderOptions } from '@/features/fulfillment/hooks/use-fulfillment';
 import { useAssignFulfillmentProvider } from '../hooks/use-pod-tiktok';
@@ -81,30 +81,32 @@ export function FulfillmentProviderSelect({
 
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <NativeSelect
+      <Combobox
         value={currentId ?? UNASSIGNED}
-        onChange={(e) => void handleChange(e.target.value)}
+        onChange={(value) => void handleChange(value)}
         disabled={isLoading || mutation.isPending}
-        aria-label={t('assign.selectLabel', { account: accountName })}
+        loading={isLoading}
         className="h-9 min-w-[170px] max-w-[240px] text-sm"
-      >
-        <option value={UNASSIGNED}>
-          {noProvider ? t('assign.noProvider') : t('assign.unassigned')}
-        </option>
-        {/* Nhà cung cấp đang gán có thể đã bị tắt/xoá ⇒ không còn trong danh sách chọn.
-            Vẫn phải hiện ra, nếu không người dùng sẽ tưởng kết nối chưa được cấu hình. */}
-        {currentId && !options?.some((option) => option.id === currentId) && (
-          <option value={currentId}>
-            {fulfillmentProviderName ?? ''}
-            {fulfillmentProviderActive === false ? t('assign.inactiveSuffix') : ''}
-          </option>
-        )}
-        {options?.map((option) => (
-          <option key={option.id} value={option.id}>
-            {option.name}
-          </option>
-        ))}
-      </NativeSelect>
+        options={[
+          {
+            value: UNASSIGNED,
+            label: noProvider ? t('assign.noProvider') : t('assign.unassigned'),
+          },
+          // Nhà cung cấp đang gán có thể đã bị tắt/xoá ⇒ không còn trong danh sách chọn.
+          // Vẫn phải hiện ra, nếu không người dùng sẽ tưởng kết nối chưa được cấu hình.
+          ...(currentId && !options?.some((option) => option.id === currentId)
+            ? [
+                {
+                  value: currentId,
+                  label: `${fulfillmentProviderName ?? ''}${
+                    fulfillmentProviderActive === false ? t('assign.inactiveSuffix') : ''
+                  }`,
+                },
+              ]
+            : []),
+          ...(options ?? []).map((option) => ({ value: option.id, label: option.name })),
+        ]}
+      />
 
       {mutation.isPending ? (
         <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />

@@ -4,7 +4,7 @@ import { useState } from 'react';
 import { Check, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
-import { NativeSelect } from '@/components/ui/native-select';
+import { Combobox } from '@/components/ui/combobox';
 import { useApiError } from '@/hooks/use-api-error';
 import { useAssignPodSeller, usePodSellerOptions } from '../hooks/use-pod-tiktok';
 import type { PodSellerOption } from '../types';
@@ -87,27 +87,27 @@ export function SellerAssignSelect({
 
   return (
     <div className="flex min-w-0 items-center gap-2">
-      <NativeSelect
+      <Combobox
         value={currentId ?? UNASSIGNED}
-        onChange={(e) => void handleChange(e.target.value)}
+        onChange={(value) => void handleChange(value)}
         disabled={isLoading || assignMutation.isPending}
-        aria-label={t('account.sellerSelectLabel', { account: accountName })}
+        loading={isLoading}
         className="h-9 min-w-[180px] max-w-[240px] text-sm"
-      >
-        <option value={UNASSIGNED}>{t('account.unassigned')}</option>
-        {/* Seller hiện tại có thể đã nghỉ việc/đổi role ⇒ không còn trong danh sách chọn.
-            Vẫn phải hiện ra, nếu không người dùng sẽ tưởng account chưa được phân công. */}
-        {currentId && !options?.some((option) => option.id === currentId) && (
-          <option value={currentId}>
-            {sellerFullName ?? sellerEmail ?? t('account.sellerInactive')}
-          </option>
-        )}
-        {options?.map((option) => (
-          <option key={option.id} value={option.id}>
-            {label(option)}
-          </option>
-        ))}
-      </NativeSelect>
+        options={[
+          { value: UNASSIGNED, label: t('account.unassigned') },
+          // Seller hiện tại có thể đã nghỉ việc/đổi role ⇒ không còn trong danh sách chọn.
+          // Vẫn phải hiện ra, nếu không người dùng sẽ tưởng account chưa được phân công.
+          ...(currentId && !options?.some((option) => option.id === currentId)
+            ? [
+                {
+                  value: currentId,
+                  label: sellerFullName ?? sellerEmail ?? t('account.sellerInactive'),
+                },
+              ]
+            : []),
+          ...(options ?? []).map((option) => ({ value: option.id, label: label(option) })),
+        ]}
+      />
 
       {assignMutation.isPending ? (
         <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />

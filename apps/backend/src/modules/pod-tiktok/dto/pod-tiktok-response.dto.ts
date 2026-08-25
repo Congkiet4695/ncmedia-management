@@ -16,6 +16,15 @@ export class PodTiktokShopDto {
   @ApiProperty({ example: 'LOCAL', description: 'LOCAL | CROSS_BORDER' }) sellerType!: string;
   @ApiProperty({ description: 'Bật/tắt đồng bộ đơn (dùng từ Sprint Sync Orders)' })
   syncEnabled!: boolean;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'Kho mặc định dùng khi Publish sản phẩm lên shop này (Warehouse Mapping). ' +
+      'NULL = để hệ thống tự suy lúc Publish.',
+  })
+  defaultWarehouseId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) defaultWarehouseName!: string | null;
   @ApiProperty({ nullable: true, type: String }) lastOrderSyncAt!: string | null;
   @ApiProperty() createdAt!: string;
 }

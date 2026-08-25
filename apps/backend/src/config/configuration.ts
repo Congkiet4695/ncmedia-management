@@ -226,6 +226,17 @@ export default () => ({
     },
 
     /**
+     * Đọc lại TRẠNG THÁI DUYỆT của listing đã publish (Sprint Publish).
+     *
+     * 5 phút/lần theo yêu cầu sprint. Bật mặc định: người vận hành bấm Publish xong thì
+     * điều họ chờ chính là kết quả duyệt — bắt bật tay một scheduler để thấy nó là thừa.
+     */
+    listingReview: {
+      enabled: (process.env.TIKTOK_LISTING_REVIEW_ENABLED ?? 'true') === 'true',
+      cron: process.env.TIKTOK_LISTING_REVIEW_CRON ?? '*/5 * * * *',
+    },
+
+    /**
      * Đồng bộ Payout (Finance API) — docs/pod-tiktok/10-payout-report.md.
      *
      * Không có watermark riêng: lần đầu (shop chưa có payment nào) kéo toàn bộ lịch sử,

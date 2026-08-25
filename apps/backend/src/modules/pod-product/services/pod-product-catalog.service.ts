@@ -6,6 +6,11 @@ import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryp
 import { TiktokProductApiService } from '../../tiktok-sdk/tiktok-product-api.service';
 import type { TiktokCategoryNode } from '../../tiktok-sdk/types/tiktok-product.types';
 import type { TiktokShopContext } from '../../tiktok-sdk/types/tiktok-shop-context.type';
+import {
+  POD_TIKTOK_NO_BRAND_ID,
+  POD_TIKTOK_NO_BRAND_NAME,
+  isNoBrandName,
+} from '../constants/pod-product.constants';
 import { PodProductMapper } from '../mappers/pod-product.mapper';
 import {
   PodProductSyncRepository,
@@ -38,6 +43,37 @@ export class PodProductCatalogService {
     private readonly tokenService: PodTiktokTokenService,
     private readonly encryption: TiktokEncryptionService,
   ) {}
+
+  // ---------------------------------------------------------------------------
+  // Đồng bộ TỪNG tài nguyên — dùng cho màn hình Resources (mỗi nút Sync một tài nguyên)
+  //
+  // 🔴 Vì sao tách lẻ: người vận hành cần kéo riêng cây danh mục mà không đụng tới brand
+  // hay thuộc tính. Gộp cứng ba thứ vào một lệnh nghĩa là muốn làm mới danh mục thì phải
+  // trả giá bằng quota của cả ba.
+  // ---------------------------------------------------------------------------
+
+  /** Chỉ đồng bộ cây danh mục của một shop. */
+  async syncShopCategories(target: ProductSyncTarget): Promise<number> {
+    return this.syncCategories(await this.buildContext(target), target);
+  }
+
+  /** Chỉ đồng bộ thương hiệu của một shop. */
+  async syncShopBrands(target: ProductSyncTarget): Promise<number> {
+    return this.syncBrands(await this.buildContext(target), target);
+  }
+
+  /**
+   * Chỉ đồng bộ định nghĩa thuộc tính.
+   *
+   * `categoryIds` = danh mục nội bộ cần lấy thuộc tính. Bỏ trống ⇒ lấy các danh mục lá
+   * đang có sản phẩm (hành vi mặc định, xem `syncCategoryAttributes`).
+   */
+  async syncShopCategoryAttributes(
+    target: ProductSyncTarget,
+    options: { categoryIds?: string[] } = {},
+  ): Promise<number> {
+    return this.syncCategoryAttributes(await this.buildContext(target), target, options);
+  }
 
   /** Đồng bộ danh mục + thương hiệu (+ thuộc tính danh mục nếu bật) cho một shop. */
   async syncShopCatalog(
@@ -155,6 +191,7 @@ export class PodProductCatalogService {
 
     for (const brand of brands) {
       if (!brand.id) continue;
+      const noBrand = isNoBrandName(brand.name);
       await this.prisma.podProductBrand.upsert({
         where: { shopId_tiktokBrandId: { shopId: target.id, tiktokBrandId: brand.id } },
         create: {
@@ -164,11 +201,15 @@ export class PodProductCatalogService {
           name: brand.name ?? null,
           authorizedStatus: brand.authorizedStatus ?? null,
           brandStatus: brand.brandStatus ?? null,
+          isNoBrand: noBrand,
         },
         update: {
           name: brand.name ?? null,
           authorizedStatus: brand.authorizedStatus ?? null,
           brandStatus: brand.brandStatus ?? null,
+          isNoBrand: noBrand,
+          // TikTok đã trả về thật ⇒ đây không còn là bản ghi hệ thống tự tạo.
+          ...(noBrand ? { isSystem: false } : {}),
           syncedAt: new Date(),
           deletedAt: null,
         },
@@ -176,7 +217,52 @@ export class PodProductCatalogService {
       count += 1;
     }
 
+    count += await this.ensureNoBrand(target);
     return count;
+  }
+
+  /**
+   * Bảo đảm shop LUÔN có một lựa chọn **"No brand"**.
+   *
+   * 🔴 Vì sao cần: "No brand" là brand hợp lệ trong Seller Center và là lựa chọn mặc định của
+   * gần như mọi mặt hàng POD, nhưng `Get Brands` không phải lúc nào cũng liệt kê nó (tuỳ
+   * vùng, tuỳ quyền của app). Thiếu bản ghi này thì Category Template không có gì để chọn và
+   * listing không đăng được — cổng validate đòi `brand_id`.
+   *
+   * Bản ghi tự tạo mang `is_system = true` và dùng `brand_id` toàn cầu của TikTok, nên
+   * payload gửi đi vẫn là một id THẬT, không phải `null` hay field bị bỏ. Lần đồng bộ sau mà
+   * TikTok trả về "No brand" thật thì `syncBrands` cập nhật đè lên và tắt cờ `is_system`.
+   */
+  private async ensureNoBrand(target: ProductSyncTarget): Promise<number> {
+    const existing = await this.prisma.podProductBrand.findFirst({
+      where: { shopId: target.id, isNoBrand: true, deletedAt: null },
+      select: { id: true },
+    });
+    if (existing) return 0;
+
+    await this.prisma.podProductBrand.upsert({
+      where: {
+        shopId_tiktokBrandId: { shopId: target.id, tiktokBrandId: POD_TIKTOK_NO_BRAND_ID },
+      },
+      create: {
+        organizationId: target.organizationId,
+        shopId: target.id,
+        tiktokBrandId: POD_TIKTOK_NO_BRAND_ID,
+        name: POD_TIKTOK_NO_BRAND_NAME,
+        isNoBrand: true,
+        isSystem: true,
+      },
+      update: { isNoBrand: true, syncedAt: new Date(), deletedAt: null },
+    });
+
+    this.logger.log({
+      module: 'pod-product',
+      operation: 'catalog.ensureNoBrand',
+      organizationId: target.organizationId,
+      shopId: target.id,
+      msg: 'TikTok không trả về "No brand" — hệ thống tự tạo bản ghi để Template luôn chọn được',
+    });
+    return 1;
   }
 
   /**
@@ -189,14 +275,26 @@ export class PodProductCatalogService {
   private async syncCategoryAttributes(
     ctx: TiktokShopContext,
     target: ProductSyncTarget,
+    options: { categoryIds?: string[] } = {},
   ): Promise<number> {
+    // Chỉ định danh mục cụ thể ⇒ lấy đúng chúng (người dùng vừa chọn danh mục đó trong
+    // Category Template và cần thuộc tính ngay). Không chỉ định ⇒ giữ hành vi tiết kiệm
+    // quota: chỉ những danh mục đang có sản phẩm, cũ nhất trước.
+    //
+    // 🔴 Lọc theo `tiktokCategoryId` chứ KHÔNG theo quan hệ `products`: sản phẩm thường
+    // được đồng bộ TRƯỚC khi có cây danh mục, nên khoá ngoại `category_id` còn rỗng và
+    // lọc theo quan hệ sẽ ra 0 danh mục — đúng cái bẫy làm cache thuộc tính luôn trống.
+    const where = options.categoryIds?.length
+      ? { id: { in: options.categoryIds }, shopId: target.id, deletedAt: null }
+      : {
+          shopId: target.id,
+          isLeaf: true,
+          deletedAt: null,
+          tiktokCategoryId: { in: await this.categoryIdsInUse(target.id) },
+        };
+
     const categories = await this.prisma.podProductCategory.findMany({
-      where: {
-        shopId: target.id,
-        isLeaf: true,
-        deletedAt: null,
-        products: { some: { deletedAt: null } },
-      },
+      where,
       select: { id: true, tiktokCategoryId: true },
       take: CATEGORY_ATTRIBUTE_BATCH,
       orderBy: { syncedAt: 'asc' },
@@ -233,6 +331,18 @@ export class PodProductCatalogService {
     }
 
     return count;
+  }
+
+  /** Mã danh mục TikTok mà sản phẩm của shop đang dùng — nguồn để chọn thuộc tính cần lấy. */
+  private async categoryIdsInUse(shopId: string): Promise<string[]> {
+    const rows = await this.prisma.podProduct.findMany({
+      where: { shopId, deletedAt: null, tiktokCategoryId: { not: null } },
+      select: { tiktokCategoryId: true },
+      distinct: ['tiktokCategoryId'],
+    });
+    return rows
+      .map((row) => row.tiktokCategoryId)
+      .filter((id): id is string => Boolean(id));
   }
 
   /** Dựng `level` + `path` ("A > B > C") từ danh sách phẳng, an toàn với dữ liệu vòng. */

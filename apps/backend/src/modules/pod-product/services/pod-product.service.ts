@@ -1,5 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PodProductSyncTrigger } from '@prisma/client';
+import { PodProductSyncTrigger, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import type {
   PaginatedPodProductResponseDto,
@@ -17,6 +17,14 @@ import { PodProductRepository } from '../repositories/pod-product.repository';
 import { PodProductSyncRepository } from '../repositories/pod-product-sync.repository';
 import { PodProductCatalogService } from './pod-product-catalog.service';
 import { PodProductSyncService } from './pod-product-sync.service';
+
+/**
+ * Phân biệt UUID nội bộ với mã danh mục của TikTok.
+ *
+ * TikTok dùng chuỗi số ("1237008"), hệ thống dùng UUID v4 — hai dạng không thể lẫn, nên một
+ * endpoint nhận được cả hai mà không cần thêm tham số "kiểu mã".
+ */
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** Không tìm thấy sản phẩm trong Organization (hoặc đã bị xoá). */
 export class PodProductNotFoundException extends NotFoundException {
@@ -154,6 +162,152 @@ export class PodProductService {
     return {
       items: items.map((item) => this.mapper.toSyncHistory(item)),
       meta: { total, page, limit, totalPages: total === 0 ? 0 : Math.ceil(total / limit) },
+    };
+  }
+
+  /**
+   * Cây danh mục TikTok đã đồng bộ (màn hình **POD → Categories** và bộ chọn danh mục
+   * của Category Template).
+   *
+   * 🔴 Đây là dữ liệu ĐỌC TỪ TIKTOK, không phải danh mục do NCMedia tự định nghĩa.
+   */
+  async findCategories(
+    organizationId: string,
+    params: {
+      shopId?: string;
+      search?: string;
+      leafOnly?: boolean;
+      limit?: number;
+      /** Tra CHÍNH XÁC một danh mục theo mã TikTok — dùng khi mở lại template đã lưu. */
+      tiktokCategoryId?: string;
+    } = {},
+  ) {
+    return this.prisma.podProductCategory.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        ...(params.shopId ? { shopId: params.shopId } : {}),
+        ...(params.leafOnly ? { isLeaf: true } : {}),
+        ...(params.tiktokCategoryId ? { tiktokCategoryId: params.tiktokCategoryId } : {}),
+        ...(params.search
+          ? {
+              OR: [
+                { localName: { contains: params.search, mode: 'insensitive' } },
+                { path: { contains: params.search, mode: 'insensitive' } },
+                { tiktokCategoryId: { contains: params.search } },
+              ],
+            }
+          : {}),
+      },
+      select: {
+        id: true,
+        tiktokCategoryId: true,
+        localName: true,
+        path: true,
+        level: true,
+        isLeaf: true,
+        syncedAt: true,
+        shop: { select: { id: true, name: true } },
+      },
+      orderBy: [{ path: 'asc' }],
+      take: params.limit ?? 500,
+    });
+  }
+
+  /**
+   * Thuộc tính của một danh mục — nguồn để Category Template render form ĐỘNG.
+   *
+   * 🔴 Nhận **cả hai loại mã**: UUID nội bộ của `pod_product_categories`, hoặc `category_id`
+   * của TikTok. Category Template lưu mã TikTok (để dùng lại được cho mọi shop cùng thị
+   * trường), nên nếu chỉ nhận UUID thì mở template ra sửa là không nạp được thuộc tính —
+   * đúng cái lỗi "Select a category to load attributes" trong khi danh mục đã chọn rồi.
+   *
+   * Một mã TikTok có thể ứng với nhiều dòng cache (mỗi shop một dòng) ⇒ gộp theo
+   * `tiktok_attribute_id` để form không hiện thuộc tính lặp lại.
+   */
+  async findCategoryAttributes(organizationId: string, categoryRef: string) {
+    const categoryIds = await this.resolveCategoryIds(organizationId, categoryRef);
+    if (categoryIds.length === 0) return [];
+
+    return this.prisma.podCategoryAttribute.findMany({
+      where: { organizationId, categoryId: { in: categoryIds } },
+      distinct: ['tiktokAttributeId'],
+      orderBy: [{ isRequired: 'desc' }, { name: 'asc' }],
+    });
+  }
+
+  /**
+   * Danh mục nội bộ ứng với một mã bất kỳ.
+   *
+   * UUID ⇒ chính nó. Mã TikTok ⇒ mọi dòng cache của tổ chức mang mã đó (nhiều shop).
+   */
+  private async resolveCategoryIds(organizationId: string, categoryRef: string): Promise<string[]> {
+    if (UUID_PATTERN.test(categoryRef)) return [categoryRef];
+
+    const rows = await this.prisma.podProductCategory.findMany({
+      where: { organizationId, tiktokCategoryId: categoryRef, deletedAt: null },
+      select: { id: true },
+    });
+    return rows.map((row) => row.id);
+  }
+
+  /**
+   * Thương hiệu đã đồng bộ (màn hình **POD → Brands** và bộ chọn brand).
+   *
+   * 🔴 Có **phân trang** vì một shop có thể có hàng chục nghìn thương hiệu: bộ chọn ở
+   * frontend tìm kiếm phía server và chỉ tải đúng trang đang xem, không bao giờ tải hết.
+   *
+   * 🔴 **"No brand" luôn đứng đầu** danh sách, kể cả khi đang lọc: đó là lựa chọn mặc định
+   * của gần như mọi mặt hàng POD, bắt người dùng cuộn tìm nó giữa 20.000 dòng là vô lý.
+   */
+  async findBrands(
+    organizationId: string,
+    params: { shopId?: string; keyword?: string; page?: number; pageSize?: number } = {},
+  ) {
+    const page = Math.max(1, params.page ?? 1);
+    const pageSize = Math.min(200, Math.max(1, params.pageSize ?? 50));
+    const keyword = params.keyword?.trim();
+
+    const where: Prisma.PodProductBrandWhereInput = {
+      organizationId,
+      deletedAt: null,
+      ...(params.shopId ? { shopId: params.shopId } : {}),
+      ...(keyword
+        ? {
+            OR: [
+              { name: { contains: keyword, mode: 'insensitive' } },
+              { tiktokBrandId: { contains: keyword } },
+            ],
+          }
+        : {}),
+    };
+
+    const select = {
+      id: true,
+      tiktokBrandId: true,
+      name: true,
+      authorizedStatus: true,
+      brandStatus: true,
+      isNoBrand: true,
+      isSystem: true,
+      syncedAt: true,
+      shop: { select: { id: true, name: true } },
+    } satisfies Prisma.PodProductBrandSelect;
+
+    const [items, total] = await this.prisma.$transaction([
+      this.prisma.podProductBrand.findMany({
+        where,
+        select,
+        orderBy: [{ isNoBrand: 'desc' }, { name: 'asc' }],
+        skip: (page - 1) * pageSize,
+        take: pageSize,
+      }),
+      this.prisma.podProductBrand.count({ where }),
+    ]);
+
+    return {
+      items,
+      meta: { total, page, limit: pageSize, totalPages: total === 0 ? 0 : Math.ceil(total / pageSize) },
     };
   }
 

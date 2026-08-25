@@ -35,6 +35,16 @@
     "viewDetail": "Xem chi tiết"
   },
   "appName": "NCMedia Management",
+  "combobox": {
+    "addCustom": "Thêm \"{{value}}\"",
+    "clear": "Bỏ chọn",
+    "loading": "Đang tải…",
+    "more": "Còn {{count}} mục — gõ thêm để thu hẹp",
+    "noResult": "Không có kết quả",
+    "placeholder": "Chọn…",
+    "remove": "Bỏ",
+    "searchPlaceholder": "Gõ để tìm…"
+  },
   "dashboard": {
     "fullName": "Họ và tên",
     "organization": "Tổ chức",
