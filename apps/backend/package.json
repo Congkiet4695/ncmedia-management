@@ -43,6 +43,7 @@
     "@nestjs/swagger": "^11.0.3",
     "@prisma/client": "^6.3.1",
     "@tiktok-shop/nodejs-sdk": "file:vendor/tiktok-shop-sdk",
+    "@types/nodemailer": "^8.0.1",
     "bcrypt": "^5.1.1",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
@@ -52,6 +53,7 @@
     "ioredis": "^5.4.2",
     "joi": "^17.13.3",
     "nestjs-pino": "^4.3.0",
+    "nodemailer": "^9.0.5",
     "pino-http": "^10.4.0",
     "reflect-metadata": "^0.2.2",
     "rxjs": "^7.8.1"

@@ -7,6 +7,7 @@ import {
   PodSyncLogDto,
 } from '../dto/pod-order-response.dto';
 import { StorageMapper } from '../../storage/storage.mapper';
+import type { ResolvedItemDesigns } from '../services/pod-order-design-resolver.service';
 import { PodOrderWithRelations } from '../types/pod-order-with-relations.type';
 
 /** Dòng nhật ký kèm quan hệ shop/account (khớp include của repository). */
@@ -27,7 +28,10 @@ type SyncLogRow = Prisma.PodSyncLogGetPayload<{
 export class PodOrderResponseMapper {
   constructor(private readonly storage: StorageMapper) {}
 
-  toResponse(order: PodOrderWithRelations): PodOrderResponseDto {
+  toResponse(
+    order: PodOrderWithRelations,
+    designs: Map<string, ResolvedItemDesigns>,
+  ): PodOrderResponseDto {
     return {
       id: order.id,
       tiktokOrderId: order.tiktokOrderId,
@@ -40,6 +44,7 @@ export class PodOrderResponseMapper {
         region: order.shop.region,
       },
       accountName: order.account.accountName,
+      fulfillmentAccountId: order.account.fulfillmentAccountId,
       // Seller lấy từ account tại thời điểm ĐỌC — luôn phản ánh người phụ trách hiện tại.
       sellerId: order.account.sellerId,
       sellerFullName: order.account.seller?.user.fullName ?? null,
@@ -81,7 +86,7 @@ export class PodOrderResponseMapper {
       lastSyncedAt: order.lastSyncedAt.toISOString(),
       syncVersion: order.syncVersion,
 
-      items: order.items.map((item) => this.toItemDto(item)),
+      items: order.items.map((item) => this.toItemDto(item, designs)),
       packages: order.packages.map((pkg) => ({
         id: pkg.id,
         tiktokPackageId: pkg.tiktokPackageId,
@@ -92,11 +97,17 @@ export class PodOrderResponseMapper {
     };
   }
 
-  toListItem(order: PodOrderWithRelations): PodOrderListItemDto {
+  toListItem(
+    order: PodOrderWithRelations,
+    designs: Map<string, ResolvedItemDesigns>,
+  ): PodOrderListItemDto {
     return {
       id: order.id,
       tiktokOrderId: order.tiktokOrderId,
       shopName: order.shop.name,
+      // Nhà cung cấp của kết nối TikTok — giao diện cần để mở dialog "Map Product" với nhà
+      // cung cấp điền sẵn. Đã nằm sẵn trong include, không phát sinh truy vấn.
+      fulfillmentAccountId: order.account.fulfillmentAccountId,
       // Seller lấy từ account tại thời điểm ĐỌC — đổi người phụ trách là danh sách đổi theo ngay.
       sellerId: order.account.sellerId,
       sellerFullName: order.account.seller?.user.fullName ?? null,
@@ -114,7 +125,7 @@ export class PodOrderResponseMapper {
       updatedTime: order.tiktokUpdatedAt.toISOString(),
       lastSync: order.lastSyncedAt.toISOString(),
       // Sản phẩm đi kèm ngay ở danh sách (đã nạp sẵn qua include — không phát sinh N+1).
-      items: order.items.map((item) => this.toItemDto(item)),
+      items: order.items.map((item) => this.toItemDto(item, designs)),
     };
   }
 
@@ -144,7 +155,18 @@ export class PodOrderResponseMapper {
     };
   }
 
-  private toItemDto(item: PodOrderWithRelations['items'][number]): PodOrderItemDto {
+  /**
+   * 🔴 `designs` được TRUYỀN VÀO, không đọc từ `item.designs`.
+   *
+   * Design nay thuộc **Product Mapping** (một file dùng cho mọi đơn cùng SKU), nên chỉ
+   * `PodOrderDesignResolver` mới biết ghép. Bắt buộc truyền tham số để không ai vô tình
+   * quay lại đọc quan hệ cũ trên line item.
+   */
+  private toItemDto(
+    item: PodOrderWithRelations['items'][number],
+    designs: Map<string, ResolvedItemDesigns>,
+  ): PodOrderItemDto {
+    const resolved = designs.get(item.id);
     return {
       id: item.id,
       tiktokLineItemId: item.tiktokLineItemId,
@@ -157,18 +179,12 @@ export class PodOrderResponseMapper {
       // TikTok trả 1 line item = 1 đơn vị sản phẩm (xem Order API overview).
       quantity: 1,
       productCategory: item.productCategory,
-      designs: item.designs.map((design) => ({
-        id: design.id,
-        placement: design.placement,
-        // Bucket private ⇒ không có URL công khai, dùng đường tải qua API (có kiểm quyền).
-        fileUrl: design.storageFile.publicUrl ?? this.storage.buildDownloadUrl(design.storageFile.id),
-        fileName: design.storageFile.originalName,
-        mimeType: design.storageFile.mimeType,
-        fileSize: design.storageFile.fileSize,
-        version: design.version,
-        uploadedAt: design.storageFile.uploadedAt.toISOString(),
-        uploadedByName: design.storageFile.uploader?.fullName ?? null,
-      })),
+      designs: resolved?.designs ?? [],
+      mappingId: resolved?.mappingId ?? null,
+      // Không có kết quả rà nào cho line item (vd sản phẩm thiếu khoá) ⇒ MISSING: với người
+      // dùng vẫn là "phải khai tay", đúng việc cần làm.
+      mappingStatus: resolved?.mappingStatus ?? 'MISSING',
+      mappingCandidates: resolved?.candidates ?? [],
       salePrice: this.toNumber(item.salePrice),
       originalPrice: this.toNumber(item.originalPrice),
       currency: item.currency,

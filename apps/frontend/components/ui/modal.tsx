@@ -11,14 +11,49 @@ interface ModalProps {
   title?: string;
   description?: string;
   children?: ReactNode;
+  /**
+   * Vùng hành động GHIM ở đáy (Cancel / Save…).
+   *
+   * 🔴 Bỏ trống thì nút vẫn nằm trong `children` và cuộn theo nội dung — chấp nhận được với
+   * dialog ngắn. Dialog dài BẮT BUỘC dùng prop này: nút Save nằm cuối một khối cuộn dài sẽ
+   * bị khuất khỏi màn hình, và người dùng không có cách nào biết là phải cuộn tiếp.
+   *
+   * Nút submit đặt ở đây nằm NGOÀI thẻ `<form>` của body, nên phải nối lại bằng thuộc tính
+   * `form="<id>"` — xem `MappingFormDialog`.
+   */
+  footer?: ReactNode;
   className?: string;
 }
 
 /**
  * Modal — dialog tối giản (overlay + content), không phụ thuộc Radix.
  * Đóng bằng Escape / click backdrop / nút X. Khóa scroll nền khi mở.
+ *
+ * 🔴 **Chiều cao luôn nằm trong viewport.** Bố cục là một cột flex:
+ *
+ * ```
+ *   ┌─ header  (shrink-0, luôn thấy)
+ *   │  body    (flex-1, min-h-0, overflow-y-auto)   ← chỗ duy nhất được cuộn
+ *   └─ footer  (shrink-0, luôn thấy)
+ * ```
+ *
+ * Trước đây modal không có trần chiều cao: nội dung dài hơn màn hình thì phần dưới — kể cả
+ * nút Save — bị đẩy ra ngoài viewport, và vì nền đã bị khoá cuộn nên KHÔNG có cách nào với
+ * tới. Người dùng phải thu nhỏ zoom trình duyệt mới bấm được nút.
+ *
+ * 🔴 `min-h-0` trên vùng body là bắt buộc, không phải trang trí: mặc định của flex item là
+ * `min-height:auto`, nghĩa là nó từ chối co nhỏ hơn nội dung và `overflow-y-auto` sẽ không
+ * bao giờ kích hoạt.
  */
-export function Modal({ open, onClose, title, description, children, className }: ModalProps) {
+export function Modal({
+  open,
+  onClose,
+  title,
+  description,
+  children,
+  footer,
+  className,
+}: ModalProps) {
   const { t } = useTranslation();
   useEffect(() => {
     if (!open) return;
@@ -37,7 +72,11 @@ export function Modal({ open, onClose, title, description, children, className }
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" role="dialog" aria-modal="true">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      role="dialog"
+      aria-modal="true"
+    >
       <button
         type="button"
         aria-label={t('action.close')}
@@ -46,7 +85,10 @@ export function Modal({ open, onClose, title, description, children, className }
       />
       <div
         className={cn(
-          'relative z-10 w-full max-w-lg rounded-lg border bg-card p-6 shadow-lg',
+          // `max-h-[calc(100vh-4rem)]` chừa đúng phần padding 1rem của khung ngoài ở cả hai
+          // phía cộng một khoảng thở — dialog không bao giờ chạm mép màn hình.
+          'relative z-10 flex max-h-[calc(100vh-4rem)] w-full max-w-lg flex-col',
+          'overflow-hidden rounded-lg border bg-card shadow-lg',
           className,
         )}
       >
@@ -54,13 +96,24 @@ export function Modal({ open, onClose, title, description, children, className }
           type="button"
           onClick={onClose}
           aria-label={t('action.close')}
-          className="absolute right-4 top-4 text-muted-foreground hover:text-foreground"
+          className="absolute right-4 top-4 z-10 text-muted-foreground hover:text-foreground"
         >
           <X className="size-4" />
         </button>
-        {title && <h2 className="pr-6 text-lg font-semibold">{title}</h2>}
-        {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
-        <div className="mt-4">{children}</div>
+
+        {(title || description) && (
+          <div className="shrink-0 border-b px-6 pb-4 pt-6">
+            {title && <h2 className="pr-6 text-lg font-semibold">{title}</h2>}
+            {description && <p className="mt-1 text-sm text-muted-foreground">{description}</p>}
+          </div>
+        )}
+
+        {/* Chỗ DUY NHẤT được cuộn. `min-h-0` để flex item chịu co lại — xem chú thích ở trên. */}
+        <div className={cn('min-h-0 flex-1 overflow-y-auto px-6 py-4', !title && !description && 'pt-6')}>
+          {children}
+        </div>
+
+        {footer && <div className="shrink-0 border-t px-6 py-4">{footer}</div>}
       </div>
     </div>
   );

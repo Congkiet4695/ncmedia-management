@@ -13,8 +13,11 @@ import { resolveSkuItemPrice } from './pod-sku-price';
 const d = (value: string | number | null): Prisma.Decimal | null =>
   value === null ? null : new Prisma.Decimal(value);
 
-const resolve = (retail: string | number | null, sale: string | number | null, discount: string | number | null = null) =>
-  resolveSkuItemPrice({ retailPrice: d(retail), salePrice: d(sale), discount: d(discount) });
+const resolve = (
+  retail: string | number | null,
+  sale: string | number | null,
+  discount: string | number | null = null,
+) => resolveSkuItemPrice({ retailPrice: d(retail), salePrice: d(sale), discount: d(discount) });
 
 describe('resolveSkuItemPrice', () => {
   it('Case 1 — Retail 19.99 · Sale 0 · giảm 30% ⇒ bán 13.99, gạch ngang 19.99', () => {

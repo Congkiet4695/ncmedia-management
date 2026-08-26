@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { PodListingSessionProductStatus, PodListingSessionStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import type { PodAccessScope } from '../../pod-tiktok/services/pod-access-scope.service';
 import {
   PodListingResolverService,
   toJson,
@@ -47,8 +48,13 @@ export class PodSessionProductService {
     private readonly listingTemplates: PodListingTemplateService,
   ) {}
 
-  async list(organizationId: string, sessionId: string, query: PodSessionProductQueryDto) {
-    await this.sessions.get(organizationId, sessionId);
+  async list(
+    organizationId: string,
+    sessionId: string,
+    query: PodSessionProductQueryDto,
+    scope: PodAccessScope,
+  ) {
+    await this.sessions.get(organizationId, sessionId, scope);
 
     const page = query.page ?? 1;
     const limit = query.limit ?? 50;
@@ -102,7 +108,12 @@ export class PodSessionProductService {
     organizationId: string,
     sessionId: string,
     id: string,
+    scope: PodAccessScope,
   ): Promise<SessionProductFull> {
+    // 🔴 Phải qua `sessions.get` trước: Draft Product không mang `shop_id`, phạm vi của nó
+    // chính là phạm vi của lượt đăng chứa nó. Truy thẳng bảng con là bỏ qua phép kiểm đó.
+    await this.sessions.get(organizationId, sessionId, scope);
+
     const product = await this.prisma.podListingSessionProduct.findFirst({
       where: { id, sessionId, organizationId, deletedAt: null },
       include: SESSION_PRODUCT_INCLUDE,
@@ -123,9 +134,10 @@ export class PodSessionProductService {
     sessionId: string,
     id: string,
     dto: UpdateSessionProductDto,
+    scope: PodAccessScope,
   ): Promise<SessionProductFull> {
-    const session = await this.sessions.get(organizationId, sessionId);
-    const product = await this.get(organizationId, sessionId, id);
+    const session = await this.sessions.get(organizationId, sessionId, scope);
+    const product = await this.get(organizationId, sessionId, id, scope);
     this.assertEditable(session.status, product.status);
 
     await this.prisma.$transaction(async (tx) => {
@@ -166,7 +178,7 @@ export class PodSessionProductService {
       });
     });
 
-    return this.get(organizationId, sessionId, id);
+    return this.get(organizationId, sessionId, id, scope);
   }
 
   /** Xoá mềm một Draft Product khỏi lượt đăng. */
@@ -175,9 +187,10 @@ export class PodSessionProductService {
     userId: string,
     sessionId: string,
     id: string,
+    scope: PodAccessScope,
   ): Promise<void> {
-    const session = await this.sessions.get(organizationId, sessionId);
-    const product = await this.get(organizationId, sessionId, id);
+    const session = await this.sessions.get(organizationId, sessionId, scope);
+    const product = await this.get(organizationId, sessionId, id, scope);
     this.assertEditable(session.status, product.status);
 
     await this.prisma.podListingSessionProduct.update({
@@ -192,8 +205,9 @@ export class PodSessionProductService {
     userId: string,
     sessionId: string,
     ids: string[],
+    scope: PodAccessScope,
   ): Promise<number> {
-    const session = await this.sessions.get(organizationId, sessionId);
+    const session = await this.sessions.get(organizationId, sessionId, scope);
     this.assertEditable(session.status, PodListingSessionProductStatus.DRAFT);
 
     const result = await this.prisma.podListingSessionProduct.updateMany({
@@ -215,8 +229,13 @@ export class PodSessionProductService {
    * Vẫn là xoá mềm, và vẫn bỏ qua sản phẩm đang trong hàng đợi: một lượt chạy đang đọc dở
    * danh sách thì không được rút bản ghi khỏi tay nó.
    */
-  async removeAll(organizationId: string, userId: string, sessionId: string): Promise<number> {
-    const session = await this.sessions.get(organizationId, sessionId);
+  async removeAll(
+    organizationId: string,
+    userId: string,
+    sessionId: string,
+    scope: PodAccessScope,
+  ): Promise<number> {
+    const session = await this.sessions.get(organizationId, sessionId, scope);
     this.assertEditable(session.status, PodListingSessionProductStatus.DRAFT);
 
     const result = await this.prisma.podListingSessionProduct.updateMany({
@@ -241,9 +260,10 @@ export class PodSessionProductService {
     sessionId: string,
     id: string,
     dto: PreviewSessionProductDto,
+    scope: PodAccessScope,
   ): Promise<ResolveResult> {
-    const session = await this.sessions.get(organizationId, sessionId);
-    await this.get(organizationId, sessionId, id);
+    const session = await this.sessions.get(organizationId, sessionId, scope);
+    await this.get(organizationId, sessionId, id, scope);
 
     const shopId = dto.shopId ?? session.shops[0]?.shopId;
     if (!shopId) {

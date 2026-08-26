@@ -1,6 +1,12 @@
 import { Injectable } from '@nestjs/common';
-import { EmployeeStatus, PodTiktokAccountStatus, PodTiktokTokenAction, Prisma } from '@prisma/client';
+import {
+  EmployeeStatus,
+  PodTiktokAccountStatus,
+  PodTiktokTokenAction,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { accountScopeFilter } from '../shared/shop-scope';
 import { PodTiktokSortField } from '../constants/tiktok.constants';
 import {
   POD_TIKTOK_ACCOUNT_INCLUDE,
@@ -51,6 +57,11 @@ export interface PodTiktokFindManyParams {
   status?: PodTiktokAccountStatus;
   sortBy: PodTiktokSortField;
   sortOrder: 'asc' | 'desc';
+  /**
+   * 🔴 Kết nối TikTok mà người dùng được Admin gán. `undefined` = không giới hạn
+   * (`pod.shop.all`); mảng RỖNG = chưa được gán ⇒ danh sách rỗng, KHÔNG phải toàn bộ.
+   */
+  accountScope?: string[];
 }
 
 /**
@@ -63,9 +74,28 @@ export interface PodTiktokFindManyParams {
 export class PodTiktokAccountRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  findById(organizationId: string, id: string): Promise<PodTiktokAccountWithShops | null> {
+  /**
+   * Một kết nối theo id.
+   *
+   * `accountScope` là hàng rào ở tầng TRUY VẤN: không tìm thấy ⇒ service ném NOT_FOUND, nên
+   * người dùng không phân biệt được "kết nối không tồn tại" với "kết nối của người khác" —
+   * đúng như mong muốn, API không được biến thành công cụ dò id.
+   */
+  findById(
+    organizationId: string,
+    id: string,
+    accountScope?: string[],
+  ): Promise<PodTiktokAccountWithShops | null> {
     return this.prisma.podTiktokAccount.findFirst({
-      where: { id, organizationId, deletedAt: null },
+      where: {
+        // 🔴 GIAO của id được hỏi và phạm vi — KHÔNG phải `id` rồi spread đè lên `id`.
+        // Spread đè sẽ biến "lấy đúng account này" thành "lấy account đầu tiên trong phạm vi":
+        // gọi bằng id của người khác trả về 200 kèm dữ liệu của chính mình, và không có phép
+        // kiểm nào phát hiện ra vì phản hồi trông hoàn toàn hợp lệ.
+        id: accountScopeFilter(accountScope, id),
+        organizationId,
+        deletedAt: null,
+      },
       include: POD_TIKTOK_ACCOUNT_INCLUDE,
     });
   }
@@ -305,8 +335,7 @@ export class PodTiktokAccountRepository {
     });
     const nextCount = (current?.refreshFailureCount ?? 0) + 1;
     const shouldChangeStatus =
-      data.status === PodTiktokAccountStatus.REAUTH_REQUIRED ||
-      nextCount >= data.failureThreshold;
+      data.status === PodTiktokAccountStatus.REAUTH_REQUIRED || nextCount >= data.failureThreshold;
 
     await tx.podTiktokAccount.update({
       where: { id: accountId },
@@ -453,7 +482,12 @@ export class PodTiktokAccountRepository {
         id: shopId,
         OR: [{ backfillCursor: null }, { backfillCursor: { lt: cursor } }],
       },
-      data: { backfillCursor: cursor, lastOrderSyncAt: syncedAt, syncFailureCount: 0, syncPausedUntil: null },
+      data: {
+        backfillCursor: cursor,
+        lastOrderSyncAt: syncedAt,
+        syncFailureCount: 0,
+        syncPausedUntil: null,
+      },
     });
   }
 
@@ -591,6 +625,8 @@ export class PodTiktokAccountRepository {
     const where: Prisma.PodTiktokAccountWhereInput = {
       organizationId,
       deletedAt: null,
+      // 🔴 Chỉ những kết nối Admin đã gán cho người này. `undefined` = có `pod.shop.all`.
+      ...(params.accountScope === undefined ? {} : { id: { in: params.accountScope } }),
       ...(params.status ? { status: params.status } : {}),
       ...(params.search
         ? {

@@ -1,11 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import { PodSyncPhase, PodSyncStatus, PodSyncTrigger, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { shopScopeFilter } from '../shared/shop-scope';
 
 export interface SyncLogQueryParams {
   page: number;
   limit: number;
   shopId?: string;
+  /** Phạm vi shop của người dùng — xem `PodAccessScopeService`. `undefined` = không giới hạn. */
+  shopScope?: string[];
   accountId?: string;
   status?: PodSyncStatus;
   trigger?: PodSyncTrigger;
@@ -96,7 +99,10 @@ export class PodSyncLogRepository {
   async findMany(organizationId: string, params: SyncLogQueryParams) {
     const where: Prisma.PodSyncLogWhereInput = {
       organizationId,
-      ...(params.shopId ? { shopId: params.shopId } : {}),
+      // GIAO phạm vi với bộ lọc — không gán đè (xem `shopScopeFilter`).
+      ...(shopScopeFilter(params.shopScope, params.shopId) === undefined
+        ? {}
+        : { shopId: shopScopeFilter(params.shopScope, params.shopId) }),
       ...(params.accountId ? { accountId: params.accountId } : {}),
       ...(params.status ? { status: params.status } : {}),
       ...(params.trigger ? { trigger: params.trigger } : {}),

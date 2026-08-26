@@ -29,7 +29,7 @@ export class UploadFileDto {
   @ApiProperty({
     enum: StorageReferenceType,
     description: 'Loại thực thể mà file gắn vào',
-    example: StorageReferenceType.POD_ORDER_ITEM_DESIGN,
+    example: StorageReferenceType.FULFILLMENT_MAPPING_DESIGN,
   })
   @IsEnum(StorageReferenceType, { message: 'referenceType không hợp lệ' })
   referenceType!: StorageReferenceType;

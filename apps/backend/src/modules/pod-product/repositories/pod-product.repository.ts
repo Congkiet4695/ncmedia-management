@@ -3,6 +3,7 @@ import { Prisma, PodProductRawSource } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import type { PodProductSortField } from '../constants/pod-product.constants';
 import type { MappedProduct } from '../mappers/pod-product.mapper';
+import { accountScopeFilter, shopScopeFilter } from '../../pod-tiktok/shared/shop-scope';
 
 /** Bộ lọc danh sách sản phẩm — đúng những gì màn hình Products cần. */
 export interface PodProductFindManyParams {
@@ -17,6 +18,14 @@ export interface PodProductFindManyParams {
   brandId?: string;
   sortBy: PodProductSortField;
   sortOrder: 'asc' | 'desc';
+  /**
+   * 🔴 Phạm vi shop của người dùng. `undefined` = không giới hạn (có `pod.shop.all`);
+   * mảng RỖNG = chưa được gán shop nào ⇒ phải trả về rỗng, KHÔNG phải trả về tất cả.
+   * Xem `PodAccessScopeService`.
+   */
+  shopScope?: string[];
+  /** Phạm vi TikTok Account — cùng nguyên tắc với `shopScope`. */
+  accountScope?: string[];
 }
 
 /** Include dùng cho màn hình DANH SÁCH — chỉ lấy đủ để hiển thị một dòng. */
@@ -185,7 +194,9 @@ export class PodProductRepository {
           data: mapped.images.map((image) => ({
             organizationId,
             productId: product.id,
-            variantId: image.variantSkuId ? (variantIdBySkuId.get(image.variantSkuId) ?? null) : null,
+            variantId: image.variantSkuId
+              ? (variantIdBySkuId.get(image.variantSkuId) ?? null)
+              : null,
             uri: image.uri,
             url: image.url,
             thumbUrl: image.thumbUrl,
@@ -270,8 +281,13 @@ export class PodProductRepository {
   ): Prisma.PodProductWhereInput {
     const where: Prisma.PodProductWhereInput = { organizationId, deletedAt: null };
 
-    if (params.accountId) where.accountId = params.accountId;
-    if (params.shopId) where.shopId = params.shopId;
+    // 🔴 GIAO phạm vi được gán với bộ lọc người dùng chọn — không bao giờ gán đè. Gán đè là
+    // bug bảo mật: chỉ cần gửi `?shopId=<shop người khác>` là đọc được dữ liệu shop đó.
+    const shopFilter = shopScopeFilter(params.shopScope, params.shopId);
+    if (shopFilter !== undefined) where.shopId = shopFilter;
+
+    const accountFilter = accountScopeFilter(params.accountScope, params.accountId);
+    if (accountFilter !== undefined) where.accountId = accountFilter;
     if (params.status) where.status = params.status;
     if (params.categoryId) where.categoryId = params.categoryId;
     if (params.brandId) where.brandId = params.brandId;

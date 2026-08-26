@@ -32,5 +32,6 @@
   "reportSellerPerformance": "Hiệu suất Seller",
   "reportSellerRanking": "Xếp hạng Seller",
   "reportWarehouse": "Hiệu suất Kho",
-  "reports": "Báo cáo"
+  "reports": "Báo cáo",
+  "superAdminOrganizations": "Organizations"
 }

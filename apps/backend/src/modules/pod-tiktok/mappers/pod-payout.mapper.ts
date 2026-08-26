@@ -240,7 +240,9 @@ export class PodPayoutMapper {
 
   /** sha256 canonical (sắp xếp key đệ quy) — phát hiện thay đổi NỘI DUNG. */
   private hash(value: unknown): string {
-    return createHash('sha256').update(JSON.stringify(this.sortDeep(value)), 'utf8').digest('hex');
+    return createHash('sha256')
+      .update(JSON.stringify(this.sortDeep(value)), 'utf8')
+      .digest('hex');
   }
 
   private sortDeep(value: unknown): unknown {

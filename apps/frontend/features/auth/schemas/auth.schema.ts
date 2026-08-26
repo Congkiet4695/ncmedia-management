@@ -16,6 +16,7 @@ const PASSWORD_MIN = 8;
 const PASSWORD_MAX = 72;
 const NAME_MIN = 2;
 const NAME_MAX = 255;
+const PHONE_MAX = 20;
 
 function passwordPolicy(t: ValidationT) {
   return z
@@ -45,6 +46,15 @@ export function createRegisterSchema(t: ValidationT) {
       .min(NAME_MIN, t('minLength', { count: NAME_MIN }))
       .max(NAME_MAX, t('maxLength', { count: NAME_MAX })),
     email: z.string().min(1, t('required')).email(t('email')).max(NAME_MAX),
+    // Số điện thoại TUỲ CHỌN — Super Admin dùng để xác minh trước khi duyệt. Chuỗi rỗng được
+    // chuyển thành `undefined` để không gửi lên một trường trống cho backend validate.
+    phone: z
+      .string()
+      .trim()
+      .max(PHONE_MAX, t('maxLength', { count: PHONE_MAX }))
+      .regex(/^[0-9+()\s-]{6,20}$/, t('phone'))
+      .optional()
+      .or(z.literal('').transform(() => undefined)),
     password: passwordPolicy(t),
   });
 }

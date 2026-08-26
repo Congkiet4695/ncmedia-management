@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   ChevronLeft,
   ChevronRight,
@@ -22,8 +22,11 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useApiError } from '@/hooks/use-api-error';
 import { ImageLightbox } from '@/features/pod-tiktok/components/image-lightbox';
 import { OrderDateFilter } from '@/features/pod-tiktok/components/order-date-filter';
+import { BulkToolbar } from '@/features/pod-tiktok/components/orders/bulk-toolbar';
 import { PodOrderTable } from '@/features/pod-tiktok/components/pod-order-table';
 import { UploadDesignDialog } from '@/features/pod-tiktok/components/upload-design-dialog';
+import { MappingFormDialog } from '@/features/fulfillment/components/mapping-form-dialog';
+import { useProductMappingActions } from '@/features/fulfillment/hooks/use-fulfillment';
 import { usePodOrderStatusLabel } from '@/features/pod-tiktok/components/pod-order-status-badge';
 import { SyncHistoryDialog } from '@/features/pod-tiktok/components/sync-history-dialog';
 import {
@@ -34,10 +37,13 @@ import {
 import {
   POD_ORDER_STATUSES,
   type PodOrderItem,
+  type PodOrderListItem,
   type PodOrderQuery,
   type PodOrderStatus,
 } from '@/features/pod-tiktok/order-types';
+import type { LightboxRequest, OrderProductRow } from '@/features/pod-tiktok/order-view-model';
 import { usePodTiktokAccounts } from '@/features/pod-tiktok/hooks/use-pod-tiktok';
+import { useQueryClient } from '@tanstack/react-query';
 
 export default function PodOrdersPage() {
   const { t } = useTranslation('pod');
@@ -62,7 +68,27 @@ function PodOrdersView() {
   const debouncedSearch = useDebouncedValue(searchInput, 350);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [designItem, setDesignItem] = useState<PodOrderItem | null>(null);
-  const [lightbox, setLightbox] = useState<string | null>(null);
+  /**
+   * Dòng sản phẩm đang được khai ánh xạ, kèm nhà cung cấp của chính đơn chứa nó.
+   *
+   * Giữ cả `accountId` chứ không chỉ `row`: cùng một sản phẩm có thể xuất hiện ở hai đơn của
+   * hai kết nối TikTok gán hai nhà cung cấp khác nhau, nên nhà cung cấp phải lấy từ ĐƠN đang
+   * mở, không phải đoán từ danh sách nhà cung cấp của tổ chức.
+   */
+  const [mapTarget, setMapTarget] = useState<{ row: OrderProductRow; accountId: string } | null>(
+    null,
+  );
+  /**
+   * Bộ ảnh đang xem — dùng CHUNG cho ảnh sản phẩm và ảnh design.
+   *
+   * Giữ cả danh sách chứ không chỉ một URL: nhờ vậy lightbox đi tới/lui được giữa các ảnh
+   * trong cùng một đơn, thay vì phải đóng ra mở lại từng ảnh.
+   */
+  const [lightbox, setLightbox] = useState<LightboxRequest | null>(null);
+  /** Đơn đang tick (Bulk Action) và đơn đang mở rộng — hai tập độc lập nhau. */
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  const [expandedIds, setExpandedIds] = useState<Set<string>>(() => new Set());
+  const queryClient = useQueryClient();
 
   const { hasPermission } = useAuth();
   const canSync = hasPermission('pod.tiktok.order.sync');
@@ -72,7 +98,14 @@ function PodOrdersView() {
   const canCancelFulfillment = hasPermission('fulfillment.cancel');
 
   const ordersQuery = usePodOrders(query);
-  const statsQuery = usePodOrderStats();
+  /**
+   * 🔴 Thẻ thống kê nhận ĐÚNG bộ lọc đang áp cho danh sách.
+   *
+   * Trước đây hook này không nhận tham số nào, nên lọc "hôm qua" xong bảng còn 3 đơn mà thẻ
+   * vẫn ghi 1.240 — hai con số mâu thuẫn nhau trên cùng một màn hình. Truyền `query` cũng làm
+   * cache key đổi theo bộ lọc, nên đổi filter là thẻ tự tải lại, không cần F5.
+   */
+  const statsQuery = usePodOrderStats(query);
   // Danh sách shop để lọc — lấy từ các kết nối đã link (Sprint 1).
   const accountsQuery = usePodTiktokAccounts({ page: 1, limit: 100 });
   const syncMutation = useTriggerPodSync();
@@ -84,9 +117,109 @@ function PodOrdersView() {
     setQuery((prev) => (prev.search === next ? prev : { ...prev, search: next, page: 1 }));
   }, [debouncedSearch]);
 
-  const items = ordersQuery.data?.items ?? [];
+  /**
+   * Đổi bộ lọc hoặc sang trang ⇒ **xoá lựa chọn**.
+   *
+   * 🔴 Giữ lại là nguy hiểm thật: người dùng tick 10 đơn ở trang 1, chuyển sang trang 2 rồi
+   * bấm Fulfill — thanh công cụ chỉ thao tác trên các đơn CÒN hiển thị, nên phần đã tick ở
+   * trang trước hoặc bị bỏ quên, hoặc bị gửi đi mà không ai nhìn thấy. Không cho lựa chọn
+   * sống qua ranh giới trang là cách duy nhất để "đang chọn" luôn khớp với "đang thấy".
+   */
+  useEffect(() => {
+    setSelectedIds(new Set());
+    setExpandedIds(new Set());
+  }, [query]);
+
+  /**
+   * 🔴 `useMemo` chứ không phải `?? []` trần: mảng rỗng mới mỗi lần render sẽ làm
+   * `toggleSelectAll` và `selectedOrders` tính lại liên tục — và với 50 dòng, mỗi lần tính
+   * lại là 50 dòng render theo.
+   */
+  const items = useMemo(() => ordersQuery.data?.items ?? [], [ordersQuery.data]);
+
+  const mappingActions = useProductMappingActions();
+
+  /**
+   * Mở dialog khai ánh xạ cho một dòng sản phẩm.
+   *
+   * Tìm ngược ra đơn chứa dòng này để lấy nhà cung cấp của nó. Chưa gán nhà cung cấp thì
+   * KHÔNG mở dialog — ô sản phẩm đã hiện trạng thái `NO_PROVIDER` không có nút, nên nhánh
+   * này chỉ là hàng rào cuối.
+   */
+  const openMapProduct = useCallback(
+    (row: OrderProductRow) => {
+      const sourceIds = new Set(row.sources.map((source) => source.id));
+      const order = items.find((candidate: PodOrderListItem) =>
+        candidate.items.some((item) => sourceIds.has(item.id)),
+      );
+      if (!order?.fulfillmentAccountId) return;
+      setMapTarget({ row, accountId: order.fulfillmentAccountId });
+    },
+    [items],
+  );
+
+  /** Tạo ánh xạ rồi đóng dialog. Cache đơn hàng được làm mới trong `useProductMappingActions`. */
+  const handleCreateMapping = async (input: Parameters<typeof mappingActions.create.mutateAsync>[0]) => {
+    try {
+      await mappingActions.create.mutateAsync(input);
+      toast.success(t('product.mapProductSuccess'), { description: input.providerSku });
+      setMapTarget(null);
+    } catch (error) {
+      toast.error(t('product.mapProductFailed'), { description: translateApiError(error) });
+    }
+  };
   const meta = ordersQuery.data?.meta;
   const stats = statsQuery.data;
+
+  /**
+   * `shopName` → id kết nối TikTok.
+   *
+   * 🔴 Endpoint danh sách đơn KHÔNG trả `accountId`, mà §1 yêu cầu bấm được vào tên shop.
+   * Danh sách kết nối đã được tải sẵn cho bộ lọc, nên tra ngược ở phía giao diện là cách
+   * duy nhất có link mà không phải đổi API. Trùng tên shop ⇒ lấy kết nối đầu tiên.
+   */
+  const accountIdByShopName = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const account of accountsQuery.data?.items ?? []) {
+      const name = account.shopName ?? account.accountName;
+      if (name && !map.has(name)) map.set(name, account.id);
+    }
+    return map;
+  }, [accountsQuery.data]);
+
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
+
+  const toggleExpand = useCallback((id: string) => {
+    setExpandedIds((prev) => {
+      const next = new Set(prev);
+      if (!next.delete(id)) next.add(id);
+      return next;
+    });
+  }, []);
+
+  /** Tick/bỏ tick toàn bộ đơn của TRANG hiện tại. */
+  const toggleSelectAll = useCallback(() => {
+    setSelectedIds((prev) => {
+      const allSelected = items.length > 0 && items.every((order) => prev.has(order.id));
+      if (allSelected) {
+        const next = new Set(prev);
+        for (const order of items) next.delete(order.id);
+        return next;
+      }
+      return new Set([...prev, ...items.map((order) => order.id)]);
+    });
+  }, [items]);
+
+  const selectedOrders = useMemo(
+    () => items.filter((order) => selectedIds.has(order.id)),
+    [items, selectedIds],
+  );
 
   /**
    * `backfill = true` kéo lại TOÀN BỘ lịch sử đơn theo `create_time`; mặc định chỉ
@@ -247,15 +380,35 @@ function PodOrdersView() {
               {translateApiError(ordersQuery.error)}
             </p>
           ) : (
-            <PodOrderTable
-              orders={items}
-              canViewFulfillment={canViewFulfillment}
-              canFulfill={canFulfill}
-              canCancelFulfillment={canCancelFulfillment}
-              loading={ordersQuery.isLoading}
-              onUploadDesign={setDesignItem}
-              onPreviewDesign={setLightbox}
-            />
+            <>
+              <BulkToolbar
+                selected={selectedOrders}
+                canFulfill={canFulfill}
+                canViewFulfillment={canViewFulfillment}
+                onClear={() => setSelectedIds(new Set())}
+                onUploadDesign={setDesignItem}
+                onRefresh={() => {
+                  void queryClient.invalidateQueries({ queryKey: ['pod-tiktok-orders'] });
+                  void queryClient.invalidateQueries({ queryKey: ['fulfillment'] });
+                }}
+              />
+              <PodOrderTable
+                orders={items}
+                accountIdByShopName={accountIdByShopName}
+                selectedIds={selectedIds}
+                expandedIds={expandedIds}
+                canViewFulfillment={canViewFulfillment}
+                canFulfill={canFulfill}
+                canCancelFulfillment={canCancelFulfillment}
+                loading={ordersQuery.isLoading}
+                onToggleSelect={toggleSelect}
+                onToggleSelectAll={toggleSelectAll}
+                onToggleExpand={toggleExpand}
+                onUploadDesign={setDesignItem}
+                onMapProduct={openMapProduct}
+                onPreviewImages={setLightbox}
+              />
+            </>
           )}
 
           {meta && meta.total > 0 && (
@@ -298,7 +451,41 @@ function PodOrdersView() {
         onClose={() => setDesignItem(null)}
       />
 
-      <ImageLightbox open={Boolean(lightbox)} src={lightbox} onClose={() => setLightbox(null)} />
+      {/* Khai Product Mapping NGAY TẠI màn hình đơn.
+          🔴 Sản phẩm TikTok và nhà cung cấp đều điền sẵn từ chính dòng hàng đang xem — người
+          dùng không phải rời đơn đi tìm lại đúng dòng ở màn hình Product Mapping. Ứng viên do
+          ánh xạ tự động tìm được (nếu có) hiện ngay trên cùng để chọn một phát. */}
+      <MappingFormDialog
+        open={Boolean(mapTarget)}
+        presetAccountId={mapTarget?.accountId ?? null}
+        presetTiktok={
+          mapTarget
+            ? {
+                tiktokProductId: mapTarget.row.productId,
+                tiktokSkuId: mapTarget.row.sources[0]?.skuId ?? null,
+                sellerSku: mapTarget.row.sellerSku,
+                productName: mapTarget.row.productName,
+                skuName: mapTarget.row.skuName,
+                productCategory: mapTarget.row.productCategory,
+                skuImage: mapTarget.row.skuImage,
+                mapped: false,
+              }
+            : null
+        }
+        candidates={mapTarget?.row.mappingCandidates ?? []}
+        submitting={mappingActions.create.isPending}
+        onClose={() => setMapTarget(null)}
+        onSubmit={(_accountId, input) => void handleCreateMapping(input)}
+        onSyncCatalog={(accountId) => void mappingActions.syncCatalog.mutateAsync(accountId)}
+        syncingCatalog={mappingActions.syncCatalog.isPending}
+      />
+
+      <ImageLightbox
+        open={Boolean(lightbox)}
+        images={lightbox?.images}
+        startIndex={lightbox?.index ?? 0}
+        onClose={() => setLightbox(null)}
+      />
 
       <SyncHistoryDialog open={historyOpen} onClose={() => setHistoryOpen(false)} />
     </div>

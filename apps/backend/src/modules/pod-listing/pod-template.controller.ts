@@ -242,10 +242,7 @@ export class PodTemplateController {
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('pod.template.write')
   @ApiOperation({ summary: 'Import SKU Template từ gói JSON đã export' })
-  importSkuTemplates(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: ImportTemplateBundleDto,
-  ) {
+  importSkuTemplates(@CurrentUser() user: AuthenticatedUser, @Body() dto: ImportTemplateBundleDto) {
     return this.transfer.import(user.organizationId, user.userId, 'SKU', dto);
   }
 
@@ -375,7 +372,10 @@ export class PodTemplateController {
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('pod.template.write')
   @ApiOperation({ summary: 'Xoá SKU Template' })
-  removeSkuTemplate(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+  removeSkuTemplate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
     return this.service.removeSkuTemplate(user.organizationId, user.userId, id);
   }
 
@@ -409,10 +409,7 @@ export class PodTemplateController {
     description:
       'Trả HTML đã thay token + danh sách token KHÔNG nhận ra (gõ sai). **Không ghi database.**',
   })
-  previewDescription(
-    @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: PreviewDescriptionDto,
-  ) {
+  previewDescription(@CurrentUser() user: AuthenticatedUser, @Body() dto: PreviewDescriptionDto) {
     return this.service.previewDescription(user.organizationId, dto);
   }
 
@@ -499,7 +496,10 @@ export class PodTemplateController {
   @Get('images/export')
   @RequirePermissions('pod.template.read')
   @ApiOperation({ summary: 'Export Image Template ra gói JSON (tham chiếu file trên R2)' })
-  exportImageTemplates(@CurrentUser() user: AuthenticatedUser, @Query() query: PodTemplateQueryDto) {
+  exportImageTemplates(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: PodTemplateQueryDto,
+  ) {
     return this.transfer.export(user.organizationId, 'IMAGE', query);
   }
 

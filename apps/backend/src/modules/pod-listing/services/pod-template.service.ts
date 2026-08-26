@@ -195,7 +195,11 @@ export class PodTemplateService {
     return this.paginated(items, total, paging);
   }
 
-  async getCategoryTemplate(organizationId: string, id: string, client: PrismaReader = this.prisma) {
+  async getCategoryTemplate(
+    organizationId: string,
+    id: string,
+    client: PrismaReader = this.prisma,
+  ) {
     const template = await client.podCategoryTemplate.findFirst({
       where: { id, organizationId, deletedAt: null },
       include: CATEGORY_TEMPLATE_INCLUDE,
@@ -357,7 +361,11 @@ export class PodTemplateService {
       this.prisma.podSkuTemplate.count({ where }),
     ]);
 
-    return this.paginated(items.map((item) => this.withSkuStatus(item)), total, paging);
+    return this.paginated(
+      items.map((item) => this.withSkuStatus(item)),
+      total,
+      paging,
+    );
   }
 
   async getSkuTemplate(organizationId: string, id: string, client: PrismaReader = this.prisma) {
@@ -690,11 +698,7 @@ export class PodTemplateService {
    * `skuPrefix` / `barcodePrefix` phải ghi từng dòng (mỗi dòng một giá trị khác nhau) nên
    * không dùng `updateMany` được; các trường còn lại thì một câu `updateMany` là xong.
    */
-  async bulkUpdateSkuItems(
-    organizationId: string,
-    templateId: string,
-    dto: BulkUpdateSkuItemsDto,
-  ) {
+  async bulkUpdateSkuItems(organizationId: string, templateId: string, dto: BulkUpdateSkuItemsDto) {
     const template = await this.getSkuTemplate(organizationId, templateId);
 
     const { itemIds, filters, skuPrefix, barcodePrefix, ...values } = dto;
@@ -722,11 +726,13 @@ export class PodTemplateService {
             data: {
               // Hậu tố dựng lại từ chính giá trị trục của dòng ⇒ bấm Apply nhiều lần vẫn ra
               // một kết quả, không cộng dồn tiền tố lên mã cũ.
-              ...(skuPrefix !== undefined
-                ? { skuCode: this.composeSkuCode(skuPrefix, item) }
-                : {}),
+              ...(skuPrefix !== undefined ? { skuCode: this.composeSkuCode(skuPrefix, item) } : {}),
               ...(barcodePrefix !== undefined
-                ? { barcode: barcodePrefix ? `${barcodePrefix}${String(index + 1).padStart(4, '0')}` : null }
+                ? {
+                    barcode: barcodePrefix
+                      ? `${barcodePrefix}${String(index + 1).padStart(4, '0')}`
+                      : null,
+                  }
                 : {}),
             },
           }),
@@ -743,11 +749,7 @@ export class PodTemplateService {
       id: string;
       values: Array<{ variantValue: { value: string; variant: { name: string } } }>;
     },
-  >(
-    items: T[],
-    filters: BulkUpdateSkuItemsDto['filters'],
-    itemIds: string[] | undefined,
-  ): T[] {
+  >(items: T[], filters: BulkUpdateSkuItemsDto['filters'], itemIds: string[] | undefined): T[] {
     const byId = itemIds?.length ? new Set(itemIds) : null;
 
     // Gom điều kiện theo tên trục để "cùng trục = HOẶC" thành phép kiểm tra một lần.

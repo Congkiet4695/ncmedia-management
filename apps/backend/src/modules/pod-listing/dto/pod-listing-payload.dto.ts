@@ -16,11 +16,7 @@ import {
   Min,
   ValidateNested,
 } from 'class-validator';
-import {
-  PodListingPayloadStatus,
-  PodListingMarket,
-  PodListingReviewStatus,
-} from '@prisma/client';
+import { PodListingPayloadStatus, PodListingMarket, PodListingReviewStatus } from '@prisma/client';
 import {
   POD_DRAFT_GENERATE_MAX_ITEMS,
   POD_DRAFT_SORT_FIELDS,

@@ -60,7 +60,10 @@ function record(over: Partial<FulfillmentOrder> = {}): FulfillmentOrder {
  * KHÔNG có trạng thái `delivered` ở cấp đơn — "đã giao" được suy ra từ `status = shipped`
  * cộng `tracking_status = delivered`, nên các case bên dưới dựng đúng như vậy.
  */
-function detail(status: MangoOrderStatus, over: Partial<MangoOrderResponse> = {}): MangoOrderResponse {
+function detail(
+  status: MangoOrderStatus,
+  over: Partial<MangoOrderResponse> = {},
+): MangoOrderResponse {
   return { status, ...over };
 }
 

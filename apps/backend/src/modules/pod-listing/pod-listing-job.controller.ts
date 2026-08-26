@@ -23,6 +23,9 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { PodScope } from '../pod-tiktok/decorators/pod-scope.decorator';
+import { PodScopeGuard } from '../pod-tiktok/guards/pod-scope.guard';
+import type { PodAccessScope } from '../pod-tiktok/services/pod-access-scope.service';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import {
   CreateListingJobDto,
@@ -54,7 +57,8 @@ import { PodListingReviewService } from './services/pod-listing-review.service';
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Access token không hợp lệ (AUTH_TOKEN_INVALID)' })
 @ApiForbiddenResponse({ description: 'Thiếu permission (AUTH_FORBIDDEN)' })
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+// 🔴 PodScopeGuard nạp phạm vi shop cho MỌI route dưới đây.
+@UseGuards(JwtAuthGuard, PermissionsGuard, PodScopeGuard)
 @Controller('pod/listing-jobs')
 export class PodListingJobController {
   constructor(
@@ -71,15 +75,23 @@ export class PodListingJobController {
       'Tạo job + item rồi CHẠY NGAY ở nền: mỗi item đi qua Merge → Validate → Upload Images → ' +
       'Create Product (AS_DRAFT). Trả về job để màn hình theo dõi tiến độ.',
   })
-  create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateListingJobDto) {
-    return this.jobs.create(user.organizationId, user.userId, dto);
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Body() dto: CreateListingJobDto,
+  ) {
+    return this.jobs.create(user.organizationId, user.userId, dto, scope);
   }
 
   @Get()
   @RequirePermissions('pod.listing.read')
   @ApiOperation({ summary: 'Danh sách lượt chạy' })
-  list(@CurrentUser() user: AuthenticatedUser, @Query() query: PodListingJobQueryDto) {
-    return this.jobs.list(user.organizationId, query);
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Query() query: PodListingJobQueryDto,
+  ) {
+    return this.jobs.list(user.organizationId, query, scope);
   }
 
   @Post('publish')
@@ -93,8 +105,12 @@ export class PodListingJobController {
       'Chạy nền với concurrency 5 và retry 3 lần; trả về job để màn hình theo dõi tiến độ, ' +
       'kèm `skipped` là các Draft bị bỏ qua và lý do.',
   })
-  publish(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreatePublishJobDto) {
-    return this.jobs.createPublishJob(user.organizationId, user.userId, dto ?? {});
+  publish(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Body() dto: CreatePublishJobDto,
+  ) {
+    return this.jobs.createPublishJob(user.organizationId, user.userId, dto ?? {}, scope);
   }
 
   @Post('review-sync')
@@ -108,20 +124,22 @@ export class PodListingJobController {
   })
   reviewSync(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Body() body: { draftIds?: string[]; limit?: number },
   ) {
     return this.review.sync({
       organizationId: user.organizationId,
       draftIds: body?.draftIds,
       limit: body?.limit,
+      scope,
     });
   }
 
   @Get('review-summary')
   @RequirePermissions('pod.listing.read')
   @ApiOperation({ summary: 'Đếm listing theo trạng thái duyệt (thẻ tổng quan Draft Listing)' })
-  reviewSummary(@CurrentUser() user: AuthenticatedUser) {
-    return this.review.summary(user.organizationId);
+  reviewSummary(@CurrentUser() user: AuthenticatedUser, @PodScope() scope: PodAccessScope) {
+    return this.review.summary(user.organizationId, scope);
   }
 
   @Get('history')
@@ -132,26 +150,35 @@ export class PodListingJobController {
   })
   history(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Query('page') page?: string,
     @Query('limit') limit?: string,
     @Query('status') status?: PodListingJobItemStatus,
     @Query('shopId') shopId?: string,
     @Query('type') type?: PodListingJobType,
   ) {
-    return this.jobs.history(user.organizationId, {
-      page: page ? Number(page) : undefined,
-      limit: limit ? Number(limit) : undefined,
-      status,
-      shopId,
-      type,
-    });
+    return this.jobs.history(
+      user.organizationId,
+      {
+        page: page ? Number(page) : undefined,
+        limit: limit ? Number(limit) : undefined,
+        status,
+        shopId,
+        type,
+      },
+      scope,
+    );
   }
 
   @Get(':id')
   @RequirePermissions('pod.listing.read')
   @ApiOperation({ summary: 'Chi tiết lượt chạy + số item theo trạng thái (thanh tiến độ)' })
-  get(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.jobs.get(user.organizationId, id);
+  get(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.jobs.get(user.organizationId, id, scope);
   }
 
   @Get(':id/items')
@@ -159,10 +186,11 @@ export class PodListingJobController {
   @ApiOperation({ summary: 'Danh sách sản phẩm trong lượt chạy (Job Detail)' })
   listItems(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: PodListingJobItemQueryDto,
   ) {
-    return this.jobs.listItems(user.organizationId, id, query);
+    return this.jobs.listItems(user.organizationId, id, query, scope);
   }
 
   @Get(':id/logs')
@@ -170,10 +198,11 @@ export class PodListingJobController {
   @ApiOperation({ summary: 'Nhật ký của lượt chạy (lọc theo item để xem log riêng từng sản phẩm)' })
   listLogs(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: PodListingLogQueryDto,
   ) {
-    return this.jobs.listLogs(user.organizationId, id, query);
+    return this.jobs.listLogs(user.organizationId, id, query, scope);
   }
 
   @Post(':id/retry')
@@ -185,10 +214,11 @@ export class PodListingJobController {
   })
   retry(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: RetryListingJobDto,
   ) {
-    return this.jobs.retry(user.organizationId, user.userId, id, dto ?? {});
+    return this.jobs.retry(user.organizationId, user.userId, id, dto ?? {}, scope);
   }
 
   @Post(':id/cancel')
@@ -200,15 +230,23 @@ export class PodListingJobController {
       'Item chưa chạy chuyển CANCELLED. Item đang gửi TikTok vẫn chạy nốt — không có cách nào ' +
       'thu hồi một request đã đi.',
   })
-  cancel(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.jobs.cancel(user.organizationId, user.userId, id);
+  cancel(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.jobs.cancel(user.organizationId, user.userId, id, scope);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('pod.listing.run')
   @ApiOperation({ summary: 'Xoá lượt chạy (xoá mềm — không đụng sản phẩm đã tạo trên TikTok)' })
-  remove(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.jobs.remove(user.organizationId, user.userId, id);
+  remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.jobs.remove(user.organizationId, user.userId, id, scope);
   }
 }

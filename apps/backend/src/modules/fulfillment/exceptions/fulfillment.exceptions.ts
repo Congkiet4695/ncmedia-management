@@ -52,6 +52,11 @@ export class FulfillmentClientError extends Error {
     readonly requestId?: string,
     readonly rawBody?: unknown,
     readonly endpoint?: string,
+    /**
+     * `x-ratelimit-reset` của nhà cung cấp — số giây tới khi cửa sổ giới hạn mở lại.
+     * Có giá trị thì chờ đúng bằng con số của họ, hơn là tự đoán bằng backoff.
+     */
+    readonly rateLimitResetSeconds?: number,
   ) {
     super(message);
     this.name = 'FulfillmentClientError';

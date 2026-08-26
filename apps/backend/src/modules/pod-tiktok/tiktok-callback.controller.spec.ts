@@ -17,7 +17,9 @@ function build(redirectBase = '') {
     },
   } as unknown as ConfigService;
 
-  const handleCallback = jest.fn().mockResolvedValue({ success: true, resultToken: 'RESULT_TOKEN' });
+  const handleCallback = jest
+    .fn()
+    .mockResolvedValue({ success: true, resultToken: 'RESULT_TOKEN' });
   const getLinkResult = jest.fn();
   const oauth = { handleCallback, getLinkResult } as unknown as PodTiktokOAuthService;
 
@@ -204,7 +206,7 @@ describe('TiktokCallbackController', () => {
   describe('link-result', () => {
     it('trả tóm tắt theo vé `ref`', async () => {
       const { controller, getLinkResult } = build();
-      (getLinkResult).mockResolvedValue({ success: true });
+      getLinkResult.mockResolvedValue({ success: true });
 
       await controller.linkResult({ ref: 'RESULT_TOKEN' });
 

@@ -3,7 +3,6 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { podOrderService } from '../services/pod-order.service';
 import type {
-  PodDesignPlacement,
   PodOrderQuery,
   PodSyncLogQuery,
   TriggerSyncPayload,
@@ -28,10 +27,21 @@ export function usePodOrder(id?: string) {
   });
 }
 
-export function usePodOrderStats() {
+/**
+ * Thống kê cho các thẻ ở đầu màn hình danh sách.
+ *
+ * 🔴 Nhận CÙNG `query` với `usePodOrders`. Hai hệ quả, cả hai đều cần:
+ *   1. Backend đếm theo đúng bộ lọc ⇒ thẻ và bảng không còn mâu thuẫn.
+ *   2. `query` nằm trong cache key ⇒ đổi filter là thẻ tự tải lại cùng lúc với danh sách,
+ *      không phải F5.
+ *
+ * `placeholderData` giữ số cũ trong lúc tải để các thẻ không nháy về rỗng rồi hiện lại.
+ */
+export function usePodOrderStats(query: PodOrderQuery = {}) {
   return useQuery({
-    queryKey: [POD_ORDERS_KEY, 'stats'],
-    queryFn: () => podOrderService.stats(),
+    queryKey: [POD_ORDERS_KEY, 'stats', query],
+    queryFn: () => podOrderService.stats(query),
+    placeholderData: keepPreviousData,
   });
 }
 
@@ -41,42 +51,6 @@ export function usePodSyncLogs(query: PodSyncLogQuery, enabled = true) {
     queryFn: () => podOrderService.syncLogs(query),
     placeholderData: keepPreviousData,
     enabled,
-  });
-}
-
-/**
- * Upload/thay thế design của một sản phẩm.
- * Làm mới danh sách đơn để thumbnail design cập nhật ngay tại chỗ.
- */
-export function useUploadDesign() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      orderItemId,
-      placement,
-      file,
-      onProgress,
-    }: {
-      orderItemId: string;
-      placement: PodDesignPlacement;
-      file: File;
-      onProgress?: (percent: number) => void;
-    }) => podOrderService.uploadDesign(orderItemId, placement, file, onProgress),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [POD_ORDERS_KEY] }),
-  });
-}
-
-export function useDeleteDesign() {
-  const queryClient = useQueryClient();
-  return useMutation({
-    mutationFn: ({
-      orderItemId,
-      placement,
-    }: {
-      orderItemId: string;
-      placement: PodDesignPlacement;
-    }) => podOrderService.deleteDesign(orderItemId, placement),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [POD_ORDERS_KEY] }),
   });
 }
 

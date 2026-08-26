@@ -333,7 +333,8 @@ export function FulfillmentPanel({ podOrderId, canFulfill, canCancel }: Fulfillm
               toast.error(t('mapping.createSuccess'), { description: translateApiError(error) }),
             );
         }}
-        onRefreshCatalog={(accountId) => void mappingActions.refreshCatalog.mutateAsync(accountId)}
+        onSyncCatalog={(accountId) => void mappingActions.syncCatalog.mutateAsync(accountId)}
+        syncingCatalog={mappingActions.syncCatalog.isPending}
       />
 
       <Modal

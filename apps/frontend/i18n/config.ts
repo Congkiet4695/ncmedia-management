@@ -34,6 +34,7 @@ export const NAMESPACES = [
   'pod',
   'fulfillment',
   'profile',
+  'superAdmin',
 ] as const;
 
 export type Namespace = (typeof NAMESPACES)[number];

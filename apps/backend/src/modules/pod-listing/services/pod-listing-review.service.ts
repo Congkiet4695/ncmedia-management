@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PodListingPayloadStatus, PodListingReviewStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import type { PodAccessScope } from '../../pod-tiktok/services/pod-access-scope.service';
 import { TiktokProductApiService } from '../../tiktok-sdk/tiktok-product-api.service';
 import type { TiktokShopContext } from '../../tiktok-sdk/types/tiktok-shop-context.type';
 import {
@@ -61,7 +62,12 @@ export class PodListingReviewService {
    * chính bản ghi listing. Truyền vào ⇒ chỉ tổ chức đó (đường của nút "Đồng bộ" trên màn hình).
    */
   async sync(
-    options: { organizationId?: string; draftIds?: string[]; limit?: number } = {},
+    options: {
+      organizationId?: string;
+      draftIds?: string[];
+      limit?: number;
+      scope?: PodAccessScope;
+    } = {},
   ): Promise<ReviewSyncResult> {
     const now = Date.now();
     const explicit = options.draftIds?.length ? [...new Set(options.draftIds)] : null;
@@ -71,6 +77,11 @@ export class PodListingReviewService {
       status: PodListingPayloadStatus.PUBLISHED,
       tiktokProductId: { not: null },
       ...(options.organizationId ? { organizationId: options.organizationId } : {}),
+      // Scheduler chạy không có người dùng ⇒ không truyền `scope`, quét toàn bộ. Khi lời gọi
+      // đến từ một request thì `scope` bắt buộc, và Seller chỉ làm mới được shop của mình.
+      ...(!options.scope || options.scope.allShops
+        ? {}
+        : { shopId: { in: options.scope.shopIds } }),
       ...(explicit
         ? { id: { in: explicit } }
         : {
@@ -215,10 +226,17 @@ export class PodListingReviewService {
   }
 
   /** Thống kê trạng thái duyệt cho màn hình Draft Listing (một truy vấn, không tải hết dòng). */
-  async summary(organizationId: string): Promise<Record<string, number>> {
+  async summary(organizationId: string, scope: PodAccessScope): Promise<Record<string, number>> {
     const grouped = await this.prisma.podListingPayload.groupBy({
       by: ['reviewStatus'],
-      where: { organizationId, deletedAt: null, status: PodListingPayloadStatus.PUBLISHED },
+      where: {
+        organizationId,
+        deletedAt: null,
+        status: PodListingPayloadStatus.PUBLISHED,
+        // 🔴 Thẻ đếm phải đếm ĐÚNG những dòng người dùng thấy trong danh sách. Đếm toàn tổ
+        // chức là để lộ quy mô shop của người khác qua một con số.
+        ...(scope.allShops ? {} : { shopId: { in: scope.shopIds } }),
+      },
       _count: { _all: true },
     });
 

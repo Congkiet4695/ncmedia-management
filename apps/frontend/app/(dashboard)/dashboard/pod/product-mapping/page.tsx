@@ -1,7 +1,16 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, Pencil, Plus, Search, Trash2 } from 'lucide-react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
+  Pencil,
+  Plus,
+  Search,
+  Sparkles,
+  Trash2,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
@@ -22,6 +31,8 @@ import { RequirePermission } from '@/components/require-permission';
 import { useApiError } from '@/hooks/use-api-error';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
+import { MappingDesignCell } from '@/features/fulfillment/components/mapping-design-cell';
+import { MappingDesignDialog } from '@/features/fulfillment/components/mapping-design-dialog';
 import { MappingFormDialog } from '@/features/fulfillment/components/mapping-form-dialog';
 import {
   useFulfillmentProviderOptions,
@@ -46,7 +57,7 @@ export default function ProductMappingPage() {
 function MappingView() {
   const { t } = useTranslation(['fulfillment', 'common']);
   const translateApiError = useApiError();
-  const { formatDateTime } = useLocaleFormat();
+  const { formatDateTime, formatCurrency } = useLocaleFormat();
 
   const [query, setQuery] = useState<ProductMappingQuery>({ page: 1, limit: 20 });
   const [searchInput, setSearchInput] = useState('');
@@ -55,6 +66,7 @@ function MappingView() {
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState<ProductMapping | null>(null);
   const [deleting, setDeleting] = useState<ProductMapping | null>(null);
+  const [designing, setDesigning] = useState<ProductMapping | null>(null);
 
   const providers = useFulfillmentProviderOptions();
   const mappings = useProductMappings(query);
@@ -71,7 +83,16 @@ function MappingView() {
 
   const items = mappings.data?.items ?? [];
   const meta = mappings.data?.meta;
-  const filtered = Boolean(query.search || query.accountId || query.status);
+  const filtered = Boolean(
+    query.search || query.accountId || query.status || query.designStatus,
+  );
+
+  // 🔴 Đọc lại bản ghi từ danh sách vừa tải, KHÔNG dùng bản đã lưu trong state: upload/xoá
+  // design làm mới cache, và dialog phải thấy ảnh mới ngay — nếu giữ bản chụp cũ thì người
+  // dùng thay design xong vẫn nhìn thấy file cũ cho tới khi đóng mở lại dialog.
+  const designingLive = designing
+    ? (items.find((item) => item.id === designing.id) ?? designing)
+    : null;
 
   const handleSubmit = async (accountId: string, input: UpsertProductMappingInput) => {
     try {
@@ -86,6 +107,49 @@ function MappingView() {
       setEditing(null);
     } catch (error) {
       toast.error(t('mapping.createSuccess'), { description: translateApiError(error) });
+    }
+  };
+
+  /**
+   * Kéo danh mục nhà cung cấp về Database.
+   *
+   * Đây là tác vụ DÀI (hàng nghìn lời gọi API), nên phải báo kết quả cụ thể chứ không chỉ
+   * "thành công": `complete = false` nghĩa là đọc thiếu, và người vận hành cần biết để chạy
+   * lại thay vì tin rằng danh mục đã đầy đủ.
+   */
+  const handleSyncCatalog = async (accountId: string) => {
+    try {
+      const result = await actions.syncCatalog.mutateAsync(accountId);
+      const description = t('mapping.syncCatalogSummary', {
+        catalogues: result.catalogues,
+        products: result.products,
+        variants: result.variants,
+      });
+      if (result.complete) {
+        toast.success(t('mapping.syncCatalogSuccess'), { description });
+      } else {
+        toast.warning(t('mapping.syncCatalogPartial'), {
+          description: `${description} — ${result.warnings[0] ?? ''}`,
+        });
+      }
+    } catch (error) {
+      toast.error(t('mapping.syncCatalogFailed'), { description: translateApiError(error) });
+    }
+  };
+
+  /** Rà ánh xạ tự động cho mọi sản phẩm chưa ánh xạ. */
+  const handleAutoResolve = async () => {
+    try {
+      const result = await actions.autoResolve.mutateAsync();
+      toast.success(t('mapping.autoResolveDone'), {
+        description: t('mapping.autoResolveSummary', {
+          autoMapped: result.autoMapped,
+          needManual: result.needManual,
+          notFound: result.notFound,
+        }),
+      });
+    } catch (error) {
+      toast.error(t('mapping.autoResolveFailed'), { description: translateApiError(error) });
     }
   };
 
@@ -107,15 +171,30 @@ function MappingView() {
           <h1 className="text-2xl font-bold tracking-tight">{t('mapping.pageTitle')}</h1>
           <p className="text-sm text-muted-foreground">{t('mapping.pageSubtitle')}</p>
         </div>
-        <Button
-          onClick={() => {
-            setEditing(null);
-            setFormOpen(true);
-          }}
-        >
-          <Plus className="size-4" />
-          {t('mapping.add')}
-        </Button>
+        <div className="flex flex-wrap gap-2">
+          {/* Rà ánh xạ tự động — đường ngắn nhất để xử lý hàng loạt sản phẩm chưa ánh xạ. */}
+          <Button
+            variant="outline"
+            disabled={actions.autoResolve.isPending}
+            onClick={() => void handleAutoResolve()}
+          >
+            {actions.autoResolve.isPending ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Sparkles className="size-4" />
+            )}
+            {t('mapping.autoResolve')}
+          </Button>
+          <Button
+            onClick={() => {
+              setEditing(null);
+              setFormOpen(true);
+            }}
+          >
+            <Plus className="size-4" />
+            {t('mapping.add')}
+          </Button>
+        </div>
       </div>
 
       <Card>
@@ -157,6 +236,22 @@ function MappingView() {
               ]}
               className="w-[170px]"
             />
+            {/* Lọc "chưa có design" — đường ngắn nhất từ "đơn không gửi được" tới việc cần làm. */}
+            <Combobox
+              value={query.designStatus ?? ''}
+              onChange={(value) =>
+                patchQuery({
+                  designStatus: (value || undefined) as ProductMappingQuery['designStatus'],
+                  page: 1,
+                })
+              }
+              options={[
+                { value: '', label: t('mapping.allDesignStatuses') },
+                { value: 'READY', label: t('mapping.designFilter.READY') },
+                { value: 'MISSING', label: t('mapping.designFilter.MISSING') },
+              ]}
+              className="w-[190px]"
+            />
           </div>
         </CardHeader>
 
@@ -177,14 +272,18 @@ function MappingView() {
             <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
+                  {/* Thứ tự cột theo đúng thứ tự người dùng cần: KHOÁ (Product ID + Seller
+                      SKU) → nơi sản xuất (Provider + Fulfillment SKU) → thứ phải chuẩn bị
+                      (Design) → tiền (Base Cost) → dấu vết (ai sửa, lúc nào). */}
                   <TableRow>
-                    <TableHead>{t('mapping.tiktokProduct')}</TableHead>
+                    <TableHead>{t('mapping.tiktokProductId')}</TableHead>
                     <TableHead>{t('mapping.sellerSku')}</TableHead>
                     <TableHead>{t('mapping.provider')}</TableHead>
-                    <TableHead>{t('mapping.providerProduct')}</TableHead>
-                    <TableHead>{t('mapping.variant')}</TableHead>
                     <TableHead>{t('mapping.providerSku')}</TableHead>
+                    <TableHead>{t('mapping.design')}</TableHead>
+                    <TableHead className="text-right">{t('mapping.baseCost')}</TableHead>
                     <TableHead>{t('mapping.status')}</TableHead>
+                    <TableHead>{t('mapping.updatedBy')}</TableHead>
                     <TableHead className="whitespace-nowrap">{t('mapping.updatedAt')}</TableHead>
                     <TableHead className="text-right">{t('common:table.actions')}</TableHead>
                   </TableRow>
@@ -193,27 +292,47 @@ function MappingView() {
                   {items.map((mapping) => (
                     <TableRow key={mapping.id}>
                       <TableCell className="max-w-[200px] truncate font-mono text-xs">
-                        {mapping.tiktokSkuId ?? mapping.tiktokProductId ?? '—'}
+                        {mapping.tiktokProductId ?? (
+                          /* Bản ghi cũ thiếu khoá: không ghép được đơn nào, nói thẳng ra
+                             thay vì hiện dấu gạch ngang trông như "không có thì thôi". */
+                          <span className="font-sans text-destructive">
+                            {t('mapping.keyIncomplete')}
+                          </span>
+                        )}
                       </TableCell>
                       <TableCell className="max-w-[180px] truncate font-mono text-xs">
-                        {mapping.sellerSku ?? '—'}
+                        {mapping.sellerSku ?? (
+                          <span className="font-sans text-destructive">
+                            {t('mapping.keyIncomplete')}
+                          </span>
+                        )}
                       </TableCell>
-                      <TableCell>{mapping.providerName ?? '—'}</TableCell>
-                      <TableCell className="max-w-[220px] truncate">
-                        {mapping.providerProductName ?? '—'}
-                      </TableCell>
-                      <TableCell className="max-w-[160px] truncate">
-                        {mapping.providerVariantName ??
-                          ([mapping.providerColor, mapping.providerSize]
-                            .filter(Boolean)
-                            .join(' / ') ||
-                            '—')}
+                      <TableCell>
+                        <span className="block">{mapping.providerName ?? '—'}</span>
+                        <span className="block max-w-[180px] truncate text-xs text-muted-foreground">
+                          {mapping.providerVariantName ??
+                            [mapping.providerColor, mapping.providerSize]
+                              .filter(Boolean)
+                              .join(' / ')}
+                        </span>
                       </TableCell>
                       <TableCell className="font-mono text-xs">{mapping.providerSku}</TableCell>
+                      <TableCell>
+                        <MappingDesignCell
+                          mapping={mapping}
+                          onManage={() => setDesigning(mapping)}
+                        />
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-right font-mono text-xs">
+                        {mapping.baseCost === null ? '—' : formatCurrency(mapping.baseCost, 'USD')}
+                      </TableCell>
                       <TableCell>
                         <Badge variant={mapping.isActive ? 'success' : 'muted'}>
                           {t(`mapping.statusValue.${mapping.status}`)}
                         </Badge>
+                      </TableCell>
+                      <TableCell className="max-w-[140px] truncate text-muted-foreground">
+                        {mapping.updatedByName ?? '—'}
                       </TableCell>
                       <TableCell className="whitespace-nowrap text-muted-foreground">
                         {formatDateTime(mapping.updatedAt)}
@@ -291,7 +410,14 @@ function MappingView() {
           setEditing(null);
         }}
         onSubmit={(accountId, input) => void handleSubmit(accountId, input)}
-        onRefreshCatalog={(accountId) => void actions.refreshCatalog.mutateAsync(accountId)}
+        onSyncCatalog={(accountId) => void handleSyncCatalog(accountId)}
+        syncingCatalog={actions.syncCatalog.isPending}
+      />
+
+      <MappingDesignDialog
+        open={Boolean(designingLive)}
+        mapping={designingLive}
+        onClose={() => setDesigning(null)}
       />
 
       <Modal

@@ -50,10 +50,7 @@ export class PodOrderMapper {
    *   ~60% số đơn bị coi là "có thay đổi" ở MỌI lượt sync, ghi đè DB vô ích và làm
    *   `sync_version` phình vô hạn.
    */
-  private static readonly ORDER_HASH_EXCLUDED_KEYS = new Set([
-    'recipient_address',
-    'buyer_avatar',
-  ]);
+  private static readonly ORDER_HASH_EXCLUDED_KEYS = new Set(['recipient_address', 'buyer_avatar']);
 
   /** Dấu hiệu giá trị đã bị TikTok che (masked). */
   private static readonly MASK_PATTERN = /\*{2,}/;
@@ -196,9 +193,7 @@ export class PodOrderMapper {
    * Sắp xếp key đệ quy nên cùng dữ liệu luôn cho cùng hash bất kể thứ tự TikTok trả về.
    */
   hashOrder(order: TiktokOrder): string {
-    return this.sha256(
-      this.canonicalize(order, PodOrderMapper.ORDER_HASH_EXCLUDED_KEYS),
-    );
+    return this.sha256(this.canonicalize(order, PodOrderMapper.ORDER_HASH_EXCLUDED_KEYS));
   }
 
   hashItem(item: TiktokOrderLineItem): string {

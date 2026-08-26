@@ -74,7 +74,9 @@ describe('PodSyncOrchestratorService — Scheduler Flow', () => {
       syncShop: jest.fn((target: { id: string }) => Promise.resolve(outcome(target.id))),
     };
     payoutSyncService = {
-      syncShop: jest.fn((target: { id: string }) => Promise.resolve({ shopId: target.id, ok: true })),
+      syncShop: jest.fn((target: { id: string }) =>
+        Promise.resolve({ shopId: target.id, ok: true }),
+      ),
     };
     lock = {
       acquire: jest.fn().mockResolvedValue({ key: 'k', fenceToken: 'f' }),
@@ -178,14 +180,9 @@ describe('PodSyncOrchestratorService — Scheduler Flow', () => {
 
   describe('Đồng bộ nhiều account', () => {
     it('tổng hợp số liệu của tất cả shop', async () => {
-      accountRepo.listShopsForSync.mockResolvedValue([
-        shop('s1', 'org-a'),
-        shop('s2', 'org-b'),
-      ]);
+      accountRepo.listShopsForSync.mockResolvedValue([shop('s1', 'org-a'), shop('s2', 'org-b')]);
       syncService.syncShop.mockImplementation((target: { id: string }) =>
-        Promise.resolve(
-          outcome(target.id, { totalOrders: 5, created: 2, updated: 2, skipped: 1 }),
-        ),
+        Promise.resolve(outcome(target.id, { totalOrders: 5, created: 2, updated: 2, skipped: 1 })),
       );
 
       const result = await service.runAll();

@@ -4,11 +4,14 @@ import {
   FulfillmentClientError,
   FulfillmentErrorClass,
 } from '../../exceptions/fulfillment.exceptions';
+import { MANGO_RATE_LIMIT_PER_SECOND } from '../constants/mango.constants';
 import {
   MANGO_API_KEY_HEADER,
   MANGO_DEFAULT_BASE_URL,
   MANGO_ENDPOINTS,
   MANGO_ERROR_CODES,
+  MANGO_RATE_LIMIT_HEADERS,
+  MANGO_RETRY,
 } from '../constants/mango.constants';
 import {
   MangoCancelOrderData,
@@ -47,15 +50,39 @@ export interface MangoResult<T> {
  * Trách nhiệm:
  *  - Gắn header `X-API-Key` và `content-type`.
  *  - Bóc envelope chuẩn `{status, code, message, data, request_id}`.
- *  - Dịch lỗi HTTP + `code` của Mango thành `FulfillmentClientError` đã PHÂN LOẠI,
- *    nhờ vậy tầng service quyết định retry mà không cần biết chi tiết giao thức.
+ *  - Dịch lỗi HTTP + `code` của Mango thành `FulfillmentClientError` đã PHÂN LOẠI.
+ *  - **Thử lại** những lỗi tạm thời, và **tự điều tiết tần suất** (xem dưới).
  *  - Đo thời lượng mỗi lần gọi (yêu cầu logging).
+ *
+ * 🔴 **Retry.** Chỉ thử lại lớp lỗi TẠM THỜI (`RATE_LIMIT` / `NETWORK` / `SERVER` — danh sách
+ * ở `RETRYABLE_ERROR_CLASSES`, một nguồn sự thật duy nhất). Lỗi `AUTH` / `VALIDATION` /
+ * `NOT_FOUND` KHÔNG thử lại: chúng sẽ hỏng y hệt ở lần thứ hai, thử lại chỉ làm người dùng
+ * chờ lâu gấp ba.
+ *
+ * 🔴 **Chỉ GET được thử lại tự động.** POST tạo đơn KHÔNG bao giờ tự thử lại ở tầng này: một
+ * request timeout có thể đã tới nơi và đơn đã được tạo, thử lại là sản xuất trùng — hàng
+ * thật, tiền thật. Luồng tạo đơn có cơ chế retry riêng ở tầng service, đi cùng `externalOrderId`
+ * duy nhất để nhà cung cấp tự chặn trùng.
+ *
+ * 🔴 **Điều tiết tần suất.** Mango giới hạn 10 request/giây. Đồng bộ danh mục gọi hàng nghìn
+ * lần liên tiếp nên chắc chắn chạm trần nếu không tự giãn. Client giữ khoảng cách tối thiểu
+ * giữa hai request (`MANGO_RATE_LIMIT_PER_SECOND`) và tôn trọng header `x-ratelimit-reset`
+ * khi bị từ chối. Hàng đợi là TOÀN CỤC cho tiến trình: giới hạn nằm ở phía nhà cung cấp, nên
+ * chia theo tài khoản sẽ vẫn vượt trần khi hai tài khoản chạy cùng lúc.
  *
  * 🔴 KHÔNG ghi API key vào log dưới bất kỳ hình thức nào.
  */
 @Injectable()
 export class MangoApiClient {
   private readonly logger = new Logger(MangoApiClient.name);
+
+  /**
+   * Mốc thời gian sớm nhất được phép gửi request kế tiếp.
+   *
+   * Một biến duy nhất thay cho một hàng đợi đầy đủ: mọi lời gọi đều đi qua `throttle()` và
+   * đẩy mốc này lên, nên các lời gọi song song tự xếp hàng theo đúng thứ tự chạm vào nó.
+   */
+  private nextSlotAt = 0;
 
   constructor(private readonly config: ConfigService) {}
 
@@ -79,12 +106,7 @@ export class MangoApiClient {
     orderId: string,
     body: MangoCancelOrderRequest,
   ): Promise<MangoResult<MangoCancelOrderData>> {
-    return this.call<MangoCancelOrderData>(
-      ctx,
-      'POST',
-      MANGO_ENDPOINTS.cancelOrder(orderId),
-      body,
-    );
+    return this.call<MangoCancelOrderData>(ctx, 'POST', MANGO_ENDPOINTS.cancelOrder(orderId), body);
   }
 
   // ---------------------------------------------------------------------------
@@ -137,10 +159,7 @@ export class MangoApiClient {
   // Private
   // ---------------------------------------------------------------------------
 
-  private withQuery(
-    path: string,
-    query: Record<string, string | number | undefined>,
-  ): string {
+  private withQuery(path: string, query: Record<string, string | number | undefined>): string {
     const params = new URLSearchParams();
     for (const [key, value] of Object.entries(query)) {
       if (value !== undefined && value !== '') params.set(key, String(value));
@@ -149,16 +168,90 @@ export class MangoApiClient {
     return qs ? `${path}?${qs}` : path;
   }
 
-  /** Thực hiện một lời gọi có xác thực và bóc envelope. */
+  /**
+   * Thực hiện một lời gọi có xác thực, có điều tiết tần suất và có thử lại.
+   *
+   * Chỉ `GET` được thử lại tự động — xem chú thích ở đầu lớp về lý do POST không được.
+   */
   private async call<T>(
     ctx: MangoCallContext,
     method: 'GET' | 'POST' | 'PUT' | 'DELETE',
     path: string,
     body?: unknown,
   ): Promise<MangoResult<T>> {
+    const maxAttempts = method === 'GET' ? MANGO_RETRY.maxAttempts : 1;
+
+    for (let attempt = 1; ; attempt += 1) {
+      try {
+        await this.throttle();
+        return await this.callOnce<T>(ctx, method, path, body);
+      } catch (error) {
+        const clientError = error instanceof FulfillmentClientError ? error : undefined;
+
+        if (!clientError?.retryable || attempt >= maxAttempts) throw error;
+
+        const delayMs = this.retryDelayMs(attempt, clientError);
+        this.logger.warn({
+          module: 'fulfillment',
+          provider: 'MANGO',
+          operation: `${method} ${path}`,
+          attempt,
+          maxAttempts,
+          errorClass: clientError.errorClass,
+          httpStatus: clientError.httpStatus,
+          requestId: clientError.requestId,
+          delayMs,
+          msg: `Lỗi tạm thời, thử lại lần ${attempt + 1}/${maxAttempts} sau ${delayMs}ms: ${clientError.message}`,
+        });
+        await this.sleep(delayMs);
+      }
+    }
+  }
+
+  /**
+   * Giãn cách giữa hai request để không vượt trần 10 req/s của nhà cung cấp.
+   *
+   * Cộng dồn vào `nextSlotAt` thay vì "ngủ một khoảng cố định": khi có nhiều lời gọi song
+   * song, mỗi lời gọi nhận một khe riêng và tổng tần suất vẫn đúng trần. Ngủ cố định sẽ cho
+   * N lời gọi song song cùng bắn đi một lúc.
+   */
+  private async throttle(): Promise<void> {
+    const minIntervalMs = Math.ceil(1000 / MANGO_RATE_LIMIT_PER_SECOND);
+    const now = Date.now();
+    const slot = Math.max(now, this.nextSlotAt);
+    this.nextSlotAt = slot + minIntervalMs;
+    if (slot > now) await this.sleep(slot - now);
+  }
+
+  /**
+   * Khoảng chờ trước lần thử kế tiếp: lùi theo cấp số nhân + nhiễu ngẫu nhiên.
+   *
+   * Nhiễu (jitter) là bắt buộc chứ không phải trang trí: nhiều tiến trình cùng bị 429 sẽ
+   * cùng thức dậy đúng một thời điểm và lại cùng bị 429 nếu chờ đúng bằng nhau.
+   * Khi nhà cung cấp nói rõ `x-ratelimit-reset`, con số của họ được ưu tiên.
+   */
+  private retryDelayMs(attempt: number, error: FulfillmentClientError): number {
+    if (error.errorClass === FulfillmentErrorClass.RATE_LIMIT && error.rateLimitResetSeconds) {
+      return Math.min(error.rateLimitResetSeconds * 1000, MANGO_RETRY.maxDelayMs);
+    }
+    const backoff = MANGO_RETRY.baseDelayMs * 2 ** (attempt - 1);
+    const jitter = Math.floor(Math.random() * MANGO_RETRY.jitterMs);
+    return Math.min(backoff + jitter, MANGO_RETRY.maxDelayMs);
+  }
+
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  /** MỘT lần gọi thật — không thử lại, không điều tiết. */
+  private async callOnce<T>(
+    ctx: MangoCallContext,
+    method: 'GET' | 'POST' | 'PUT' | 'DELETE',
+    path: string,
+    body?: unknown,
+  ): Promise<MangoResult<T>> {
     const baseUrl =
-      ctx.baseUrl ||
-      this.config.get<string>('fulfillment.mango.baseUrl', MANGO_DEFAULT_BASE_URL);
+      ctx.baseUrl || this.config.get<string>('fulfillment.mango.baseUrl', MANGO_DEFAULT_BASE_URL);
     const url = `${baseUrl.replace(/\/+$/, '')}${path}`;
     const timeoutMs = this.config.get<number>('fulfillment.mango.timeoutMs', 30_000);
 
@@ -201,7 +294,8 @@ export class MangoApiClient {
     const rawText = await response.text();
     const envelope = this.parseJson(rawText);
     const requestId = envelope?.request_id;
-    const remaining = Number(response.headers.get('x-ratelimit-remaining'));
+    const remaining = Number(response.headers.get(MANGO_RATE_LIMIT_HEADERS.remaining));
+    const resetSeconds = Number(response.headers.get(MANGO_RATE_LIMIT_HEADERS.reset));
 
     this.logger.log({
       module: 'fulfillment',
@@ -215,7 +309,13 @@ export class MangoApiClient {
 
     // Mango có thể trả HTTP 200 nhưng `status = false` ⇒ phải kiểm tra CẢ HAI.
     if (!response.ok || envelope?.status === false) {
-      throw this.toClientError(response.status, envelope, rawText, `${method} ${path}`);
+      throw this.toClientError(
+        response.status,
+        envelope,
+        rawText,
+        `${method} ${path}`,
+        Number.isFinite(resetSeconds) ? resetSeconds : undefined,
+      );
     }
 
     return {
@@ -246,6 +346,8 @@ export class MangoApiClient {
     envelope: MangoEnvelope<unknown> | null,
     rawText: string,
     endpoint: string,
+    /** `x-ratelimit-reset` — số giây tới khi cửa sổ giới hạn mở lại. */
+    rateLimitResetSeconds?: number,
   ): FulfillmentClientError {
     const code = envelope?.code;
     const message =
@@ -289,6 +391,7 @@ export class MangoApiClient {
       // Giữ nguyên body để điều tra; cắt bớt để không phình bảng log.
       envelope ?? String(rawText).slice(0, 4000),
       endpoint,
+      rateLimitResetSeconds,
     );
   }
 }

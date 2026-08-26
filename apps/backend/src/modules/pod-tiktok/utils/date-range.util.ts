@@ -61,7 +61,10 @@ export function resolveDateRange(
 
     case 'YESTERDAY': {
       const yesterday = new Date(now.getTime() - MS_PER_DAY);
-      return { from: startOfLocalDay(yesterday, offsetMin), to: endOfLocalDay(yesterday, offsetMin) };
+      return {
+        from: startOfLocalDay(yesterday, offsetMin),
+        to: endOfLocalDay(yesterday, offsetMin),
+      };
     }
 
     // "7 ngày gần nhất" = hôm nay và 6 ngày trước đó (tổng 7 ngày, gồm cả hôm nay).

@@ -1,0 +1,69 @@
+{
+  "noPermission": "Only a Super Admin can access this area.",
+  "emailFailed": "The notification email could not be sent. Please check the mail configuration.",
+  "status": {
+    "PENDING": "Pending",
+    "ACTIVE": "Approved",
+    "REJECTED": "Rejected",
+    "TRIAL": "Trial",
+    "SUSPENDED": "Suspended",
+    "DELETED": "Deleted"
+  },
+  "action": {
+    "APPROVE": "Approved",
+    "REJECT": "Rejected"
+  },
+  "dashboard": {
+    "pending": "Pending Organizations",
+    "approved": "Approved Organizations",
+    "rejected": "Rejected Organizations",
+    "total": "Total Organizations"
+  },
+  "organizations": {
+    "title": "Organizations",
+    "subtitle": "Review organization registrations. Nobody can sign in until you approve them.",
+    "searchPlaceholder": "Search by organization, owner or email",
+    "allStatuses": "All statuses",
+    "empty": "No organization matches this filter.",
+    "notFound": "Organization not found.",
+    "organization": "Organization",
+    "owner": "Owner",
+    "email": "Email",
+    "registeredAt": "Register time",
+    "status": "Status",
+    "detail": "View detail"
+  },
+  "detail": {
+    "organizationInfo": "Organization information",
+    "ownerInfo": "Owner",
+    "slug": "Slug",
+    "userCount": "Users",
+    "createdAt": "Created time",
+    "updatedAt": "Updated time",
+    "phone": "Phone",
+    "ownerStatus": "Owner status",
+    "lastLoginAt": "Last sign-in",
+    "reviewResult": "Review result",
+    "approvedAt": "Approved at",
+    "rejectedAt": "Rejected at",
+    "auditLog": "Audit log",
+    "auditEmpty": "No decision has been recorded yet."
+  },
+  "approve": {
+    "title": "Approve organization",
+    "confirm": "Approve \"{{name}}\" and let its members sign in?",
+    "hint": "The owner receives an \"Organization Approved\" email with a sign-in link.",
+    "submit": "Approve",
+    "done": "\"{{name}}\" has been approved"
+  },
+  "reject": {
+    "title": "Reject registration",
+    "confirm": "Reject the registration for \"{{name}}\"?",
+    "reason": "Reason",
+    "reasonPlaceholder": "e.g. We could not verify the business information. Please attach a business licence.",
+    "reasonHint": "This text is sent to the applicant by email, so make it actionable.",
+    "reasonTooShort": "The reason needs at least {{count}} characters.",
+    "submit": "Reject",
+    "done": "\"{{name}}\" has been rejected"
+  }
+}

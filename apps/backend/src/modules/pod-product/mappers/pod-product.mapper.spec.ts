@@ -17,15 +17,25 @@ const DETAIL: TiktokProductDetail = {
     { id: '601352', localName: 'T-Shirts', isLeaf: true, parentId: '600024' },
   ],
   mainImages: [
-    { uri: 'tos-img-1', urls: ['https://cdn/1.jpg'], thumbUrls: ['https://cdn/1-t.jpg'], width: 800, height: 800 },
+    {
+      uri: 'tos-img-1',
+      urls: ['https://cdn/1.jpg'],
+      thumbUrls: ['https://cdn/1-t.jpg'],
+      width: 800,
+      height: 800,
+    },
     { uri: 'tos-img-2', urls: ['https://cdn/2.jpg'] },
   ],
-  video: { id: 'v-1', url: 'https://cdn/v.mp4', coverUrl: 'https://cdn/v.jpg', format: 'mp4', size: 1024 },
+  video: {
+    id: 'v-1',
+    url: 'https://cdn/v.mp4',
+    coverUrl: 'https://cdn/v.jpg',
+    format: 'mp4',
+    size: 1024,
+  },
   packageDimensions: { length: '20', width: '15', height: '5', unit: 'CENTIMETER' },
   packageWeight: { value: '0.35', unit: 'KILOGRAM' },
-  productAttributes: [
-    { id: '100392', name: 'Material', values: [{ id: '1001', name: 'Cotton' }] },
-  ],
+  productAttributes: [{ id: '100392', name: 'Material', values: [{ id: '1001', name: 'Cotton' }] }],
   productTags: ['NEW'],
   salesRegions: ['US'],
   skus: [
@@ -39,7 +49,13 @@ const DETAIL: TiktokProductDetail = {
         { warehouseId: 'wh-2', quantity: 5 },
       ],
       salesAttributes: [
-        { id: 'a1', name: 'Color', valueId: 'v1', valueName: 'Black', skuImg: { uri: 'sku-img-1', urls: ['https://cdn/blk.jpg'] } },
+        {
+          id: 'a1',
+          name: 'Color',
+          valueId: 'v1',
+          valueName: 'Black',
+          skuImg: { uri: 'sku-img-1', urls: ['https://cdn/blk.jpg'] },
+        },
         { id: 'a2', name: 'Size', valueId: 'v2', valueName: 'L' },
       ],
       statusInfo: { status: 'ACTIVATE' },

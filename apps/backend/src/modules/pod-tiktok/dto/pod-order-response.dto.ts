@@ -1,6 +1,20 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PodDesignDto } from './pod-design.dto';
 
+/** Một ứng viên do ánh xạ tự động tìm được — đủ dữ liệu để dialog Map Product chọn sẵn. */
+export class PodMappingCandidateDto {
+  @ApiProperty({ description: 'Khoá nội bộ của sản phẩm trong bản sao danh mục.' })
+  productId!: string;
+  @ApiProperty() externalProductId!: string;
+  @ApiProperty() productName!: string;
+  @ApiProperty({ description: 'Khoá nội bộ của biến thể.' }) variantId!: string;
+  @ApiProperty() externalVariantId!: string;
+  @ApiProperty({ description: 'Fulfillment SKU sẽ được gửi khi tạo đơn.' }) sku!: string;
+  @ApiProperty() variantName!: string;
+  @ApiProperty({ nullable: true, type: String }) catalogueId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) catalogueName!: string | null;
+}
+
 /** Sản phẩm trong đơn (1 line item = 1 đơn vị sản phẩm theo cách TikTok trả về). */
 export class PodOrderItemDto {
   @ApiProperty() id!: string;
@@ -46,6 +60,35 @@ export class PodOrderItemDto {
   @ApiProperty({ nullable: true, type: String, description: 'ID dữ liệu POD (dùng ở Sprint sau)' })
   podInfoId!: string | null;
   @ApiProperty() isGift!: boolean;
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'Product Mapping đã ghép với sản phẩm này. Design thuộc về Mapping nên giao diện cần ' +
+      'id này để upload/xoá. NULL = chưa khai ánh xạ ⇒ báo "thiếu Product Mapping".',
+  })
+  mappingId!: string | null;
+
+  @ApiProperty({
+    enum: ['MAPPED', 'NEED_MANUAL', 'MISSING', 'NO_PROVIDER'],
+    description:
+      'Tình trạng ánh xạ — bốn trạng thái dẫn tới bốn hành động khác nhau. ' +
+      'MAPPED = đã có Product Mapping. ' +
+      'NEED_MANUAL = ánh xạ tự động tìm được NHIỀU ứng viên nên không dám tự chọn; ' +
+      'bấm "Map Product", danh sách đã lọc sẵn ở `mappingCandidates`. ' +
+      'MISSING = đã rà và không thấy gì (hoặc chưa rà) — phải khai tay. ' +
+      'NO_PROVIDER = kết nối TikTok chưa gán nhà cung cấp, hoặc danh mục chưa đồng bộ lần ' +
+      'nào; sửa ở màn hình cấu hình nhà cung cấp.',
+  })
+  mappingStatus!: 'MAPPED' | 'NEED_MANUAL' | 'MISSING' | 'NO_PROVIDER';
+
+  @ApiProperty({
+    type: PodMappingCandidateDto,
+    isArray: true,
+    description: 'Ứng viên ánh xạ tự động tìm được. Chỉ có giá trị khi `NEED_MANUAL`.',
+  })
+  mappingCandidates!: PodMappingCandidateDto[];
 }
 
 export class PodOrderPackageDto {
@@ -68,6 +111,16 @@ export class PodOrderResponseDto {
 
   @ApiProperty({ type: PodOrderShopDto }) shop!: PodOrderShopDto;
   @ApiProperty({ description: 'Tên kết nối (account) đã link' }) accountName!: string;
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'Nhà cung cấp fulfillment gán cho kết nối TikTok của đơn. Giao diện dùng nó để mở ' +
+      'dialog "Map Product" với nhà cung cấp điền sẵn — không bắt người dùng đoán. ' +
+      'NULL = kết nối chưa gán nhà cung cấp nào.',
+  })
+  fulfillmentAccountId!: string | null;
   @ApiProperty({
     nullable: true,
     type: String,
@@ -76,7 +129,6 @@ export class PodOrderResponseDto {
   sellerId!: string | null;
   @ApiProperty({ nullable: true, type: String }) sellerFullName!: string | null;
   @ApiProperty({ nullable: true, type: String }) sellerEmail!: string | null;
-
 
   @ApiProperty({ nullable: true, type: String }) buyerEmail!: string | null;
   @ApiProperty({ nullable: true, type: String }) buyerNickname!: string | null;
@@ -135,6 +187,14 @@ export class PodOrderListItemDto {
   @ApiProperty() id!: string;
   @ApiProperty() tiktokOrderId!: string;
   @ApiProperty({ nullable: true, type: String }) shopName!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'Nhà cung cấp fulfillment gán cho kết nối TikTok của đơn — giao diện dùng để mở dialog ' +
+      '"Map Product" với nhà cung cấp điền sẵn. NULL = kết nối chưa gán nhà cung cấp.',
+  })
+  fulfillmentAccountId!: string | null;
   @ApiProperty({
     nullable: true,
     type: String,

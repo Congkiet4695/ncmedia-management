@@ -142,7 +142,9 @@ describe('PodListingValidatorService', () => {
   });
 
   it('thiếu SKU ⇒ chặn', () => {
-    expect(codesOf(buildPayload({ variants: [] }))).toContain(POD_LISTING_BLOCKER_CODES.MISSING_SKU);
+    expect(codesOf(buildPayload({ variants: [] }))).toContain(
+      POD_LISTING_BLOCKER_CODES.MISSING_SKU,
+    );
   });
 
   it('thiếu Price ⇒ chặn', () => {

@@ -11,9 +11,17 @@ import { MangoOrderMapper } from './mango/mappers/mango-order.mapper';
 import { MangoFulfillmentService } from './mango/services/mango-fulfillment.service';
 import { MangoWebhookController } from './mango/webhook/mango-webhook.controller';
 import { MangoWebhookService } from './mango/webhook/mango-webhook.service';
+import { ProductDesignMapper } from './mappers/product-design.mapper';
+import { FulfillmentCatalogRepository } from './repositories/fulfillment-catalog.repository';
 import { FulfillmentRepository } from './repositories/fulfillment.repository';
+import { FulfillmentCatalogSyncJob } from './scheduler/fulfillment-catalog-sync.job';
 import { FulfillmentSyncJob } from './scheduler/fulfillment-sync.job';
+import { AutoMapOrderSyncHook } from './services/auto-map-order-sync.hook';
+import { FulfillmentCatalogQueryService } from './services/fulfillment-catalog-query.service';
+import { FulfillmentCatalogSyncService } from './services/fulfillment-catalog-sync.service';
+import { ProductMappingAutoService } from './services/product-mapping-auto.service';
 import { FulfillmentReadinessService } from './services/fulfillment-readiness.service';
+import { ProductDesignService } from './services/product-design.service';
 import { FulfillmentSyncService } from './services/fulfillment-sync.service';
 import { FulfillmentService } from './services/fulfillment.service';
 
@@ -44,8 +52,17 @@ import { FulfillmentService } from './services/fulfillment.service';
     // Nghiệp vụ chung
     FulfillmentService,
     FulfillmentReadinessService,
+    ProductDesignService,
+    ProductDesignMapper,
     FulfillmentSyncService,
     FulfillmentRepository,
+    // Bản sao danh mục nhà cung cấp: Mango API → Sync Job → Database → UI
+    FulfillmentCatalogRepository,
+    FulfillmentCatalogSyncService,
+    FulfillmentCatalogQueryService,
+    // Ánh xạ tự động — cùng một luật, ba nguồn kích hoạt (đồng bộ đơn · đồng bộ danh mục · thủ công)
+    ProductMappingAutoService,
+    AutoMapOrderSyncHook,
     // MangoTeePrints
     MangoApiClient,
     MangoOrderMapper,
@@ -55,6 +72,7 @@ import { FulfillmentService } from './services/fulfillment.service';
     MangoWebhookService,
     // Lịch
     FulfillmentSyncJob,
+    FulfillmentCatalogSyncJob,
   ],
   exports: [FulfillmentService, FulfillmentRepository],
 })

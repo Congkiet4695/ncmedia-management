@@ -202,6 +202,11 @@ export class PodPayoutService {
 
   /** Metadata phân trang theo ADR-023: khoá là `limit`, dù tham số vào tên `pageSize`. */
   private meta(total: number, page: number, pageSize: number) {
-    return { total, page, limit: pageSize, totalPages: total === 0 ? 0 : Math.ceil(total / pageSize) };
+    return {
+      total,
+      page,
+      limit: pageSize,
+      totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
+    };
   }
 }

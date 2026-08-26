@@ -276,11 +276,17 @@ export class PodListingResolverService {
 
     // --- Kiểm tra dữ liệu bắt buộc để Sprint 4 publish được ---
     if (!category?.tiktokCategoryId) {
-      issues.push(this.error('category', POD_DRAFT_ISSUE_CODES.MISSING_CATEGORY, 'Chưa chọn danh mục TikTok'));
+      issues.push(
+        this.error('category', POD_DRAFT_ISSUE_CODES.MISSING_CATEGORY, 'Chưa chọn danh mục TikTok'),
+      );
     }
     if (!description.trim()) {
       issues.push(
-        this.error('description', POD_DRAFT_ISSUE_CODES.MISSING_DESCRIPTION, 'Listing chưa có mô tả'),
+        this.error(
+          'description',
+          POD_DRAFT_ISSUE_CODES.MISSING_DESCRIPTION,
+          'Listing chưa có mô tả',
+        ),
       );
     }
     for (const attribute of category?.attributes ?? []) {
@@ -321,7 +327,11 @@ export class PodListingResolverService {
     };
     if (!packageInfo.weight) {
       issues.push(
-        this.error('package', POD_DRAFT_ISSUE_CODES.MISSING_PACKAGE, 'Chưa có khối lượng kiện hàng'),
+        this.error(
+          'package',
+          POD_DRAFT_ISSUE_CODES.MISSING_PACKAGE,
+          'Chưa có khối lượng kiện hàng',
+        ),
       );
     }
 
@@ -482,7 +492,11 @@ export class PodListingResolverService {
 
     if (active.length === 0) {
       issues.push(
-        this.error('variants', POD_DRAFT_ISSUE_CODES.MISSING_VARIANT, 'Listing chưa có biến thể nào'),
+        this.error(
+          'variants',
+          POD_DRAFT_ISSUE_CODES.MISSING_VARIANT,
+          'Listing chưa có biến thể nào',
+        ),
       );
       return [];
     }

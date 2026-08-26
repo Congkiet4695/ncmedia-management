@@ -82,11 +82,20 @@ CHECK constraints:
 - `storage_files_key_check` — `object_key` / `folder` / `original_name` / `stored_name` không rỗng
 - `storage_files_extension_check` — `extension` chữ thường, không bắt đầu bằng dấu chấm
 
-### 3.2. `pod_order_item_designs` (đã refactor)
+### 3.2. Bảng design tham chiếu tới `storage_files`
 
-Bỏ các cột `file_key`, `file_url`, `file_name`, `mime_type`, `file_size`, `uploaded_by`,
-`uploaded_at`. Thay bằng **một** khoá ngoại `storage_file_id → storage_files.id`
+Bảng design **không** lặp lại `file_key`, `file_url`, `file_name`, `mime_type`, `file_size`,
+`uploaded_by`, `uploaded_at`. Chỉ giữ **một** khoá ngoại `storage_file_id → storage_files.id`
 (`ON DELETE RESTRICT`). Một nguồn sự thật duy nhất cho metadata file.
+
+| Bảng | Trạng thái | `reference_type` |
+|---|---|---|
+| `fulfillment_product_designs` | 🔴 **Đang dùng** — design theo SẢN PHẨM (Product ID + Seller SKU), ĐỘC LẬP với Product Mapping | `FULFILLMENT_MAPPING_DESIGN` |
+| `pod_order_item_designs` | ⛔ **Lưu trữ lịch sử, chỉ đọc** — design theo từng line item, không còn code nào ghi vào | `POD_ORDER_ITEM_DESIGN` |
+
+> 🔴 `StorageRepository.countReferences` đếm **cả hai** bảng. Bảng lịch sử tuy không còn được
+> ghi nhưng file mà nó trỏ tới vẫn phải được bảo vệ khỏi lệnh xoá ở màn hình Storage — nếu
+> không, bản ghi audit "đơn này in file gì" sẽ trỏ vào hư không.
 
 > ⚠️ Migration `20260806103400_storage_module_r2` **xoá sạch** dữ liệu bảng
 > `pod_order_item_designs` cũ: các design trước đây nằm trên đĩa cục bộ, không có bản ghi
@@ -98,10 +107,12 @@ Bỏ các cột `file_key`, `file_url`, `file_name`, `mime_type`, `file_size`, `
 {module}/{organizationId}/{referenceType|folder}/{referenceId}/{uuid}.{ext}
 ```
 
-POD Design dùng thư mục riêng do module tự chỉ định:
+POD Design dùng thư mục riêng do module tự chỉ định. `reference_id` để **NULL** (cột là UUID,
+mà khoá của design là một cặp CHUỖI); đường tra ngược từ file về sản phẩm nằm ngay trong
+object key:
 
 ```
-pod/designs/{organizationId}/{orderItemId}/{uuid}.png
+fulfillment/designs/{organizationId}/{tiktokProductId}/{sellerSku}/{uuid}.png
 ```
 
 Tiền tố luôn bắt đầu bằng tổ chức ⇒ rà soát/gỡ bỏ/phân quyền theo tiền tố đều thuận tiện.

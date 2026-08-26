@@ -9,6 +9,47 @@ export default () => ({
   corsOrigin: process.env.CORS_ORIGIN ?? '*',
   logLevel: process.env.LOG_LEVEL ?? 'info',
 
+  app: {
+    /**
+     * URL công khai của FRONTEND — dùng dựng link đăng nhập trong email được duyệt.
+     *
+     * Không hardcode domain: cùng một mã nguồn chạy ở dev/staging/production và ba nơi đó có
+     * ba địa chỉ khác nhau. Để trống thì email vẫn gửi, chỉ là link tương đối.
+     */
+    publicUrl: process.env.APP_PUBLIC_URL ?? '',
+  },
+
+  /**
+   * Mail Module — Gmail SMTP (yêu cầu §11).
+   *
+   * 🔴 `MAIL_PASS` phải là **Gmail App Password** (16 ký tự), KHÔNG phải mật khẩu tài khoản
+   * Google. Google chặn đăng nhập SMTP bằng mật khẩu thường từ 2022.
+   *
+   * Cổng 587 = STARTTLS ⇒ `MAIL_SECURE=false`. Cổng 465 mới cần `MAIL_SECURE=true`.
+   */
+  mail: {
+    driver: process.env.MAIL_DRIVER ?? 'gmail',
+    host: process.env.MAIL_HOST ?? 'smtp.gmail.com',
+    port: parseInt(process.env.MAIL_PORT ?? '587', 10),
+    secure: (process.env.MAIL_SECURE ?? 'false') === 'true',
+    user: process.env.MAIL_USER ?? '',
+    pass: process.env.MAIL_PASS ?? '',
+    from: process.env.MAIL_FROM ?? process.env.MAIL_USER ?? '',
+    fromName: process.env.MAIL_FROM_NAME ?? 'NCMedia Management',
+  },
+
+  /**
+   * Tài khoản Super Admin đầu tiên — seed đọc từ đây.
+   *
+   * Không hardcode mật khẩu trong mã nguồn: `prisma/seed.ts` chỉ tạo Super Admin khi ENV có
+   * đủ email + password, và bỏ qua (kèm cảnh báo) nếu thiếu.
+   */
+  superAdmin: {
+    email: process.env.SUPER_ADMIN_EMAIL ?? '',
+    password: process.env.SUPER_ADMIN_PASSWORD ?? '',
+    fullName: process.env.SUPER_ADMIN_FULL_NAME ?? 'Super Administrator',
+  },
+
   database: {
     url: process.env.DATABASE_URL,
   },
@@ -103,6 +144,18 @@ export default () => ({
       batchSize: parseInt(process.env.FULFILLMENT_SYNC_BATCH_SIZE ?? '100', 10),
       /** Deadline cho cả lượt (ms) — phải NHỎ HƠN chu kỳ cron. */
       runDeadlineMs: parseInt(process.env.FULFILLMENT_SYNC_DEADLINE_MS ?? '240000', 10),
+    },
+
+    /**
+     * Kéo danh mục nhà cung cấp về Database (Catalogue → Product → Variant).
+     *
+     * Thưa hơn hẳn `sync` (trạng thái đơn) vì danh mục xưởng in gần như tĩnh, trong khi một
+     * lượt là hàng nghìn lời gọi API. Cần dữ liệu mới ngay thì bấm đồng bộ thủ công.
+     */
+    catalogSync: {
+      enabled: (process.env.FULFILLMENT_CATALOG_SYNC_ENABLED ?? 'false') === 'true',
+      /** Cron 5 trường — mặc định mỗi 6 giờ. */
+      cron: process.env.FULFILLMENT_CATALOG_SYNC_CRON ?? '0 */6 * * *',
     },
 
     webhook: {

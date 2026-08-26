@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiForbiddenResponse,
@@ -40,7 +49,9 @@ export class PodResourceController {
   constructor(private readonly service: PodResourceSyncService) {}
 
   @Get('status')
-  @RequirePermissions('pod.product.read')
+  // 🔴 `pod.product.sync` chứ không phải `pod.product.read`: đây là bảng điều khiển của JOB
+  // đồng bộ danh mục (§2 — Seller không có Sync/Refresh), không phải màn hình duyệt sản phẩm.
+  @RequirePermissions('pod.product.sync')
   @ApiOperation({
     summary: 'Trạng thái mọi tài nguyên',
     description:
@@ -52,7 +63,7 @@ export class PodResourceController {
   }
 
   @Get('logs')
-  @RequirePermissions('pod.product.read')
+  @RequirePermissions('pod.product.sync')
   @ApiOperation({
     summary: 'Nhật ký đồng bộ',
     description: 'Lọc theo tài nguyên hoặc theo `jobId` để xem đúng một lượt chạy.',

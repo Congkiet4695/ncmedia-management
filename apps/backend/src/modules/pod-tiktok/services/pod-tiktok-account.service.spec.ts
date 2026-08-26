@@ -105,7 +105,9 @@ describe('PodTiktokAccountService', () => {
       getAccessToken: jest.fn().mockResolvedValue({ data: TOKEN_RESPONSE, requestId: 'req-1' }),
     };
     apiClient = {
-      getAuthorizedShops: jest.fn().mockResolvedValue({ shops: [SHOP_RESPONSE], requestId: 'req-2' }),
+      getAuthorizedShops: jest
+        .fn()
+        .mockResolvedValue({ shops: [SHOP_RESPONSE], requestId: 'req-2' }),
     };
 
     service = new PodTiktokAccountService(
@@ -157,7 +159,12 @@ describe('PodTiktokAccountService', () => {
     beforeEach(() => mockFindByIdResult());
 
     it('thực hiện đúng thứ tự: đổi code → Get Authorized Shops → lưu DB', async () => {
-      const result = await service.completeAuthorization(ORG_ID, USER_ID, 'TTP_auth_code', ACCOUNT_NAME);
+      const result = await service.completeAuthorization(
+        ORG_ID,
+        USER_ID,
+        'TTP_auth_code',
+        ACCOUNT_NAME,
+      );
 
       expect(authClient.getAccessToken).toHaveBeenCalledWith('TTP_auth_code');
       expect(apiClient.getAuthorizedShops).toHaveBeenCalledWith(TOKEN_RESPONSE.access_token);
@@ -208,7 +215,12 @@ describe('PodTiktokAccountService', () => {
       apiClient.getAuthorizedShops.mockResolvedValue({
         shops: [
           SHOP_RESPONSE,
-          { ...SHOP_RESPONSE, id: '7000714532876273421', name: 'Shop 2', seller_type: 'CROSS_BORDER' },
+          {
+            ...SHOP_RESPONSE,
+            id: '7000714532876273421',
+            name: 'Shop 2',
+            seller_type: 'CROSS_BORDER',
+          },
         ],
       });
 

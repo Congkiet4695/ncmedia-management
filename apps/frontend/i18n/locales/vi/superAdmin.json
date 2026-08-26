@@ -1,0 +1,69 @@
+{
+  "noPermission": "Chỉ Super Admin mới truy cập được khu vực này.",
+  "emailFailed": "Không gửi được email thông báo. Vui lòng kiểm tra cấu hình mail.",
+  "status": {
+    "PENDING": "Chờ duyệt",
+    "ACTIVE": "Đã duyệt",
+    "REJECTED": "Bị từ chối",
+    "TRIAL": "Dùng thử",
+    "SUSPENDED": "Tạm ngưng",
+    "DELETED": "Đã xoá"
+  },
+  "action": {
+    "APPROVE": "Đã duyệt",
+    "REJECT": "Đã từ chối"
+  },
+  "dashboard": {
+    "pending": "Organization chờ duyệt",
+    "approved": "Organization đã duyệt",
+    "rejected": "Organization bị từ chối",
+    "total": "Tổng Organization"
+  },
+  "organizations": {
+    "title": "Organizations",
+    "subtitle": "Xét duyệt hồ sơ đăng ký. Chưa được duyệt thì không ai đăng nhập được.",
+    "searchPlaceholder": "Tìm theo tên Organization, Owner hoặc email",
+    "allStatuses": "Tất cả trạng thái",
+    "empty": "Không có Organization nào khớp bộ lọc này.",
+    "notFound": "Không tìm thấy Organization.",
+    "organization": "Organization",
+    "owner": "Owner",
+    "email": "Email",
+    "registeredAt": "Thời điểm đăng ký",
+    "status": "Trạng thái",
+    "detail": "Xem chi tiết"
+  },
+  "detail": {
+    "organizationInfo": "Thông tin Organization",
+    "ownerInfo": "Chủ tài khoản",
+    "slug": "Slug",
+    "userCount": "Số người dùng",
+    "createdAt": "Thời điểm tạo",
+    "updatedAt": "Cập nhật lần cuối",
+    "phone": "Điện thoại",
+    "ownerStatus": "Trạng thái Owner",
+    "lastLoginAt": "Đăng nhập gần nhất",
+    "reviewResult": "Kết quả xét duyệt",
+    "approvedAt": "Duyệt lúc",
+    "rejectedAt": "Từ chối lúc",
+    "auditLog": "Nhật ký xét duyệt",
+    "auditEmpty": "Chưa có quyết định nào được ghi nhận."
+  },
+  "approve": {
+    "title": "Duyệt Organization",
+    "confirm": "Duyệt \"{{name}}\" và cho phép thành viên đăng nhập?",
+    "hint": "Chủ Organization sẽ nhận email \"Organization Approved\" kèm link đăng nhập.",
+    "submit": "Duyệt",
+    "done": "Đã duyệt \"{{name}}\""
+  },
+  "reject": {
+    "title": "Từ chối hồ sơ đăng ký",
+    "confirm": "Từ chối hồ sơ đăng ký của \"{{name}}\"?",
+    "reason": "Lý do",
+    "reasonPlaceholder": "VD: Chưa xác minh được thông tin doanh nghiệp. Vui lòng bổ sung giấy phép kinh doanh.",
+    "reasonHint": "Nội dung này được gửi qua email cho người đăng ký — hãy viết để họ biết cần sửa gì.",
+    "reasonTooShort": "Lý do phải có ít nhất {{count}} ký tự.",
+    "submit": "Từ chối",
+    "done": "Đã từ chối \"{{name}}\""
+  }
+}

@@ -60,6 +60,21 @@ export type PodDatePreset = (typeof POD_DATE_PRESETS)[number];
 
 /** Nhãn hiển thị nằm ở `i18n/locales/<lang>/common.json` (khoá `date.preset.*`). */
 
+export type PodItemMappingStatus = 'MAPPED' | 'NEED_MANUAL' | 'MISSING' | 'NO_PROVIDER';
+
+/** Một ứng viên do ánh xạ tự động tìm được — đủ dữ liệu để dialog chọn sẵn. */
+export interface PodMappingCandidate {
+  productId: string;
+  externalProductId: string;
+  productName: string;
+  variantId: string;
+  externalVariantId: string;
+  sku: string;
+  variantName: string;
+  catalogueId: string | null;
+  catalogueName: string | null;
+}
+
 export interface PodOrderItem {
   id: string;
   tiktokLineItemId: string;
@@ -80,6 +95,27 @@ export interface PodOrderItem {
   cancelReason: string | null;
   isPodCustomized: boolean;
   podInfoId: string | null;
+  /**
+   * Product Mapping đã ghép với sản phẩm này.
+   *
+   * 🔴 Design nay thuộc **Product Mapping**, không thuộc đơn — nên nút Upload/Delete phải gọi
+   * vào mapping này. `null` = chưa khai ánh xạ ⇒ hiển thị "thiếu Product Mapping", KHÔNG phải
+   * "thiếu design" (hai lỗi khác nhau, hai chỗ sửa khác nhau).
+   */
+  mappingId: string | null;
+  /**
+   * Tình trạng ánh xạ — bốn trạng thái dẫn tới bốn hành động khác nhau.
+   *
+   * `MAPPED`      đã có Product Mapping, không phải làm gì
+   * `NEED_MANUAL` máy tìm được NHIỀU ứng viên nên không dám tự chọn ⇒ bấm "Map Product",
+   *               danh sách đã lọc sẵn ở `mappingCandidates`
+   * `MISSING`     đã rà và không thấy gì (hoặc chưa rà) ⇒ phải khai tay
+   * `NO_PROVIDER` kết nối TikTok chưa gán nhà cung cấp, hoặc danh mục chưa đồng bộ lần nào
+   *               ⇒ sửa ở màn hình cấu hình nhà cung cấp, KHÔNG phải ở đây
+   */
+  mappingStatus: PodItemMappingStatus;
+  /** Ứng viên máy tìm được. Chỉ có giá trị khi `NEED_MANUAL`. */
+  mappingCandidates: PodMappingCandidate[];
   isGift: boolean;
   /** TikTok trả 1 line item = 1 đơn vị sản phẩm nên luôn bằng 1. */
   quantity: number;
@@ -106,6 +142,12 @@ export interface PodOrder {
   status: PodOrderStatus;
   shop: PodOrderShop;
   accountName: string;
+  /**
+   * Nhà cung cấp fulfillment gán cho kết nối TikTok của đơn.
+   * Dùng để mở dialog "Map Product" với nhà cung cấp điền sẵn — không bắt người dùng đoán.
+   * NULL = kết nối chưa gán nhà cung cấp ⇒ không thể khai ánh xạ từ đây.
+   */
+  fulfillmentAccountId: string | null;
   /** Seller phụ trách — suy ra từ Account sở hữu đơn. */
   sellerId: string | null;
   sellerFullName: string | null;
@@ -150,6 +192,12 @@ export interface PodOrderListItem {
   id: string;
   tiktokOrderId: string;
   shopName: string | null;
+  /**
+   * Nhà cung cấp fulfillment gán cho kết nối TikTok của đơn.
+   * Dùng để mở dialog "Map Product" với nhà cung cấp điền sẵn — không bắt người dùng đoán.
+   * NULL = kết nối chưa gán nhà cung cấp ⇒ không thể khai ánh xạ từ đây.
+   */
+  fulfillmentAccountId: string | null;
   /** Seller phụ trách — suy ra từ Account sở hữu đơn, KHÔNG lưu trên đơn. */
   sellerId: string | null;
   sellerFullName: string | null;

@@ -12,6 +12,10 @@ import type {
   PodProductSyncHistoryQueryDto,
   TriggerProductSyncDto,
 } from '../dto/pod-product-query.dto';
+import {
+  PodAccessScopeService,
+  type PodAccessScope,
+} from '../../pod-tiktok/services/pod-access-scope.service';
 import { PodProductResponseMapper } from '../mappers/pod-product-response.mapper';
 import { PodProductRepository } from '../repositories/pod-product.repository';
 import { PodProductSyncRepository } from '../repositories/pod-product-sync.repository';
@@ -48,16 +52,24 @@ export class PodProductService {
     private readonly mapper: PodProductResponseMapper,
     private readonly syncService: PodProductSyncService,
     private readonly catalogService: PodProductCatalogService,
+    private readonly accessScope: PodAccessScopeService,
   ) {}
 
   async findAll(
     organizationId: string,
     query: PodProductQueryDto,
+    scope: PodAccessScope,
   ): Promise<PaginatedPodProductResponseDto> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
+    // Chọn shop ngoài phạm vi ⇒ 403 ngay, thay vì trả danh sách rỗng khó hiểu.
+    this.accessScope.assertShopAllowed(scope, query.shopId);
+    this.accessScope.assertAccountAllowed(scope, query.accountId);
+
     const { items, total } = await this.repo.findMany(organizationId, {
+      shopScope: scope.allShops ? undefined : scope.shopIds,
+      accountScope: scope.allShops ? undefined : scope.accountIds,
       page,
       limit,
       search: query.search,
@@ -76,9 +88,16 @@ export class PodProductService {
     };
   }
 
-  async findOne(organizationId: string, id: string): Promise<PodProductDetailDto> {
+  async findOne(
+    organizationId: string,
+    id: string,
+    scope: PodAccessScope,
+  ): Promise<PodProductDetailDto> {
     const product = await this.repo.findById(organizationId, id);
     if (!product) throw new PodProductNotFoundException();
+    // 🔴 Lọc danh sách là chưa đủ: người dùng vẫn gọi thẳng được `/products/{id}` bằng id
+    // đoán được. Kiểm shop của CHÍNH bản ghi vừa đọc.
+    this.accessScope.assertShopAllowed(scope, product.shopId);
     return this.mapper.toDetail(product);
   }
 
@@ -128,6 +147,7 @@ export class PodProductService {
     organizationId: string,
     userId: string,
     id: string,
+    scope: PodAccessScope,
   ): Promise<PodProductDetailDto> {
     const product = await this.repo.findById(organizationId, id);
     if (!product) throw new PodProductNotFoundException();
@@ -142,13 +162,17 @@ export class PodProductService {
       tiktokProductId: product.tiktokProductId,
     });
 
-    return this.findOne(organizationId, id);
+    return this.findOne(organizationId, id, scope);
   }
 
   async findSyncHistories(
     organizationId: string,
     query: PodProductSyncHistoryQueryDto,
+    scope: PodAccessScope,
   ): Promise<PaginatedPodProductSyncHistoryDto> {
+    this.accessScope.assertShopAllowed(scope, query.shopId);
+    this.accessScope.assertAccountAllowed(scope, query.accountId);
+
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
@@ -157,6 +181,8 @@ export class PodProductService {
       limit,
       accountId: query.accountId,
       shopId: query.shopId,
+      shopScope: this.accessScope.shopFilter(scope)?.in,
+      accountScope: this.accessScope.accountFilter(scope)?.in,
     });
 
     return {
@@ -307,7 +333,12 @@ export class PodProductService {
 
     return {
       items,
-      meta: { total, page, limit: pageSize, totalPages: total === 0 ? 0 : Math.ceil(total / pageSize) },
+      meta: {
+        total,
+        page,
+        limit: pageSize,
+        totalPages: total === 0 ? 0 : Math.ceil(total / pageSize),
+      },
     };
   }
 
@@ -316,7 +347,10 @@ export class PodProductService {
    * dữ liệu thật. Trả về từ dữ liệu đã đồng bộ nên dropdown không bao giờ hiện lựa chọn
    * cho ra 0 kết quả.
    */
-  async findFilterOptions(organizationId: string): Promise<{
+  async findFilterOptions(
+    organizationId: string,
+    scope: PodAccessScope,
+  ): Promise<{
     categories: Array<{ id: string; name: string }>;
     brands: Array<{ id: string; name: string }>;
     statuses: string[];
@@ -342,7 +376,13 @@ export class PodProductService {
         orderBy: { status: 'asc' },
       }),
       this.prisma.podTiktokShop.findMany({
-        where: { organizationId, deletedAt: null },
+        // 🔴 Dropdown shop cũng phải theo phạm vi. Để lọt shop người khác vào đây là vừa lộ
+        // tên shop, vừa mời người dùng bấm vào một bộ lọc chắc chắn trả 403.
+        where: {
+          organizationId,
+          deletedAt: null,
+          ...(scope.allShops ? {} : { id: { in: scope.shopIds } }),
+        },
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
       }),

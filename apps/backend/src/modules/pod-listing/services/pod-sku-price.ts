@@ -47,7 +47,9 @@ export function isUsablePrice(value: Prisma.Decimal | null | undefined): value i
 
 /** Phần trăm giảm hợp lệ: trong khoảng (0, 100]. Ngoài khoảng ⇒ coi như không giảm. */
 function isUsableDiscount(value: Prisma.Decimal | null | undefined): value is Prisma.Decimal {
-  return value !== null && value !== undefined && value.greaterThan(0) && value.lessThanOrEqualTo(100);
+  return (
+    value !== null && value !== undefined && value.greaterThan(0) && value.lessThanOrEqualTo(100)
+  );
 }
 
 /** Chuẩn hoá về 2 chữ số thập phân — đơn vị tiền tệ thực tế của mọi thị trường TikTok. */

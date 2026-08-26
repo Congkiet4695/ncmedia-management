@@ -1,6 +1,11 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PodListingPayloadStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import {
+  PodAccessScopeService,
+  type PodAccessScope,
+} from '../../pod-tiktok/services/pod-access-scope.service';
+import { shopScopeFilter } from '../../pod-tiktok/shared/shop-scope';
 import { POD_PUBLISHABLE_PAYLOAD_STATUSES } from '../constants/pod-listing.constants';
 import { PodListingPublisherService } from './pod-listing-publisher.service';
 import type {
@@ -66,6 +71,7 @@ export class PodListingPayloadService {
     /** Chỉ dùng cho "xoá luôn Draft trên TikTok" — không có vòng phụ thuộc: publisher không
      * biết gì về service này. */
     private readonly publisher: PodListingPublisherService,
+    private readonly accessScope: PodAccessScopeService,
   ) {}
 
   /** Xem trước — KHÔNG ghi bất cứ thứ gì vào database. */
@@ -84,7 +90,11 @@ export class PodListingPayloadService {
     organizationId: string,
     userId: string,
     dto: GenerateListingPayloadDto,
+    scope: PodAccessScope,
   ): Promise<GeneratePayloadResult> {
+    // 🔴 Chặn TRƯỚC khi sinh draft: dropdown shop ở giao diện đã lọc, nhưng client tự gửi
+    // `shopIds` thì chỉ chỗ này chặn được.
+    for (const shopId of dto.shopIds) this.accessScope.assertShopAllowed(scope, shopId);
     const baseTemplate = await this.listingTemplates.get(organizationId, dto.listingTemplateId);
 
     // Nạp trước các shop hợp lệ: shop lạ trong danh sách phải bị chặn NGAY,
@@ -235,14 +245,16 @@ export class PodListingPayloadService {
     return { ...saved, resolved };
   }
 
-  async list(organizationId: string, query: PodListingPayloadQueryDto) {
+  async list(organizationId: string, query: PodListingPayloadQueryDto, scope: PodAccessScope) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const where: Prisma.PodListingPayloadWhereInput = {
       organizationId,
       deletedAt: null,
       ...(query.status ? { status: query.status } : {}),
-      ...(query.shopId ? { shopId: query.shopId } : {}),
+      // 🔴 GIAO của phạm vi và bộ lọc người dùng chọn. Gán rồi ghi đè (`...scope` xong
+      // `...query.shopId`) là lỗ hổng: `?shopId=<shop người khác>` sẽ thắng.
+      shopId: shopScopeFilter(this.accessScope.shopFilter(scope)?.in, query.shopId),
       ...(query.listingTemplateId ? { listingTemplateId: query.listingTemplateId } : {}),
       ...(query.market ? { market: query.market } : {}),
       ...(query.reviewStatus ? { reviewStatus: query.reviewStatus } : {}),
@@ -293,7 +305,13 @@ export class PodListingPayloadService {
     };
   }
 
-  async get(organizationId: string, id: string) {
+  /**
+   * Nạp một Draft Listing, ĐÃ kiểm phạm vi shop.
+   *
+   * 🔴 Cửa vào duy nhất — `remove` cũng đi qua đây, nên không có đường nào chạm tới draft
+   * của shop khác mà bỏ qua phép kiểm này.
+   */
+  async get(organizationId: string, id: string, scope: PodAccessScope) {
     const draft = await this.prisma.podListingPayload.findFirst({
       where: { id, organizationId, deletedAt: null },
       include: {
@@ -313,6 +331,7 @@ export class PodListingPayloadService {
       },
     });
     if (!draft) throw new PodListingPayloadNotFoundException();
+    this.accessScope.assertShopAllowed(scope, draft.shopId);
     return draft;
   }
 
@@ -331,9 +350,10 @@ export class PodListingPayloadService {
     organizationId: string,
     userId: string,
     id: string,
+    scope: PodAccessScope,
     options: { remote?: boolean } = {},
   ): Promise<{ removedRemote: boolean }> {
-    const draft = await this.get(organizationId, id);
+    const draft = await this.get(organizationId, id, scope);
     if (draft.status === PodListingPayloadStatus.PUBLISHED) {
       throw new BadRequestException({
         code: 'POD_PAYLOAD_ALREADY_PUBLISHED',
@@ -382,9 +402,16 @@ export class PodListingPayloadService {
       imageTemplateId: string | null;
       resolved: ResolveResult;
     },
-  ): Promise<{ id: string; created: boolean; errorCount: number; status: PodListingPayloadStatus }> {
+  ): Promise<{
+    id: string;
+    created: boolean;
+    errorCount: number;
+    status: PodListingPayloadStatus;
+  }> {
     const { resolved } = input;
-    const errorCount = resolved.issues.filter((issue: ResolveIssue) => issue.level === 'ERROR').length;
+    const errorCount = resolved.issues.filter(
+      (issue: ResolveIssue) => issue.level === 'ERROR',
+    ).length;
     // Còn lỗi ⇒ giữ DRAFT. READY là tín hiệu cho Sprint 4 "được phép publish".
     const status = errorCount > 0 ? PodListingPayloadStatus.DRAFT : PodListingPayloadStatus.READY;
 

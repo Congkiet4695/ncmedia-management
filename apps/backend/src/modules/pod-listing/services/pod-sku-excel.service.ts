@@ -138,7 +138,10 @@ export class PodSkuExcelService {
     return [
       row('Template', templateName),
       row('Sheet dữ liệu', `Chỉ sửa sheet "${DATA_SHEET}". Sheet này chỉ để tham khảo.`),
-      row('Không sửa Header', 'Giữ nguyên dòng 1 (tên cột). Đổi hoặc xoá tên cột sẽ khiến import thất bại.'),
+      row(
+        'Không sửa Header',
+        'Giữ nguyên dòng 1 (tên cột). Đổi hoặc xoá tên cột sẽ khiến import thất bại.',
+      ),
       row(
         `Cột ${COLUMNS.variant.header}`,
         'Khoá đối chiếu, KHÔNG được sửa. Muốn thêm/bớt SKU thì sửa trục biến thể trong màn hình SKU Template — file này chỉ cập nhật dòng đã có.',
@@ -153,13 +156,19 @@ export class PodSkuExcelService {
         `${COLUMNS.retailPrice.header} = giá gốc (gạch ngang) · ${COLUMNS.salePrice.header} = giá bán. Số >= 0, tối đa ${MONEY_DECIMALS} chữ số thập phân. Điền vào đây là ĐẶT CỨNG giá, bỏ qua Pricing Template — chỉ nên dùng khi cả bộ SKU đồng giá.`,
       ),
       row(COLUMNS.quantity.header, 'Số nguyên >= 0.'),
-      row(COLUMNS.discount.header, `Phần trăm từ 0 đến 100, tối đa ${DISCOUNT_DECIMALS} chữ số thập phân.`),
+      row(
+        COLUMNS.discount.header,
+        `Phần trăm từ 0 đến 100, tối đa ${DISCOUNT_DECIMALS} chữ số thập phân.`,
+      ),
       row(COLUMNS.enabled.header, 'TRUE / FALSE (chấp nhận 1/0, YES/NO). Bỏ trống = giữ nguyên.'),
       row(
         'Xử lý lỗi',
         'Hệ thống kiểm tra toàn bộ file trước khi ghi. Chỉ cần 1 dòng lỗi thì KHÔNG dòng nào được ghi (rollback toàn bộ).',
       ),
-      row('Giới hạn', `Tối đa ${POD_SKU_IMPORT_MAX_ROWS} dòng mỗi lần import. Chỉ nhận file .xlsx.`),
+      row(
+        'Giới hạn',
+        `Tối đa ${POD_SKU_IMPORT_MAX_ROWS} dòng mỗi lần import. Chỉ nhận file .xlsx.`,
+      ),
     ];
   }
 
@@ -217,7 +226,14 @@ export class PodSkuExcelService {
     }
 
     if (errors.length > 0) {
-      return { total: sheet.rows.length, created: 0, updated: 0, skipped: 0, failed: errors.length, errors };
+      return {
+        total: sheet.rows.length,
+        created: 0,
+        updated: 0,
+        skipped: 0,
+        failed: errors.length,
+        errors,
+      };
     }
 
     const updates = parsed.filter(({ values }) => Object.keys(values).length > 0);
@@ -330,7 +346,11 @@ export class PodSkuExcelService {
   }
 
   /** Trả `null` nếu dòng có lỗi. Ghi nhận TẤT CẢ lỗi của dòng, không dừng ở lỗi đầu tiên. */
-  private validateRow(raw: RawRow, sheet: SheetData, errors: ImportRowErrorDto[]): RowValues | null {
+  private validateRow(
+    raw: RawRow,
+    sheet: SheetData,
+    errors: ImportRowErrorDto[],
+  ): RowValues | null {
     let ok = true;
     const fail = (field: string, message: string): void => {
       ok = false;
@@ -364,7 +384,8 @@ export class PodSkuExcelService {
     if (adjustValue) {
       // Cho phép số ÂM: "size S rẻ hơn 1.00" cũng là một quy tắc hợp lệ.
       const parsed = parseDecimalCell(adjustValue, MONEY_DECIMALS);
-      if (parsed === null) fail(COLUMNS.adjustValue.header, `"${adjustValue}" không phải số hợp lệ`);
+      if (parsed === null)
+        fail(COLUMNS.adjustValue.header, `"${adjustValue}" không phải số hợp lệ`);
       else values.priceAdjustmentValue = new Prisma.Decimal(parsed);
     }
 
@@ -386,7 +407,8 @@ export class PodSkuExcelService {
 
     const quantity = this.cell(raw, sheet, 'quantity');
     if (quantity) {
-      if (!/^\d+$/.test(quantity)) fail(COLUMNS.quantity.header, `"${quantity}" phải là số nguyên >= 0`);
+      if (!/^\d+$/.test(quantity))
+        fail(COLUMNS.quantity.header, `"${quantity}" phải là số nguyên >= 0`);
       else values.quantity = Number(quantity);
     }
 
@@ -394,7 +416,8 @@ export class PodSkuExcelService {
     if (discount) {
       const parsed = parseDecimalCell(discount, DISCOUNT_DECIMALS);
       if (parsed === null) fail(COLUMNS.discount.header, `"${discount}" không phải số hợp lệ`);
-      else if (parsed < 0 || parsed > 100) fail(COLUMNS.discount.header, 'Phải nằm trong khoảng 0–100');
+      else if (parsed < 0 || parsed > 100)
+        fail(COLUMNS.discount.header, 'Phải nằm trong khoảng 0–100');
       else values.discount = new Prisma.Decimal(parsed);
     }
 

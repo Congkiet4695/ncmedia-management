@@ -48,8 +48,36 @@ export const MANGO_MAX_PAGE_LIMIT = {
  */
 export const MANGO_MAX_PAGES_PER_FETCH = 500;
 
+/**
+ * Tham số đồng bộ danh mục.
+ *
+ * `concurrency`: số sản phẩm được đọc biến thể cùng lúc. Trần tần suất 10 req/s do
+ * `MangoApiClient` giữ, nên con số này chỉ để giới hạn bộ nhớ và số socket — đặt cao hơn
+ * không làm nhanh hơn, chỉ làm hàng đợi chờ dài hơn.
+ */
+export const MANGO_CATALOG_SYNC = {
+  concurrency: 8,
+} as const;
+
 /** Giới hạn tần suất chính thức: 10 request/giây. */
 export const MANGO_RATE_LIMIT_PER_SECOND = 10;
+
+/**
+ * Chính sách thử lại cho lời gọi ĐỌC (GET).
+ *
+ * 🔴 Chỉ áp dụng cho lỗi TẠM THỜI (rate limit / mạng / 5xx) và chỉ cho GET — xem chú thích
+ * ở `MangoApiClient`. Ba lần thử với lùi cấp số nhân là đủ vượt qua một nhịp nghẽn ngắn mà
+ * không giữ người dùng chờ quá lâu: 0,5s + 1s ≈ 1,5s tổng thời gian chờ trong trường hợp
+ * xấu nhất, chưa kể nhiễu ngẫu nhiên.
+ */
+export const MANGO_RETRY = {
+  maxAttempts: 3,
+  baseDelayMs: 500,
+  /** Trần một lần chờ — kể cả khi nhà cung cấp báo `x-ratelimit-reset` rất lớn. */
+  maxDelayMs: 10_000,
+  /** Nhiễu ngẫu nhiên chống hiệu ứng đồng loạt thức dậy cùng lúc. */
+  jitterMs: 250,
+} as const;
 
 /** Header giới hạn tần suất Mango trả về. */
 export const MANGO_RATE_LIMIT_HEADERS = {
@@ -74,8 +102,7 @@ export const MANGO_ENDPOINTS = {
   /** GET — danh mục sản phẩm. */
   products: '/products',
   /** GET — biến thể của một sản phẩm (nguồn `sku` để ánh xạ). */
-  productVariations: (productId: string) =>
-    `/products/${encodeURIComponent(productId)}/variations`,
+  productVariations: (productId: string) => `/products/${encodeURIComponent(productId)}/variations`,
   /** GET — danh sách production line kèm shipping method được hỗ trợ. */
   productionLines: '/production-lines',
   /** POST / GET — đăng ký & liệt kê webhook. */

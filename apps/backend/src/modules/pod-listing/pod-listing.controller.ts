@@ -23,6 +23,9 @@ import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
+import { PodScope } from '../pod-tiktok/decorators/pod-scope.decorator';
+import { PodScopeGuard } from '../pod-tiktok/guards/pod-scope.guard';
+import type { PodAccessScope } from '../pod-tiktok/services/pod-access-scope.service';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import {
   GenerateListingPayloadDto,
@@ -55,7 +58,9 @@ import { PodWarehouseService } from './services/pod-warehouse.service';
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Access token không hợp lệ (AUTH_TOKEN_INVALID)' })
 @ApiForbiddenResponse({ description: 'Thiếu permission (AUTH_FORBIDDEN)' })
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+// 🔴 PodScopeGuard nạp phạm vi shop cho MỌI route dưới đây — route thêm sau cũng
+// được bảo vệ mà không phải nhớ gắn lại.
+@UseGuards(JwtAuthGuard, PermissionsGuard, PodScopeGuard)
 @Controller('pod')
 export class PodListingController {
   constructor(
@@ -200,8 +205,12 @@ export class PodListingController {
   @Get('warehouses')
   @RequirePermissions('pod.template.read')
   @ApiOperation({ summary: 'Danh sách kho đã đồng bộ từ TikTok' })
-  listWarehouses(@CurrentUser() user: AuthenticatedUser, @Query('shopId') shopId?: string) {
-    return this.warehouses.list(user.organizationId, { shopId });
+  listWarehouses(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Query('shopId') shopId?: string,
+  ) {
+    return this.warehouses.list(user.organizationId, { shopId }, scope);
   }
 
   @Post('warehouses/sync')
@@ -239,22 +248,34 @@ export class PodListingController {
       'Cho phép ghi đè Listing/Image Template theo từng sản phẩm. Draft chỉ nằm trong ' +
       'database — Sprint 4 mới publish lên TikTok.',
   })
-  generate(@CurrentUser() user: AuthenticatedUser, @Body() dto: GenerateListingPayloadDto) {
-    return this.drafts.generate(user.organizationId, user.userId, dto);
+  generate(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Body() dto: GenerateListingPayloadDto,
+  ) {
+    return this.drafts.generate(user.organizationId, user.userId, dto, scope);
   }
 
   @Get('draft-listings')
   @RequirePermissions('pod.draft.read')
   @ApiOperation({ summary: 'Danh sách Draft Listing' })
-  listDrafts(@CurrentUser() user: AuthenticatedUser, @Query() query: PodListingPayloadQueryDto) {
-    return this.drafts.list(user.organizationId, query);
+  listDrafts(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Query() query: PodListingPayloadQueryDto,
+  ) {
+    return this.drafts.list(user.organizationId, query, scope);
   }
 
   @Get('draft-listings/:id')
   @RequirePermissions('pod.draft.read')
   @ApiOperation({ summary: 'Chi tiết Draft Listing (payload + biến thể + lỗi)' })
-  getDraft(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.drafts.get(user.organizationId, id);
+  getDraft(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.drafts.get(user.organizationId, id, scope);
   }
 
   @Delete('draft-listings/:id')
@@ -268,10 +289,11 @@ export class PodListingController {
   })
   removeDraft(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
     @Query('remote') remote?: string,
   ) {
-    return this.drafts.remove(user.organizationId, user.userId, id, {
+    return this.drafts.remove(user.organizationId, user.userId, id, scope, {
       remote: remote === 'true',
     });
   }

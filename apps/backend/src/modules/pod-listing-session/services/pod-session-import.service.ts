@@ -4,6 +4,7 @@ import { Workbook, type Row, type Worksheet } from 'exceljs';
 import { Readable } from 'node:stream';
 import { bufferToWorkbook, workbookToBuffer } from '../../../common/excel/excel.util';
 import { PrismaService } from '../../../database/prisma.service';
+import type { PodAccessScope } from '../../pod-tiktok/services/pod-access-scope.service';
 import {
   POD_SESSION_IMPORT_COLUMNS,
   POD_SESSION_IMPORT_MAX_IMAGES,
@@ -11,7 +12,10 @@ import {
   POD_SESSION_MAX_PRODUCTS,
   POD_SESSION_TITLE_COLUMN,
 } from '../constants/pod-listing-session.constants';
-import { PodSessionImportMode, type ImportSessionProductsDto } from '../dto/pod-listing-session.dto';
+import {
+  PodSessionImportMode,
+  type ImportSessionProductsDto,
+} from '../dto/pod-listing-session.dto';
 import { PodListingSessionService } from './pod-listing-session.service';
 
 /** Một dòng lỗi trong file — người dùng sửa đúng dòng đó rồi nhập lại. */
@@ -67,8 +71,9 @@ export class PodSessionImportService {
     sessionId: string,
     file: Express.Multer.File,
     dto: ImportSessionProductsDto,
+    scope: PodAccessScope,
   ): Promise<SessionImportResult> {
-    const session = await this.sessions.get(organizationId, sessionId);
+    const session = await this.sessions.get(organizationId, sessionId, scope);
     if (session.status === PodListingSessionStatus.LISTING) {
       throw new BadRequestException({
         code: 'POD_SESSION_IN_PROGRESS',
@@ -344,7 +349,12 @@ export class PodSessionImportService {
     if (typeof rich.hyperlink === 'string') return rich.hyperlink.trim() || null;
     if (typeof rich.text === 'string') return rich.text.trim() || null;
     if (Array.isArray(rich.richText)) {
-      return rich.richText.map((part) => part.text ?? '').join('').trim() || null;
+      return (
+        rich.richText
+          .map((part) => part.text ?? '')
+          .join('')
+          .trim() || null
+      );
     }
     // `result` của ô công thức: chỉ nhận primitive; object ở đây là lỗi công thức, không
     // phải dữ liệu — String(...) sẽ cho ra "[object Object]" và làm bẩn cả cột.

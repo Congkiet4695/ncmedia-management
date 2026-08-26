@@ -21,10 +21,7 @@ import {
   TIKTOK_AUTHORIZE_STATE_PARAM,
 } from './constants/tiktok.constants';
 import { CompleteTiktokOAuthDto, TiktokLinkResultQueryDto } from './dto/tiktok-oauth.dto';
-import {
-  PodTiktokLinkResultDto,
-  PodTiktokOAuthCompleteDto,
-} from './dto/pod-tiktok-response.dto';
+import { PodTiktokLinkResultDto, PodTiktokOAuthCompleteDto } from './dto/pod-tiktok-response.dto';
 import { PodTiktokOAuthService } from './services/pod-tiktok-oauth.service';
 
 /** Trang kết quả (công khai) — Seller có thể chưa đăng nhập hệ thống khi tới đây. */
@@ -212,10 +209,7 @@ export class TiktokCallbackController {
    * (frontend và backend cùng domain qua Nginx — cấu hình triển khai hiện tại).
    */
   private buildRedirect(path: string, params: Record<string, string | undefined>): string {
-    const base = (this.config.get<string>('tiktok.callbackRedirectBase') ?? '').replace(
-      /\/+$/,
-      '',
-    );
+    const base = (this.config.get<string>('tiktok.callbackRedirectBase') ?? '').replace(/\/+$/, '');
     const search = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
       if (value) search.set(key, value);

@@ -1,7 +1,20 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
-import { IsBoolean, IsIn, IsInt, IsOptional, IsString, IsUUID, Max, MaxLength, Min } from 'class-validator';
-import { POD_PRODUCT_SORT_FIELDS, type PodProductSortField } from '../constants/pod-product.constants';
+import {
+  IsBoolean,
+  IsIn,
+  IsInt,
+  IsOptional,
+  IsString,
+  IsUUID,
+  Max,
+  MaxLength,
+  Min,
+} from 'class-validator';
+import {
+  POD_PRODUCT_SORT_FIELDS,
+  type PodProductSortField,
+} from '../constants/pod-product.constants';
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
@@ -43,7 +56,8 @@ export class PodProductQueryDto {
   shopId?: string;
 
   @ApiPropertyOptional({
-    description: 'Trạng thái sản phẩm phía TikTok (ACTIVATE, DRAFT, …) — chuỗi tự do vì TikTok mở rộng giá trị',
+    description:
+      'Trạng thái sản phẩm phía TikTok (ACTIVATE, DRAFT, …) — chuỗi tự do vì TikTok mở rộng giá trị',
   })
   @IsOptional()
   @Transform(trim)

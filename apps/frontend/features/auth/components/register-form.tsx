@@ -14,8 +14,16 @@ import { useApiError } from '@/hooks/use-api-error';
 import { getApiErrorCode, getApiFieldErrors } from '@/utils/http';
 import { createRegisterSchema, type RegisterInput } from '../schemas/auth.schema';
 import { useRegister } from '../hooks/use-register';
+import type { RegisterOutcome } from './register-panel';
 
-export function RegisterForm() {
+/**
+ * Form đăng ký Organization.
+ *
+ * 🔴 KHÔNG đăng nhập sau khi gửi: Organization mới ở trạng thái PENDING nên vào Dashboard sẽ
+ * bị chặn ngay. Form báo kết quả lên `onSubmitted`, và `RegisterPanel` đổi cả màn hình sang
+ * trạng thái "chờ duyệt".
+ */
+export function RegisterForm({ onSubmitted }: { onSubmitted: (outcome: RegisterOutcome) => void }) {
   const { t } = useTranslation('auth');
   const { t: tv } = useTranslation('validation');
   const translateApiError = useApiError();
@@ -32,12 +40,13 @@ export function RegisterForm() {
     formState: { errors },
   } = useForm<RegisterInput>({
     resolver: zodResolver(schema),
-    defaultValues: { organizationName: '', fullName: '', email: '', password: '' },
+    defaultValues: { organizationName: '', fullName: '', email: '', phone: '', password: '' },
   });
 
   const onSubmit = async (values: RegisterInput) => {
     try {
-      await mutation.mutateAsync(values);
+      const result = await mutation.mutateAsync(values);
+      onSubmitted({ email: result.user.email, emailSent: result.emailSent });
     } catch (error) {
       const fieldErrors = getApiFieldErrors(error);
       const fields = Object.keys(fieldErrors);
@@ -103,6 +112,26 @@ export function RegisterForm() {
           {...register('email')}
         />
         {errors.email && <p className="text-sm text-destructive">{errors.email.message}</p>}
+      </div>
+
+      {/* Tuỳ chọn — Super Admin dùng để liên hệ xác minh trước khi duyệt. */}
+      <div className="space-y-2">
+        <Label htmlFor="phone">
+          {t('register.phone')}{' '}
+          <span className="text-xs font-normal text-muted-foreground">
+            {t('register.optional')}
+          </span>
+        </Label>
+        <Input
+          id="phone"
+          type="tel"
+          placeholder="0912345678"
+          autoComplete="tel"
+          disabled={isLoading}
+          aria-invalid={!!errors.phone}
+          {...register('phone')}
+        />
+        {errors.phone && <p className="text-sm text-destructive">{errors.phone.message}</p>}
       </div>
 
       <div className="space-y-2">

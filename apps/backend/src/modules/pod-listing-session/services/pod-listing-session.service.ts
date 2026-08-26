@@ -6,6 +6,10 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import {
+  PodAccessScopeService,
+  type PodAccessScope,
+} from '../../pod-tiktok/services/pod-access-scope.service';
 import { PodListingJobService } from '../../pod-listing/services/pod-listing-job.service';
 import {
   PodListingResolverService,
@@ -105,6 +109,7 @@ export class PodListingSessionService {
 
   constructor(
     private readonly prisma: PrismaService,
+    private readonly accessScope: PodAccessScopeService,
     private readonly resolver: PodListingResolverService,
     private readonly validator: PodListingValidatorService,
     private readonly listingTemplates: PodListingTemplateService,
@@ -115,14 +120,19 @@ export class PodListingSessionService {
   // Đọc
   // ---------------------------------------------------------------------------
 
-  async list(organizationId: string, query: PodListingSessionQueryDto) {
+  async list(organizationId: string, query: PodListingSessionQueryDto, scope: PodAccessScope) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
+    this.accessScope.assertShopAllowed(scope, query.shopId);
+
     const where: Prisma.PodListingSessionWhereInput = {
       organizationId,
       deletedAt: null,
       ...(query.status ? { status: query.status } : {}),
       ...(query.market ? { market: query.market } : {}),
+      // 🔴 Chỉ lượt đăng có ÍT NHẤT một shop trong phạm vi. Lượt đăng gồm nhiều shop nên
+      // không thể lọc bằng một cột — phải hỏi qua quan hệ.
+      ...(scope.allShops ? {} : { shops: { some: { shopId: { in: scope.shopIds } } } }),
       ...(query.shopId ? { shops: { some: { shopId: query.shopId } } } : {}),
       ...(query.search ? { name: { contains: query.search, mode: 'insensitive' } } : {}),
     };
@@ -149,18 +159,33 @@ export class PodListingSessionService {
     };
   }
 
-  async get(organizationId: string, id: string): Promise<SessionFull> {
+  /**
+   * Nạp một lượt đăng, ĐÃ kiểm phạm vi shop.
+   *
+   * 🔴 Đây là cửa vào duy nhất của mọi thao tác trên một session (sửa, xoá, import, thêm sản
+   * phẩm, validate, publish). Đặt phép kiểm ở đây thay vì rải ra từng method: mỗi method là
+   * một cơ hội quên, và quên ở đây nghĩa là Seller sửa được lượt đăng của shop người khác.
+   *
+   * `scope` bắt buộc — dùng `POD_SCOPE_SYSTEM` cho tiến trình nền, và CHỈ cho tiến trình nền.
+   */
+  async get(organizationId: string, id: string, scope: PodAccessScope): Promise<SessionFull> {
     const session = await this.prisma.podListingSession.findFirst({
       where: { id, organizationId, deletedAt: null },
       include: SESSION_INCLUDE,
     });
     if (!session) throw new PodListingSessionNotFoundException();
+
+    // Một lượt đăng có thể gồm nhiều shop. Chỉ cần CHẠM tới một shop ngoài phạm vi là từ
+    // chối: cho sửa một lượt đăng có lẫn shop người khác là gián tiếp tác động lên shop đó.
+    if (!scope.allShops) {
+      for (const link of session.shops) this.accessScope.assertShopAllowed(scope, link.shopId);
+    }
     return session;
   }
 
   /** Chi tiết + số đếm sản phẩm + lượt chạy gần nhất. */
-  async getDetail(organizationId: string, id: string) {
-    const session = await this.get(organizationId, id);
+  async getDetail(organizationId: string, id: string, scope: PodAccessScope) {
+    const session = await this.get(organizationId, id, scope);
     const [counts, lastJob] = await Promise.all([
       this.productCounts([id]),
       this.prisma.podListingJob.findFirst({
@@ -188,7 +213,12 @@ export class PodListingSessionService {
   // Cấu hình
   // ---------------------------------------------------------------------------
 
-  async create(organizationId: string, userId: string, dto: CreateListingSessionDto) {
+  async create(
+    organizationId: string,
+    userId: string,
+    dto: CreateListingSessionDto,
+    scope: PodAccessScope,
+  ) {
     const platform = await this.prisma.platform.findFirst({
       where: { code: POD_DEFAULT_PLATFORM_CODE },
       select: { id: true },
@@ -201,7 +231,7 @@ export class PodListingSessionService {
     }
 
     const shopIds = dto.shopIds ?? [];
-    await this.assertShopsBelongToOrg(organizationId, shopIds);
+    await this.assertShopsBelongToOrg(organizationId, shopIds, scope);
     const templates = await this.resolveTemplateRefs(organizationId, dto.market, dto.templates);
 
     const session = await this.prisma.podListingSession.create({
@@ -236,7 +266,7 @@ export class PodListingSessionService {
       msg: 'Đã tạo Listing Session',
     });
 
-    return this.getDetail(organizationId, session.id);
+    return this.getDetail(organizationId, session.id, scope);
   }
 
   /**
@@ -245,12 +275,18 @@ export class PodListingSessionService {
    * `shopIds` và `templates` gửi lên là **thay trọn bộ** — merge từng phần tử sẽ để lại rác
    * của lần chọn trước mà người dùng tưởng đã gỡ ra.
    */
-  async update(organizationId: string, userId: string, id: string, dto: UpdateListingSessionDto) {
-    const session = await this.get(organizationId, id);
+  async update(
+    organizationId: string,
+    userId: string,
+    id: string,
+    dto: UpdateListingSessionDto,
+    scope: PodAccessScope,
+  ) {
+    const session = await this.get(organizationId, id, scope);
     this.assertEditable(session);
 
     const market = dto.market ?? session.market;
-    if (dto.shopIds) await this.assertShopsBelongToOrg(organizationId, dto.shopIds);
+    if (dto.shopIds) await this.assertShopsBelongToOrg(organizationId, dto.shopIds, scope);
     const templates = dto.templates
       ? await this.resolveTemplateRefs(organizationId, market, dto.templates)
       : null;
@@ -301,12 +337,17 @@ export class PodListingSessionService {
       });
     });
 
-    return this.getDetail(organizationId, id);
+    return this.getDetail(organizationId, id, scope);
   }
 
   /** Xoá mềm cả lượt đăng (Draft Product con đi theo — chúng không sống một mình). */
-  async remove(organizationId: string, userId: string, id: string): Promise<void> {
-    const session = await this.get(organizationId, id);
+  async remove(
+    organizationId: string,
+    userId: string,
+    id: string,
+    scope: PodAccessScope,
+  ): Promise<void> {
+    const session = await this.get(organizationId, id, scope);
     this.assertEditable(session);
 
     await this.prisma.$transaction([
@@ -332,8 +373,12 @@ export class PodListingSessionService {
    * không có ảnh/biến thể/giá); (2) áp template rồi kiểm tiếp bằng **đúng bộ luật** mà Bulk
    * Listing Engine dùng — nhờ vậy "màn hình bảo xanh" và "engine chịu chạy" không lệch nhau.
    */
-  async validate(organizationId: string, id: string): Promise<SessionValidation> {
-    const session = await this.get(organizationId, id);
+  async validate(
+    organizationId: string,
+    id: string,
+    scope: PodAccessScope,
+  ): Promise<SessionValidation> {
+    const session = await this.get(organizationId, id, scope);
     const issues = this.checkConfig(session);
 
     const products = await this.prisma.podListingSessionProduct.findMany({
@@ -452,8 +497,9 @@ export class PodListingSessionService {
     userId: string,
     id: string,
     dto: StartSessionListingDto,
+    scope: PodAccessScope,
   ) {
-    const session = await this.get(organizationId, id);
+    const session = await this.get(organizationId, id, scope);
     if (session.status === PodListingSessionStatus.LISTING) {
       throw new BadRequestException({
         code: 'POD_SESSION_ALREADY_LISTING',
@@ -461,7 +507,7 @@ export class PodListingSessionService {
       });
     }
 
-    const validation = await this.validate(organizationId, id);
+    const validation = await this.validate(organizationId, id, scope);
     const ready = validation.products.filter((product) => product.ok);
     if (ready.length === 0) {
       const first = validation.issues[0] ?? validation.products.find((p) => !p.ok)?.issues[0];
@@ -605,7 +651,7 @@ export class PodListingSessionService {
 
   private templateId(session: SessionFull, type: PodListingSessionTemplateType): string | null {
     const row = session.templates.find((item) => item.templateType === type);
-    return row ? ((row[TEMPLATE_COLUMN[type]]) ?? null) : null;
+    return row ? (row[TEMPLATE_COLUMN[type]] ?? null) : null;
   }
 
   private issue(
@@ -625,8 +671,20 @@ export class PodListingSessionService {
     }
   }
 
-  private async assertShopsBelongToOrg(organizationId: string, shopIds: string[]): Promise<void> {
+  /**
+   * Shop phải thuộc tổ chức VÀ nằm trong phạm vi của người dùng.
+   *
+   * 🔴 Hai phép kiểm khác nhau, cần cả hai: "thuộc tổ chức" chặn xuyên tenant (ADR-004),
+   * "trong phạm vi" chặn Seller chọn shop của đồng nghiệp. Bỏ vế thứ hai thì dropdown ẩn đi
+   * cũng vô nghĩa — client tự gửi `shopIds` là qua mặt được.
+   */
+  private async assertShopsBelongToOrg(
+    organizationId: string,
+    shopIds: string[],
+    scope?: PodAccessScope,
+  ): Promise<void> {
     if (shopIds.length === 0) return;
+    if (scope) for (const shopId of shopIds) this.accessScope.assertShopAllowed(scope, shopId);
     const count = await this.prisma.podTiktokShop.count({
       where: { id: { in: shopIds }, organizationId, deletedAt: null },
     });
@@ -667,11 +725,7 @@ export class PodListingSessionService {
       name: string;
     }> = [];
 
-    const push = (
-      templateType: PodListingSessionTemplateType,
-      id: string,
-      name: string,
-    ): void => {
+    const push = (templateType: PodListingSessionTemplateType, id: string, name: string): void => {
       rows.push({ templateType, column: TEMPLATE_COLUMN[templateType], id, name });
     };
 

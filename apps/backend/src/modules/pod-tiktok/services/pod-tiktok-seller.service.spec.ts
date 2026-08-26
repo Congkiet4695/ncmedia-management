@@ -75,9 +75,7 @@ describe('PodTiktokAccountService — Seller phụ trách', () => {
 
       const result = await service.findSellerOptions(ORG, {});
 
-      expect(result).toEqual([
-        { id: EMPLOYEE, fullName: 'Nguyễn Văn A', email: 'nva@gmail.com' },
-      ]);
+      expect(result).toEqual([{ id: EMPLOYEE, fullName: 'Nguyễn Văn A', email: 'nva@gmail.com' }]);
     });
 
     it('luôn giới hạn theo Organization của người gọi', async () => {
@@ -136,7 +134,11 @@ describe('PodTiktokAccountService — Seller phụ trách', () => {
       const dto = new PodTiktokAccountMapper().toListItem(
         accountRow({
           sellerId: EMPLOYEE,
-          seller: { id: EMPLOYEE, status: 'ACTIVE', user: { fullName: 'Lê Như Yên', email: 'yen@x.com' } },
+          seller: {
+            id: EMPLOYEE,
+            status: 'ACTIVE',
+            user: { fullName: 'Lê Như Yên', email: 'yen@x.com' },
+          },
         }) as never,
       );
 

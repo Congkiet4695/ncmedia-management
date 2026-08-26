@@ -1,3 +1,5 @@
+import type { PodDesign, PodDesignPlacement } from '@/features/pod-tiktok/order-types';
+
 /** Trạng thái nhà cung cấp — dạng đọc được của cờ `isActive` phía backend. */
 export type FulfillmentProviderStatus = 'ACTIVE' | 'INACTIVE';
 
@@ -207,35 +209,36 @@ export interface FulfillmentAccount {
   createdAt: string;
 }
 
-export interface ProductMapping {
-  id: string;
-  tiktokProductId: string | null;
-  tiktokSkuId: string | null;
-  sellerSku: string | null;
-  providerSku: string;
-  providerProductName: string | null;
-  providerColor: string | null;
-  providerSize: string | null;
-  productionConfig: string | null;
-  placementMap: unknown;
-  isActive: boolean;
-  note: string | null;
-  createdAt: string;
-}
-
 // ---------------------------------------------------------------------------
-// Ánh xạ sản phẩm TikTok ⇄ nhà cung cấp
+// Product Mapping — SẢN PHẨM POD
+//
+// 🔴 Danh tính là **Product ID + Seller SKU**. Đây là nơi Design, Fulfillment SKU, Provider
+// và Base Cost cùng sống; đơn hàng chỉ ĐỌC qua đây và không giữ bản sao nào.
 // ---------------------------------------------------------------------------
 
 export type ProductMappingStatus = 'ACTIVE' | 'INACTIVE';
 
+/**
+ * Tình trạng design do BACKEND tính.
+ *
+ * Không tự suy ra ở frontend: luật "có mặt trước là đủ, mặt sau tuỳ chọn" cũng là luật quyết
+ * định nút Fulfill sáng hay mờ. Hai bản sao của một luật sẽ trôi lệch, và triệu chứng là
+ * bảng báo "sẵn sàng" trong khi đơn vẫn bị chặn.
+ */
+export type ProductMappingDesignStatus = 'READY' | 'MISSING_FRONT' | 'MISSING_ALL';
+
 export interface ProductMapping {
   id: string;
+  /** Nửa đầu khoá nghiệp vụ. NULL = bản ghi cũ chưa đủ khoá, không ghép được đơn nào. */
   tiktokProductId: string | null;
-  tiktokSkuId: string | null;
+  /** Nửa sau khoá nghiệp vụ. */
   sellerSku: string | null;
-  /** SKU bên nhà cung cấp — giá trị THỰC SỰ gửi đi khi tạo đơn. */
+  /** Tham chiếu, KHÔNG tham gia ghép đơn. */
+  tiktokSkuId: string | null;
+  /** Fulfillment SKU — giá trị THỰC SỰ gửi đi khi tạo đơn. */
   providerSku: string;
+  /** Giá vốn nhà cung cấp. NULL = chưa khai. */
+  baseCost: number | null;
   providerProductId: string | null;
   providerVariantId: string | null;
   providerProductName: string | null;
@@ -248,6 +251,10 @@ export interface ProductMapping {
   status: ProductMappingStatus;
   /** Tên nhà cung cấp (hiển thị ở bảng). */
   providerName: string | null;
+  /** File in của sản phẩm — nguồn sự thật duy nhất, mọi đơn cùng khoá đọc chính danh sách này. */
+  designs: PodDesign[];
+  designStatus: ProductMappingDesignStatus;
+  updatedByName: string | null;
   note: string | null;
   createdAt: string;
   updatedAt: string;
@@ -266,22 +273,57 @@ export interface TiktokProductOption {
   mapped: boolean;
 }
 
-/** Sản phẩm trong danh mục nhà cung cấp (đọc trực tiếp từ API, không hardcode). */
+// ---------------------------------------------------------------------------
+// Danh mục nhà cung cấp — ĐỌC TỪ DATABASE
+//
+// 🔴 Giao diện KHÔNG gọi Mango nữa. Dữ liệu do Sync Job ghi xuống, nên mọi phản hồi đều kèm
+// `lastSyncedAt` — người dùng phải biết mình đang nhìn dữ liệu cũ tới đâu.
+//
+// 🔴 `id` là khoá NỘI BỘ (uuid), `externalXxxId` mới là khoá phía nhà cung cấp. Gửi nhầm cái
+// nọ thay cái kia là lỗi thầm lặng khó tìm nhất ở đây.
+// ---------------------------------------------------------------------------
+
+/** Một danh mục (nhóm sản phẩm) phía nhà cung cấp. */
+export interface ProviderCatalogue {
+  id: string;
+  externalCatalogueId: string;
+  name: string;
+  lastSyncedAt: string | null;
+}
+
+/** Sản phẩm trong danh mục nhà cung cấp. */
 export interface ProviderCatalogProduct {
   id: string;
+  externalProductId: string;
   sku: string | null;
   name: string;
+  catalogueId: string | null;
   catalogName: string | null;
   basePrice: string | null;
   currency: string | null;
   imageUrl: string | null;
   isActive: boolean;
-  /** Số biến thể nhà cung cấp báo — cho biết trước quy mô danh sách ở bước sau. */
+  /** Số biến thể ĐÃ ĐỒNG BỘ — con số có thật ở bước chọn tiếp theo. */
   variationsCount: number | null;
+}
+
+/** Vị trí in được thao tác ở giao diện hiện tại. */
+export type MappingDesignPlacement = PodDesignPlacement;
+
+/**
+ * Khoá nghiệp vụ của một sản phẩm POD — địa chỉ để lưu/đọc Design.
+ *
+ * 🔴 KHÔNG phải id của Product Mapping. Design và Product Mapping là hai nghiệp vụ độc lập:
+ * sản phẩm chưa ánh xạ vẫn upload design được.
+ */
+export interface ProductDesignKey {
+  tiktokProductId: string;
+  sellerSku: string;
 }
 
 export interface ProviderCatalogVariation {
   id: string;
+  externalVariantId: string;
   sku: string;
   name: string;
   color: string | null;
@@ -290,19 +332,79 @@ export interface ProviderCatalogVariation {
   isAvailable: boolean;
 }
 
-export interface ProductMappingQuery {
+export interface CatalogProductQuery {
   page?: number;
   limit?: number;
   search?: string;
+  catalogueId?: string;
+}
+
+export interface PaginatedCatalogProducts {
+  items: ProviderCatalogProduct[];
+  meta: { total: number; page: number; limit: number; totalPages: number };
+  lastSyncedAt: string | null;
+}
+
+/** Kết quả một lượt đồng bộ danh mục. */
+export interface CatalogSyncResult {
+  accountId: string;
+  provider: FulfillmentProviderType;
+  catalogues: number;
+  products: number;
+  variants: number;
+  archivedCatalogues: number;
+  archivedProducts: number;
+  archivedVariants: number;
+  apiCalls: number;
+  durationMs: number;
+  /** false = có lượt đọc bị cụt; xem `warnings`. */
+  complete: boolean;
+  warnings: string[];
+}
+
+/** Tình trạng bản sao danh mục của một tài khoản. */
+export interface CatalogStatus {
+  catalogues: number;
+  products: number;
+  variants: number;
+  lastSyncedAt: string | null;
+}
+
+/** Kết quả một lượt rà ánh xạ tự động. */
+export interface AutoMapResult {
+  scanned: number;
+  autoMapped: number;
+  needManual: number;
+  notFound: number;
+  skipped: number;
+}
+
+export interface ProductMappingQuery {
+  page?: number;
+  limit?: number;
+  /** Tìm trong Product ID, Seller SKU, Fulfillment SKU và tên sản phẩm nhà cung cấp. */
+  search?: string;
   accountId?: string;
   status?: ProductMappingStatus;
+  /** MISSING = chưa có mặt trước ⇒ mọi đơn của sản phẩm này đang bị chặn gửi sản xuất. */
+  designStatus?: 'READY' | 'MISSING';
 }
 
 export interface UpsertProductMappingInput {
-  tiktokProductId?: string;
+  /**
+   * Tài khoản nhà cung cấp sẽ sản xuất sản phẩm này.
+   * 🔴 Phải gửi khi tổ chức có nhiều tài khoản cùng nhà cung cấp — bỏ trống thì backend lấy
+   * tài khoản mặc định và ánh xạ có thể gắn nhầm tài khoản so với đơn.
+   */
+  accountId?: string;
+  /** 🔴 Bắt buộc — một nửa khoá nghiệp vụ. */
+  tiktokProductId: string;
+  /** 🔴 Bắt buộc — nửa còn lại. */
+  sellerSku: string;
+  /** Tham chiếu, không tham gia ghép đơn. */
   tiktokSkuId?: string;
-  sellerSku?: string;
   providerSku: string;
+  baseCost?: number;
   providerProductId?: string;
   providerVariantId?: string;
   providerProductName?: string;

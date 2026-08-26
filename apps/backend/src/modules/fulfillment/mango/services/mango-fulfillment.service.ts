@@ -31,7 +31,11 @@ import {
   FulfillmentOrderWithRelations,
   FulfillmentRepository,
 } from '../../repositories/fulfillment.repository';
-import { FulfillmentReadinessService } from '../../services/fulfillment-readiness.service';
+import {
+  FulfillmentReadinessService,
+  type DesignsByProductKey,
+} from '../../services/fulfillment-readiness.service';
+import { mappingKeyOf } from '../../shared/mapping-match';
 import { MangoApiClient, MangoCallContext } from '../clients/mango-api.client';
 import { MangoCredentialService } from './mango-credential.service';
 import { MangoOrderMapper } from '../mappers/mango-order.mapper';
@@ -113,8 +117,18 @@ export class MangoFulfillmentService {
     // để một đơn âm thầm đi nhầm nhà cung cấp.
     const account = await this.requireProviderForOrder(organizationId, order);
 
-    const mappings = await this.repo.listMappings(organizationId, account.id);
-    const check = this.readiness.check(order, mappings, this.publicBaseUrl());
+    // Phạm vi TỔ CHỨC — xem chú thích ở `FulfillmentService.getState`. Ánh xạ khai cho nhà
+    // cung cấp khác sẽ bị `check()` chặn bằng MAPPING_PROVIDER_MISMATCH, không lọt xuống đây.
+    const mappings = await this.repo.listMappingsForOrganization(organizationId);
+    // Design tra theo (Product ID + Seller SKU), độc lập với ánh xạ — nạp một lần cho cả đơn.
+    const designsByKey = await this.loadDesignsByKey(organizationId);
+    const check = this.readiness.check(
+      order,
+      mappings,
+      designsByKey,
+      this.publicBaseUrl(),
+      account.id,
+    );
     if (!check.ready || !check.address || !check.items?.length) {
       // Ghi lại lý do từ chối để người vận hành xem được lịch sử, không chỉ toast rồi mất.
       if (existing) {
@@ -124,7 +138,10 @@ export class MangoFulfillmentService {
           eventType: FulfillmentEventType.VALIDATION_FAILED,
           trigger,
           success: false,
-          message: check.issues.map((issue) => issue.message).join(' | ').slice(0, 2000),
+          message: check.issues
+            .map((issue) => issue.message)
+            .join(' | ')
+            .slice(0, 2000),
           payload: { issues: check.issues } as unknown as Prisma.InputJsonValue,
           performedBy: actorUserId,
         });
@@ -170,6 +187,7 @@ export class MangoFulfillmentService {
         providerSku: item.providerSku,
         quantity: item.quantity,
         productionConfig: item.productionConfig,
+        baseCost: item.baseCost,
         printFiles: item.printFiles as unknown as Prisma.InputJsonValue,
       })),
     );
@@ -198,7 +216,7 @@ export class MangoFulfillmentService {
       await this.repo.updateOrder(record.id, {
         status: FulfillmentStatus.SUBMITTED,
         providerOrderId: result.data?.id ?? null,
-        providerStatus: (result.data?.status) ?? null,
+        providerStatus: result.data?.status ?? null,
         rawResponse: (result.data ?? {}) as Prisma.InputJsonValue,
         lastRequestId: result.requestId ?? null,
         lastErrorCode: null,
@@ -214,7 +232,7 @@ export class MangoFulfillmentService {
         trigger,
         fromStatus: FulfillmentStatus.SUBMITTING,
         toStatus: FulfillmentStatus.SUBMITTED,
-        providerStatus: (result.data?.status) ?? null,
+        providerStatus: result.data?.status ?? null,
         message: 'Xưởng in đã tiếp nhận đơn',
         payload: { providerOrderId: result.data?.id },
         durationMs: result.durationMs,
@@ -257,10 +275,7 @@ export class MangoFulfillmentService {
     actorUserId?: string,
   ): Promise<{ changed: boolean; apiCalls: number }> {
     try {
-      const result = await this.client.getOrder(
-        this.callContext(account),
-        record.externalOrderId,
-      );
+      const result = await this.client.getOrder(this.callContext(account), record.externalOrderId);
       const changed = await this.applyProviderState(record, result.data, trigger, {
         durationMs: result.durationMs,
         requestId: result.requestId,
@@ -319,8 +334,7 @@ export class MangoFulfillmentService {
     const providerStatus = (detail.status as string) ?? null;
     const nextStatus = this.mapper.toFulfillmentStatus(providerStatus, trackingStatus);
 
-    const statusChanged =
-      nextStatus !== record.status || providerStatus !== record.providerStatus;
+    const statusChanged = nextStatus !== record.status || providerStatus !== record.providerStatus;
     const trackingChanged = trackingNumber !== record.trackingNumber;
 
     await this.repo.updateOrder(record.id, {
@@ -468,9 +482,7 @@ export class MangoFulfillmentService {
    * Không bao giờ ném lỗi ra ngoài: đây là thao tác CHẨN ĐOÁN, người dùng cần đọc được
    * thông báo lỗi của nhà cung cấp chứ không phải nhận một trang lỗi.
    */
-  async testConnection(
-    account: FulfillmentAccount,
-  ): Promise<{
+  async testConnection(account: FulfillmentAccount): Promise<{
     connected: boolean;
     message: string;
     durationMs: number | null;
@@ -573,7 +585,7 @@ export class MangoFulfillmentService {
     return record;
   }
 
-/**
+  /**
    * Ngữ cảnh gọi API cho một tài khoản.
    *
    * Việc chọn API key (biến môi trường hay key riêng của tài khoản) nằm trọn trong
@@ -584,6 +596,25 @@ export class MangoFulfillmentService {
   }
 
   /** Base URL công khai để dựng link design khi lưu trữ trả đường dẫn tương đối. */
+  /**
+   * Design của cả tổ chức, tra theo `mappingKeyOf(productId, sellerSku)`.
+   *
+   * MỘT truy vấn cho cả đơn. Design đã tách khỏi ánh xạ nên không `include` qua mapping được
+   * nữa; đọc theo từng dòng hàng sẽ là N+1 ngay trên luồng gửi đơn.
+   */
+  private async loadDesignsByKey(organizationId: string): Promise<DesignsByProductKey> {
+    const rows = await this.repo.listProductDesigns(organizationId);
+    const byKey: DesignsByProductKey = new Map();
+    for (const row of rows) {
+      const key = mappingKeyOf(row.tiktokProductId, row.sellerSku);
+      if (!key) continue;
+      const list = byKey.get(key) ?? [];
+      list.push(row);
+      byKey.set(key, list);
+    }
+    return byKey;
+  }
+
   private publicBaseUrl(): string | undefined {
     return this.config.get<string>('storage.local.publicBaseUrl') || undefined;
   }
@@ -616,7 +647,7 @@ export class MangoFulfillmentService {
       providerCode: clientError.providerCode ?? null,
       message: clientError.message,
       validationErrors: clientError.validationErrors ?? [],
-      rawError: (clientError.rawBody ?? {}),
+      rawError: clientError.rawBody ?? {},
       requestId: clientError.requestId ?? null,
       retryable: clientError.retryable,
     });

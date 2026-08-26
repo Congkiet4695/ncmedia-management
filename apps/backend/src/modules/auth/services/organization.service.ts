@@ -22,13 +22,22 @@ export class OrganizationService {
     return slug;
   }
 
-  /** Tạo Organization trong transaction. */
-  createInTransaction(tx: Prisma.TransactionClient, data: { name: string; slug: string }) {
+  /**
+   * Tạo Organization trong transaction.
+   *
+   * 🔴 `status` mặc định là **PENDING**: mọi Organization đăng ký qua form đều phải chờ Super
+   * Admin duyệt. Giá trị mặc định của cột trong database vẫn là ACTIVE — cố ý, để migration
+   * không đụng tới Organization đang chạy; ranh giới nằm ở đúng dòng này.
+   */
+  createInTransaction(
+    tx: Prisma.TransactionClient,
+    data: { name: string; slug: string; status?: OrganizationStatus },
+  ) {
     return tx.organization.create({
       data: {
         name: data.name,
         slug: data.slug,
-        status: OrganizationStatus.ACTIVE,
+        status: data.status ?? OrganizationStatus.PENDING,
       },
     });
   }

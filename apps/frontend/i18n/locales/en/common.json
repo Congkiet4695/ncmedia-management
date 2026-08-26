@@ -32,7 +32,8 @@
     "unassign": "Unassign",
     "upload": "Upload",
     "view": "View",
-    "viewDetail": "View detail"
+    "viewDetail": "View detail",
+    "more": "More actions"
   },
   "appName": "NCMedia Management",
   "combobox": {
@@ -80,7 +81,10 @@
     "allStatuses": "All statuses"
   },
   "image": {
-    "viewLarge": "View image"
+    "viewLarge": "View image",
+    "zoomIn": "Zoom in",
+    "zoomOut": "Zoom out",
+    "download": "Download image"
   },
   "importExport": {
     "column": "Column",

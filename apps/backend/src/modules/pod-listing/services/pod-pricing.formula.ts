@@ -1,9 +1,15 @@
 import { BadRequestException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { POD_PRICING_FORMULA_MAX_LENGTH, POD_PRICING_FORMULA_VARIABLES } from '../constants/pod-listing.constants';
+import {
+  POD_PRICING_FORMULA_MAX_LENGTH,
+  POD_PRICING_FORMULA_VARIABLES,
+} from '../constants/pod-listing.constants';
 
 /** Biến được phép xuất hiện trong công thức giá. */
-export type PodPricingFormulaVariables = Record<(typeof POD_PRICING_FORMULA_VARIABLES)[number], Prisma.Decimal>;
+export type PodPricingFormulaVariables = Record<
+  (typeof POD_PRICING_FORMULA_VARIABLES)[number],
+  Prisma.Decimal
+>;
 
 /** Công thức sai cú pháp / dùng biến lạ / chia cho 0. */
 export class PodPricingFormulaException extends BadRequestException {

@@ -6,6 +6,7 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Combobox, type ComboboxOption } from '@/components/ui/combobox';
 import { useApiError } from '@/hooks/use-api-error';
+import { useAuth } from '@/hooks/use-auth';
 import { useWarehouses } from '@/features/pod-listing/hooks/use-pod-listing';
 import { useSetShopWarehouse } from '../hooks/use-pod-tiktok';
 
@@ -34,8 +35,14 @@ export function ShopWarehouseSelect({
 }) {
   const { t } = useTranslation(['pod', 'common']);
   const translateApiError = useApiError();
+  const { hasPermission } = useAuth();
   const mutation = useSetShopWarehouse();
   const [saved, setSaved] = useState(false);
+
+  // 🔴 Gán kho là một lời GHI lên kết nối (`PATCH .../shops/:id/warehouse`, quyền
+  // `pod.tiktok.account.update`). Seller chỉ được XEM kết nối, nên hiện tên kho dạng chữ
+  // thay vì ô chọn — bấm vào chỉ để nhận 403. Backend vẫn là nơi chặn thật.
+  const canEdit = hasPermission('pod.tiktok.account.update');
 
   // Chỉ kho CỦA CHÍNH SHOP NÀY: `warehouse_id` là mã riêng của từng shop, gán kho của shop
   // khác thì TikTok từ chối cả sản phẩm.
@@ -55,6 +62,14 @@ export function ShopWarehouseSelect({
       value: currentWarehouseId,
       label: currentWarehouseName ?? currentWarehouseId,
     });
+  }
+
+  if (!canEdit) {
+    return (
+      <span className="text-sm text-muted-foreground">
+        {currentWarehouseName ?? currentWarehouseId ?? t('account.warehouseAuto')}
+      </span>
+    );
   }
 
   const handleChange = async (value: string): Promise<void> => {

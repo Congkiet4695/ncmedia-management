@@ -340,9 +340,7 @@ export class PodProductCatalogService {
       select: { tiktokCategoryId: true },
       distinct: ['tiktokCategoryId'],
     });
-    return rows
-      .map((row) => row.tiktokCategoryId)
-      .filter((id): id is string => Boolean(id));
+    return rows.map((row) => row.tiktokCategoryId).filter((id): id is string => Boolean(id));
   }
 
   /** Dựng `level` + `path` ("A > B > C") từ danh sách phẳng, an toàn với dữ liệu vòng. */

@@ -4,7 +4,16 @@ import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../database/prisma.service';
 
 /** User kèm Role (dùng cho Login — cần role.code để nhúng vào JWT). */
-export type UserWithRole = Prisma.UserGetPayload<{ include: { role: true } }>;
+/**
+ * User kèm Role **và** Organization.
+ *
+ * Organization có mặt vì Login phải chặn theo trạng thái duyệt của tổ chức (§4, §14). Tên
+ * kiểu giữ nguyên `UserWithRole` để không phải sửa mọi nơi đang dùng — thay tên một kiểu chỉ
+ * để thêm một quan hệ là làm ồn diff mà không ai đọc được gì thêm.
+ */
+export type UserWithRole = Prisma.UserGetPayload<{
+  include: { role: true; organization: true };
+}>;
 
 /**
  * UserService — thao tác User phục vụ Register và Login.
@@ -24,17 +33,37 @@ export class UserService {
    * (Login coi soft-deleted như không tồn tại — BR-L03).
    */
   findByEmail(email: string): Promise<UserWithRole | null> {
-    return this.prisma.user.findUnique({ where: { email }, include: { role: true } });
+    // 🔴 Kèm `organization`: Login phải kiểm tra trạng thái DUYỆT của tổ chức trước khi phát
+    // token (§4, §14). Nạp cùng một query thay vì hỏi lại — đây là đường nóng nhất của hệ
+    // thống và một round-trip thêm cho mỗi lần đăng nhập là không cần thiết.
+    return this.prisma.user.findUnique({
+      where: { email },
+      include: { role: true, organization: true },
+    });
   }
 
   hashPassword(plain: string): Promise<string> {
     return bcrypt.hash(plain, this.BCRYPT_COST);
   }
 
-  /** Tạo User (admin đầu tiên) trong transaction. Nhận passwordHash đã băm sẵn. */
+  /**
+   * Tạo User (admin đầu tiên) trong transaction. Nhận passwordHash đã băm sẵn.
+   *
+   * 🔴 `status` do PHÍA GỌI quyết định, không mặc định ACTIVE nữa: chủ Organization đăng ký
+   * qua luồng duyệt phải là PENDING cho tới khi Super Admin bấm Approve. Tham số bắt buộc
+   * (không có giá trị mặc định) để mọi nơi tạo admin đều phải nói rõ ý định.
+   */
   createAdminInTransaction(
     tx: Prisma.TransactionClient,
-    data: { organizationId: string; roleId: string; email: string; passwordHash: string; fullName: string },
+    data: {
+      organizationId: string;
+      roleId: string;
+      email: string;
+      passwordHash: string;
+      fullName: string;
+      phone?: string | null;
+      status: UserStatus;
+    },
   ): Promise<User> {
     return tx.user.create({
       data: {
@@ -43,7 +72,8 @@ export class UserService {
         email: data.email,
         passwordHash: data.passwordHash,
         fullName: data.fullName,
-        status: UserStatus.ACTIVE, // Decision-017
+        phone: data.phone ?? null,
+        status: data.status,
       },
     });
   }

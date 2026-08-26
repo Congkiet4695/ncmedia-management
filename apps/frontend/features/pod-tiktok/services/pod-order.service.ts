@@ -1,8 +1,6 @@
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse } from '@/types/api';
 import type {
-  PodDesign,
-  PodDesignPlacement,
   PodOrder,
   PodOrderListResult,
   PodOrderQuery,
@@ -34,8 +32,17 @@ export const podOrderService = {
     return res.data.data;
   },
 
-  async stats(): Promise<PodOrderStats> {
-    const res = await apiClient.get<ApiResponse<PodOrderStats>>(`${BASE_PATH}/orders/stats`);
+  /**
+   * Thống kê theo trạng thái.
+   *
+   * 🔴 Gửi CÙNG bộ tham số lọc với `list()`. Bỏ `page`/`limit`/`sortBy` vì phép đếm không
+   * quan tâm — và giữ chúng lại sẽ làm cache key đổi vô ích mỗi lần người dùng sang trang.
+   */
+  async stats(query: PodOrderQuery = {}): Promise<PodOrderStats> {
+    const { page: _page, limit: _limit, sortBy: _sortBy, sortOrder: _sortOrder, ...filters } = query;
+    const res = await apiClient.get<ApiResponse<PodOrderStats>>(`${BASE_PATH}/orders/stats`, {
+      params: clean(filters as Record<string, unknown>),
+    });
     return res.data.data;
   },
 
@@ -53,45 +60,5 @@ export const podOrderService = {
       params: clean(query as Record<string, unknown>),
     });
     return res.data.data;
-  },
-  // --- Design in cho từng sản phẩm ---
-
-  async listDesigns(orderItemId: string): Promise<PodDesign[]> {
-    const res = await apiClient.get<ApiResponse<PodDesign[]>>(
-      `${BASE_PATH}/order-items/${orderItemId}/designs`,
-    );
-    return res.data.data;
-  },
-
-  /**
-   * Upload / thay thế design tại một vị trí in.
-   * Dùng multipart — KHÔNG đặt Content-Type thủ công để axios tự thêm boundary.
-   */
-  async uploadDesign(
-    orderItemId: string,
-    placement: PodDesignPlacement,
-    file: File,
-    onProgress?: (percent: number) => void,
-  ): Promise<PodDesign> {
-    const form = new FormData();
-    form.append('file', file);
-    const res = await apiClient.post<ApiResponse<PodDesign>>(
-      `${BASE_PATH}/order-items/${orderItemId}/designs/${placement}`,
-      form,
-      {
-        headers: { 'Content-Type': undefined },
-        onUploadProgress: (event) => {
-          if (!onProgress || !event.total) return;
-          onProgress(Math.round((event.loaded * 100) / event.total));
-        },
-      },
-    );
-    return res.data.data;
-  },
-
-  async deleteDesign(orderItemId: string, placement: PodDesignPlacement): Promise<void> {
-    await apiClient.delete<ApiResponse<null>>(
-      `${BASE_PATH}/order-items/${orderItemId}/designs/${placement}`,
-    );
   },
 };

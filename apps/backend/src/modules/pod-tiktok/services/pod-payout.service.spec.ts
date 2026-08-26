@@ -52,7 +52,9 @@ describe('PodPayoutService', () => {
     syncService = { syncShop: jest.fn().mockResolvedValue({ ok: true }) };
 
     service = new PodPayoutService(
-      { get: jest.fn((key: string, fallback?: number) => CONFIG[key] ?? fallback) } as unknown as ConfigService,
+      {
+        get: jest.fn((key: string, fallback?: number) => CONFIG[key] ?? fallback),
+      } as unknown as ConfigService,
       reportRepo as unknown as PodPayoutReportRepository,
       accountRepo as unknown as PodTiktokAccountRepository,
       syncService as unknown as PodPayoutSyncService,
@@ -109,7 +111,9 @@ describe('PodPayoutService', () => {
 
     it('🔴 Admin (không có scope) → xem toàn Organization', async () => {
       await service.summary(ORG, {});
-      expect(callArg<{ sellerScope?: string }>(reportRepo.summary, 0, 0).sellerScope).toBeUndefined();
+      expect(
+        callArg<{ sellerScope?: string }>(reportRepo.summary, 0, 0).sellerScope,
+      ).toBeUndefined();
     });
 
     it('🔴 Seller → CHỈ xem Account do chính mình quản lý', async () => {
@@ -120,8 +124,12 @@ describe('PodPayoutService', () => {
     it('mọi truy vấn đều mang organizationId của người gọi (tenant isolation)', async () => {
       await service.sellerBreakdown(ORG, {});
       await service.accountBreakdown(ORG, {});
-      expect(callArg<{ organizationId: string }>(reportRepo.sellerBreakdown, 0, 0).organizationId).toBe(ORG);
-      expect(callArg<{ organizationId: string }>(reportRepo.accountBreakdown, 0, 0).organizationId).toBe(ORG);
+      expect(
+        callArg<{ organizationId: string }>(reportRepo.sellerBreakdown, 0, 0).organizationId,
+      ).toBe(ORG);
+      expect(
+        callArg<{ organizationId: string }>(reportRepo.accountBreakdown, 0, 0).organizationId,
+      ).toBe(ORG);
     });
   });
 
@@ -139,7 +147,12 @@ describe('PodPayoutService', () => {
     });
 
     it('tôn trọng tham số sắp xếp do người dùng chọn', async () => {
-      await service.sellerBreakdown(ORG, { sortField: 'orderCount', sortOrder: 'asc', page: 3, pageSize: 50 });
+      await service.sellerBreakdown(ORG, {
+        sortField: 'orderCount',
+        sortOrder: 'asc',
+        page: 3,
+        pageSize: 50,
+      });
       expect(callArg<number>(reportRepo.sellerBreakdown, 0, 1)).toBe(3);
       expect(callArg<number>(reportRepo.sellerBreakdown, 0, 2)).toBe(50);
       expect(callArg<string>(reportRepo.sellerBreakdown, 0, 3)).toBe('orderCount');

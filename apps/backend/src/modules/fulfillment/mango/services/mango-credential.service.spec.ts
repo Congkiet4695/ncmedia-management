@@ -3,10 +3,7 @@ import {
   FulfillmentProviderInactiveException,
   FulfillmentProviderMisconfiguredException,
 } from '../../exceptions/fulfillment.exceptions';
-import {
-  MangoCredentialService,
-  type MangoAccountCredentialRef,
-} from './mango-credential.service';
+import { MangoCredentialService, type MangoAccountCredentialRef } from './mango-credential.service';
 
 /** Mã hoá giả lập — tiền tố `enc:` để phân biệt rõ "đã giải mã" với "chưa giải mã". */
 const encryption = {
@@ -67,9 +64,9 @@ describe('MangoCredentialService', () => {
       const spy = jest.spyOn(encryption, 'decrypt');
       spy.mockClear();
 
-      expect(() =>
-        service.buildContext(provider({ isActive: false, apiKeyEnc: 'enc:x' })),
-      ).toThrow(FulfillmentProviderInactiveException);
+      expect(() => service.buildContext(provider({ isActive: false, apiKeyEnc: 'enc:x' }))).toThrow(
+        FulfillmentProviderInactiveException,
+      );
       expect(spy).not.toHaveBeenCalled();
     });
   });

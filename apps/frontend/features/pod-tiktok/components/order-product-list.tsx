@@ -145,14 +145,18 @@ export function OrderProductList({
               <p className="whitespace-nowrap text-sm font-medium tabular-nums">
                 {formatCurrency(item.salePrice, item.currency)}
               </p>
+              {/* Chưa khai ánh xạ ⇒ chưa có nơi lưu design (§7): nói đúng nguyên nhân. */}
               <Button
-                variant="outline"
+                variant={item.mappingId === null ? 'secondary' : 'outline'}
                 size="sm"
                 className="mt-1"
+                title={item.mappingId === null ? t('product.designNoMappingHint') : undefined}
                 onClick={() => onUploadDesign(item)}
               >
                 <ImageUp className="size-4" />
-                {t('product.uploadDesign')}
+                {item.mappingId === null
+                  ? t('product.designNoMapping')
+                  : t('product.uploadDesign')}
               </Button>
             </div>
           </div>

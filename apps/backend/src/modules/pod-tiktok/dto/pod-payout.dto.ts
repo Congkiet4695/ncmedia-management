@@ -15,7 +15,10 @@ import {
 } from 'class-validator';
 import { PodPayoutStatus } from '@prisma/client';
 import { POD_DATE_PRESETS, type PodDatePreset } from '../utils/date-range.util';
-import { PAYOUT_SORT_FIELDS, type PayoutSortField } from '../repositories/pod-payout-report.repository';
+import {
+  PAYOUT_SORT_FIELDS,
+  type PayoutSortField,
+} from '../repositories/pod-payout-report.repository';
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
@@ -107,14 +110,16 @@ export class PodPayoutBreakdownQueryDto extends PodPayoutFilterDto {
 
 /** Body kích hoạt đồng bộ payout thủ công. */
 export class TriggerPayoutSyncDto {
-  @ApiPropertyOptional({ format: 'uuid', description: 'Chỉ đồng bộ một shop. Bỏ trống = mọi shop.' })
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description: 'Chỉ đồng bộ một shop. Bỏ trống = mọi shop.',
+  })
   @IsOptional()
   @IsUUID()
   shopId?: string;
 
   @ApiPropertyOptional({
-    description:
-      'Kéo lại TOÀN BỘ lịch sử payout thay vì cửa sổ cuốn chiếu. An toàn khi chạy lại.',
+    description: 'Kéo lại TOÀN BỘ lịch sử payout thay vì cửa sổ cuốn chiếu. An toàn khi chạy lại.',
     default: false,
   })
   @IsOptional()
@@ -135,7 +140,8 @@ export class PodPayoutRangeDto {
 
 export class PodPayoutSummaryDto {
   @ApiProperty({
-    description: 'Tổng Payout của toàn bộ Account trong khoảng lọc. Chuỗi để không mất độ chính xác.',
+    description:
+      'Tổng Payout của toàn bộ Account trong khoảng lọc. Chuỗi để không mất độ chính xác.',
     example: '1102.9300',
   })
   totalPayout!: string;
@@ -161,7 +167,11 @@ export class PodPayoutSummaryDto {
 }
 
 export class PodPayoutSellerDto {
-  @ApiProperty({ nullable: true, type: String, description: 'ID Employee phụ trách. NULL = chưa phân công.' })
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'ID Employee phụ trách. NULL = chưa phân công.',
+  })
   sellerId!: string | null;
   @ApiProperty({ nullable: true, type: String }) sellerEmail!: string | null;
   @ApiProperty({ nullable: true, type: String }) sellerName!: string | null;
@@ -175,7 +185,11 @@ export class PodPayoutAccountDto {
   @ApiProperty() accountId!: string;
   @ApiProperty() accountName!: string;
   @ApiProperty({ nullable: true, type: String }) shopName!: string | null;
-  @ApiProperty({ nullable: true, type: String, description: 'ID Employee phụ trách. NULL = chưa phân công.' })
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'ID Employee phụ trách. NULL = chưa phân công.',
+  })
   sellerId!: string | null;
   @ApiProperty({ nullable: true, type: String }) sellerEmail!: string | null;
   @ApiProperty({ nullable: true, type: String }) sellerName!: string | null;

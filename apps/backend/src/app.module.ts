@@ -8,11 +8,14 @@ import { envValidationSchema } from './config/env.validation';
 import { AllExceptionsFilter } from './common/filters/all-exceptions.filter';
 import { maskSensitiveQuery } from './common/utils/mask-sensitive-query.util';
 import { TransformInterceptor } from './common/interceptors/transform.interceptor';
+import { SyncHooksModule } from './common/hooks/sync-hooks.module';
 import { PrismaModule } from './database/prisma.module';
 import { RedisModule } from './redis/redis.module';
 import { StorageModule } from './modules/storage/storage.module';
+import { MailModule } from './modules/mail/mail.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { SuperAdminModule } from './modules/super-admin/super-admin.module';
 import { EmployeeModule } from './modules/employee/employee.module';
 import { ProfileModule } from './modules/profile/profile.module';
 import { PlatformModule } from './modules/platform/platform.module';
@@ -100,8 +103,13 @@ import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
     // Hạ tầng
     PrismaModule,
     RedisModule,
+
+    // Hạ tầng nối module quanh sự kiện đồng bộ (đảo chiều phụ thuộc PodTiktok ⇄ Fulfillment).
+    SyncHooksModule,
     // Storage (@Global) — cửa duy nhất để mọi module lưu trữ file
     StorageModule,
+    // Hạ tầng gửi email (@Global) — Auth và Super Admin dùng chung.
+    MailModule,
     // Cửa duy nhất ra SDK Node.js chính thức của TikTok Shop (hạ tầng, @Global)
     TikTokSdkModule,
 
@@ -110,6 +118,8 @@ import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
 
     // Business modules
     AuthModule,
+    // Quản trị NỀN TẢNG: duyệt/từ chối Organization đăng ký mới.
+    SuperAdminModule,
     EmployeeModule,
     ProfileModule,
     PlatformModule,

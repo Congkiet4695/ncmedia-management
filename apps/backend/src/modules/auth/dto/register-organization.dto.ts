@@ -1,6 +1,13 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsEmail, IsString, Matches, MaxLength, MinLength } from 'class-validator';
+import {
+  IsEmail,
+  IsOptional,
+  IsString,
+  Matches,
+  MaxLength,
+  MinLength,
+} from 'class-validator';
 
 /**
  * Input cho Register Organization (auth.md Mục 6/17).
@@ -28,6 +35,22 @@ export class RegisterOrganizationDto {
   @IsEmail()
   @MaxLength(255)
   email!: string;
+
+  /**
+   * Số điện thoại liên hệ — TUỲ CHỌN.
+   *
+   * Super Admin dùng để xác minh trước khi duyệt. Không bắt buộc: thêm một trường bắt buộc
+   * vào form đăng ký là thêm một lý do để người dùng bỏ dở.
+   */
+  @ApiPropertyOptional({ example: '0912345678', maxLength: 20 })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) =>
+    typeof value === 'string' && value.trim() !== '' ? value.trim() : undefined,
+  )
+  @IsString()
+  @MaxLength(20)
+  @Matches(/^[0-9+()\s-]{6,20}$/, { message: 'phone không hợp lệ' })
+  phone?: string;
 
   @ApiProperty({ example: 'P@ssw0rd123', minLength: 8, maxLength: 72 })
   @IsString()

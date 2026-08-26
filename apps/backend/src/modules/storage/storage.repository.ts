@@ -140,12 +140,20 @@ export class StorageRepository {
    * thông điệp "file đang được sử dụng" — hoặc tệ hơn, ảnh của template khác bị vỡ.
    */
   async countReferences(id: string): Promise<number> {
-    const [designs, imageTemplateItems, skuTemplateItems] = await Promise.all([
-      this.prisma.podOrderItemDesign.count({ where: { storageFileId: id, deletedAt: null } }),
-      this.prisma.podImageTemplateItem.count({ where: { fileId: id } }),
-      this.prisma.podSkuTemplateItem.count({ where: { imageFileId: id } }),
-    ]);
-    return designs + imageTemplateItems + skuTemplateItems;
+    const [productDesigns, legacyItemDesigns, imageTemplateItems, skuTemplateItems] =
+      await Promise.all([
+        // Design đang dùng — gắn theo SẢN PHẨM (Product ID + Seller SKU).
+        this.prisma.fulfillmentProductDesign.count({
+          where: { storageFileId: id, deletedAt: null },
+        }),
+        // ⛔ Bảng lưu trữ lịch sử (design theo line item). Không còn được ghi, nhưng VẪN
+        // phải đếm: file mà một dòng lịch sử còn trỏ tới không được xoá, nếu không bản ghi
+        // audit "đơn này in file gì" trỏ vào hư không.
+        this.prisma.podOrderItemDesign.count({ where: { storageFileId: id, deletedAt: null } }),
+        this.prisma.podImageTemplateItem.count({ where: { fileId: id } }),
+        this.prisma.podSkuTemplateItem.count({ where: { imageFileId: id } }),
+      ]);
+    return productDesigns + legacyItemDesigns + imageTemplateItems + skuTemplateItems;
   }
 
 }

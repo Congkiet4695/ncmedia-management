@@ -5,21 +5,11 @@ import { Prisma } from '@prisma/client';
  * (để hiển thị tên shop mà không phải query thêm — chống N+1).
  */
 export const POD_ORDER_INCLUDE = {
-  items: {
-    orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-    // Design đi kèm item trong CÙNG một truy vấn — tránh N+1 khi màn hình danh sách
-    // hiển thị thumbnail design cho mọi sản phẩm của mọi đơn.
-    include: {
-      designs: {
-        where: { deletedAt: null },
-        // Metadata file nằm ở `storage_files` (Storage Module) — nạp kèm để không N+1.
-        include: {
-          storageFile: { include: { uploader: { select: { id: true, fullName: true } } } },
-        },
-        orderBy: { placement: 'asc' },
-      },
-    },
-  },
+  // 🔴 KHÔNG nạp `designs` của line item nữa: design đã chuyển sang **Product Mapping**
+  // (`fulfillment_mapping_designs`) và được `PodOrderDesignResolver` nạp bằng MỘT truy vấn
+  // cho cả trang. Quan hệ cũ `pod_order_item_designs` vẫn còn trong schema để giữ dữ liệu
+  // lịch sử, nhưng join nó ở đây chỉ tốn thêm hai bảng trên mỗi lần đọc đơn.
+  items: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
   packages: { orderBy: { createdAt: 'asc' } },
   shop: { select: { id: true, name: true, tiktokShopId: true, region: true } },
   // 🔴 Seller của đơn được xác định QUA ACCOUNT, không lưu bản sao trên đơn.

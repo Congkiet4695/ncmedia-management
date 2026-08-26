@@ -43,6 +43,9 @@ import {
   UpdateListingSessionDto,
   UpdateSessionProductDto,
 } from './dto/pod-listing-session.dto';
+import { PodScope } from '../pod-tiktok/decorators/pod-scope.decorator';
+import { PodScopeGuard } from '../pod-tiktok/guards/pod-scope.guard';
+import type { PodAccessScope } from '../pod-tiktok/services/pod-access-scope.service';
 import { PodListingSessionService } from './services/pod-listing-session.service';
 import { PodSessionImportService } from './services/pod-session-import.service';
 import { PodSessionProductService } from './services/pod-session-product.service';
@@ -64,7 +67,8 @@ import { PodSessionProductService } from './services/pod-session-product.service
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Access token không hợp lệ (AUTH_TOKEN_INVALID)' })
 @ApiForbiddenResponse({ description: 'Thiếu permission (AUTH_FORBIDDEN)' })
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+// 🔴 `PodScopeGuard` nạp phạm vi shop: Seller chỉ chọn/sửa được lượt đăng của shop được gán.
+@UseGuards(JwtAuthGuard, PermissionsGuard, PodScopeGuard)
 @Controller('pod/listing-sessions')
 export class PodListingSessionController {
   constructor(
@@ -81,15 +85,23 @@ export class PodListingSessionController {
     summary: 'New Listing — tạo một lượt đăng (Market + Shops + 5 Template)',
     description: 'Chưa có sản phẩm nào: import là bước tiếp theo.',
   })
-  create(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateListingSessionDto) {
-    return this.sessions.create(user.organizationId, user.userId, dto);
+  create(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Body() dto: CreateListingSessionDto,
+  ) {
+    return this.sessions.create(user.organizationId, user.userId, dto, scope);
   }
 
   @Get()
   @RequirePermissions('pod.session.read')
   @ApiOperation({ summary: 'Danh sách lượt đăng (search · filter · sort · pagination)' })
-  list(@CurrentUser() user: AuthenticatedUser, @Query() query: PodListingSessionQueryDto) {
-    return this.sessions.list(user.organizationId, query);
+  list(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Query() query: PodListingSessionQueryDto,
+  ) {
+    return this.sessions.list(user.organizationId, query, scope);
   }
 
   // 🔴 Phải đứng TRƯỚC `:id`: Nest so khớp theo thứ tự khai báo, để sau thì "import" bị
@@ -108,9 +120,15 @@ export class PodListingSessionController {
 
   @Get(':id')
   @RequirePermissions('pod.session.read')
-  @ApiOperation({ summary: 'Chi tiết lượt đăng: shop, template, số đếm sản phẩm, lượt chạy gần nhất' })
-  get(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.sessions.getDetail(user.organizationId, id);
+  @ApiOperation({
+    summary: 'Chi tiết lượt đăng: shop, template, số đếm sản phẩm, lượt chạy gần nhất',
+  })
+  get(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.sessions.getDetail(user.organizationId, id, scope);
   }
 
   @Patch(':id')
@@ -121,18 +139,23 @@ export class PodListingSessionController {
   })
   update(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: UpdateListingSessionDto,
   ) {
-    return this.sessions.update(user.organizationId, user.userId, id, dto);
+    return this.sessions.update(user.organizationId, user.userId, id, dto, scope);
   }
 
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('pod.session.write')
   @ApiOperation({ summary: 'Xoá lượt đăng (xoá mềm, Draft Product con đi theo)' })
-  remove(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.sessions.remove(user.organizationId, user.userId, id);
+  remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.sessions.remove(user.organizationId, user.userId, id, scope);
   }
 
   // ------------------------------- Import --------------------------------
@@ -161,11 +184,12 @@ export class PodListingSessionController {
   })
   import(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
     @UploadedFile() file: Express.Multer.File,
     @Body() dto: ImportSessionProductsDto,
   ) {
-    return this.importer.import(user.organizationId, user.userId, id, file, dto ?? {});
+    return this.importer.import(user.organizationId, user.userId, id, file, dto ?? {}, scope);
   }
 
   // --------------------------- Draft Product -----------------------------
@@ -175,10 +199,11 @@ export class PodListingSessionController {
   @ApiOperation({ summary: 'Danh sách Draft Product của lượt đăng (kèm kết quả từng shop)' })
   listProducts(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
     @Query() query: PodSessionProductQueryDto,
   ) {
-    return this.products.list(user.organizationId, id, query);
+    return this.products.list(user.organizationId, id, query, scope);
   }
 
   @Post(':id/products/delete')
@@ -187,11 +212,12 @@ export class PodListingSessionController {
   @ApiOperation({ summary: 'Xoá nhiều Draft Product' })
   async removeProducts(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: DeleteSessionProductsDto,
   ) {
     return {
-      deleted: await this.products.removeMany(user.organizationId, user.userId, id, dto.ids),
+      deleted: await this.products.removeMany(user.organizationId, user.userId, id, dto.ids, scope),
     };
   }
 
@@ -204,9 +230,12 @@ export class PodListingSessionController {
   })
   async removeAllProducts(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
   ) {
-    return { deleted: await this.products.removeAll(user.organizationId, user.userId, id) };
+    return {
+      deleted: await this.products.removeAll(user.organizationId, user.userId, id, scope),
+    };
   }
 
   @Get(':id/products/:productId')
@@ -214,10 +243,11 @@ export class PodListingSessionController {
   @ApiOperation({ summary: 'Chi tiết một Draft Product (ảnh, biến thể, lỗi validate)' })
   getProduct(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('productId', ParseUUIDPipe) productId: string,
   ) {
-    return this.products.get(user.organizationId, id, productId);
+    return this.products.get(user.organizationId, id, productId, scope);
   }
 
   @Patch(':id/products/:productId')
@@ -228,11 +258,12 @@ export class PodListingSessionController {
   })
   updateProduct(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('productId', ParseUUIDPipe) productId: string,
     @Body() dto: UpdateSessionProductDto,
   ) {
-    return this.products.update(user.organizationId, user.userId, id, productId, dto);
+    return this.products.update(user.organizationId, user.userId, id, productId, dto, scope);
   }
 
   @Delete(':id/products/:productId')
@@ -241,10 +272,11 @@ export class PodListingSessionController {
   @ApiOperation({ summary: 'Xoá một Draft Product (xoá mềm)' })
   removeProduct(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('productId', ParseUUIDPipe) productId: string,
   ) {
-    return this.products.remove(user.organizationId, user.userId, id, productId);
+    return this.products.remove(user.organizationId, user.userId, id, productId, scope);
   }
 
   @Post(':id/products/:productId/preview')
@@ -256,11 +288,12 @@ export class PodListingSessionController {
   })
   previewProduct(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
     @Param('productId', ParseUUIDPipe) productId: string,
     @Body() dto: PreviewSessionProductDto,
   ) {
-    return this.products.preview(user.organizationId, id, productId, dto ?? {});
+    return this.products.preview(user.organizationId, id, productId, dto ?? {}, scope);
   }
 
   // -------------------------- Validate & Start ---------------------------
@@ -272,8 +305,12 @@ export class PodListingSessionController {
     summary: 'Kiểm tra cả lượt đăng: cấu hình + từng Draft Product',
     description: 'Dùng ĐÚNG bộ luật của Bulk Listing Engine — màn hình và engine không lệch nhau.',
   })
-  validate(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
-    return this.sessions.validate(user.organizationId, id);
+  validate(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.sessions.validate(user.organizationId, id, scope);
   }
 
   @Post(':id/start')
@@ -287,9 +324,10 @@ export class PodListingSessionController {
   })
   start(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: StartSessionListingDto,
   ) {
-    return this.sessions.startListing(user.organizationId, user.userId, id, dto ?? {});
+    return this.sessions.startListing(user.organizationId, user.userId, id, dto ?? {}, scope);
   }
 }

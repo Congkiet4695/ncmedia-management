@@ -24,11 +24,7 @@ import { RequirePermissions } from '../auth/decorators/require-permissions.decor
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
-import {
-  PodOrderQueryDto,
-  PodSyncLogQueryDto,
-  TriggerSyncDto,
-} from './dto/pod-order-query.dto';
+import { PodOrderQueryDto, PodSyncLogQueryDto, TriggerSyncDto } from './dto/pod-order-query.dto';
 import {
   PaginatedPodOrderResponseDto,
   PaginatedPodSyncLogResponseDto,
@@ -36,6 +32,9 @@ import {
   PodOrderStatsDto,
   PodSyncTriggerResultDto,
 } from './dto/pod-order-response.dto';
+import { PodScope } from './decorators/pod-scope.decorator';
+import { PodScopeGuard } from './guards/pod-scope.guard';
+import type { PodAccessScope } from './services/pod-access-scope.service';
 import { PodOrderService } from './services/pod-order.service';
 
 /**
@@ -48,7 +47,8 @@ import { PodOrderService } from './services/pod-order.service';
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Access token không hợp lệ (AUTH_TOKEN_INVALID)' })
 @ApiForbiddenResponse({ description: 'Thiếu permission (AUTH_FORBIDDEN)' })
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+// 🔴 `PodScopeGuard` nạp phạm vi shop cho MỌI route trong controller này.
+@UseGuards(JwtAuthGuard, PermissionsGuard, PodScopeGuard)
 @Controller('pod/tiktok')
 export class PodOrderController {
   constructor(private readonly service: PodOrderService) {}
@@ -62,9 +62,10 @@ export class PodOrderController {
   @ApiOkResponse({ type: PaginatedPodOrderResponseDto })
   findAll(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Query() query: PodOrderQueryDto,
   ): Promise<PaginatedPodOrderResponseDto> {
-    return this.service.findAll(user.organizationId, query);
+    return this.service.findAll(user.organizationId, query, scope);
   }
 
   /**
@@ -74,10 +75,21 @@ export class PodOrderController {
    */
   @Get('orders/stats')
   @RequirePermissions('pod.tiktok.order.read')
-  @ApiOperation({ summary: 'Thống kê số đơn theo trạng thái' })
+  @ApiOperation({
+    summary: 'Thống kê số đơn theo trạng thái',
+    description:
+      '🔴 Nhận CÙNG bộ tham số lọc với `GET /orders` (datePreset · orderedFrom/To · status · ' +
+      'shopId · accountId · orderType · hasPodItem · search) và trả về số liệu ĐÃ LỌC. ' +
+      '`page`/`limit`/`sortBy` được bỏ qua vì không có ý nghĩa với phép đếm. ' +
+      'Bỏ trống mọi tham số ⇒ thống kê toàn bộ đơn của tổ chức (hành vi cũ, tương thích ngược).',
+  })
   @ApiOkResponse({ type: PodOrderStatsDto })
-  stats(@CurrentUser() user: AuthenticatedUser): Promise<PodOrderStatsDto> {
-    return this.service.stats(user.organizationId);
+  stats(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Query() query: PodOrderQueryDto,
+  ): Promise<PodOrderStatsDto> {
+    return this.service.stats(user.organizationId, query, scope);
   }
 
   @Post('orders/sync')
@@ -104,9 +116,10 @@ export class PodOrderController {
   @ApiOkResponse({ type: PaginatedPodSyncLogResponseDto })
   findSyncLogs(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Query() query: PodSyncLogQueryDto,
   ): Promise<PaginatedPodSyncLogResponseDto> {
-    return this.service.findSyncLogs(user.organizationId, query);
+    return this.service.findSyncLogs(user.organizationId, query, scope);
   }
 
   // Đặt CUỐI để `orders/stats` và `orders/sync` không bị `:id` bắt nhầm.
@@ -116,8 +129,9 @@ export class PodOrderController {
   @ApiOkResponse({ type: PodOrderResponseDto })
   findOne(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<PodOrderResponseDto> {
-    return this.service.findOne(user.organizationId, id);
+    return this.service.findOne(user.organizationId, id, scope);
   }
 }

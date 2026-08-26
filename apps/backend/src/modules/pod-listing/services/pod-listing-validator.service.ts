@@ -154,7 +154,11 @@ export class PodListingValidatorService {
       }
       if (!variant.sellerSku?.trim()) {
         blockers.push(
-          this.blocker('MISSING_SKU', 'variants', `Biến thể "${variant.variantName}" chưa có mã SKU`),
+          this.blocker(
+            'MISSING_SKU',
+            'variants',
+            `Biến thể "${variant.variantName}" chưa có mã SKU`,
+          ),
         );
       }
     }

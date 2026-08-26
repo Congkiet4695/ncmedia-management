@@ -1,6 +1,7 @@
 import { BadRequestException } from '@nestjs/common';
 import { PodListingSessionStatus } from '@prisma/client';
 import { Workbook } from 'exceljs';
+import { POD_SCOPE_SYSTEM } from '../../pod-tiktok/services/pod-access-scope.service';
 import { PodSessionImportService } from './pod-session-import.service';
 
 /**
@@ -74,7 +75,7 @@ describe('PodSessionImportService — file 11 cột', () => {
       ['Retro Tee', 'https://cdn.example/c.jpg'],
     ]);
 
-    const result = await service.import('org-1', 'user-1', 'session-1', file, {});
+    const result = await service.import('org-1', 'user-1', 'session-1', file, {}, POD_SCOPE_SYSTEM);
 
     expect(result.createdProducts).toBe(2);
     expect(result.createdImages).toBe(3);
@@ -94,7 +95,7 @@ describe('PodSessionImportService — file 11 cột', () => {
       ['Poster', 'https://cdn.example/a.jpg', '', 'https://cdn.example/c.jpg'],
     ]);
 
-    await service.import('org-1', 'user-1', 'session-1', file, {});
+    await service.import('org-1', 'user-1', 'session-1', file, {}, POD_SCOPE_SYSTEM);
 
     expect(created[0].urls).toEqual(['https://cdn.example/a.jpg', 'https://cdn.example/c.jpg']);
   });
@@ -106,16 +107,19 @@ describe('PodSessionImportService — file 11 cột', () => {
       ['Poster', 'https://cdn.example/a.jpg', 'https://cdn.example/a.jpg'],
     ]);
 
-    await service.import('org-1', 'user-1', 'session-1', file, {});
+    await service.import('org-1', 'user-1', 'session-1', file, {}, POD_SCOPE_SYSTEM);
 
     expect(created[0].urls).toHaveLength(1);
   });
 
   it('giá trị không phải http(s) bị bỏ — không nhập vào một đường dẫn không tải được', async () => {
     const { service, created } = buildService();
-    const file = await buildFile([HEADER, ['Poster', 'C:\\anh\\a.jpg', 'https://cdn.example/a.jpg']]);
+    const file = await buildFile([
+      HEADER,
+      ['Poster', 'C:\\anh\\a.jpg', 'https://cdn.example/a.jpg'],
+    ]);
 
-    await service.import('org-1', 'user-1', 'session-1', file, {});
+    await service.import('org-1', 'user-1', 'session-1', file, {}, POD_SCOPE_SYSTEM);
 
     expect(created[0].urls).toEqual(['https://cdn.example/a.jpg']);
   });
@@ -127,7 +131,7 @@ describe('PodSessionImportService — file 11 cột', () => {
       ['Poster', 'https://cdn.example/a.jpg', 'https://cdn.example/b.jpg'],
     ]);
 
-    await service.import('org-1', 'user-1', 'session-1', file, {});
+    await service.import('org-1', 'user-1', 'session-1', file, {}, POD_SCOPE_SYSTEM);
 
     expect(created[0].urls).toHaveLength(2);
   });
@@ -139,7 +143,7 @@ describe('PodSessionImportService — file 11 cột', () => {
       ['Poster', 'https://cdn.example/a.jpg', '19.99', '<p>hi</p>', 'SKU-1'],
     ]);
 
-    await service.import('org-1', 'user-1', 'session-1', file, {});
+    await service.import('org-1', 'user-1', 'session-1', file, {}, POD_SCOPE_SYSTEM);
 
     expect(created[0]).toEqual({
       title: 'Poster',
@@ -156,7 +160,7 @@ describe('PodSessionImportService — file 11 cột', () => {
       ['Poster', 'https://cdn.example/b.jpg'],
     ]);
 
-    const result = await service.import('org-1', 'user-1', 'session-1', file, {});
+    const result = await service.import('org-1', 'user-1', 'session-1', file, {}, POD_SCOPE_SYSTEM);
 
     expect(result.skippedRows).toBe(1);
     expect(result.errors[0].row).toBe(2);
@@ -168,7 +172,7 @@ describe('PodSessionImportService — file 11 cột', () => {
     const { service, created } = buildService();
     const file = await buildFile([HEADER, ['Poster']]);
 
-    await service.import('org-1', 'user-1', 'session-1', file, {});
+    await service.import('org-1', 'user-1', 'session-1', file, {}, POD_SCOPE_SYSTEM);
 
     expect(created[0].urls).toEqual([]);
   });
@@ -177,9 +181,9 @@ describe('PodSessionImportService — file 11 cột', () => {
     const { service } = buildService();
     const file = await buildFile([['URL1'], ['https://cdn.example/a.jpg']]);
 
-    await expect(service.import('org-1', 'user-1', 'session-1', file, {})).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      service.import('org-1', 'user-1', 'session-1', file, {}, POD_SCOPE_SYSTEM),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 
   it('file mẫu tải về đúng 11 cột, không thêm cột nào', async () => {

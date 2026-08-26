@@ -139,6 +139,27 @@ export const envValidationSchema = Joi.object({
   TIKTOK_LISTING_REVIEW_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   TIKTOK_LISTING_REVIEW_CRON: Joi.string().default('*/5 * * * *'),
 
+  // --- Mail Module (Gmail SMTP) ---
+  // MAIL_USER/MAIL_PASS để trống là hợp lệ: dev/CI không có SMTP thật, module tự chuyển sang
+  // chế độ chỉ ghi log thay vì chặn cả hệ thống khởi động.
+  APP_PUBLIC_URL: Joi.string().allow('').default(''),
+  MAIL_DRIVER: Joi.string().default('gmail'),
+  MAIL_HOST: Joi.string().default('smtp.gmail.com'),
+  MAIL_PORT: Joi.number().port().default(587),
+  MAIL_SECURE: Joi.boolean().truthy('true').falsy('false').default(false),
+  MAIL_USER: Joi.string().allow('').default(''),
+  MAIL_PASS: Joi.string().allow('').default(''),
+  MAIL_FROM: Joi.string().allow('').default(''),
+  MAIL_FROM_NAME: Joi.string().allow('').default('NCMedia Management'),
+
+  // --- Super Admin đầu tiên (seed) ---
+  // `tlds: false` — cho phép domain nội bộ (`superadmin@ncmedia.local`). Seed sẵn có của dự
+  // án cũng dùng `admin@demo.ncmedia.local`; bắt buộc TLD thật ở đây là chặn đúng cấu hình
+  // hợp lệ của môi trường dev/on-premise.
+  SUPER_ADMIN_EMAIL: Joi.string().email({ tlds: { allow: false } }).allow('').default(''),
+  SUPER_ADMIN_PASSWORD: Joi.string().allow('').default(''),
+  SUPER_ADMIN_FULL_NAME: Joi.string().allow('').default('Super Administrator'),
+
   // --- Đồng bộ Payout (Finance API) ---
   TIKTOK_PAYOUT_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   TIKTOK_PAYOUT_WINDOW_DAYS: Joi.number().integer().min(1).max(3650).default(90),
@@ -154,6 +175,8 @@ export const envValidationSchema = Joi.object({
   FULFILLMENT_SYNC_CRON: Joi.string().default('*/5 * * * *'),
   FULFILLMENT_SYNC_BATCH_SIZE: Joi.number().integer().min(1).max(1000).default(100),
   FULFILLMENT_SYNC_DEADLINE_MS: Joi.number().integer().min(10000).max(3600000).default(240000),
+  FULFILLMENT_CATALOG_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  FULFILLMENT_CATALOG_SYNC_CRON: Joi.string().default('0 */6 * * *'),
   FULFILLMENT_WEBHOOK_MAX_ATTEMPTS: Joi.number().integer().min(1).max(20).default(5),
   FULFILLMENT_WEBHOOK_RETRY_BATCH: Joi.number().integer().min(1).max(500).default(50),
 });

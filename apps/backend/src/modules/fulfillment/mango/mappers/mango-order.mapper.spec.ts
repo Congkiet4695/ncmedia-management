@@ -82,9 +82,7 @@ describe('MangoOrderMapper', () => {
       expect(mapper.normalizeAddress(usAddress({ postal_code: undefined }))).toBeNull();
       expect(mapper.normalizeAddress(usAddress({ district_info: [] }))).toBeNull();
       expect(
-        mapper.normalizeAddress(
-          usAddress({ address_line1: undefined, address_detail: undefined }),
-        ),
+        mapper.normalizeAddress(usAddress({ address_line1: undefined, address_detail: undefined })),
       ).toBeNull();
     });
   });
@@ -99,6 +97,7 @@ describe('MangoOrderMapper', () => {
           providerSku: 'SKU-1',
           quantity: 1,
           productionConfig: null,
+          baseCost: null,
           printFiles: [{ key: 'front' as const, url: 'https://cdn/x.png' }],
         },
       ],
@@ -150,6 +149,7 @@ describe('MangoOrderMapper', () => {
             providerSku: 'S',
             quantity: 1,
             productionConfig: null,
+            baseCost: null,
             printFiles: [{ key: 'front', url: 'u' }],
           },
         ],

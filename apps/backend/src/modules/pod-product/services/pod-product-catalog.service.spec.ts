@@ -38,7 +38,11 @@ function buildService(apiBrands: Array<{ id?: string; name?: string }>) {
         // mặc định đó, không thì test đọc `undefined` và tưởng là lỗi của service.
         else {
           const row = create as unknown as Partial<BrandRow>;
-          rows.push({ ...row, isNoBrand: row.isNoBrand ?? false, isSystem: row.isSystem ?? false } as BrandRow);
+          rows.push({
+            ...row,
+            isNoBrand: row.isNoBrand ?? false,
+            isSystem: row.isSystem ?? false,
+          } as BrandRow);
         }
         return Promise.resolve({});
       }),

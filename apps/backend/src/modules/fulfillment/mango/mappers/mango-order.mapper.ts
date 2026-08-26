@@ -33,6 +33,14 @@ export interface ResolvedItem {
   providerSku: string;
   quantity: number;
   productionConfig: string | null;
+  /**
+   * Giá vốn khai ở Product Mapping tại thời điểm gửi.
+   *
+   * KHÔNG gửi sang nhà cung cấp (họ tự tính giá) — chỉ để chép vào
+   * `fulfillment_order_items.base_cost` làm ảnh chụp bất biến. Sửa giá vốn của ánh xạ về sau
+   * KHÔNG được làm đổi lợi nhuận của đơn đã gửi.
+   */
+  baseCost: number | null;
   printFiles: MangoPrintFile[];
 }
 
@@ -98,9 +106,7 @@ export class MangoOrderMapper {
    */
   buildExternalOrderId(tiktokOrderId: string, prefix = 'NC'): string {
     const raw = `${prefix}-${tiktokOrderId}`;
-    return raw.length <= MANGO_ORDER_ID_MAX_LENGTH
-      ? raw
-      : raw.slice(0, MANGO_ORDER_ID_MAX_LENGTH);
+    return raw.length <= MANGO_ORDER_ID_MAX_LENGTH ? raw : raw.slice(0, MANGO_ORDER_ID_MAX_LENGTH);
   }
 
   /**

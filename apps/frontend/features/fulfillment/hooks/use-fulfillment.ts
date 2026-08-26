@@ -6,8 +6,11 @@ import {
   fulfillmentService,
   productMappingService,
 } from '../services/fulfillment.service';
+import type { PodDesignPlacement } from '@/features/pod-tiktok/order-types';
 import type {
+  CatalogProductQuery,
   CreateFulfillmentProviderInput,
+  ProductDesignKey,
   ProductMappingQuery,
   UpdateFulfillmentProviderInput,
   UpsertProductMappingInput,
@@ -142,6 +145,21 @@ export function useProductMappings(query: ProductMappingQuery) {
   });
 }
 
+/**
+ * Danh mục (nhóm sản phẩm) của một nhà cung cấp — bước 2 của luồng ánh xạ.
+ *
+ * `staleTime` dài vì dữ liệu này do Sync Job ghi xuống theo giờ, không đổi giữa hai lần mở
+ * dialog. Đóng/mở lại trong vài phút không tạo thêm request nào.
+ */
+export function useProviderCatalogues(accountId?: string) {
+  return useQuery({
+    queryKey: [MAPPING_KEY, 'catalogues', accountId],
+    queryFn: () => productMappingService.catalogues(accountId as string),
+    enabled: Boolean(accountId),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 /** SKU TikTok có thể ánh xạ. Chỉ tải khi đã chọn nhà cung cấp (bước 1 của luồng). */
 export function useTiktokProductOptions(accountId?: string, search?: string) {
   return useQuery({
@@ -152,19 +170,22 @@ export function useTiktokProductOptions(accountId?: string, search?: string) {
 }
 
 /**
- * Danh mục sản phẩm của nhà cung cấp.
- * `staleTime` 5 phút khớp với TTL cache phía backend — mở lại dialog trong khoảng đó
- * không tạo thêm request nào.
+ * Sản phẩm trong danh mục nhà cung cấp — đọc từ Database, PHÂN TRANG phía server.
+ *
+ * 🔴 Bản cũ tải toàn bộ danh mục về trình duyệt rồi lọc tại chỗ; với vài nghìn sản phẩm đó
+ * là vài MB JSON mỗi lần mở dialog. Giờ mỗi lần chỉ tải đúng một trang.
  */
-export function useProviderCatalogProducts(accountId?: string, search?: string) {
+export function useProviderCatalogProducts(accountId?: string, query: CatalogProductQuery = {}) {
   return useQuery({
-    queryKey: [MAPPING_KEY, 'catalog-products', accountId, search],
-    queryFn: () => productMappingService.catalogProducts(accountId as string, search),
+    queryKey: [MAPPING_KEY, 'catalog-products', accountId, query],
+    queryFn: () => productMappingService.catalogProducts(accountId as string, query),
     enabled: Boolean(accountId),
     staleTime: 5 * 60 * 1000,
+    placeholderData: (previous) => previous,
   });
 }
 
+/** Biến thể của một sản phẩm. `productId` là khoá NỘI BỘ (uuid), không phải id của Mango. */
 export function useProviderCatalogVariations(accountId?: string, productId?: string) {
   return useQuery({
     queryKey: [MAPPING_KEY, 'catalog-variations', accountId, productId],
@@ -175,13 +196,71 @@ export function useProviderCatalogVariations(accountId?: string, productId?: str
   });
 }
 
-export function useProductMappingActions() {
+/** Tình trạng bản sao danh mục — số bản ghi + lần đồng bộ gần nhất. */
+export function useCatalogStatus(accountId?: string) {
+  return useQuery({
+    queryKey: [MAPPING_KEY, 'catalog-status', accountId],
+    queryFn: () => productMappingService.catalogStatus(accountId as string),
+    enabled: Boolean(accountId),
+  });
+}
+
+/**
+ * Làm mới MỌI thứ phụ thuộc vào Product Mapping (§ "không cần Refresh").
+ *
+ * 🔴 Ba cache, không phải một. Design sống ở Product Mapping và được ĐỌC ở ba nơi:
+ *   - `product-mappings`    — bảng ánh xạ (ảnh Front/Back, cột tình trạng)
+ *   - `pod-tiktok-orders`   — danh sách đơn (thumbnail design + trạng thái ánh xạ)
+ *   - `fulfillment`         — `ready`/`issues`, thứ quyết định nút Fulfill sáng hay mờ
+ *
+ * Bỏ sót vế thứ ba là đúng triệu chứng đã từng gặp: ảnh đổi ngay nhưng nút Fulfill vẫn mờ
+ * cho tới khi người dùng F5.
+ */
+function useMappingRefresh(): () => void {
   const queryClient = useQueryClient();
-  const invalidate = () => {
+  return () => {
     void queryClient.invalidateQueries({ queryKey: [MAPPING_KEY] });
-    // Ánh xạ đổi ⇒ đơn có thể chuyển từ "chưa sẵn sàng" sang "gửi được" ngay.
+    void queryClient.invalidateQueries({ queryKey: ['pod-tiktok-orders'] });
     void queryClient.invalidateQueries({ queryKey: ['fulfillment'] });
   };
+}
+
+/**
+ * Upload / Replace / Delete design của MỘT SẢN PHẨM (Product ID + Seller SKU).
+ *
+ * 🔴 KHÔNG cần sản phẩm đã có Product Mapping — Design và Mapping là hai nghiệp vụ độc lập.
+ * Không thao tác nào chạm vào đơn hàng: một lần upload phục vụ mọi đơn cùng cặp khoá, xoá là
+ * mọi đơn đó quay về "Design Missing". Việc duy nhất frontend phải làm sau đó là bỏ cache cũ
+ * đi — xem `useMappingRefresh`.
+ */
+export function useMappingDesignActions() {
+  const refresh = useMappingRefresh();
+
+  return {
+    upload: useMutation({
+      mutationFn: ({
+        key,
+        placement,
+        file,
+        onProgress,
+      }: {
+        key: ProductDesignKey;
+        placement: PodDesignPlacement;
+        file: File;
+        onProgress?: (percent: number) => void;
+      }) => productMappingService.uploadDesign(key, placement, file, onProgress),
+      onSuccess: refresh,
+    }),
+    remove: useMutation({
+      mutationFn: ({ key, placement }: { key: ProductDesignKey; placement: PodDesignPlacement }) =>
+        productMappingService.deleteDesign(key, placement),
+      onSuccess: refresh,
+    }),
+  };
+}
+
+export function useProductMappingActions() {
+  const invalidate = useMappingRefresh();
 
   return {
     create: useMutation({
@@ -197,8 +276,20 @@ export function useProductMappingActions() {
       mutationFn: (id: string) => productMappingService.remove(id),
       onSuccess: invalidate,
     }),
-    refreshCatalog: useMutation({
-      mutationFn: (accountId: string) => productMappingService.refreshCatalog(accountId),
+    /**
+     * Kéo danh mục từ nhà cung cấp về Database.
+     *
+     * ⚠️ Tác vụ DÀI với danh mục lớn (hàng nghìn lời gọi API, tự giới hạn 10 request/giây).
+     * Giao diện phải hiện trạng thái đang chạy chứ không được để người dùng tưởng máy treo.
+     */
+    syncCatalog: useMutation({
+      mutationFn: (accountId: string) => productMappingService.syncCatalog(accountId),
+      onSuccess: invalidate,
+    }),
+
+    /** Rà ánh xạ tự động cho mọi sản phẩm chưa ánh xạ. */
+    autoResolve: useMutation({
+      mutationFn: () => productMappingService.autoResolve(),
       onSuccess: invalidate,
     }),
   };

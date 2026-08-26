@@ -35,6 +35,9 @@ import {
   PodProductDetailDto,
   PodProductSyncResultDto,
 } from './dto/pod-product-response.dto';
+import { PodScope } from '../pod-tiktok/decorators/pod-scope.decorator';
+import { PodScopeGuard } from '../pod-tiktok/guards/pod-scope.guard';
+import type { PodAccessScope } from '../pod-tiktok/services/pod-access-scope.service';
 import { PodProductService } from './services/pod-product.service';
 
 /**
@@ -50,7 +53,9 @@ import { PodProductService } from './services/pod-product.service';
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Access token không hợp lệ (AUTH_TOKEN_INVALID)' })
 @ApiForbiddenResponse({ description: 'Thiếu permission (AUTH_FORBIDDEN)' })
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+// 🔴 `PodScopeGuard` nạp phạm vi shop cho MỌI route trong controller này — kể cả route
+// thêm sau này. Xem `PodAccessScopeService`.
+@UseGuards(JwtAuthGuard, PermissionsGuard, PodScopeGuard)
 @Controller('pod/products')
 export class PodProductController {
   constructor(private readonly service: PodProductService) {}
@@ -66,9 +71,10 @@ export class PodProductController {
   @ApiOkResponse({ type: PaginatedPodProductResponseDto })
   findAll(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Query() query: PodProductQueryDto,
   ): Promise<PaginatedPodProductResponseDto> {
-    return this.service.findAll(user.organizationId, query);
+    return this.service.findAll(user.organizationId, query, scope);
   }
 
   /** Đặt TRƯỚC `:id` — nếu không, "filters" và "sync-history" bị route `:id` bắt nhầm. */
@@ -78,8 +84,8 @@ export class PodProductController {
     summary: 'Giá trị cho bộ lọc (danh mục / thương hiệu / trạng thái / shop)',
     description: 'Chỉ trả những giá trị ĐANG có sản phẩm — dropdown không bao giờ cho 0 kết quả.',
   })
-  findFilters(@CurrentUser() user: AuthenticatedUser) {
-    return this.service.findFilterOptions(user.organizationId);
+  findFilters(@CurrentUser() user: AuthenticatedUser, @PodScope() scope: PodAccessScope) {
+    return this.service.findFilterOptions(user.organizationId, scope);
   }
 
   @Get('sync-history')
@@ -88,9 +94,10 @@ export class PodProductController {
   @ApiOkResponse({ type: PaginatedPodProductSyncHistoryDto })
   findSyncHistory(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Query() query: PodProductSyncHistoryQueryDto,
   ): Promise<PaginatedPodProductSyncHistoryDto> {
-    return this.service.findSyncHistories(user.organizationId, query);
+    return this.service.findSyncHistories(user.organizationId, query, scope);
   }
 
   @Post('sync')
@@ -184,9 +191,10 @@ export class PodProductController {
   @ApiNotFoundResponse({ description: 'Không tìm thấy sản phẩm (POD_PRODUCT_NOT_FOUND)' })
   findOne(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<PodProductDetailDto> {
-    return this.service.findOne(user.organizationId, id);
+    return this.service.findOne(user.organizationId, id, scope);
   }
 
   @Post(':id/sync')
@@ -199,8 +207,9 @@ export class PodProductController {
   @ApiOkResponse({ type: PodProductDetailDto })
   resyncOne(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<PodProductDetailDto> {
-    return this.service.resyncOne(user.organizationId, user.userId, id);
+    return this.service.resyncOne(user.organizationId, user.userId, id, scope);
   }
 }

@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { AuthModule } from '../auth/auth.module';
 import { PodListingModule } from '../pod-listing/pod-listing.module';
+import { PodTiktokModule } from '../pod-tiktok/pod-tiktok.module';
 import { PodListingSessionController } from './pod-listing-session.controller';
 import { PodListingSessionService } from './services/pod-listing-session.service';
 import { PodSessionImportService } from './services/pod-session-import.service';
@@ -27,7 +28,8 @@ import { PodSessionProductService } from './services/pod-session-product.service
  * `session_product_id` trên job item và một hàm ghép template dùng chung.
  */
 @Module({
-  imports: [AuthModule, PodListingModule],
+  // PodTiktokModule: lấy PodAccessScopeService — phân quyền theo shop được Admin gán.
+  imports: [AuthModule, PodListingModule, PodTiktokModule],
   controllers: [PodListingSessionController],
   providers: [PodListingSessionService, PodSessionProductService, PodSessionImportService],
   exports: [PodListingSessionService],

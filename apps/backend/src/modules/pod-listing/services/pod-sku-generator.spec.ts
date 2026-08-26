@@ -65,9 +65,9 @@ describe('PodTemplateService — SKU Generator', () => {
     });
 
     it('tên trục rỗng ⇒ lỗi', () => {
-      expect(() =>
-        call.normalizeVariants([{ name: '   ', values: [{ value: 'Black' }] }]),
-      ).toThrow(/chưa có tên/i);
+      expect(() => call.normalizeVariants([{ name: '   ', values: [{ value: 'Black' }] }])).toThrow(
+        /chưa có tên/i,
+      );
     });
 
     it('trục không có giá trị nào ⇒ lỗi', () => {
@@ -93,7 +93,13 @@ describe('PodTemplateService — SKU Generator', () => {
 
   describe('so trục — quyết định có cảnh báo "cần tạo lại SKU" hay không', () => {
     const saved = [
-      { name: 'Color', values: [{ value: 'Black', code: 'BLACK' }, { value: 'White', code: 'WHITE' }] },
+      {
+        name: 'Color',
+        values: [
+          { value: 'Black', code: 'BLACK' },
+          { value: 'White', code: 'WHITE' },
+        ],
+      },
     ];
 
     it('trục y hệt ⇒ không đổi', () => {

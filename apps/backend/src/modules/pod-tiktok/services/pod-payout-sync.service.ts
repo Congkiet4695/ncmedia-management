@@ -72,7 +72,10 @@ export class PodPayoutSyncService {
   ) {}
 
   /** Đồng bộ payout cho một shop. KHÔNG ném lỗi ra ngoài. */
-  async syncShop(target: SyncShopTarget, options: PayoutSyncOptions = {}): Promise<PayoutSyncOutcome> {
+  async syncShop(
+    target: SyncShopTarget,
+    options: PayoutSyncOptions = {},
+  ): Promise<PayoutSyncOutcome> {
     const outcome: PayoutSyncOutcome = {
       shopId: target.id,
       shopName: target.name,
@@ -88,7 +91,10 @@ export class PodPayoutSyncService {
     };
 
     const lockTtl = this.config.get<number>('tiktok.sync.runDeadlineMs', 240_000);
-    const acquired = await this.lock.acquire(`${PodPayoutSyncService.LOCK_PREFIX}${target.id}`, lockTtl);
+    const acquired = await this.lock.acquire(
+      `${PodPayoutSyncService.LOCK_PREFIX}${target.id}`,
+      lockTtl,
+    );
     if (!acquired) {
       outcome.errorCode = 'LOCKED';
       outcome.errorMessage = 'Đang có lượt đồng bộ payout khác cho shop này';
@@ -146,7 +152,10 @@ export class PodPayoutSyncService {
     await this.syncPayments(ctx, shopCipher, token.accessToken, from, options, outcome, now);
     await this.syncStatements(ctx, shopCipher, token.accessToken, from, options, outcome, now);
 
-    outcome.statementsLinked = await this.repo.linkStatementsToPayments(ctx.organizationId, ctx.shopId);
+    outcome.statementsLinked = await this.repo.linkStatementsToPayments(
+      ctx.organizationId,
+      ctx.shopId,
+    );
 
     await this.syncStatementTransactions(ctx, shopCipher, token.accessToken, options, outcome, now);
 

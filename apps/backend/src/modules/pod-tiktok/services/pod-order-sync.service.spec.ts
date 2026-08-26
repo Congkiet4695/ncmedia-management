@@ -3,6 +3,7 @@ import { PodSyncStatus, PodSyncTrigger } from '@prisma/client';
 import { TiktokOrderClient } from '../clients/tiktok-order.client';
 import { TiktokErrorClass } from '../constants/tiktok-error-code.constants';
 import { TiktokClientError } from '../exceptions/pod-tiktok.exceptions';
+import { OrderSyncHookRegistry } from '../../../common/hooks/order-sync-hook.registry';
 import { DistributedLockService } from '../infra/distributed-lock.service';
 import { PodSyncLogRepository } from '../repositories/pod-sync-log.repository';
 import { PodTiktokAccountRepository } from '../repositories/pod-tiktok-account.repository';
@@ -82,6 +83,7 @@ describe('PodOrderSyncService', () => {
   };
   let syncLogRepo: { start: jest.Mock; finish: jest.Mock };
   let lock: { acquire: jest.Mock; release: jest.Mock };
+  let syncHooks: { notifyOrdersSynced: jest.Mock };
 
   beforeEach(() => {
     config = {
@@ -113,6 +115,7 @@ describe('PodOrderSyncService', () => {
       acquire: jest.fn().mockResolvedValue({ key: 'k', fenceToken: 'f' }),
       release: jest.fn().mockResolvedValue(undefined),
     };
+    syncHooks = { notifyOrdersSynced: jest.fn().mockResolvedValue(undefined) };
 
     service = new PodOrderSyncService(
       config as unknown as ConfigService,
@@ -123,6 +126,8 @@ describe('PodOrderSyncService', () => {
       syncLogRepo as unknown as PodSyncLogRepository,
       { decrypt: () => 'PLAIN_SHOP_CIPHER' } as unknown as TiktokEncryptionService,
       lock as unknown as DistributedLockService,
+      // Hook sau đồng bộ (ánh xạ tự động của Fulfillment) — không thuộc phạm vi bộ test này.
+      syncHooks as unknown as OrderSyncHookRegistry,
     );
   });
 
@@ -316,7 +321,9 @@ describe('PodOrderSyncService', () => {
         .mockResolvedValueOnce({ orders: [{ id: 'a' }], nextPageToken: 'p2' })
         .mockResolvedValueOnce({ orders: [{ id: 'b' }], nextPageToken: 'p3' })
         .mockResolvedValueOnce({ orders: [{ id: 'c' }], nextPageToken: undefined });
-      ingestion.ingestBatch.mockResolvedValue(ingestResult({ total: 1, created: 1, maxUpdateTime: 10n }));
+      ingestion.ingestBatch.mockResolvedValue(
+        ingestResult({ total: 1, created: 1, maxUpdateTime: 10n }),
+      );
 
       const outcome = await service.syncShop(buildTarget(), { trigger: PodSyncTrigger.CRON });
 
@@ -524,9 +531,19 @@ describe('PodOrderSyncService', () => {
 
   describe('Sync log', () => {
     it('ghi số liệu created/updated/skipped/failed và số lần gọi API', async () => {
-      orderClient.searchOrders.mockResolvedValue({ orders: [{ id: 'a' }], nextPageToken: undefined });
+      orderClient.searchOrders.mockResolvedValue({
+        orders: [{ id: 'a' }],
+        nextPageToken: undefined,
+      });
       ingestion.ingestBatch.mockResolvedValue(
-        ingestResult({ total: 10, created: 4, updated: 3, skipped: 2, failed: 0, maxUpdateTime: 99n }),
+        ingestResult({
+          total: 10,
+          created: 4,
+          updated: 3,
+          skipped: 2,
+          failed: 0,
+          maxUpdateTime: 99n,
+        }),
       );
 
       await service.syncShop(buildTarget(), { trigger: PodSyncTrigger.CRON });

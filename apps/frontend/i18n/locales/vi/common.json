@@ -32,7 +32,8 @@
     "unassign": "Bỏ phân công",
     "upload": "Tải lên",
     "view": "Xem",
-    "viewDetail": "Xem chi tiết"
+    "viewDetail": "Xem chi tiết",
+    "more": "Thao tác khác"
   },
   "appName": "NCMedia Management",
   "combobox": {
@@ -80,7 +81,10 @@
     "allStatuses": "Tất cả trạng thái"
   },
   "image": {
-    "viewLarge": "Xem ảnh"
+    "viewLarge": "Xem ảnh",
+    "zoomIn": "Phóng to",
+    "zoomOut": "Thu nhỏ",
+    "download": "Tải ảnh về"
   },
   "importExport": {
     "column": "Cột",

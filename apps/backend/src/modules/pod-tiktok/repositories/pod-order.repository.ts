@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { accountScopeFilter, shopScopeFilter } from '../shared/shop-scope';
 import { POD_ORDER_INCLUDE, PodOrderWithRelations } from '../types/pod-order-with-relations.type';
 
 /** Ảnh chụp tối thiểu của đơn đã có trong DB — dùng để so sánh, KHÔNG tải nguyên bản ghi. */
@@ -13,17 +14,36 @@ export interface ExistingOrderSnapshot {
   syncVersion: number;
 }
 
-export interface PodOrderFindManyParams {
-  page: number;
-  limit: number;
+/**
+ * Bộ lọc đơn — phần dùng CHUNG giữa danh sách và thống kê.
+ *
+ * 🔴 Tách riêng khỏi phân trang/sắp xếp có chủ đích: thống kê cần đúng bộ lọc này và KHÔNG
+ * cần `page`/`sortBy`. Tách ra khiến việc "thẻ thống kê phải lọc giống danh sách" trở thành
+ * điều kiểu dữ liệu tự bảo đảm, thay vì một quy ước dễ quên.
+ */
+export interface PodOrderFilterParams {
   search?: string;
   status?: string;
   shopId?: string;
   accountId?: string;
+  /**
+   * 🔴 Phạm vi shop của người dùng. `undefined` = không giới hạn (`pod.shop.all`);
+   * mảng RỖNG = chưa được gán shop nào ⇒ không thấy đơn nào.
+   *
+   * Đặt trong `PodOrderFilterParams` (chứ không ở `FindManyParams`) là có chủ đích: danh
+   * sách VÀ thẻ thống kê dùng chung kiểu này, nên không thể lọc một bên mà quên bên kia.
+   */
+  shopScope?: string[];
+  accountScope?: string[];
   orderType?: string;
   hasPodItem?: boolean;
   orderedFrom?: Date;
   orderedTo?: Date;
+}
+
+export interface PodOrderFindManyParams extends PodOrderFilterParams {
+  page: number;
+  limit: number;
   sortBy: 'orderedAt' | 'tiktokUpdatedAt' | 'totalAmount' | 'status' | 'lastSyncedAt';
   sortOrder: 'asc' | 'desc';
 }
@@ -152,16 +172,29 @@ export class PodOrderRepository {
     });
   }
 
-  async findMany(
+  /**
+   * Điều kiện lọc đơn — dùng CHUNG cho danh sách và cho thống kê.
+   *
+   * 🔴 Một hàm, một nơi. Trước đây danh sách có bộ lọc còn `countByStatus` thì không, nên các
+   * thẻ thống kê luôn hiện số liệu TOÀN HỆ THỐNG trong khi bảng bên dưới đã lọc — hai con số
+   * mâu thuẫn nhau trên cùng một màn hình. Tách thành hai bản sao là mời lỗi đó quay lại ngay
+   * lần thêm bộ lọc tiếp theo.
+   */
+  private buildWhere(
     organizationId: string,
-    params: PodOrderFindManyParams,
-  ): Promise<{ items: PodOrderWithRelations[]; total: number }> {
-    const where: Prisma.PodOrderWhereInput = {
+    params: PodOrderFilterParams,
+  ): Prisma.PodOrderWhereInput {
+    // 🔴 GIAO phạm vi được gán với bộ lọc người dùng chọn — không bao giờ gán đè. Gán đè là
+    // bug bảo mật: chỉ cần gửi `?shopId=<shop người khác>` là đọc được đơn của shop đó.
+    const shopFilter = shopScopeFilter(params.shopScope, params.shopId);
+    const accountFilter = accountScopeFilter(params.accountScope, params.accountId);
+
+    return {
       organizationId,
       deletedAt: null,
       ...(params.status ? { status: params.status } : {}),
-      ...(params.shopId ? { shopId: params.shopId } : {}),
-      ...(params.accountId ? { accountId: params.accountId } : {}),
+      ...(shopFilter === undefined ? {} : { shopId: shopFilter }),
+      ...(accountFilter === undefined ? {} : { accountId: accountFilter }),
       ...(params.orderType ? { orderType: params.orderType } : {}),
       ...(params.hasPodItem !== undefined ? { hasPodItem: params.hasPodItem } : {}),
       ...(params.orderedFrom || params.orderedTo
@@ -183,6 +216,13 @@ export class PodOrderRepository {
           }
         : {}),
     };
+  }
+
+  async findMany(
+    organizationId: string,
+    params: PodOrderFindManyParams,
+  ): Promise<{ items: PodOrderWithRelations[]; total: number }> {
+    const where = this.buildWhere(organizationId, params);
 
     const [items, total] = await this.prisma.$transaction([
       this.prisma.podOrder.findMany({
@@ -197,11 +237,17 @@ export class PodOrderRepository {
     return { items, total };
   }
 
-  /** Thống kê nhanh cho màn hình danh sách (một query GROUP BY, không N+1). */
-  countByStatus(organizationId: string) {
+  /**
+   * Thống kê cho các thẻ ở đầu màn hình danh sách (một query GROUP BY, không N+1).
+   *
+   * 🔴 Nhận CÙNG bộ lọc với `findMany` và dựng WHERE bằng CÙNG một hàm. Thẻ "Completed" phải
+   * đếm đúng những đơn mà bảng bên dưới đang hiển thị — nếu không, người dùng nhìn thấy
+   * "1.240 đơn hoàn thành" ngay phía trên một bảng có 3 dòng.
+   */
+  countByStatus(organizationId: string, params: PodOrderFilterParams = {}) {
     return this.prisma.podOrder.groupBy({
       by: ['status'],
-      where: { organizationId, deletedAt: null },
+      where: this.buildWhere(organizationId, params),
       _count: { _all: true },
     });
   }

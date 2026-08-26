@@ -2,10 +2,7 @@ import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PodTiktokAccountStatus, PodTiktokTokenAction, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { TIKTOK_SELLER_USER_TYPES, TIKTOK_SELLER_TYPES } from '../constants/tiktok.constants';
-import {
-  TIKTOK_ERROR_CODES,
-  TiktokErrorClass,
-} from '../constants/tiktok-error-code.constants';
+import { TIKTOK_ERROR_CODES, TiktokErrorClass } from '../constants/tiktok-error-code.constants';
 import { TiktokApiClient } from '../clients/tiktok-api.client';
 import { TiktokAuthClient } from '../clients/tiktok-auth.client';
 import {
@@ -40,6 +37,7 @@ import {
   PodTiktokAccountRepository,
   PodTiktokAccountWriteData,
 } from '../repositories/pod-tiktok-account.repository';
+import type { PodAccessScope } from './pod-access-scope.service';
 import { TiktokEncryptionService } from './tiktok-encryption.service';
 import { TiktokShopItem, TiktokTokenData } from '../types/tiktok-api.types';
 
@@ -130,10 +128,13 @@ export class PodTiktokAccountService {
   async findAll(
     organizationId: string,
     query: PodTiktokAccountQueryDto,
+    scope: PodAccessScope,
   ): Promise<PaginatedPodTiktokAccountResponseDto> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const { items, total } = await this.repo.findMany(organizationId, {
+      // 🔴 Seller chỉ thấy kết nối Admin đã gán cho mình.
+      accountScope: scope.allShops ? undefined : scope.accountIds,
       page,
       limit,
       search: query.search,
@@ -147,8 +148,22 @@ export class PodTiktokAccountService {
     };
   }
 
-  async findOne(organizationId: string, id: string): Promise<PodTiktokAccountResponseDto> {
-    const account = await this.repo.findById(organizationId, id);
+  /**
+   * Chi tiết một kết nối.
+   *
+   * `scope` bỏ trống ⇒ đọc trong toàn tổ chức. Chỉ những đường GHI nội bộ (đã tự kiểm quyền
+   * ở tầng trên) mới được bỏ trống; mọi endpoint đọc từ client PHẢI truyền vào.
+   */
+  async findOne(
+    organizationId: string,
+    id: string,
+    scope?: PodAccessScope,
+  ): Promise<PodTiktokAccountResponseDto> {
+    const account = await this.repo.findById(
+      organizationId,
+      id,
+      scope && !scope.allShops ? scope.accountIds : undefined,
+    );
     if (!account) throw new PodTiktokAccountNotFoundException();
     return this.mapper.toResponse(account);
   }
@@ -445,17 +460,10 @@ export class PodTiktokAccountService {
           // chủ đích); không nhập thì giữ nguyên tên cũ thay vì ghi đè bằng tên suy ra.
           await this.repo.updateAccountTokens(tx, accountId, actorUserId, {
             ...writeData,
-            accountName: userProvidedName?.trim()
-              ? writeData.accountName
-              : existing.accountName,
+            accountName: userProvidedName?.trim() ? writeData.accountName : existing.accountName,
           });
         } else {
-          const created = await this.repo.createAccount(
-            tx,
-            organizationId,
-            actorUserId,
-            writeData,
-          );
+          const created = await this.repo.createAccount(tx, organizationId, actorUserId, writeData);
           accountId = created.id;
           action = PodTiktokTokenAction.ISSUE;
         }

@@ -1,6 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import type { PodAccessScope } from '../../pod-tiktok/services/pod-access-scope.service';
+import { shopScopeFilter } from '../../pod-tiktok/shared/shop-scope';
 import { PodTiktokTokenService } from '../../pod-tiktok/services/pod-tiktok-token.service';
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
 import { PodProductSyncRepository } from '../../pod-product/repositories/pod-product-sync.repository';
@@ -42,12 +44,17 @@ export class PodWarehouseService {
   ) {}
 
   /** Danh sách kho đã đồng bộ (đổ vào dropdown của Listing Template). */
-  list(organizationId: string, params: { shopId?: string } = {}) {
+  list(organizationId: string, params: { shopId?: string } = {}, scope?: PodAccessScope) {
     return this.prisma.podTiktokWarehouse.findMany({
       where: {
         organizationId,
         deletedAt: null,
-        ...(params.shopId ? { shopId: params.shopId } : {}),
+        // Kho gắn với TỪNG shop, nên nó là dữ liệu theo shop chứ không phải danh mục chung:
+        // Seller chỉ thấy kho của shop mình. `scope` để tuỳ chọn cho tiến trình nền.
+        shopId: shopScopeFilter(
+          scope && !scope.allShops ? scope.shopIds : undefined,
+          params.shopId,
+        ),
       },
       include: { shop: { select: { id: true, name: true, region: true } } },
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
@@ -191,8 +198,9 @@ export class PodWarehouseService {
 
     const ids = new Set<string>();
     for (const row of rows) {
-      const skus = (row.payload as { skus?: Array<{ inventory?: Array<{ warehouseId?: string }> }> })
-        ?.skus;
+      const skus = (
+        row.payload as { skus?: Array<{ inventory?: Array<{ warehouseId?: string }> }> }
+      )?.skus;
       for (const sku of skus ?? []) {
         for (const inventory of sku.inventory ?? []) {
           if (inventory.warehouseId) ids.add(inventory.warehouseId);

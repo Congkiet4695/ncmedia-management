@@ -135,8 +135,7 @@ export class MangoWebhookService {
       fulfillmentOrderId: record.id,
       eventType: 'WEBHOOK_RECEIVED',
       trigger: FulfillmentTrigger.WEBHOOK,
-      providerStatus:
-        payload.event === 'order.status' ? (payload.current_status ?? null) : null,
+      providerStatus: payload.event === 'order.status' ? (payload.current_status ?? null) : null,
       message: `Nhận webhook ${payload.event}`,
       payload: payload as unknown as Prisma.InputJsonValue,
     });

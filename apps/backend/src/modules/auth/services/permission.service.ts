@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { PLATFORM_PERMISSION_PREFIX } from '../constants/default-roles';
 
 /**
  * PermissionService — đọc Permission catalog (global). Catalog được seed
@@ -10,9 +11,19 @@ import { PrismaService } from '../../../database/prisma.service';
 export class PermissionService {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Lấy toàn bộ permission id trong transaction (để gán cho ADMIN). */
+  /**
+   * Permission id cấp cho Role ADMIN của MỘT Organization (BR-18) — **trừ nhóm nền tảng**.
+   *
+   * 🔴 Tên vẫn là `findAllIds…` nhưng "all" ở đây là "toàn bộ quyền TRONG PHẠM VI một
+   * Organization". Quyền `platform.*` (duyệt/từ chối Organization) thuộc phạm vi NỀN TẢNG và
+   * chỉ Role SUPER_ADMIN được giữ. Bỏ bộ lọc này thì mỗi lần có người đăng ký mới, hệ thống
+   * lại tự cấp cho họ quyền duyệt hồ sơ của mọi tổ chức khác.
+   */
   async findAllIdsInTransaction(tx: Prisma.TransactionClient): Promise<string[]> {
-    const rows = await tx.permission.findMany({ select: { id: true } });
+    const rows = await tx.permission.findMany({
+      where: { NOT: { code: { startsWith: PLATFORM_PERMISSION_PREFIX } } },
+      select: { id: true },
+    });
     return rows.map((r) => r.id);
   }
 

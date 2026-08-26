@@ -54,7 +54,9 @@ describe('PodPayoutMapper', () => {
     });
 
     it('🔴 tiền là Decimal, không đi qua parseFloat (giữ nguyên độ chính xác)', () => {
-      const result = mapper.mapPayment(payment({ amount: { value: '1234.5678', currency: 'USD' } }))!;
+      const result = mapper.mapPayment(
+        payment({ amount: { value: '1234.5678', currency: 'USD' } }),
+      )!;
       expect(result.data.amount).toBeInstanceOf(Prisma.Decimal);
       expect(result.data.amount.toString()).toBe('1234.5678');
     });
@@ -81,7 +83,9 @@ describe('PodPayoutMapper', () => {
     });
 
     it('cùng payload → cùng hash; đổi trạng thái → hash đổi', () => {
-      expect(mapper.mapPayment(payment())!.payloadHash).toBe(mapper.mapPayment(payment())!.payloadHash);
+      expect(mapper.mapPayment(payment())!.payloadHash).toBe(
+        mapper.mapPayment(payment())!.payloadHash,
+      );
       expect(mapper.mapPayment(payment())!.payloadHash).not.toBe(
         mapper.mapPayment(payment({ status: 'PROCESSING' }))!.payloadHash,
       );
@@ -116,7 +120,9 @@ describe('PodPayoutMapper', () => {
     });
 
     it('trường tiền rỗng → null, KHÔNG ép về 0 (0 và "không có" là hai nghĩa khác nhau)', () => {
-      const result = mapper.mapStatement(statement({ revenue_amount: '', net_sales_amount: undefined }))!;
+      const result = mapper.mapStatement(
+        statement({ revenue_amount: '', net_sales_amount: undefined }),
+      )!;
       expect(result.data.revenueAmount).toBeNull();
       expect(result.data.netSalesAmount).toBeNull();
     });
@@ -163,9 +169,9 @@ describe('PodPayoutMapper', () => {
     });
 
     it('lấy currency từ cấp statement vì dòng giao dịch không mang currency', () => {
-      expect(mapper.mapStatementTransaction({ id: 't5', type: 'ORDER' }, 'GBP')!.data.currency).toBe(
-        'GBP',
-      );
+      expect(
+        mapper.mapStatementTransaction({ id: 't5', type: 'ORDER' }, 'GBP')!.data.currency,
+      ).toBe('GBP');
     });
 
     it('thiếu id → bỏ qua', () => {

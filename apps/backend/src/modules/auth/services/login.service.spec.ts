@@ -1,6 +1,6 @@
 /* eslint-disable @typescript-eslint/no-require-imports */
 import { Test, TestingModule } from '@nestjs/testing';
-import { UserStatus } from '@prisma/client';
+import { OrganizationStatus, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { LoginRequestDto } from '../dto/login-request.dto';
 import { AccountDisabledException } from '../exceptions/account-disabled.exception';
@@ -53,6 +53,8 @@ describe('LoginService', () => {
     deletedAt: null,
     lockedUntil: null,
     role: { code: 'ADMIN' },
+    // Cổng duyệt đăng ký (§4): Login đọc trạng thái TỔ CHỨC trước trạng thái user.
+    organization: { id: 'org-1', status: OrganizationStatus.ACTIVE },
     ...overrides,
   });
 

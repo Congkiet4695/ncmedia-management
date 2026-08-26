@@ -22,7 +22,11 @@ const encryptionStub = {
   encrypt: (value: string) => `v1.${Buffer.from(value, 'utf8').toString('base64')}`,
 } as unknown as TiktokEncryptionService;
 
-function buildOrder(id: string, updateTime: number, overrides: Partial<TiktokOrder> = {}): TiktokOrder {
+function buildOrder(
+  id: string,
+  updateTime: number,
+  overrides: Partial<TiktokOrder> = {},
+): TiktokOrder {
   return {
     id,
     status: 'AWAITING_SHIPMENT',
@@ -165,7 +169,10 @@ describe('PodOrderIngestionService — Compare Logic', () => {
       // Item hiện tại có hash trùng với item sắp ghi ⇒ phải bỏ qua.
       repo.findItemHashesByOrderIds.mockResolvedValue(
         new Map([
-          ['existing-uuid', new Map([[old.line_items![0].id, mapper.hashItem(old.line_items![0])]])],
+          [
+            'existing-uuid',
+            new Map([[old.line_items![0].id, mapper.hashItem(old.line_items![0])]]),
+          ],
         ]),
       );
 
@@ -318,10 +325,7 @@ describe('PodOrderIngestionService — Compare Logic', () => {
   });
 
   it('đọc snapshot bằng MỘT query cho cả lô (chống N+1)', async () => {
-    await service.ingestBatch(
-      [buildOrder('a', 1), buildOrder('b', 2), buildOrder('c', 3)],
-      CTX,
-    );
+    await service.ingestBatch([buildOrder('a', 1), buildOrder('b', 2), buildOrder('c', 3)], CTX);
     expect(repo.findSnapshotsByTiktokOrderIds).toHaveBeenCalledTimes(1);
     expect(repo.findSnapshotsByTiktokOrderIds).toHaveBeenCalledWith(ORG_ID, ['a', 'b', 'c']);
   });

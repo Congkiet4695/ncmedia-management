@@ -1,4 +1,7 @@
-import { PodListingPublisherService, PodPublishPayloadException } from './pod-listing-publisher.service';
+import {
+  PodListingPublisherService,
+  PodPublishPayloadException,
+} from './pod-listing-publisher.service';
 import type { ResolvedListing } from './pod-listing-resolver.service';
 import type { TiktokShopContext } from '../../tiktok-sdk/types/tiktok-shop-context.type';
 

@@ -188,7 +188,13 @@ export class PodListingPublisherService {
   }): Promise<PublishOutcome> {
     const { payload, ctx, log, imageUriCache } = params;
 
-    const images = await this.ensureImageUris(params.organizationId, ctx, payload, imageUriCache, log);
+    const images = await this.ensureImageUris(
+      params.organizationId,
+      ctx,
+      payload,
+      imageUriCache,
+      log,
+    );
     // 🔴 Kho được quyết Ở ĐÂY — theo shop đang đăng, không phải theo Draft Product.
     const warehouse = await this.resolveWarehouse(params.organizationId, ctx, payload, log);
     const request = this.buildCreateRequest(
@@ -199,14 +205,19 @@ export class PodListingPublisherService {
       warehouse.tiktokWarehouseId,
     );
 
-    await log(PodListingLogLevel.INFO, PodListingStep.CREATE_DRAFT, 'Gửi Create Product (AS_DRAFT)', {
-      categoryId: request.categoryId,
-      brandId: request.brandId,
-      warehouseId: warehouse.tiktokWarehouseId,
-      warehouseSource: warehouse.source,
-      skus: request.skus?.length ?? 0,
-      images: request.mainImages?.length ?? 0,
-    });
+    await log(
+      PodListingLogLevel.INFO,
+      PodListingStep.CREATE_DRAFT,
+      'Gửi Create Product (AS_DRAFT)',
+      {
+        categoryId: request.categoryId,
+        brandId: request.brandId,
+        warehouseId: warehouse.tiktokWarehouseId,
+        warehouseSource: warehouse.source,
+        skus: request.skus?.length ?? 0,
+        images: request.mainImages?.length ?? 0,
+      },
+    );
 
     const { data, requestId } = await this.productApi.createProduct(ctx, request);
     const remoteProductId = data.productId;
@@ -276,7 +287,13 @@ export class PodListingPublisherService {
       );
     }
 
-    const images = await this.ensureImageUris(params.organizationId, ctx, payload, imageUriCache, log);
+    const images = await this.ensureImageUris(
+      params.organizationId,
+      ctx,
+      payload,
+      imageUriCache,
+      log,
+    );
     // Kho vẫn được quyết theo SHOP, y như lúc tạo Draft — yêu cầu sprint nói rõ: không
     // validate kho ở cổng trước, kho được resolve tại thời điểm publish.
     const warehouse = await this.resolveWarehouse(params.organizationId, ctx, payload, log);
@@ -290,14 +307,19 @@ export class PodListingPublisherService {
 
     const mode: 'EDIT' | 'CREATE' = tiktokDraftId ? 'EDIT' : 'CREATE';
 
-    await log(PodListingLogLevel.INFO, PodListingStep.PUBLISH, 'Gửi Publish (save_mode = LISTING)', {
-      mode,
-      tiktokDraftId,
-      warehouseId: warehouse.tiktokWarehouseId,
-      warehouseSource: warehouse.source,
-      skus: request.skus?.length ?? 0,
-      images: request.mainImages?.length ?? 0,
-    });
+    await log(
+      PodListingLogLevel.INFO,
+      PodListingStep.PUBLISH,
+      'Gửi Publish (save_mode = LISTING)',
+      {
+        mode,
+        tiktokDraftId,
+        warehouseId: warehouse.tiktokWarehouseId,
+        warehouseSource: warehouse.source,
+        skus: request.skus?.length ?? 0,
+        images: request.mainImages?.length ?? 0,
+      },
+    );
 
     // `idempotencyKey` chỉ có nghĩa lúc TẠO (chống tạo trùng); Edit Product không nhận nó,
     // nên bỏ ra thay vì gửi kèm một trường TikTok không hiểu.
@@ -436,7 +458,7 @@ export class PodListingPublisherService {
       shop.warehouses.length === 0
         ? `Shop "${shop.name}" chưa có kho nào trong hệ thống — đồng bộ kho ở màn hình Resources trước.`
         : `Shop "${shop.name}" có ${shop.warehouses.length} kho và chưa chọn kho mặc định — ` +
-          'đặt kho mặc định trong phần cài đặt của shop.',
+            'đặt kho mặc định trong phần cài đặt của shop.',
     );
   }
 
@@ -540,17 +562,15 @@ export class PodListingPublisherService {
 
     const variantUris = new Map<string, string>(
       await Promise.all(
-        variantFileIds.map(
-          async (fileId): Promise<[string, string]> => [
-            fileId,
-            await uriOf({ fileId }, 'ảnh biến thể', (uri) =>
-              this.prisma.podSkuTemplateItem.updateMany({
-                where: { organizationId, imageFileId: fileId },
-                data: { tiktokImageUri: uri, imageUploadedAt: new Date() },
-              }),
-            ),
-          ],
-        ),
+        variantFileIds.map(async (fileId): Promise<[string, string]> => [
+          fileId,
+          await uriOf({ fileId }, 'ảnh biến thể', (uri) =>
+            this.prisma.podSkuTemplateItem.updateMany({
+              where: { organizationId, imageFileId: fileId },
+              data: { tiktokImageUri: uri, imageUploadedAt: new Date() },
+            }),
+          ),
+        ]),
       ),
     );
 

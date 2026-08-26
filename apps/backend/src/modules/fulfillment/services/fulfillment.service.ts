@@ -8,7 +8,13 @@ import {
   Prisma,
 } from '@prisma/client';
 import { randomBytes } from 'node:crypto';
+import { PrismaService } from '../../../database/prisma.service';
 import { PodOrderRepository } from '../../pod-tiktok/repositories/pod-order.repository';
+import {
+  PodAccessScopeService,
+  PodShopForbiddenException,
+  type PodAccessScope,
+} from '../../pod-tiktok/services/pod-access-scope.service';
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
 import {
   CreateFulfillmentAccountDto,
@@ -31,11 +37,13 @@ import {
   FulfillmentMappingNotFoundException,
   FulfillmentOrderNotFoundException,
 } from '../exceptions/fulfillment.exceptions';
+import { ProductDesignMapper, type DesignForDto } from '../mappers/product-design.mapper';
 import {
   FulfillmentOrderWithRelations,
   FulfillmentRepository,
 } from '../repositories/fulfillment.repository';
-import { FulfillmentReadinessService } from './fulfillment-readiness.service';
+import { mappingKeyOf } from '../shared/mapping-match';
+import { FulfillmentReadinessService, MappingWithDesigns } from './fulfillment-readiness.service';
 
 /** Trạng thái cho phép bấm Fulfill (chưa gửi hoặc gửi hỏng). */
 const FULFILLABLE_STATUSES: readonly FulfillmentStatus[] = [
@@ -62,10 +70,13 @@ export class FulfillmentService {
 
   constructor(
     private readonly config: ConfigService,
+    private readonly prisma: PrismaService,
     private readonly repo: FulfillmentRepository,
     private readonly podOrderRepo: PodOrderRepository,
     private readonly readiness: FulfillmentReadinessService,
+    private readonly designMapper: ProductDesignMapper,
     private readonly encryption: TiktokEncryptionService,
+    private readonly accessScope: PodAccessScopeService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -220,10 +231,10 @@ export class FulfillmentService {
   }
 
   /**
-   * Danh sách ánh xạ có lọc + phân trang cho màn hình quản trị.
+   * Danh sách ánh xạ có lọc + phân trang cho màn hình Product Mapping.
    *
-   * Tên nhà cung cấp được nạp bằng MỘT truy vấn cho cả trang rồi ghép trong bộ nhớ —
-   * tra từng dòng sẽ thành N+1.
+   * Tên nhà cung cấp và tên người sửa gần nhất được nạp bằng MỘT truy vấn cho cả trang rồi
+   * ghép trong bộ nhớ — tra từng dòng sẽ thành N+1.
    */
   async listMappingsPaged(
     organizationId: string,
@@ -236,22 +247,102 @@ export class FulfillmentService {
       organizationId,
       accountId: query.accountId,
       provider: query.provider,
-      isActive:
-        query.status === undefined ? undefined : query.status === 'ACTIVE',
+      isActive: query.status === undefined ? undefined : query.status === 'ACTIVE',
       keyword: query.search,
       page,
       limit,
     });
 
-    const accounts = await this.repo.listAccounts(organizationId);
+    const [accounts, editorNames, designsByKey] = await Promise.all([
+      this.repo.listAccounts(organizationId),
+      this.resolveEditorNames(organizationId, items),
+      // MỘT truy vấn design cho cả trang, ghép theo cặp khoá — không N+1.
+      this.loadDesignsByKey(organizationId),
+    ]);
     const nameById = new Map(accounts.map((account) => [account.id, account.name]));
 
-    return {
-      items: items.map((mapping) =>
-        this.toMappingDto(mapping, nameById.get(mapping.accountId) ?? null),
+    const dtos = items.map((mapping) =>
+      this.toMappingDto(
+        mapping,
+        nameById.get(mapping.accountId) ?? null,
+        editorNames.get(mapping.updatedBy ?? '') ?? null,
+        designsByKey.get(mappingKeyOf(mapping.tiktokProductId, mapping.sellerSku) ?? '') ?? [],
       ),
+    );
+
+    // 🔴 Lọc theo tình trạng design chạy SAU khi dựng DTO, không phải trong câu truy vấn:
+    // "READY" nghĩa là có mặt trước, mà luật đó nằm ở `ProductDesignMapper.statusOf` — nơi
+    // duy nhất định nghĩa nó. Viết lại luật ấy thành điều kiện SQL là tạo bản sao thứ hai,
+    // và bản sao sẽ trôi lệch ngay lần đầu ai đó bật thêm một vị trí in bắt buộc.
+    //
+    // Đánh đổi đã biết: `meta.total` là tổng TRƯỚC lọc, nên trang cuối có thể ngắn hơn
+    // `limit`. Chấp nhận được với bộ lọc phụ trợ này; giải pháp đúng khi dữ liệu lớn là một
+    // cột trạng thái tính sẵn, và đó là việc của sprint khác.
+    const filtered =
+      query.designStatus === undefined
+        ? dtos
+        : dtos.filter((dto) =>
+            query.designStatus === 'READY'
+              ? dto.designStatus === 'READY'
+              : dto.designStatus !== 'READY',
+          );
+
+    return {
+      items: filtered,
       meta: { total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) },
     };
+  }
+
+  /**
+   * Design của ĐÚNG một sản phẩm.
+   *
+   * Dùng khi trả DTO cho một ánh xạ vừa tạo/sửa. Nạp cả tổ chức ở đây là lãng phí — nhưng
+   * BỎ QUA thì DTO trả về sẽ báo "chưa có design" cho một sản phẩm đã có file, và giao diện
+   * hiển thị sai ngay sau khi người dùng bấm Lưu.
+   */
+  private async loadDesignsFor(mapping: {
+    organizationId: string;
+    tiktokProductId: string | null;
+    sellerSku: string | null;
+  }): Promise<DesignForDto[]> {
+    if (!mapping.tiktokProductId || !mapping.sellerSku) return [];
+    return this.repo.listProductDesigns(mapping.organizationId, [
+      { tiktokProductId: mapping.tiktokProductId, sellerSku: mapping.sellerSku },
+    ]);
+  }
+
+  /**
+   * Design của cả tổ chức, tra theo `mappingKeyOf(productId, sellerSku)`.
+   *
+   * 🔴 Nạp MỘT lần rồi ghép trong bộ nhớ. Design đã tách khỏi ánh xạ nên không `include`
+   * được nữa; đọc theo từng dòng sẽ là N+1 trên cả màn hình ánh xạ lẫn luồng kiểm tra đơn.
+   */
+  private async loadDesignsByKey(organizationId: string): Promise<Map<string, DesignForDto[]>> {
+    const rows = await this.repo.listProductDesigns(organizationId);
+    const byKey = new Map<string, DesignForDto[]>();
+    for (const row of rows) {
+      const key = mappingKeyOf(row.tiktokProductId, row.sellerSku);
+      if (!key) continue;
+      const list = byKey.get(key) ?? [];
+      list.push(row);
+      byKey.set(key, list);
+    }
+    return byKey;
+  }
+
+  /** Tên người sửa gần nhất cho cả trang — MỘT truy vấn, không tra từng dòng. */
+  private async resolveEditorNames(
+    organizationId: string,
+    mappings: Array<{ updatedBy: string | null }>,
+  ): Promise<Map<string, string>> {
+    const ids = [...new Set(mappings.map((m) => m.updatedBy).filter((id): id is string => !!id))];
+    if (ids.length === 0) return new Map();
+
+    const users = await this.prisma.user.findMany({
+      where: { id: { in: ids }, organizationId },
+      select: { id: true, fullName: true },
+    });
+    return new Map(users.map((user) => [user.id, user.fullName]));
   }
 
   /**
@@ -268,27 +359,33 @@ export class FulfillmentService {
   ): Promise<TiktokProductOptionDto[]> {
     const [items, mappings] = await Promise.all([
       this.repo.listDistinctTiktokSkus(organizationId, search),
-      this.repo.listMappings(organizationId, accountId),
+      // Phạm vi TỔ CHỨC: một sản phẩm chỉ được ánh xạ MỘT lần cho toàn tổ chức, nên "đã ánh
+      // xạ" không phụ thuộc người dùng đang chọn nhà cung cấp nào.
+      this.repo.listMappingsForOrganization(organizationId),
     ]);
 
-    // Khớp theo đúng thứ tự ưu tiên lúc gửi đơn: TikTok SKU ID → Seller SKU → Product ID.
-    const bySkuId = new Set(mappings.map((mapping) => mapping.tiktokSkuId).filter(Boolean));
-    const bySellerSku = new Set(mappings.map((mapping) => mapping.sellerSku).filter(Boolean));
-    const byProductId = new Set(mappings.map((mapping) => mapping.tiktokProductId).filter(Boolean));
+    // 🔴 Đã ánh xạ hay chưa được đo bằng ĐÚNG khoá nghiệp vụ (Product ID + Seller SKU) —
+    // cùng một hàm mà luồng gửi đơn dùng. Đo bằng luật khác sẽ có cảnh "đã ánh xạ" nhưng
+    // đơn vẫn báo thiếu ánh xạ.
+    const mappedKeys = new Set(
+      mappings
+        .map((mapping) => mappingKeyOf(mapping.tiktokProductId, mapping.sellerSku))
+        .filter((key): key is string => key !== null),
+    );
 
-    return items.map((item) => ({
-      tiktokProductId: item.productId,
-      tiktokSkuId: item.skuId,
-      sellerSku: item.sellerSku,
-      productName: item.productName,
-      skuName: item.skuName,
-      productCategory: item.productCategory,
-      skuImage: item.skuImage,
-      mapped:
-        (item.skuId !== null && bySkuId.has(item.skuId)) ||
-        (item.sellerSku !== null && bySellerSku.has(item.sellerSku)) ||
-        (item.productId !== null && byProductId.has(item.productId)),
-    }));
+    return items.map((item) => {
+      const key = mappingKeyOf(item.productId, item.sellerSku);
+      return {
+        tiktokProductId: item.productId,
+        tiktokSkuId: item.skuId,
+        sellerSku: item.sellerSku,
+        productName: item.productName,
+        skuName: item.skuName,
+        productCategory: item.productCategory,
+        skuImage: item.skuImage,
+        mapped: key !== null && mappedKeys.has(key),
+      };
+    });
   }
 
   async createMapping(
@@ -296,18 +393,21 @@ export class FulfillmentService {
     actorUserId: string,
     provider: FulfillmentProvider,
     dto: UpsertProductMappingDto,
+    scope: PodAccessScope,
   ): Promise<ProductMappingDto> {
-    const account = await this.requireAccount(organizationId, provider);
-    await this.assertNoConflict(organizationId, account.id, dto);
+    await this.assertMappingKeyInScope(organizationId, dto.tiktokProductId, scope);
+    const account = await this.resolveMappingAccount(organizationId, provider, dto.accountId);
+    await this.assertNoConflict(organizationId, dto);
 
     const mapping = await this.repo.createMapping({
       organizationId,
       accountId: account.id,
-      provider,
-      tiktokProductId: dto.tiktokProductId ?? null,
+      provider: account.provider,
+      tiktokProductId: dto.tiktokProductId,
       tiktokSkuId: dto.tiktokSkuId ?? null,
-      sellerSku: dto.sellerSku ?? null,
+      sellerSku: dto.sellerSku,
       providerSku: dto.providerSku,
+      baseCost: dto.baseCost ?? null,
       providerProductId: dto.providerProductId ?? null,
       providerVariantId: dto.providerVariantId ?? null,
       providerProductName: dto.providerProductName ?? null,
@@ -320,7 +420,7 @@ export class FulfillmentService {
       note: dto.note ?? null,
       createdBy: actorUserId,
     });
-    return this.toMappingDto(mapping);
+    return this.toMappingDto(mapping, null, null, await this.loadDesignsFor(mapping));
   }
 
   async updateMapping(
@@ -328,16 +428,22 @@ export class FulfillmentService {
     actorUserId: string,
     id: string,
     dto: UpsertProductMappingDto,
+    scope: PodAccessScope,
   ): Promise<ProductMappingDto> {
     const existing = await this.repo.findMappingById(organizationId, id);
     if (!existing) throw new FulfillmentMappingNotFoundException();
-    await this.assertNoConflict(organizationId, existing.accountId, dto, id);
+    // Kiểm CẢ khoá cũ lẫn khoá mới: sửa một ánh xạ mình được phép thành khoá của shop khác
+    // cũng là một đường ghi vào dữ liệu shop khác.
+    await this.assertMappingKeyInScope(organizationId, existing.tiktokProductId, scope);
+    await this.assertMappingKeyInScope(organizationId, dto.tiktokProductId, scope);
+    await this.assertNoConflict(organizationId, dto, id);
 
     const mapping = await this.repo.updateMapping(id, {
-      tiktokProductId: dto.tiktokProductId ?? null,
+      tiktokProductId: dto.tiktokProductId,
       tiktokSkuId: dto.tiktokSkuId ?? null,
-      sellerSku: dto.sellerSku ?? null,
+      sellerSku: dto.sellerSku,
       providerSku: dto.providerSku,
+      baseCost: dto.baseCost ?? null,
       providerProductId: dto.providerProductId ?? null,
       providerVariantId: dto.providerVariantId ?? null,
       providerProductName: dto.providerProductName ?? null,
@@ -350,13 +456,77 @@ export class FulfillmentService {
       note: dto.note ?? null,
       updatedBy: actorUserId,
     });
-    return this.toMappingDto(mapping);
+    return this.toMappingDto(mapping, null, null, await this.loadDesignsFor(mapping));
   }
 
-  async deleteMapping(organizationId: string, actorUserId: string, id: string): Promise<void> {
+  /**
+   * Cặp khoá (Product ID + Seller SKU) của một ánh xạ.
+   *
+   * ⚠️ Chỉ phục vụ ba route design theo `mappingId` còn giữ lại cho tương thích ngược. Ánh xạ
+   * thiếu khoá thì không quy đổi được — đó là hạn chế cố hữu của đường dẫn cũ, và cũng là lý
+   * do route mới khoá thẳng theo sản phẩm.
+   */
+  async requireMappingProductKey(
+    organizationId: string,
+    mappingId: string,
+  ): Promise<{ tiktokProductId: string; sellerSku: string }> {
+    const mapping = await this.repo.findMappingById(organizationId, mappingId);
+    if (!mapping) throw new FulfillmentMappingNotFoundException();
+    if (!mapping.tiktokProductId || !mapping.sellerSku) {
+      throw new FulfillmentMappingNotFoundException();
+    }
+    return { tiktokProductId: mapping.tiktokProductId, sellerSku: mapping.sellerSku };
+  }
+
+  async deleteMapping(
+    organizationId: string,
+    actorUserId: string,
+    id: string,
+    scope: PodAccessScope,
+  ): Promise<void> {
     const existing = await this.repo.findMappingById(organizationId, id);
     if (!existing) throw new FulfillmentMappingNotFoundException();
+    await this.assertMappingKeyInScope(organizationId, existing.tiktokProductId, scope);
     await this.repo.softDeleteMapping(id, actorUserId);
+  }
+
+  /**
+   * Sản phẩm TikTok của ánh xạ này có xuất hiện trong shop của người dùng không.
+   *
+   * 🔴 Chỉ áp cho đường GHI (tạo/sửa/xoá). Bảng ánh xạ cố ý KHÔNG mang `shop_id` — nó là
+   * bảng tra cứu dùng chung của cả tổ chức (TikTok Product ⇄ SKU nhà cung cấp), và một cặp
+   * khoá có thể xuất hiện ở nhiều shop. Chặn ĐỌC sẽ phải nối bảng bằng một `IN` không giới
+   * hạn (hàng nghìn `tiktok_product_id`) — đắt và vẫn không chính xác. Chặn GHI thì chỉ tốn
+   * một truy vấn điểm, và đó mới là chỗ mất dữ liệu thật sự xảy ra.
+   */
+  private async assertMappingKeyInScope(
+    organizationId: string,
+    tiktokProductId: string | null | undefined,
+    scope: PodAccessScope,
+  ): Promise<void> {
+    if (scope.allShops || !tiktokProductId) return;
+    if (scope.shopIds.length === 0) throw new PodShopForbiddenException();
+
+    const [fromProduct, fromOrder] = await Promise.all([
+      this.prisma.podProduct.findFirst({
+        where: {
+          organizationId,
+          deletedAt: null,
+          tiktokProductId,
+          shopId: { in: scope.shopIds },
+        },
+        select: { id: true },
+      }),
+      this.prisma.podOrderItem.findFirst({
+        where: {
+          organizationId,
+          productId: tiktokProductId,
+          order: { organizationId, deletedAt: null, shopId: { in: scope.shopIds } },
+        },
+        select: { id: true },
+      }),
+    ]);
+    if (!fromProduct && !fromOrder) throw new PodShopForbiddenException();
   }
 
   // ---------------------------------------------------------------------------
@@ -367,22 +537,41 @@ export class FulfillmentService {
    * Trạng thái fulfillment của MỘT đơn POD, kèm đánh giá đủ điều kiện gửi hay chưa.
    * Dùng chung đúng một bộ kiểm tra với luồng gửi thật ⇒ UI và backend không bao giờ lệch.
    */
+  /**
+   * Đơn POD này có thuộc shop của người dùng không.
+   *
+   * 🔴 Công khai vì có một đường KHÔNG đi qua service này: `POST /orders/{id}/sync` gọi thẳng
+   * `MangoFulfillmentService`. Thà để controller gọi một phép kiểm CÓ TÊN còn hơn để nó tự
+   * viết lại phép so sánh `shopId` — bản sao thứ hai là bản sẽ quên cập nhật.
+   */
+  async assertPodOrderInScope(
+    organizationId: string,
+    podOrderId: string,
+    scope: PodAccessScope,
+  ): Promise<void> {
+    if (scope.allShops) return;
+    const order = await this.podOrderRepo.findById(organizationId, podOrderId);
+    if (!order) throw new FulfillmentOrderNotFoundException();
+    this.accessScope.assertShopAllowed(scope, order.shopId);
+  }
+
   async getState(
     organizationId: string,
     podOrderId: string,
+    scope: PodAccessScope,
     provider: FulfillmentProvider = FulfillmentProvider.MANGO,
   ): Promise<FulfillmentStateDto> {
     const order = await this.podOrderRepo.findById(organizationId, podOrderId);
     if (!order) throw new FulfillmentOrderNotFoundException();
+    // 🔴 Seller chỉ xem được trạng thái fulfillment của đơn thuộc shop mình được gán.
+    this.accessScope.assertShopAllowed(scope, order.shopId);
 
     const record = await this.repo.findByPodOrder(organizationId, podOrderId, provider);
 
     // Nhà cung cấp lấy TỪ TIKTOK ACCOUNT của đơn — cùng một nguồn với luồng gửi thật,
     // nên màn hình không bao giờ báo "sẵn sàng" cho một đơn mà submit sẽ từ chối.
     const assignedId = order.account?.fulfillmentAccountId ?? null;
-    const account = assignedId
-      ? await this.repo.findAccountById(organizationId, assignedId)
-      : null;
+    const account = assignedId ? await this.repo.findAccountById(organizationId, assignedId) : null;
 
     // Chưa cấu hình nhà cung cấp ⇒ không thể kiểm tra ánh xạ, báo rõ thay vì báo "thiếu design".
     if (!account || !account.isActive) {
@@ -406,8 +595,20 @@ export class FulfillmentService {
       };
     }
 
-    const mappings = await this.repo.listMappings(organizationId, account.id);
-    const check = this.readiness.check(order, mappings, this.publicBaseUrl());
+    // 🔴 Phạm vi TỔ CHỨC, không phải tài khoản: danh tính của ánh xạ là
+    // (organization, Product ID, Seller SKU) và DB có UNIQUE đúng bộ ba đó. Lọc thêm theo
+    // tài khoản sẽ khiến màn hình đơn (tra org-wide) và luồng gửi đơn nhìn thấy hai kết quả
+    // khác nhau — đúng triệu chứng "danh sách báo đã ánh xạ mà bấm Fulfill lại bảo thiếu".
+    // Ánh xạ khai cho nhà cung cấp khác được `check()` báo bằng MAPPING_PROVIDER_MISMATCH.
+    const mappings = await this.repo.listMappingsForOrganization(organizationId);
+    const designsByKey = await this.loadDesignsByKey(organizationId);
+    const check = this.readiness.check(
+      order,
+      mappings,
+      designsByKey,
+      this.publicBaseUrl(),
+      account.id,
+    );
     const status = record?.status ?? FulfillmentStatus.DRAFT;
 
     return {
@@ -449,8 +650,10 @@ export class FulfillmentService {
   async listHistory(
     organizationId: string,
     podOrderId: string,
+    scope: PodAccessScope,
     provider: FulfillmentProvider = FulfillmentProvider.MANGO,
   ): Promise<FulfillmentHistoryDto[]> {
+    await this.assertPodOrderInScope(organizationId, podOrderId, scope);
     const record = await this.repo.findByPodOrder(organizationId, podOrderId, provider);
     if (!record) throw new FulfillmentOrderNotFoundException();
     const histories = await this.repo.listHistory(organizationId, record.id);
@@ -473,8 +676,10 @@ export class FulfillmentService {
   async listErrors(
     organizationId: string,
     podOrderId: string,
+    scope: PodAccessScope,
     provider: FulfillmentProvider = FulfillmentProvider.MANGO,
   ): Promise<FulfillmentErrorDto[]> {
+    await this.assertPodOrderInScope(organizationId, podOrderId, scope);
     const record = await this.repo.findByPodOrder(organizationId, podOrderId, provider);
     if (!record) throw new FulfillmentOrderNotFoundException();
     const errors = await this.repo.listErrors(organizationId, record.id);
@@ -505,21 +710,43 @@ export class FulfillmentService {
     return account;
   }
 
-  /** Chặn hai ánh xạ cùng trỏ về một khoá TikTok (sẽ gây nhập nhằng khi khớp). */
+  /**
+   * Tài khoản nhà cung cấp cho một ánh xạ sắp tạo.
+   *
+   * 🔴 Ưu tiên `accountId` người dùng CHỌN. Trước đây service luôn suy từ `provider` rồi lấy
+   * tài khoản mặc định — nghĩa là tổ chức có hai tài khoản MANGO thì dialog cho chọn tài
+   * khoản nào cũng vô nghĩa, ánh xạ vẫn gắn vào tài khoản mặc định. Đơn thuộc tài khoản còn
+   * lại sẽ báo "ánh xạ khai cho nhà cung cấp khác" mà người dùng không hiểu vì sao.
+   *
+   * Bỏ trống ⇒ giữ hành vi cũ (tài khoản mặc định của nhà cung cấp) để không phá client cũ.
+   */
+  private async resolveMappingAccount(
+    organizationId: string,
+    provider: FulfillmentProvider,
+    accountId?: string,
+  ): Promise<FulfillmentAccount> {
+    if (!accountId) return this.requireAccount(organizationId, provider);
+
+    const account = await this.repo.findAccountById(organizationId, accountId);
+    if (!account) throw new FulfillmentAccountNotFoundException();
+    return account;
+  }
+
+  /**
+   * Chặn ánh xạ thứ hai cho cùng một (Product ID + Seller SKU).
+   *
+   * 🔴 Đây là điều kiện "một Product ID + Seller SKU chỉ có MỘT bộ Design". DB cũng có UNIQUE
+   * index cho việc này (hàng rào cuối, chống chạy đua giữa hai request); kiểm ở đây để người
+   * dùng nhận thông báo nghiệp vụ thay vì lỗi ràng buộc thô.
+   */
   private async assertNoConflict(
     organizationId: string,
-    accountId: string,
     dto: UpsertProductMappingDto,
     excludeId?: string,
   ): Promise<void> {
     const conflict = await this.repo.findConflictingMapping(
       organizationId,
-      accountId,
-      {
-        tiktokSkuId: dto.tiktokSkuId,
-        sellerSku: dto.sellerSku,
-        tiktokProductId: dto.tiktokProductId,
-      },
+      { tiktokProductId: dto.tiktokProductId, sellerSku: dto.sellerSku },
       excludeId,
     );
     if (conflict) throw new FulfillmentMappingConflictException();
@@ -565,31 +792,37 @@ export class FulfillmentService {
     };
   }
 
-  private toMappingDto(mapping: {
-    id: string;
-    tiktokProductId: string | null;
-    tiktokSkuId: string | null;
-    sellerSku: string | null;
-    providerSku: string;
-    providerProductName: string | null;
-    providerColor: string | null;
-    providerSize: string | null;
-    productionConfig: string | null;
-    placementMap: unknown;
-    isActive: boolean;
-    note: string | null;
-    createdAt: Date;
-    updatedAt: Date;
-    providerProductId: string | null;
-    providerVariantId: string | null;
-    providerVariantName: string | null;
-  }, providerName: string | null = null): ProductMappingDto {
+  /**
+   * Ánh xạ → DTO.
+   *
+   * Nhận `MappingWithDesigns` (không phải bản ghi trần) vì màn hình Product Mapping LÀ nơi
+   * quản trị design: danh sách phải trả kèm file in và tình trạng, nếu không giao diện lại
+   * phải gọi thêm N lượt cho N dòng.
+   */
+  private toMappingDto(
+    mapping: MappingWithDesigns,
+    providerName: string | null = null,
+    updatedByName: string | null = null,
+    /**
+     * Design của SẢN PHẨM này, do nơi gọi nạp sẵn.
+     *
+     * 🔴 Không đọc từ `mapping.designs` được nữa: design đã tách khỏi ánh xạ và khoá theo
+     * (Product ID + Seller SKU). Nhận từ ngoài vào giữ cho hàm này thuần và ép nơi gọi phải
+     * nạp một lần cho cả trang thay vì mỗi dòng một truy vấn.
+     */
+    designRows: DesignForDto[] = [],
+  ): ProductMappingDto {
+    const designs = this.designMapper.toDtoList(designRows);
     return {
       id: mapping.id,
       tiktokProductId: mapping.tiktokProductId,
       tiktokSkuId: mapping.tiktokSkuId,
       sellerSku: mapping.sellerSku,
       providerSku: mapping.providerSku,
+      baseCost: mapping.baseCost === null ? null : Number(mapping.baseCost),
+      designs,
+      designStatus: this.designMapper.statusOf(designRows),
+      updatedByName,
       providerProductId: mapping.providerProductId,
       providerVariantId: mapping.providerVariantId,
       providerProductName: mapping.providerProductName,
@@ -608,7 +841,9 @@ export class FulfillmentService {
     };
   }
 
-  toOrderDto(record: FulfillmentOrderWithRelations | (FulfillmentOrder & { items: [] })): FulfillmentOrderDto {
+  toOrderDto(
+    record: FulfillmentOrderWithRelations | (FulfillmentOrder & { items: [] }),
+  ): FulfillmentOrderDto {
     return {
       id: record.id,
       podOrderId: record.podOrderId,

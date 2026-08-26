@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PodSyncPhase, PodSyncStatus, PodSyncTrigger } from '@prisma/client';
 import { TiktokOrderClient } from '../clients/tiktok-order.client';
 import { TiktokClientError } from '../exceptions/pod-tiktok.exceptions';
+import { OrderSyncHookRegistry } from '../../../common/hooks/order-sync-hook.registry';
 import { DistributedLockService } from '../infra/distributed-lock.service';
 import { PodTiktokAccountRepository } from '../repositories/pod-tiktok-account.repository';
 import { PodSyncLogRepository } from '../repositories/pod-sync-log.repository';
@@ -108,6 +109,7 @@ export class PodOrderSyncService {
     private readonly syncLogRepo: PodSyncLogRepository,
     private readonly encryption: TiktokEncryptionService,
     private readonly lock: DistributedLockService,
+    private readonly syncHooks: OrderSyncHookRegistry,
   ) {}
 
   /**
@@ -188,6 +190,20 @@ export class PodOrderSyncService {
     });
 
     await this.applyCircuitBreaker(target, outcome);
+
+    // 🔴 Đơn vừa về ⇒ báo cho các module quan tâm (hiện là ánh xạ tự động của Fulfillment).
+    //
+    // Đi qua registry ở `common/` chứ KHÔNG gọi thẳng service của Fulfillment: quan hệ phụ
+    // thuộc giữa hai module là một chiều `Fulfillment → PodTiktok`, gọi ngược lại là tạo vòng
+    // phụ thuộc Nest. Registry tự nuốt mọi lỗi của hook — đồng bộ đơn là nghiệp vụ chính và
+    // không được hỏng vì một tiện ích chạy kèm.
+    //
+    // Chỉ báo khi thực sự có đơn được ghi: một lượt đồng bộ không thay đổi gì thì cũng không
+    // có cặp khoá mới nào để rà.
+    if (outcome.created + outcome.updated > 0) {
+      await this.syncHooks.notifyOrdersSynced({ organizationId: target.organizationId });
+    }
+
     return outcome;
   }
 
@@ -221,7 +237,14 @@ export class PodOrderSyncService {
         : this.computeIncrementalWindow(target, options);
 
     if (windowFrom >= windowTo) {
-      return this.emptyOutcome(target, PodSyncStatus.SUCCESS, phase, undefined, windowFrom, windowTo);
+      return this.emptyOutcome(
+        target,
+        PodSyncStatus.SUCCESS,
+        phase,
+        undefined,
+        windowFrom,
+        windowTo,
+      );
     }
 
     // --- Bước 3: phân trang cho tới khi hết ---
@@ -279,7 +302,12 @@ export class PodOrderSyncService {
         organizationId: target.organizationId,
         accountId: target.accountId,
         shopId: target.id,
-        source: phase === PodSyncPhase.BACKFILL ? 'BACKFILL' : options.trigger === PodSyncTrigger.CRON ? 'CRON' : 'MANUAL',
+        source:
+          phase === PodSyncPhase.BACKFILL
+            ? 'BACKFILL'
+            : options.trigger === PodSyncTrigger.CRON
+              ? 'CRON'
+              : 'MANUAL',
         force: options.force,
       });
 
@@ -395,8 +423,7 @@ export class PodOrderSyncService {
     const configuredFrom = fromDays > 0 ? nowSec - fromDays * 86_400 : 0;
     // Đã kéo dở ⇒ tiếp tục từ cursor. Không trừ overlap: `create_time` bất biến,
     // và bản thân `_ge` đã bao gồm mốc nên đơn tại đúng mốc vẫn được lấy lại (ingest idempotent).
-    const fromSec =
-      target.backfillCursor !== null ? Number(target.backfillCursor) : configuredFrom;
+    const fromSec = target.backfillCursor !== null ? Number(target.backfillCursor) : configuredFrom;
 
     return { windowFrom: BigInt(Math.max(fromSec, 0)), windowTo: BigInt(nowSec - lag) };
   }

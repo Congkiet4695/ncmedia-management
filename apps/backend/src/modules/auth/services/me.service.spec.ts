@@ -25,7 +25,8 @@ describe('MeService', () => {
     failedLoginCount: 3,
     lockedUntil: new Date(),
     deletedAt: null,
-    organization: { id: 'org-1', name: 'NCMedia Co.', slug: 'ncmedia-co' },
+    // `status` cần cho cổng duyệt đăng ký (§14) — /me chặn Organization rời khỏi ACTIVE.
+    organization: { id: 'org-1', name: 'NCMedia Co.', slug: 'ncmedia-co', status: 'ACTIVE' },
     role: {
       id: 'role-1',
       code: 'ADMIN',

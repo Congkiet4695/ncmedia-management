@@ -22,6 +22,7 @@ import {
   RefreshCw,
   Rocket,
   Send,
+  ShieldCheck,
   ShoppingBag,
   Store,
   Tags,
@@ -58,6 +59,18 @@ export const MENU_NAMESPACE: Namespace = 'menu';
 
 export const NAVIGATION: NavItemConfig[] = [
   { labelKey: 'dashboard', href: '/dashboard', icon: LayoutDashboard },
+
+  // Quản trị NỀN TẢNG — chỉ Super Admin thấy.
+  //
+  // 🔴 `permission` ở đây chỉ ẩn/hiện MENU. Quyền thật do backend chặn bằng `SuperAdminGuard`
+  // (role SUPER_ADMIN + Organization hệ thống) cộng `platform.*`. Quyền này bị loại khỏi
+  // catalog cấp cho org admin, nên không tổ chức nào tự cấp cho mình được.
+  {
+    labelKey: 'superAdminOrganizations',
+    href: '/dashboard/super-admin/organizations',
+    icon: ShieldCheck,
+    permission: 'platform.organization.read',
+  },
   {
     labelKey: 'employees',
     href: '/dashboard/employees',
@@ -132,17 +145,21 @@ export const NAVIGATION: NavItemConfig[] = [
         icon: Tags,
         permission: 'pod.product.read',
       },
+      // 🔴 `pod.product.sync` chứ không phải `pod.product.read`: đây là màn hình quản trị
+      // danh mục dùng chung của TikTok (có nút Sync), không phải màn hình duyệt sản phẩm của
+      // shop. Seller không có quyền này ⇒ menu tự ẩn, đúng §10 — và ẩn bằng QUYỀN chứ không
+      // bằng mã role, vì role là động (ADR-009).
       {
         labelKey: 'podBrands',
         href: '/dashboard/pod/brands',
         icon: BadgeCheck,
-        permission: 'pod.product.read',
+        permission: 'pod.product.sync',
       },
       {
         labelKey: 'podWarehouses',
         href: '/dashboard/pod/warehouses',
         icon: Warehouse,
-        permission: 'pod.template.read',
+        permission: 'pod.product.sync',
       },
       // Cửa duy nhất kéo dữ liệu dùng chung của TikTok về cache (Category / Brand /
       // Attribute / Warehouse) — đặt ngay trên Templates vì phải chạy trước.
@@ -150,7 +167,7 @@ export const NAVIGATION: NavItemConfig[] = [
         labelKey: 'podResources',
         href: '/dashboard/pod/resources',
         icon: RefreshCw,
-        permission: 'pod.product.read',
+        permission: 'pod.product.sync',
       },
       // Sáu loại template điều hướng bằng THANH TAB trong chính màn hình
       // (`app/(dashboard)/dashboard/pod/templates/layout.tsx`), không phải bằng menu con.

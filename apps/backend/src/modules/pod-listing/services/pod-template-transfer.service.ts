@@ -295,7 +295,14 @@ export class PodTemplateTransferService {
     for (const [index, raw] of bundle.items.entries()) {
       const name = typeof raw.name === 'string' ? raw.name : null;
       try {
-        await this.importOne(organizationId, userId, kind, raw, bundle.renameOnConflict ?? true, warnings);
+        await this.importOne(
+          organizationId,
+          userId,
+          kind,
+          raw,
+          bundle.renameOnConflict ?? true,
+          warnings,
+        );
         created += 1;
       } catch (error) {
         // Fail-soft từng phần tử: một template hỏng không được chặn 199 cái còn lại.
@@ -404,7 +411,8 @@ export class PodTemplateTransferService {
           select: { id: true },
         });
         if (warehouse) payload.warehouseId = warehouse.id;
-        else warnings.push(`"${label}": không có kho ${warehouseCode} trong tổ chức — đã bỏ trống.`);
+        else
+          warnings.push(`"${label}": không có kho ${warehouseCode} trong tổ chức — đã bỏ trống.`);
       }
       delete payload.tiktokWarehouseId;
     }
@@ -440,7 +448,11 @@ export class PodTemplateTransferService {
           'Category Template',
           () =>
             this.prisma.podCategoryTemplate.findFirst({
-              where: { organizationId, name: this.str(raw.categoryTemplateName) ?? '', deletedAt: null },
+              where: {
+                organizationId,
+                name: this.str(raw.categoryTemplateName) ?? '',
+                deletedAt: null,
+              },
               select: { id: true },
             }),
         ],
@@ -471,7 +483,11 @@ export class PodTemplateTransferService {
           'Image Template',
           () =>
             this.prisma.podImageTemplate.findFirst({
-              where: { organizationId, name: this.str(raw.imageTemplateName) ?? '', deletedAt: null },
+              where: {
+                organizationId,
+                name: this.str(raw.imageTemplateName) ?? '',
+                deletedAt: null,
+              },
               select: { id: true },
             }),
         ],
@@ -480,7 +496,11 @@ export class PodTemplateTransferService {
           'Pricing Strategy',
           () =>
             this.prisma.podPricingStrategy.findFirst({
-              where: { organizationId, name: this.str(raw.pricingStrategyName) ?? '', deletedAt: null },
+              where: {
+                organizationId,
+                name: this.str(raw.pricingStrategyName) ?? '',
+                deletedAt: null,
+              },
               select: { id: true },
             }),
         ],
@@ -654,10 +674,7 @@ export class PodTemplateTransferService {
     return undefined;
   }
 
-  private async existingFileIds(
-    organizationId: string,
-    fileIds: string[],
-  ): Promise<Set<string>> {
+  private async existingFileIds(organizationId: string, fileIds: string[]): Promise<Set<string>> {
     const unique = [...new Set(fileIds)].filter(Boolean);
     if (unique.length === 0) return new Set();
     const rows = await this.prisma.storageFile.findMany({

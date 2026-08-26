@@ -18,11 +18,13 @@ function buildPayload(warehouse: ResolvedListing['warehouse']): ResolvedListing 
   return { warehouse } as ResolvedListing;
 }
 
-function buildService(shop: {
-  name?: string;
-  defaultWarehouse?: { id: string; tiktokWarehouseId: string; name: string } | null;
-  warehouses?: Warehouse[];
-} | null) {
+function buildService(
+  shop: {
+    name?: string;
+    defaultWarehouse?: { id: string; tiktokWarehouseId: string; name: string } | null;
+    warehouses?: Warehouse[];
+  } | null,
+) {
   const prisma = {
     podTiktokShop: {
       findFirst: jest.fn().mockResolvedValue(

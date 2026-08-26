@@ -8,6 +8,7 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { accountScopeFilter, shopScopeFilter } from '../../pod-tiktok/shared/shop-scope';
 
 /** Shop + credential của account — đầu vào của một lượt đồng bộ sản phẩm. */
 export interface ProductSyncTarget {
@@ -200,12 +201,21 @@ export class PodProductSyncRepository {
   /** Lịch sử đồng bộ (phân trang) cho màn hình Sync History. */
   async findHistories(
     organizationId: string,
-    params: { page: number; limit: number; accountId?: string; shopId?: string },
+    params: {
+      page: number;
+      limit: number;
+      accountId?: string;
+      shopId?: string;
+      /** `undefined` = không giới hạn theo shop. Mảng rỗng = chưa được gán shop nào. */
+      shopScope?: string[];
+      accountScope?: string[];
+    },
   ) {
     const where: Prisma.PodProductSyncHistoryWhereInput = {
       organizationId,
-      ...(params.accountId ? { accountId: params.accountId } : {}),
-      ...(params.shopId ? { shopId: params.shopId } : {}),
+      // 🔴 GIAO của phạm vi và bộ lọc — không phải gán rồi ghi đè.
+      accountId: accountScopeFilter(params.accountScope, params.accountId),
+      shopId: shopScopeFilter(params.shopScope, params.shopId),
     };
 
     const [items, total] = await this.prisma.$transaction([

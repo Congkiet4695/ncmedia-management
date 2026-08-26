@@ -21,6 +21,13 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import {
+  POD_SCOPE_SYSTEM,
+  PodAccessScopeService,
+  PodShopForbiddenException,
+  type PodAccessScope,
+} from '../../pod-tiktok/services/pod-access-scope.service';
+import { shopScopeFilter } from '../../pod-tiktok/shared/shop-scope';
+import {
   RETRYABLE_ERROR_CLASSES,
   TiktokErrorClass,
 } from '../../pod-tiktok/constants/tiktok-error-code.constants';
@@ -49,7 +56,10 @@ import type {
 import { mapReviewStatus } from '../mappers/pod-review-status.mapper';
 import { PodListingPayloadService } from './pod-listing-payload.service';
 import { toJson, type ResolvedListing } from './pod-listing-resolver.service';
-import { PodListingTemplateService, type ListingTemplateFull } from './pod-listing-template.service';
+import {
+  PodListingTemplateService,
+  type ListingTemplateFull,
+} from './pod-listing-template.service';
 import {
   PodListingPublisherService,
   PodPublishPayloadException,
@@ -137,6 +147,7 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
     private readonly payloads: PodListingPayloadService,
     private readonly validator: PodListingValidatorService,
     private readonly publisher: PodListingPublisherService,
+    private readonly accessScope: PodAccessScopeService,
   ) {}
 
   /**
@@ -236,7 +247,9 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.runInBackground(organizationId, job.id);
-    return this.get(organizationId, job.id);
+    // Job vừa do chính lời gọi này tạo ra, và shop của từng item đã được kiểm ở tầng
+    // trên trước khi ghi — đọc lại bằng phạm vi hệ thống, không phải một lối tắt.
+    return this.get(organizationId, job.id, POD_SCOPE_SYSTEM);
   }
 
   /**
@@ -256,8 +269,17 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
    * tưởng đã publish), mà chặn cả lượt cũng sai — nên chúng được **trả về trong `skipped`**
    * kèm lý do, và lượt chạy vẫn tiến hành với phần hợp lệ.
    */
-  async createPublishJob(organizationId: string, userId: string, dto: CreatePublishJobDto) {
+  async createPublishJob(
+    organizationId: string,
+    userId: string,
+    dto: CreatePublishJobDto,
+    scope: PodAccessScope,
+  ) {
     const explicit = [...new Set(dto.draftIds ?? [])];
+    // 🔴 `Publish All` không nhận id nào — nó publish theo BỘ LỌC. Nên phạm vi phải nằm
+    // trong chính câu truy vấn chọn ứng viên bên dưới, và bộ lọc `shopId` do người dùng gửi
+    // phải bị chặn ở đây trước khi được dùng.
+    this.accessScope.assertShopAllowed(scope, dto.shopId);
 
     // "Publish All" = mọi Draft đủ điều kiện trong phạm vi bộ lọc đang hiển thị. Trần
     // POD_LISTING_JOB_MAX_ITEMS + 1 để phân biệt "vừa đủ" với "vượt trần".
@@ -267,7 +289,7 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
         deletedAt: null,
         ...(explicit.length > 0 ? { id: { in: explicit } } : {}),
         ...(dto.sessionId ? { sessionProduct: { sessionId: dto.sessionId } } : {}),
-        ...(dto.shopId ? { shopId: dto.shopId } : {}),
+        shopId: shopScopeFilter(this.accessScope.shopFilter(scope)?.in, dto.shopId),
         ...(dto.market ? { market: dto.market } : {}),
         // 🔴 "Publish All" phải bám ĐÚNG bộ lọc màn hình đang hiển thị. Bỏ qua chúng là
         // người dùng lọc còn 12 dòng, bấm Publish All, rồi 2.000 listing lên sàn.
@@ -397,11 +419,20 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.runInBackground(organizationId, job.id);
-    return { ...(await this.get(organizationId, job.id)), skipped };
+    return { ...(await this.get(organizationId, job.id, scope)), skipped };
   }
 
   /** Tạo job rồi khởi động ngay (không chặn request — HTTP trả về id để theo dõi tiến độ). */
-  async create(organizationId: string, userId: string, dto: CreateListingJobDto) {
+  async create(
+    organizationId: string,
+    userId: string,
+    dto: CreateListingJobDto,
+    scope: PodAccessScope,
+  ) {
+    // 🔴 Chặn trước khi sinh item: một lượt chạy là `productIds × shopIds`, nên một shop lạ
+    // lọt vào đây là hàng trăm listing được đẩy lên shop của người khác.
+    for (const shopId of dto.shopIds) this.accessScope.assertShopAllowed(scope, shopId);
+
     const template = await this.listingTemplates.get(organizationId, dto.listingTemplateId);
     if (template.market !== dto.market) {
       throw new BadRequestException({
@@ -489,7 +520,9 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
     // Chạy nền: người dùng không phải giữ tab mở chờ 500 sản phẩm.
     this.runInBackground(organizationId, job.id);
 
-    return this.get(organizationId, job.id);
+    // Job vừa do chính lời gọi này tạo ra, và shop của từng item đã được kiểm ở tầng
+    // trên trước khi ghi — đọc lại bằng phạm vi hệ thống, không phải một lối tắt.
+    return this.get(organizationId, job.id, POD_SCOPE_SYSTEM);
   }
 
   /**
@@ -919,9 +952,14 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
       }
       if (!validation.ok) {
         const message = validation.blockers.map((blocker) => blocker.message).join(' · ');
-        await log(PodListingLogLevel.ERROR, PodListingStep.VALIDATE, 'Thiếu dữ liệu — không gửi TikTok', {
-          blockers: validation.blockers,
-        });
+        await log(
+          PodListingLogLevel.ERROR,
+          PodListingStep.VALIDATE,
+          'Thiếu dữ liệu — không gửi TikTok',
+          {
+            blockers: validation.blockers,
+          },
+        );
         await this.settleItem({
           organizationId,
           jobId,
@@ -1139,12 +1177,15 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
   // Đọc dữ liệu cho màn hình
   // ---------------------------------------------------------------------------
 
-  async list(organizationId: string, query: PodListingJobQueryDto) {
+  async list(organizationId: string, query: PodListingJobQueryDto, scope: PodAccessScope) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const where: Prisma.PodListingJobWhereInput = {
       organizationId,
       deletedAt: null,
+      // 🔴 `PodListingJob` không mang `shop_id` — một lượt chạy có thể trải nhiều shop, shop
+      // nằm ở từng item. Nên phạm vi phải hỏi qua quan hệ `items`, không lọc được bằng cột.
+      ...(scope.allShops ? {} : { items: { some: { shopId: { in: scope.shopIds } } } }),
       ...(query.status ? { status: query.status } : {}),
       ...(query.market ? { market: query.market } : {}),
       ...(query.type ? { type: query.type } : {}),
@@ -1199,7 +1240,13 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
     return result;
   }
 
-  async get(organizationId: string, id: string) {
+  /**
+   * Nạp một lượt chạy, ĐÃ kiểm phạm vi shop.
+   *
+   * 🔴 Cửa vào duy nhất cho `listItems` / `listLogs` / màn hình chi tiết. Kiểm ở đây thay vì
+   * rải ra từng method — mỗi method là một cơ hội quên.
+   */
+  async get(organizationId: string, id: string, scope: PodAccessScope) {
     const job = await this.prisma.podListingJob.findFirst({
       where: { id, organizationId, deletedAt: null },
       include: {
@@ -1209,6 +1256,7 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
       },
     });
     if (!job) throw new PodListingJobNotFoundException();
+    await this.assertJobInScope(organizationId, job.id, scope);
 
     // Đếm theo trạng thái để màn hình vẽ thanh tiến độ mà không phải tải hết item về.
     const grouped = await this.prisma.podListingJobItem.groupBy({
@@ -1227,8 +1275,13 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async listItems(organizationId: string, jobId: string, query: PodListingJobItemQueryDto) {
-    await this.get(organizationId, jobId);
+  async listItems(
+    organizationId: string,
+    jobId: string,
+    query: PodListingJobItemQueryDto,
+    scope: PodAccessScope,
+  ) {
+    await this.get(organizationId, jobId, scope);
 
     const page = query.page ?? 1;
     const limit = query.limit ?? 50;
@@ -1242,7 +1295,9 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
         ? {
             OR: [
               { product: { title: { contains: query.search, mode: 'insensitive' as const } } },
-              { sessionProduct: { title: { contains: query.search, mode: 'insensitive' as const } } },
+              {
+                sessionProduct: { title: { contains: query.search, mode: 'insensitive' as const } },
+              },
             ],
           }
         : {}),
@@ -1284,8 +1339,13 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
     };
   }
 
-  async listLogs(organizationId: string, jobId: string, query: PodListingLogQueryDto) {
-    await this.get(organizationId, jobId);
+  async listLogs(
+    organizationId: string,
+    jobId: string,
+    query: PodListingLogQueryDto,
+    scope: PodAccessScope,
+  ) {
+    await this.get(organizationId, jobId, scope);
 
     const page = query.page ?? 1;
     const limit = query.limit ?? 100;
@@ -1317,8 +1377,14 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
   // ---------------------------------------------------------------------------
 
   /** Chạy lại các item hỏng (mặc định: toàn bộ FAILED + SKIPPED). */
-  async retry(organizationId: string, userId: string, jobId: string, dto: RetryListingJobDto) {
-    const job = await this.get(organizationId, jobId);
+  async retry(
+    organizationId: string,
+    userId: string,
+    jobId: string,
+    dto: RetryListingJobDto,
+    scope: PodAccessScope,
+  ) {
+    const job = await this.get(organizationId, jobId, scope);
     if (this.running.has(jobId)) {
       throw new BadRequestException({
         code: 'POD_LISTING_JOB_RUNNING',
@@ -1399,12 +1465,12 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.runInBackground(organizationId, jobId);
-    return this.get(organizationId, jobId);
+    return this.get(organizationId, jobId, scope);
   }
 
   /** Huỷ: item chưa chạy chuyển CANCELLED; item đang chạy vẫn chạy nốt (đã gửi TikTok rồi). */
-  async cancel(organizationId: string, userId: string, jobId: string) {
-    const current = await this.get(organizationId, jobId);
+  async cancel(organizationId: string, userId: string, jobId: string, scope: PodAccessScope) {
+    const current = await this.get(organizationId, jobId, scope);
 
     const cancelled = await this.prisma.podListingJobItem.updateMany({
       where: {
@@ -1469,12 +1535,17 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
       );
     }
 
-    return this.get(organizationId, jobId);
+    return this.get(organizationId, jobId, scope);
   }
 
   /** Xoá mềm một lượt chạy (không đụng tới sản phẩm đã tạo trên TikTok). */
-  async remove(organizationId: string, userId: string, jobId: string): Promise<void> {
-    const job = await this.get(organizationId, jobId);
+  async remove(
+    organizationId: string,
+    userId: string,
+    jobId: string,
+    scope: PodAccessScope,
+  ): Promise<void> {
+    const job = await this.get(organizationId, jobId, scope);
     if (job.status === PodListingJobStatus.PROCESSING) {
       throw new BadRequestException({
         code: 'POD_LISTING_JOB_RUNNING',
@@ -1504,6 +1575,7 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
       shopId?: string;
       type?: PodListingJobType;
     },
+    scope: PodAccessScope,
   ) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
@@ -1512,7 +1584,8 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
       job: { deletedAt: null, ...(query.type ? { type: query.type } : {}) },
       finishedAt: { not: null },
       ...(query.status ? { status: query.status } : {}),
-      ...(query.shopId ? { shopId: query.shopId } : {}),
+      // 🔴 GIAO của phạm vi và bộ lọc màn hình — không phải phép gán rồi ghi đè.
+      shopId: shopScopeFilter(this.accessScope.shopFilter(scope)?.in, query.shopId),
     };
 
     const [items, total] = await this.prisma.$transaction([
@@ -1551,6 +1624,26 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
       items,
       meta: { total, page, limit, totalPages: total === 0 ? 0 : Math.ceil(total / limit) },
     };
+  }
+
+  /**
+   * Một lượt chạy chỉ được xem khi MỌI item của nó thuộc shop trong phạm vi.
+   *
+   * 🔴 Không dùng "có ít nhất một item hợp lệ": một lượt chạy trộn shop của nhiều người thì
+   * mở nó ra là đọc được cả tên sản phẩm, mã lỗi và remote id của shop người khác. Danh sách
+   * (`list`) dùng `some` vì ở đó chỉ hiện tên lượt chạy; chi tiết thì phải chặt hơn.
+   */
+  private async assertJobInScope(
+    organizationId: string,
+    jobId: string,
+    scope: PodAccessScope,
+  ): Promise<void> {
+    if (scope.allShops) return;
+    const outside = await this.prisma.podListingJobItem.findFirst({
+      where: { organizationId, jobId, shopId: { notIn: scope.shopIds } },
+      select: { id: true },
+    });
+    if (outside) throw new PodShopForbiddenException();
   }
 
   // ---------------------------------------------------------------------------

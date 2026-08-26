@@ -12,7 +12,12 @@ import { TiktokEncryptionService } from './tiktok-encryption.service';
 /** Kết quả đảm bảo token còn dùng được. */
 export type EnsureTokenResult =
   | { ok: true; accessToken: string; refreshed: boolean }
-  | { ok: false; reason: 'REAUTH_REQUIRED' | 'REFRESH_FAILED'; errorCode?: string; message: string };
+  | {
+      ok: false;
+      reason: 'REAUTH_REQUIRED' | 'REFRESH_FAILED';
+      errorCode?: string;
+      message: string;
+    };
 
 /** Thông tin tối thiểu của account cần cho việc quản lý token. */
 export interface TokenAccountRef {
@@ -70,12 +75,15 @@ export class PodTiktokTokenService {
       };
     }
 
-    const thresholdMs =
-      this.config.get<number>('tiktok.sync.refreshBeforeSeconds', 86_400) * 1_000;
+    const thresholdMs = this.config.get<number>('tiktok.sync.refreshBeforeSeconds', 86_400) * 1_000;
     const needsRefresh = account.accessTokenExpiresAt.getTime() - now <= thresholdMs;
 
     if (!needsRefresh) {
-      return { ok: true, accessToken: this.encryption.decrypt(account.accessTokenEnc), refreshed: false };
+      return {
+        ok: true,
+        accessToken: this.encryption.decrypt(account.accessTokenEnc),
+        refreshed: false,
+      };
     }
 
     return this.refresh(account.id, account.organizationId);
@@ -209,9 +217,7 @@ export class PodTiktokTokenService {
         errorCode,
         errorMessage: message.slice(0, 500),
         tiktokRequestId: clientError?.requestId ?? null,
-        status: needsReauth
-          ? PodTiktokAccountStatus.REAUTH_REQUIRED
-          : PodTiktokAccountStatus.ERROR,
+        status: needsReauth ? PodTiktokAccountStatus.REAUTH_REQUIRED : PodTiktokAccountStatus.ERROR,
         failureThreshold: this.config.get<number>('tiktok.sync.failureThreshold', 5),
       });
       await this.repo.insertTokenAudit(tx, {

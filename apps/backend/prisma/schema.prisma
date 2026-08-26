@@ -38,15 +38,27 @@ enum UserStatus {
   INACTIVE
   LOCKED
   SUSPENDED
+  /// Chủ Organization vừa đăng ký, Organization còn chờ Super Admin duyệt.
+  ///
+  /// 🔴 Tách khỏi INACTIVE: INACTIVE là "đã từng dùng rồi bị tắt", PENDING là "chưa bao giờ
+  /// được phép vào". Gộp hai thứ lại thì màn quản trị không phân biệt được tài khoản mới
+  /// đăng ký với tài khoản bị vô hiệu hoá.
+  PENDING
 
   @@map("user_status")
 }
 
-/// Trạng thái Organization (bổ sung PO #5)
+/// Trạng thái Organization (bổ sung PO #5; PENDING/REJECTED thuộc luồng duyệt đăng ký).
+///
+/// 🔴 CHỈ `ACTIVE` được phép đăng nhập. Mọi trạng thái khác đều chặn ở `LoginService`.
 enum OrganizationStatus {
+  /// Vừa đăng ký, đang chờ Super Admin xét duyệt. KHÔNG login được.
+  PENDING
   ACTIVE
   TRIAL
   SUSPENDED
+  /// Super Admin đã từ chối — lý do nằm ở `rejected_reason`. KHÔNG login được.
+  REJECTED
   DELETED
 
   @@map("organization_status")
@@ -244,6 +256,27 @@ model Organization {
   slug   String             @unique @db.VarChar(120)
   status OrganizationStatus @default(ACTIVE)
 
+  /// 🔴 Organization HỆ THỐNG chứa tài khoản Super Admin — KHÔNG phải một tenant nghiệp vụ.
+  ///
+  /// Đây là cách Super Admin (actor xuyên tenant) sống được mà không phá ADR-008 "một User
+  /// thuộc đúng một Organization": Super Admin vẫn là một User bình thường, chỉ thuộc về
+  /// Organization này. Nhờ vậy toàn bộ Authentication/JWT/RBAC dùng lại nguyên vẹn, không
+  /// sinh ra luồng đăng nhập thứ hai.
+  ///
+  /// Organization platform bị loại khỏi mọi danh sách tenant (màn duyệt đăng ký, thống kê)
+  /// và KHÔNG bao giờ đi qua luồng duyệt.
+  isPlatform Boolean @default(false) @map("is_platform")
+
+  // --- Luồng duyệt đăng ký (Super Admin Review) ---
+  /// User (Super Admin) đã duyệt. Không đặt khoá ngoại: Super Admin nằm ở Organization khác,
+  /// và một bản ghi lịch sử không được phép chặn việc xoá tài khoản người duyệt.
+  approvedBy     String?   @map("approved_by") @db.Uuid
+  approvedAt     DateTime? @map("approved_at") @db.Timestamptz(6)
+  rejectedBy     String?   @map("rejected_by") @db.Uuid
+  rejectedAt     DateTime? @map("rejected_at") @db.Timestamptz(6)
+  /// Lý do từ chối — BẮT BUỘC khi Reject, và là nội dung email gửi cho người đăng ký.
+  rejectedReason String?   @map("rejected_reason") @db.VarChar(1000)
+
   // Audit (ADR-015)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -262,8 +295,55 @@ model Organization {
   fulfillmentAccounts        FulfillmentAccount[]
   fulfillmentProductMappings FulfillmentProductMapping[]
   fulfillmentOrders          FulfillmentOrder[]
+  approvalLogs               OrganizationApprovalLog[]
 
+  /// Màn Super Admin lọc theo trạng thái + sắp theo thời điểm đăng ký.
+  @@index([status, createdAt])
   @@map("organizations")
+}
+
+// ---------------------------------------------------------------------------
+// OrganizationApprovalLog — nhật ký duyệt/từ chối đăng ký Organization.
+//
+// 🔴 Bảng PHẠM VI NỀN TẢNG, không phải bảng nghiệp vụ của tenant: `organization_id` ở đây là
+// ĐỐI TƯỢNG được duyệt, không phải khoá phân tách tenant. Vì thế nó không vi phạm ADR-004 —
+// chỉ Super Admin đọc bảng này, và không repository tenant nào chạm tới.
+//
+// Ghi APPEND-ONLY: không sửa, không xoá. Một quyết định duyệt/từ chối là sự kiện đã xảy ra;
+// cột `old_status` giữ nguyên trạng thái trước đó nên đọc lại được toàn bộ đường đi.
+// ---------------------------------------------------------------------------
+
+model OrganizationApprovalLog {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  /// Super Admin thực hiện. Giữ kèm email + tên tại thời điểm thao tác: người duyệt có thể
+  /// đổi tên hoặc rời hệ thống, còn nhật ký thì phải đọc được mãi mãi.
+  operatorId       String @map("operator_id") @db.Uuid
+  operatorEmail    String @map("operator_email") @db.VarChar(255)
+  operatorFullName String @map("operator_full_name") @db.VarChar(255)
+
+  action    OrganizationApprovalAction
+  oldStatus OrganizationStatus         @map("old_status")
+  newStatus OrganizationStatus         @map("new_status")
+  /// Bắt buộc với REJECT, để trống với APPROVE.
+  reason    String?                    @db.VarChar(1000)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([organizationId, createdAt])
+  @@index([operatorId, createdAt])
+  @@map("organization_approval_logs")
+}
+
+/// Hành động của Super Admin trên một Organization đang chờ duyệt.
+enum OrganizationApprovalAction {
+  APPROVE
+  REJECT
+
+  @@map("organization_approval_action")
 }
 
 // ---------------------------------------------------------------------------
@@ -277,9 +357,12 @@ model User {
   roleId         String @map("role_id") @db.Uuid
 
   /// UNIQUE GLOBAL vĩnh viễn — không partial index, không tái dùng sau soft delete (Decision-001)
-  email        String @unique @db.Citext
-  passwordHash String @map("password_hash") @db.VarChar(255)
-  fullName     String @map("full_name") @db.VarChar(255)
+  email        String  @unique @db.Citext
+  passwordHash String  @map("password_hash") @db.VarChar(255)
+  fullName     String  @map("full_name") @db.VarChar(255)
+  /// Số điện thoại liên hệ, nhập tuỳ chọn lúc đăng ký Organization.
+  /// Super Admin dùng để xác minh trước khi duyệt; KHÔNG dùng cho đăng nhập.
+  phone        String? @db.VarChar(20)
 
   status            UserStatus @default(ACTIVE)
   emailVerifiedAt   DateTime?  @map("email_verified_at") @db.Timestamptz(6)
@@ -1371,6 +1454,8 @@ model PodOrderItem {
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   order                 PodOrder               @relation(fields: [orderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  /// ⛔ Lịch sử, chỉ đọc — xem chú thích ở `PodOrderItemDesign`. Đơn hàng ĐỌC design từ
+  /// Product Mapping (`FulfillmentProductDesign`), không sở hữu design.
   designs               PodOrderItemDesign[]
   fulfillmentOrderItems FulfillmentOrderItem[]
 
@@ -1470,15 +1555,24 @@ model PodSyncLog {
 }
 
 // ---------------------------------------------------------------------------
-// PodOrderItemDesign — file design in cho TỪNG sản phẩm (line item) của đơn POD.
+// PodOrderItemDesign — ⛔ LƯU TRỮ LỊCH SỬ, CHỈ ĐỌC. KHÔNG CÒN CODE NÀO GHI VÀO BẢNG NÀY.
 //
-// Vì sao MỘT DÒNG cho MỖI VỊ TRÍ IN (thay vì 2 cột front_url/back_url):
-//   - Thêm vị trí mới (LEFT/RIGHT/SLEEVE) KHÔNG cần migration, chỉ dùng thêm giá trị enum.
-//   - Mỗi vị trí có metadata riêng (người upload, thời điểm, số lần thay, kích thước file).
-//   - Truy vấn "thiếu design" đơn giản: đếm số dòng theo vị trí bắt buộc.
+// Đây là mô hình CŨ: design gắn theo từng line item. Nó sai với nghiệp vụ POD — cùng một
+// sản phẩm bán 11 lần thì phải upload 11 lần cùng một file in, và chỉ cần sót một lần là
+// đơn đó ra xưởng thiếu file. Design là thuộc tính của SẢN PHẨM, không phải của lần bán.
 //
-// Mỗi (order_item, placement) chỉ có MỘT design đang hiệu lực — thay design = ghi đè
-// dòng hiện có và tăng `version`, đồng thời xoá file cũ khỏi storage.
+// Nguồn sự thật hiện tại: `FulfillmentProductDesign` (khoá theo Product ID + Seller SKU).
+// Endpoint `POST /pod/tiktok/order-items/:id/designs` đã bị GỠ BỎ cùng service/repository
+// của nó — không còn đường ghi nào vào đây.
+//
+// Vì sao GIỮ bảng thay vì DROP: dữ liệu nào ghép được đã chuyển sang bảng mới
+// (migration `20260826170000_design_by_product_sku`), nhưng dòng nào thuộc sản phẩm CHƯA
+// khai ánh xạ thì không có chỗ để chuyển tới — drop bảng là mất vĩnh viễn thông tin
+// "đơn này từng in file nào". Yêu cầu nghiệp vụ nói rõ: migration không được mất dữ liệu,
+// và snapshot phục vụ audit phải giữ nguyên.
+//
+// Bảng vẫn được tính trong `StorageRepository.countReferences` để không ai xoá nhầm file
+// mà một dòng lịch sử còn trỏ tới.
 // ---------------------------------------------------------------------------
 
 model PodOrderItemDesign {
@@ -1519,6 +1613,72 @@ model PodOrderItemDesign {
   @@map("pod_order_item_designs")
 }
 
+// ---------------------------------------------------------------------------
+// FulfillmentProductDesign — file in của một SẢN PHẨM POD.
+//
+// 🔴 KHOÁ LÀ (organization, Product ID, Seller SKU) — KHÔNG phải Product Mapping.
+//
+// Đây là thay đổi nghiệp vụ, không phải đổi tên cho đẹp. Trước đây design treo vào
+// `mapping_id`, nghĩa là **phải khai Product Mapping xong mới upload được design**. Sai:
+// Design và Product Mapping là hai nghiệp vụ ĐỘC LẬP —
+//   · Design       trả lời "in cái gì"  → chỉ cần Product ID + Seller SKU
+//   · Mapping      trả lời "in ở đâu"   → chỉ cần khi Fulfill
+// Người vận hành phải làm được theo bất kỳ thứ tự nào: upload design trước rồi ánh xạ sau,
+// hoặc ngược lại. Ràng buộc cũ còn kéo theo hai hệ quả tệ hơn: xoá một Product Mapping là
+// CASCADE xoá luôn design của nó, và đổi nhà cung cấp cho một sản phẩm là mất file in.
+//
+// Hệ quả của việc khoá theo cặp Product ID + Seller SKU (giữ nguyên từ sprint trước):
+//   - Upload / Replace ⇒ mọi đơn cùng cặp khoá thấy file mới ngay, không sao chép dữ liệu.
+//   - Delete           ⇒ mọi đơn cùng cặp khoá quay về "Design Missing" ngay.
+//   - Đơn MỚI đồng bộ về ⇒ tự nhận design đã có.
+//   - Đơn ĐÃ GỬI sản xuất không đổi: file đã gửi được chụp ở `fulfillment_order_items.print_files`.
+//
+// ⚠️ Đánh đổi giữ nguyên: design thuộc về SẢN PHẨM nên không đặt được file riêng cho một đơn
+// cá biệt (TikTok POD có `is_pod_customized`/`pod_info_id` cho hàng personalise — chưa dùng).
+// Muốn hỗ trợ thì thêm bảng ghi đè theo đơn, KHÔNG quay lại mô hình cũ.
+// ---------------------------------------------------------------------------
+
+model FulfillmentProductDesign {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  /// 🔴 KHOÁ NGHIỆP VỤ — cùng cặp khoá định danh Product Mapping, nhưng ĐỘC LẬP với nó.
+  ///
+  /// Nullable ở tầng DB có chủ đích (giống `FulfillmentProductMapping`): bản ghi cũ chuyển
+  /// từ mô hình theo mapping có thể thiếu khoá nếu mapping nguồn đã bị xoá. Thiếu khoá ⇒
+  /// không ghép được đơn nào; CHECK `NOT VALID` chặn mọi bản ghi MỚI thiếu khoá.
+  tiktokProductId String? @map("tiktok_product_id") @db.VarChar(64)
+  sellerSku       String? @map("seller_sku") @db.VarChar(255)
+
+  /// Vị trí in: FRONT | BACK | LEFT | RIGHT | SLEEVE | LABEL.
+  ///
+  /// 🔴 Bảng con thay vì hai cột `front_design_file_id` / `back_design_file_id`: enum đã có
+  /// 6 vị trí và `placement_map` vốn ánh xạ vị trí bất kỳ sang khoá của nhà cung cấp. Hai cột
+  /// cứng sẽ phải đổi schema ngay lần đầu ai đó bật SLEEVE.
+  placement PodDesignPlacement
+
+  /// File thật nằm ở Storage Module — bảng này KHÔNG lặp lại key/URL/mime/size.
+  storageFileId String @map("storage_file_id") @db.Uuid
+
+  /// Số lần design ở vị trí này bị thay (1 = upload lần đầu).
+  version Int @default(1)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  /// Restrict: không cho xoá bản ghi file khi vẫn còn design tham chiếu.
+  storageFile StorageFile @relation("FulfillmentProductDesignFile", fields: [storageFileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  /// Mỗi (sản phẩm × vị trí in) chỉ có MỘT design đang hiệu lực.
+  /// (Bản đã xoá mềm vẫn nằm lại — xem chỉ mục từng phần ở migration.)
+  @@index([organizationId])
+  @@index([organizationId, tiktokProductId, sellerSku])
+  @@map("fulfillment_product_designs")
+}
+
 // ===========================================================================
 // CORE MODULE — STORAGE
 //
@@ -1545,7 +1705,11 @@ enum StorageModuleName {
 /// Loại thực thể mà file gắn vào. Dùng cặp (reference_type, reference_id) để tra ngược.
 /// Khai báo SẴN các loại đã thấy trong lộ trình để mở rộng không cần migration.
 enum StorageReferenceType {
+  /// ⚠️ CŨ — design gắn theo TỪNG line item của đơn. Giữ lại để file cũ vẫn tra được nguồn;
+  /// luồng mới dùng `FULFILLMENT_MAPPING_DESIGN`.
   POD_ORDER_ITEM_DESIGN
+  /// Design gắn theo **Product Mapping** — một file dùng cho mọi đơn cùng SKU.
+  FULFILLMENT_MAPPING_DESIGN
   /// Ảnh/video thuộc một Image Template của module Listing (Sprint 3).
   POD_LISTING_ASSET
   EMPLOYEE_AVATAR
@@ -1622,8 +1786,10 @@ model StorageFile {
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   uploader     User         @relation("StorageUploader", fields: [uploadedBy], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
-  /// File được dùng làm design của sản phẩm POD (0..n — thực tế 0 hoặc 1).
+  /// ⚠️ CŨ — design gắn theo line item của đơn. Giữ để dữ liệu lịch sử vẫn tra được.
   podDesigns           PodOrderItemDesign[]
+  /// File in gắn theo **Product Mapping** — nguồn design hiện hành.
+  productDesigns       FulfillmentProductDesign[]      @relation("FulfillmentProductDesignFile")
   /// Ảnh trong một bộ ảnh mẫu (mockup) của Image Template.
   imageTemplateItems   PodImageTemplateItem[]
   /// File dùng làm ảnh riêng của một tổ hợp SKU trong SKU Template.
@@ -1964,17 +2130,33 @@ model FulfillmentAccount {
   webhookLogs     FulfillmentWebhookLog[]
   syncLogs        FulfillmentSyncLog[]
 
+  /// Bản sao danh mục của nhà cung cấp (xem `FulfillmentCatalogue`).
+  catalogues        FulfillmentCatalogue[]
+  catalogueProducts FulfillmentProduct[]
+  mappingCandidates FulfillmentMappingCandidate[]
+
   @@index([organizationId, provider])
   @@index([isActive])
   @@map("fulfillment_accounts")
 }
 
 // ---------------------------------------------------------------------------
-// FulfillmentProductMapping — TikTok product/SKU ⇄ SKU của nhà cung cấp.
+// FulfillmentProductMapping — SẢN PHẨM POD của tổ chức.
 //
-// 🔴 KHÔNG hardcode: mọi ánh xạ nằm ở bảng này, người vận hành tự khai báo.
-// Ưu tiên khớp theo `tiktokSkuId` (chính xác nhất), sau đó `sellerSku`, cuối cùng
-// `tiktokProductId` (áp cho mọi biến thể của sản phẩm).
+// 🔴 DANH TÍNH của một ánh xạ là **(Product ID + Seller SKU)** — không gì khác.
+// Không dùng Title, không dùng Variant Name, không dùng Image: ba thứ đó do người bán tự
+// đặt, đổi lúc nào cũng được, và hai sản phẩm khác nhau hoàn toàn có thể trùng tên.
+// `tiktok_sku_id` KHÔNG còn tham gia ghép (xem `shared/mapping-match.ts`) — giữ lại chỉ để
+// đối soát khi cần tra ngược về biến thể phía TikTok.
+//
+// Hệ quả trực tiếp: mỗi (Product ID + Seller SKU) có **đúng một** bộ Design, một Fulfillment
+// SKU, một Provider, một Base Cost. Mọi đơn mang cùng cặp khoá đó — kể cả đơn ngày mai mới
+// đồng bộ về — đọc chung bản ghi này, không sao chép, không sinh thêm dữ liệu.
+//
+// Ràng buộc ở migration `20260826170000_design_by_product_sku`:
+//   - UNIQUE TỪNG PHẦN (organization_id, tiktok_product_id, seller_sku) WHERE deleted_at IS NULL
+//   - CHECK NOT VALID: hai khoá phải có đủ (bản ghi cũ thiếu khoá được giữ nguyên để không
+//     mất dữ liệu, nhưng không ghép được với đơn nào và không sửa được nếu chưa điền đủ)
 // ---------------------------------------------------------------------------
 model FulfillmentProductMapping {
   id             String              @id @default(uuid()) @db.Uuid
@@ -1982,10 +2164,19 @@ model FulfillmentProductMapping {
   accountId      String              @map("account_id") @db.Uuid
   provider       FulfillmentProvider
 
-  /// Khoá phía TikTok — ít nhất MỘT trong ba phải có (CHECK ở migration).
+  /// 🔴 KHOÁ NGHIỆP VỤ — cặp này xác định ánh xạ. Bắt buộc khi tạo/sửa qua API.
+  ///
+  /// Nullable ở tầng DB **có chủ đích**: bản ghi khai từ trước sprint này có thể thiếu một
+  /// trong hai. Ép NOT NULL sẽ làm migration chết trên môi trường có dữ liệu như vậy, mà
+  /// bịa giá trị thay thế thì còn tệ hơn. Thiếu khoá ⇒ không ghép được đơn nào (xem
+  /// `findMappingForItem`) ⇒ hiện lên giao diện là "ánh xạ chưa đủ khoá" để người dùng sửa.
   tiktokProductId String? @map("tiktok_product_id") @db.VarChar(64)
-  tiktokSkuId     String? @map("tiktok_sku_id") @db.VarChar(64)
   sellerSku       String? @map("seller_sku") @db.VarChar(255)
+
+  /// ⚠️ THAM CHIẾU, KHÔNG PHẢI KHOÁ GHÉP. Trước sprint này `tiktokSkuId` là khoá ưu tiên số
+  /// một; nó bị loại khỏi luật ghép vì một Seller SKU có thể mang nhiều `sku_id` khác nhau
+  /// giữa các shop, khiến cùng một sản phẩm bị tách thành nhiều bộ design.
+  tiktokSkuId String? @map("tiktok_sku_id") @db.VarChar(64)
 
   /// SKU biến thể phía nhà cung cấp — giá trị gửi vào `items[].sku` khi tạo đơn.
   providerSku         String  @map("provider_sku") @db.VarChar(255)
@@ -1999,6 +2190,14 @@ model FulfillmentProductMapping {
   providerVariantName String? @map("provider_variant_name") @db.VarChar(255)
   providerColor       String? @map("provider_color") @db.VarChar(100)
   providerSize        String? @map("provider_size") @db.VarChar(100)
+
+  /// Giá vốn nhà cung cấp cho SKU này — người vận hành khai khi ánh xạ.
+  ///
+  /// Nằm ở đây chứ không ở đơn hàng vì giá vốn là thuộc tính của SẢN PHẨM. Lúc gửi sản xuất,
+  /// giá trị này được CHÉP sang `fulfillment_order_items.base_cost` làm ảnh chụp bất biến —
+  /// đơn đã gửi không được đổi giá vốn khi ánh xạ sửa về sau (ADR-014: Profit tính runtime
+  /// từ số liệu tại thời điểm giao dịch).
+  baseCost Decimal? @map("base_cost") @db.Decimal(18, 4)
 
   /// `production_config` của Mango (default | large). NULL = không gửi.
   productionConfig String? @map("production_config") @db.VarChar(40)
@@ -2022,12 +2221,249 @@ model FulfillmentProductMapping {
   organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   account      FulfillmentAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
+  /// ⚠️ KHÔNG có quan hệ `designs` ở đây nữa. Design khoá theo (Product ID + Seller SKU) và
+  /// ĐỘC LẬP với ánh xạ — xem `FulfillmentProductDesign`. Nối lại quan hệ này là dựng lại
+  /// đúng ràng buộc "phải ánh xạ xong mới upload được design" mà sprint này gỡ bỏ.
+
   @@index([organizationId, provider])
-  @@index([organizationId, tiktokSkuId])
+  /// Chỉ mục CHÍNH — đúng khoá ghép, phục vụ mọi lượt đọc design của màn hình đơn.
+  @@index([organizationId, tiktokProductId, sellerSku])
   @@index([organizationId, sellerSku])
-  @@index([organizationId, tiktokProductId])
   @@index([accountId])
   @@map("fulfillment_product_mappings")
+}
+
+// ===========================================================================
+// BẢN SAO DANH MỤC NHÀ CUNG CẤP (Catalogue → Product → Variant)
+//
+// 🔴 Ba bảng dưới đây là **BẢN SAO CHỈ-ĐỌC** của danh mục phía nhà cung cấp, KHÔNG phải sản
+// phẩm của tổ chức. Nguồn sự thật vẫn là nhà cung cấp; ở đây chỉ là ảnh chụp được làm mới
+// bởi Sync Job.
+//
+// Vì sao phải có: trước đây mỗi lần mở màn hình Product Mapping là một loạt lời gọi thẳng
+// sang Mango API (danh mục vài nghìn sản phẩm × mỗi sản phẩm một lần gọi variations). Chậm,
+// phụ thuộc mạng, và hỏng hoàn toàn khi nhà cung cấp lỗi — trong khi dữ liệu này gần như
+// tĩnh. Nay: Mango API → Sync Job → Database → UI. Giao diện KHÔNG gọi Mango nữa.
+//
+// Vì sao KHÔNG dùng Redis như trước: cache 5 phút chỉ giấu được độ trễ, không giải quyết
+// được ba việc mà tính năng thực sự cần — tìm kiếm/phân trang phía server, ánh xạ tự động
+// (phải quét toàn bộ danh mục), và hoạt động được khi nhà cung cấp đang lỗi.
+//
+// Tenant (ADR-003): tuy danh mục là dữ liệu của nhà cung cấp, mỗi tổ chức kết nối bằng API
+// key riêng và **thấy danh mục riêng**, nên đây là bảng NGHIỆP VỤ và có `organization_id`.
+// ===========================================================================
+
+/// Trạng thái một bản ghi danh mục sau lần đồng bộ gần nhất.
+enum FulfillmentCatalogItemStatus {
+  /// Nhà cung cấp còn trả về ở lần đồng bộ gần nhất.
+  ACTIVE
+  /// Nhà cung cấp trả về nhưng đánh dấu ngừng bán.
+  INACTIVE
+  /// KHÔNG còn xuất hiện ở lần đồng bộ gần nhất — giữ lại để ánh xạ cũ không trỏ vào hư không.
+  ARCHIVED
+
+  @@map("fulfillment_catalog_item_status")
+}
+
+// ---------------------------------------------------------------------------
+// FulfillmentCatalogue — nhóm sản phẩm phía nhà cung cấp.
+//
+// ⚠️ Mango KHÔNG có endpoint `/catalogs` (đã dò thực tế: trả 404). Danh mục được SUY RA từ
+// cặp `catalog_id` / `catalog_name` gắn trên mỗi sản phẩm của `GET /products`. Đây là lý do
+// bảng này không có `raw_data` của riêng nó cho Mango — không có payload nào để lưu; trường
+// vẫn tồn tại vì nhà cung cấp khác (Printify/Printful) có endpoint danh mục riêng.
+// ---------------------------------------------------------------------------
+model FulfillmentCatalogue {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  /// Tài khoản nhà cung cấp đã đọc ra danh mục này (yêu cầu gọi là `provider_id`).
+  accountId      String              @map("account_id") @db.Uuid
+  provider       FulfillmentProvider
+
+  /// ID danh mục phía nhà cung cấp — nửa khoá định danh.
+  externalCatalogueId String                       @map("external_catalogue_id") @db.VarChar(128)
+  name                String                       @db.VarChar(500)
+  status              FulfillmentCatalogItemStatus @default(ACTIVE)
+
+  /// Payload nguyên văn của nhà cung cấp. NULL khi danh mục được suy ra từ sản phẩm.
+  rawData  Json?    @map("raw_data")
+  /// Thời điểm bản ghi này được nhà cung cấp xác nhận còn tồn tại.
+  syncedAt DateTime @map("synced_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account  FulfillmentAccount   @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  products FulfillmentProduct[]
+
+  /// Một danh mục của nhà cung cấp chỉ xuất hiện MỘT lần trong mỗi tài khoản.
+  @@unique([accountId, externalCatalogueId])
+  @@index([organizationId, provider])
+  @@index([accountId, status])
+  @@map("fulfillment_catalogues")
+}
+
+// ---------------------------------------------------------------------------
+// FulfillmentProduct — sản phẩm trong danh mục nhà cung cấp.
+//
+// ⚠️ ĐỪNG NHẦM với `FulfillmentProductMapping`: bảng đó là KHAI BÁO của tổ chức
+// (TikTok product ⇄ SKU nhà cung cấp); bảng này là DANH MỤC của nhà cung cấp.
+// ---------------------------------------------------------------------------
+model FulfillmentProduct {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  accountId      String              @map("account_id") @db.Uuid
+  provider       FulfillmentProvider
+  /// NULL = nhà cung cấp không gắn sản phẩm này vào danh mục nào.
+  catalogueId    String?             @map("catalogue_id") @db.Uuid
+
+  externalProductId String  @map("external_product_id") @db.VarChar(128)
+  name              String  @db.VarChar(1000)
+  sku               String? @db.VarChar(255)
+  /// Ảnh đại diện (ảnh đầu tiên nhà cung cấp trả về).
+  image             String? @db.VarChar(2048)
+
+  basePrice       String? @map("base_price") @db.VarChar(64)
+  currency        String? @db.VarChar(10)
+  /// Số biến thể nhà cung cấp báo — đối chiếu với số thực sự đồng bộ được để phát hiện thiếu.
+  variationsCount Int?    @map("variations_count")
+
+  status FulfillmentCatalogItemStatus @default(ACTIVE)
+
+  /// Payload nguyên văn — giữ để không mất field mới của nhà cung cấp và để điều tra lệch dữ liệu.
+  rawData  Json?    @map("raw_data")
+  syncedAt DateTime @map("synced_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account   FulfillmentAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  catalogue FulfillmentCatalogue? @relation(fields: [catalogueId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  variants  FulfillmentVariant[]
+
+  @@unique([accountId, externalProductId])
+  @@index([organizationId, provider])
+  @@index([accountId, status])
+  @@index([catalogueId])
+  /// Ánh xạ tự động tra theo SKU sản phẩm (tầng 1 của luật tìm kiếm).
+  @@index([accountId, sku])
+  @@map("fulfillment_products")
+}
+
+// ---------------------------------------------------------------------------
+// FulfillmentVariant — biến thể; `sku` chính là giá trị gửi trong `items[].sku` khi tạo đơn.
+// ---------------------------------------------------------------------------
+model FulfillmentVariant {
+  id             String              @id @default(uuid()) @db.Uuid
+  organizationId String              @map("organization_id") @db.Uuid
+  accountId      String              @map("account_id") @db.Uuid
+  provider       FulfillmentProvider
+  productId      String              @map("product_id") @db.Uuid
+
+  externalVariantId String  @map("external_variant_id") @db.VarChar(128)
+  /// 🔴 Giá trị THỰC SỰ gửi sang nhà cung cấp khi tạo đơn.
+  sku               String  @db.VarChar(255)
+  name              String  @db.VarChar(500)
+  color             String? @db.VarChar(100)
+  size              String? @db.VarChar(100)
+  /// Giữ dạng chuỗi ĐÚNG như nhà cung cấp trả về — không ép sang số để khỏi mất định dạng/độ chính xác.
+  price             String? @db.VarChar(64)
+
+  status FulfillmentCatalogItemStatus @default(ACTIVE)
+
+  rawData  Json?    @map("raw_data")
+  syncedAt DateTime @map("synced_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  product FulfillmentProduct @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([productId, externalVariantId])
+  @@index([organizationId, provider])
+  @@index([productId, status])
+  /// 🔴 Chỉ mục CHÍNH của ánh xạ tự động: tra Seller SKU của TikTok trên SKU biến thể.
+  @@index([accountId, sku])
+  @@map("fulfillment_variants")
+}
+
+// ---------------------------------------------------------------------------
+// FulfillmentMappingCandidate — KẾT QUẢ của một lần thử ánh xạ tự động.
+//
+// 🔴 Vì sao cần bảng riêng thay vì nhét vào Product Mapping: khi hệ thống KHÔNG tự ánh xạ
+// được, không có bản ghi Product Mapping nào để ghi trạng thái vào. Ba kết cục "đã tự ánh
+// xạ" / "cần chọn tay vì nhiều ứng viên" / "không tìm thấy" phải phân biệt được, vì chúng
+// dẫn tới ba hành động khác nhau của người vận hành.
+//
+// Bảng này KHÔNG phải bản sao của Product Mapping và không tham gia luồng gửi đơn: nó chỉ
+// trả lời "lần rà gần nhất tìm được gì cho cặp khoá này", cộng danh sách ứng viên để màn
+// hình Map Product mở ra là đã lọc sẵn thay vì bắt người dùng dò từ đầu.
+//
+// Khoá trùng với danh tính của Product Mapping: (organization, Product ID, Seller SKU).
+// ---------------------------------------------------------------------------
+
+/// Kết cục của một lần ánh xạ tự động.
+enum FulfillmentAutoMapStatus {
+  /// Tìm được DUY NHẤT một ứng viên ⇒ đã tạo Product Mapping.
+  AUTO_MAPPED
+  /// Nhiều ứng viên ⇒ KHÔNG tự ánh xạ (ánh xạ sai còn tệ hơn không ánh xạ).
+  NEED_MANUAL
+  /// Không có ứng viên nào.
+  NOT_FOUND
+  /// Chưa rà được: tài khoản TikTok chưa gán nhà cung cấp, hoặc danh mục chưa đồng bộ lần nào.
+  SKIPPED
+
+  @@map("fulfillment_auto_map_status")
+}
+
+/// Tầng nào của luật tìm kiếm đã cho ra kết quả — phục vụ đối soát chất lượng ánh xạ tự động.
+enum FulfillmentAutoMapTier {
+  SELLER_SKU
+  PRODUCT_TITLE
+  VARIANT
+  CATALOGUE
+
+  @@map("fulfillment_auto_map_tier")
+}
+
+model FulfillmentMappingCandidate {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+
+  /// Khoá nghiệp vụ của sản phẩm TikTok — trùng danh tính của Product Mapping.
+  tiktokProductId String @map("tiktok_product_id") @db.VarChar(64)
+  sellerSku       String @map("seller_sku") @db.VarChar(255)
+
+  status         FulfillmentAutoMapStatus
+  /// Tầng cho ra kết quả. NULL khi không tìm thấy gì.
+  tier           FulfillmentAutoMapTier?
+  /// Số ứng viên tìm được (0 khi NOT_FOUND, 1 khi AUTO_MAPPED, >1 khi NEED_MANUAL).
+  candidateCount Int                      @default(0) @map("candidate_count")
+
+  /// Tối đa `AUTO_MAP_MAX_CANDIDATES` ứng viên hàng đầu:
+  /// `[{ productId, externalProductId, productName, variantId, externalVariantId, sku, variantName }]`
+  /// Dùng để màn hình Map Product mở ra đã lọc sẵn. KHÔNG dùng để gửi đơn.
+  candidates Json? @map("candidates")
+
+  /// Product Mapping đã được tạo tự động (chỉ có với AUTO_MAPPED).
+  mappingId String? @map("mapping_id") @db.Uuid
+
+  resolvedAt DateTime @map("resolved_at") @db.Timestamptz(6)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account FulfillmentAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// Mỗi cặp khoá chỉ giữ KẾT QUẢ GẦN NHẤT — không tích luỹ lịch sử rà soát.
+  @@unique([organizationId, tiktokProductId, sellerSku])
+  @@index([organizationId, status])
+  @@index([accountId])
+  @@map("fulfillment_mapping_candidates")
 }
 
 // ---------------------------------------------------------------------------

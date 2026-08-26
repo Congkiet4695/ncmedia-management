@@ -1,8 +1,5 @@
 import { PodListingReviewStatus } from '@prisma/client';
-import {
-  TIKTOK_AUDIT_STATUS,
-  TIKTOK_PRODUCT_STATUS,
-} from '../../tiktok-sdk/tiktok-sdk.constants';
+import { TIKTOK_AUDIT_STATUS, TIKTOK_PRODUCT_STATUS } from '../../tiktok-sdk/tiktok-sdk.constants';
 import type { TiktokProductDetail } from '../../tiktok-sdk/types/tiktok-product.types';
 
 /** Kết quả đọc trạng thái duyệt của MỘT listing từ TikTok. */

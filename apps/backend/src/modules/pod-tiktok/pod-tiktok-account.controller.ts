@@ -44,6 +44,9 @@ import {
   PodTiktokAccountResponseDto,
   PodTiktokAuthorizeUrlDto,
 } from './dto/pod-tiktok-response.dto';
+import { PodScope } from './decorators/pod-scope.decorator';
+import { PodScopeGuard } from './guards/pod-scope.guard';
+import type { PodAccessScope } from './services/pod-access-scope.service';
 import { PodTiktokAccountService } from './services/pod-tiktok-account.service';
 import { PodTiktokOAuthService } from './services/pod-tiktok-oauth.service';
 
@@ -57,7 +60,8 @@ import { PodTiktokOAuthService } from './services/pod-tiktok-oauth.service';
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Access token không hợp lệ (AUTH_TOKEN_INVALID)' })
 @ApiForbiddenResponse({ description: 'Thiếu permission (AUTH_FORBIDDEN)' })
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+// 🔴 `PodScopeGuard` nạp phạm vi shop cho MỌI route trong controller này.
+@UseGuards(JwtAuthGuard, PermissionsGuard, PodScopeGuard)
 @Controller('pod/tiktok/accounts')
 export class PodTiktokAccountController {
   constructor(
@@ -96,19 +100,24 @@ export class PodTiktokAccountController {
   @ApiOkResponse({ type: PaginatedPodTiktokAccountResponseDto })
   findAll(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Query() query: PodTiktokAccountQueryDto,
   ): Promise<PaginatedPodTiktokAccountResponseDto> {
-    return this.service.findAll(user.organizationId, query);
+    return this.service.findAll(user.organizationId, query, scope);
   }
 
   /** Đặt TRƯỚC `:id` — nếu không, "sellers" sẽ bị route `:id` bắt nhầm. */
   @Get('sellers')
-  @RequirePermissions('pod.tiktok.account.read')
+  // 🔴 Quyền GÁN, không phải quyền ĐỌC. Endpoint này chỉ phục vụ dropdown "phân công seller",
+  // vốn là việc của Admin. Để ở `account.read` thì mọi Seller đều liệt kê được danh sách nhân
+  // sự của tổ chức mà chẳng dùng vào việc gì.
+  @RequirePermissions('pod.tiktok.account.update')
   @ApiOperation({
     summary: 'Danh sách Seller có thể phân công (đổ vào dropdown)',
     description:
       'Chỉ trả Employee đang ACTIVE và có Role EMPLOYEE trong cùng tổ chức. ' +
-      'Admin và Fulfillment KHÔNG xuất hiện vì không phải seller.',
+      'Admin và Fulfillment KHÔNG xuất hiện vì không phải seller. ' +
+      'Cần quyền `pod.tiktok.account.update` — đây là bước chuẩn bị cho thao tác gán.',
   })
   @ApiOkResponse({ type: PodSellerOptionDto, isArray: true })
   findSellerOptions(
@@ -124,9 +133,10 @@ export class PodTiktokAccountController {
   @ApiOkResponse({ type: PodTiktokAccountResponseDto })
   findOne(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<PodTiktokAccountResponseDto> {
-    return this.service.findOne(user.organizationId, id);
+    return this.service.findOne(user.organizationId, id, scope);
   }
 
   @Patch(':id/seller')
@@ -192,7 +202,9 @@ export class PodTiktokAccountController {
   })
   @ApiOkResponse({ type: PodTiktokAccountResponseDto })
   @ApiBadRequestResponse({ description: 'Kho không thuộc shop này (POD_TIKTOK_WAREHOUSE_INVALID)' })
-  @ApiNotFoundResponse({ description: 'Không tìm thấy kết nối hoặc shop (POD_TIKTOK_ACCOUNT_NOT_FOUND)' })
+  @ApiNotFoundResponse({
+    description: 'Không tìm thấy kết nối hoặc shop (POD_TIKTOK_ACCOUNT_NOT_FOUND)',
+  })
   setShopWarehouse(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,

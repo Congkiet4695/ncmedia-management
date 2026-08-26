@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { UserStatus } from '@prisma/client';
+import { OrganizationStatus, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../database/prisma.service';
 import { maskEmail } from '../../../common/utils/mask-email.util';
@@ -8,6 +8,9 @@ import { LoginResponseDto } from '../dto/login-response.dto';
 import { AccountDisabledException } from '../exceptions/account-disabled.exception';
 import { AccountLockedException } from '../exceptions/account-locked.exception';
 import { InvalidCredentialsException } from '../exceptions/invalid-credentials.exception';
+import { OrganizationInactiveException } from '../exceptions/organization-inactive.exception';
+import { OrganizationPendingApprovalException } from '../exceptions/organization-pending-approval.exception';
+import { OrganizationRejectedException } from '../exceptions/organization-rejected.exception';
 import { RateLimitedException } from '../exceptions/rate-limited.exception';
 import { RateLimitService } from './rate-limit.service';
 import { IssuedRefreshToken, RefreshTokenService } from './refresh-token.service';
@@ -25,7 +28,8 @@ import { UserService, UserWithRole } from './user.service';
  *   5. Check deleted (soft delete → coi như không tồn tại).
  *   6. Check locked_until / status LOCKED.
  *   7. bcrypt.compare (luôn chạy — chống timing attack kể cả khi email không tồn tại).
- *   8. Check status (ACTIVE / INACTIVE / SUSPENDED / LOCKED).
+ *   7b. Check ORGANIZATION status — phải ACTIVE (luồng duyệt đăng ký §4/§14).
+ *   8. Check user status (ACTIVE / INACTIVE / SUSPENDED / LOCKED / PENDING).
  *   9. Reset failed_login_count.
  *   10. Update last_login_at.
  *   11. Generate Access Token.
@@ -87,7 +91,18 @@ export class LoginService {
       throw new InvalidCredentialsException();
     }
 
-    // (8) Check status
+    // (7b) 🔴 Cổng DUYỆT ĐĂNG KÝ — kiểm tra Organization TRƯỚC User.
+    //
+    // Thứ tự này quan trọng: chủ Organization đang chờ duyệt có `user.status = PENDING`, mà
+    // kiểm tra user trước sẽ trả về "tài khoản đã bị vô hiệu hoá" — sai sự thật và không nói
+    // cho họ biết phải làm gì. Kiểm tra tổ chức trước thì họ nhận đúng thông điệp "đang chờ
+    // duyệt".
+    //
+    // Đặt SAU bcrypt.compare, không phải trước: trả lời "tổ chức đang chờ duyệt" cho một
+    // người nhập sai mật khẩu là tiết lộ rằng email đó có tồn tại trong hệ thống.
+    this.assertOrganizationAllowsLogin(user.organization.status, email);
+
+    // (8) Check user status
     this.assertStatusAllowsLogin(user.status);
 
     // (11) Access token (không cần transaction — không ghi DB)
@@ -164,11 +179,35 @@ export class LoginService {
     return user.lockedUntil != null && user.lockedUntil.getTime() > Date.now();
   }
 
-  /** Chỉ ACTIVE được login; LOCKED → 423; INACTIVE/SUSPENDED → 403 (BR-L04/L05). */
+  /** Chỉ ACTIVE được login; LOCKED → 423; INACTIVE/SUSPENDED/PENDING → 403 (BR-L04/L05). */
   private assertStatusAllowsLogin(status: UserStatus): void {
     if (status === UserStatus.ACTIVE) return;
     if (status === UserStatus.LOCKED) throw new AccountLockedException();
+    // PENDING về lý thuyết đã bị cổng Organization ở trên chặn; giữ nhánh này làm lớp phòng
+    // thủ thứ hai cho trường hợp dữ liệu lệch (org ACTIVE nhưng user còn PENDING).
+    if (status === UserStatus.PENDING) throw new OrganizationPendingApprovalException();
     throw new AccountDisabledException(); // INACTIVE, SUSPENDED
+  }
+
+  /**
+   * 🔴 **Chỉ Organization ACTIVE mới được đăng nhập** (§4, §14).
+   *
+   * Đây là chốt chặn DUY NHẤT của luồng duyệt: không có token nào được phát ra trước cửa này,
+   * nên PENDING/REJECTED không thể lấy JWT và do đó không thể gọi bất kỳ API nào.
+   *
+   * Mỗi trạng thái có một thông điệp riêng vì người nhận cần làm ba việc khác nhau: chờ,
+   * đọc email lý do, hay liên hệ quản trị viên.
+   */
+  private assertOrganizationAllowsLogin(status: OrganizationStatus, email: string): void {
+    if (status === OrganizationStatus.ACTIVE || status === OrganizationStatus.TRIAL) return;
+
+    this.logger.warn(
+      `Login blocked - organization status=${status} email=${maskEmail(email)}`,
+    );
+
+    if (status === OrganizationStatus.PENDING) throw new OrganizationPendingApprovalException();
+    if (status === OrganizationStatus.REJECTED) throw new OrganizationRejectedException();
+    throw new OrganizationInactiveException(); // SUSPENDED, DELETED
   }
 
   private toSubject(user: UserWithRole): TokenSubject {

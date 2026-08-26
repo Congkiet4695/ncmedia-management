@@ -32,5 +32,6 @@
   "reportSellerPerformance": "Seller performance",
   "reportSellerRanking": "Seller ranking",
   "reportWarehouse": "Warehouse performance",
-  "reports": "Reports"
+  "reports": "Reports",
+  "superAdminOrganizations": "Organizations"
 }

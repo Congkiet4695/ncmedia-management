@@ -4,6 +4,10 @@ import {
   PodListingSessionTemplateType,
 } from '@prisma/client';
 import { POD_SESSION_VALIDATION_CODES } from '../constants/pod-listing-session.constants';
+import {
+  POD_SCOPE_SYSTEM,
+  PodAccessScopeService,
+} from '../../pod-tiktok/services/pod-access-scope.service';
 import { PodListingSessionService } from './pod-listing-session.service';
 
 /**
@@ -78,22 +82,27 @@ function buildService(session: ReturnType<typeof buildSession>, products: Produc
     },
     podListingSessionProduct: {
       findMany: jest.fn().mockResolvedValue(products),
-      update: jest.fn(({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
-        productUpdates.push({ id: where.id, data });
-        return Promise.resolve({});
-      }),
+      update: jest.fn(
+        ({ where, data }: { where: { id: string }; data: Record<string, unknown> }) => {
+          productUpdates.push({ id: where.id, data });
+          return Promise.resolve({});
+        },
+      ),
     },
   };
 
   const resolver = {
     resolveFromContext: jest.fn().mockReturnValue({ payload: {}, issues: [], payloadHash: 'hash' }),
   };
-  const validator = { validate: jest.fn().mockReturnValue({ ok: true, blockers: [], warnings: [] }) };
+  const validator = {
+    validate: jest.fn().mockReturnValue({ ok: true, blockers: [], warnings: [] }),
+  };
   const templates = { getForSession: jest.fn().mockResolvedValue({ id: '', name: 'x' }) };
   const jobs = { createFromSession: jest.fn() };
 
   const service = new PodListingSessionService(
     prisma as never,
+    new PodAccessScopeService(prisma as never),
     resolver as never,
     validator as never,
     templates as never,
@@ -109,7 +118,7 @@ describe('PodListingSessionService — cổng Validate', () => {
       buildProduct(),
     ]);
 
-    const result = await service.validate('org-1', 'session-1');
+    const result = await service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
 
     expect(result.ok).toBe(true);
     expect(result.readyProducts).toBe(1);
@@ -120,7 +129,7 @@ describe('PodListingSessionService — cổng Validate', () => {
   it('chưa chọn shop ⇒ chặn cả lượt', async () => {
     const { service } = buildService(buildSession({ shops: [] }), [buildProduct()]);
 
-    const result = await service.validate('org-1', 'session-1');
+    const result = await service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
 
     expect(result.ok).toBe(false);
     expect(result.issues.map((issue) => issue.code)).toContain(
@@ -131,7 +140,7 @@ describe('PodListingSessionService — cổng Validate', () => {
   it('chưa chọn Category Template ⇒ chặn cả lượt', async () => {
     const { service } = buildService(buildSession({ templates: [] }), [buildProduct()]);
 
-    const result = await service.validate('org-1', 'session-1');
+    const result = await service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
 
     expect(result.issues.map((issue) => issue.code)).toContain(
       POD_SESSION_VALIDATION_CODES.NO_CATEGORY_TEMPLATE,
@@ -141,7 +150,7 @@ describe('PodListingSessionService — cổng Validate', () => {
   it('chưa import sản phẩm nào ⇒ chặn cả lượt', async () => {
     const { service } = buildService(buildSession(), []);
 
-    const result = await service.validate('org-1', 'session-1');
+    const result = await service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
 
     expect(result.ok).toBe(false);
     expect(result.issues.map((issue) => issue.code)).toContain(
@@ -152,7 +161,7 @@ describe('PodListingSessionService — cổng Validate', () => {
   it('sản phẩm không ảnh và lượt đăng không có Image Template ⇒ báo thiếu ảnh', async () => {
     const { service } = buildService(buildSession(), [buildProduct({ images: [] })]);
 
-    const result = await service.validate('org-1', 'session-1');
+    const result = await service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
 
     expect(result.products[0].issues.map((issue) => issue.code)).toContain(
       POD_SESSION_VALIDATION_CODES.MISSING_IMAGE,
@@ -169,7 +178,7 @@ describe('PodListingSessionService — cổng Validate', () => {
     });
     const { service } = buildService(session, [buildProduct({ images: [] })]);
 
-    const result = await service.validate('org-1', 'session-1');
+    const result = await service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
 
     expect(result.ok).toBe(true);
   });
@@ -180,7 +189,7 @@ describe('PodListingSessionService — cổng Validate', () => {
     });
     const { service } = buildService(session, [buildProduct()]);
 
-    const result = await service.validate('org-1', 'session-1');
+    const result = await service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
 
     expect(result.ok).toBe(false);
     expect(result.issues.map((issue) => issue.code)).toContain(
@@ -193,7 +202,7 @@ describe('PodListingSessionService — cổng Validate', () => {
       buildProduct({ status: PodListingSessionProductStatus.UPLOADED, images: [] }),
     ]);
 
-    await service.validate('org-1', 'session-1');
+    await service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
 
     // Có ghi lại danh sách lỗi, nhưng KHÔNG đụng tới `status` — đó là sự thật lịch sử.
     expect(productUpdates[0].data).not.toHaveProperty('status');
@@ -204,11 +213,13 @@ describe('PodListingSessionService — cổng Validate', () => {
     const { service, validator } = buildService(buildSession(), [buildProduct()]);
     validator.validate.mockReturnValue({
       ok: false,
-      blockers: [{ code: 'LISTING_MISSING_CATEGORY', field: 'category', message: 'Thiếu danh mục' }],
+      blockers: [
+        { code: 'LISTING_MISSING_CATEGORY', field: 'category', message: 'Thiếu danh mục' },
+      ],
       warnings: [],
     });
 
-    const result = await service.validate('org-1', 'session-1');
+    const result = await service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
 
     expect(result.ok).toBe(false);
     expect(result.products[0].issues[0].code).toBe('LISTING_MISSING_CATEGORY');

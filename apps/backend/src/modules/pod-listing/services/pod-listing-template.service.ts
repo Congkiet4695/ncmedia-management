@@ -284,12 +284,7 @@ export class PodListingTemplateService {
     });
   }
 
-  async update(
-    organizationId: string,
-    userId: string,
-    id: string,
-    dto: UpdateListingTemplateDto,
-  ) {
+  async update(organizationId: string, userId: string, id: string, dto: UpdateListingTemplateDto) {
     await this.get(organizationId, id);
     await this.assertReferencesValid(organizationId, dto);
 
@@ -505,24 +500,29 @@ export class PodListingTemplateService {
     switch (type) {
       case PodListingTemplateItemType.CATEGORY:
         return (
-          await tx.podCategoryTemplate.findUnique({ where: { id }, select: { name: true } })
-        )?.name ?? null;
+          (await tx.podCategoryTemplate.findUnique({ where: { id }, select: { name: true } }))
+            ?.name ?? null
+        );
       case PodListingTemplateItemType.SKU:
         return (
-          await tx.podSkuTemplate.findUnique({ where: { id }, select: { name: true } })
-        )?.name ?? null;
+          (await tx.podSkuTemplate.findUnique({ where: { id }, select: { name: true } }))?.name ??
+          null
+        );
       case PodListingTemplateItemType.DESCRIPTION:
         return (
-          await tx.podDescriptionTemplate.findUnique({ where: { id }, select: { name: true } })
-        )?.name ?? null;
+          (await tx.podDescriptionTemplate.findUnique({ where: { id }, select: { name: true } }))
+            ?.name ?? null
+        );
       case PodListingTemplateItemType.IMAGE:
         return (
-          await tx.podImageTemplate.findUnique({ where: { id }, select: { name: true } })
-        )?.name ?? null;
+          (await tx.podImageTemplate.findUnique({ where: { id }, select: { name: true } }))?.name ??
+          null
+        );
       case PodListingTemplateItemType.PRICING:
         return (
-          await tx.podPricingStrategy.findUnique({ where: { id }, select: { name: true } })
-        )?.name ?? null;
+          (await tx.podPricingStrategy.findUnique({ where: { id }, select: { name: true } }))
+            ?.name ?? null
+        );
     }
   }
 

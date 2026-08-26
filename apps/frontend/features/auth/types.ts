@@ -22,11 +22,17 @@ export interface AuthTokens {
   expiresIn: number;
 }
 
-/** Response của POST /auth/register (201). */
+/**
+ * Response của POST /auth/register (201).
+ *
+ * 🔴 KHÔNG có `tokens`. Organization mới đăng ký ở trạng thái PENDING và phải chờ Super Admin
+ * duyệt — phát token ở đây là mở cửa sau cho đúng thứ luồng duyệt sinh ra để chặn.
+ */
 export interface RegisterResponse {
   organization: AuthOrganization;
   user: AuthUser;
-  tokens: AuthTokens;
+  /** Email xác nhận đã gửi được chưa. `false` ⇒ đăng ký VẪN thành công. */
+  emailSent: boolean;
 }
 
 /** Response của POST /auth/login (200). */

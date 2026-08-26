@@ -93,6 +93,11 @@
     "STORAGE_MIME_EXTENSION_MISMATCH": "The file content does not match its extension",
     "STORAGE_UNSUPPORTED_TYPE": "Unsupported file type",
     "STORAGE_UPLOAD_FAILED": "File upload failed",
-    "VALIDATION_ERROR": "Invalid data"
+    "VALIDATION_ERROR": "Invalid data",
+    "AUTH_ORGANIZATION_PENDING": "Your organization is waiting for approval. Please wait until the administrator reviews your registration.",
+    "AUTH_ORGANIZATION_REJECTED": "Your organization registration was not approved. Please check the email we sent you for details.",
+    "AUTH_ORGANIZATION_INACTIVE": "Your organization is not active. Please contact an administrator.",
+    "PLATFORM_ORGANIZATION_NOT_FOUND": "Organization not found",
+    "PLATFORM_ORGANIZATION_NOT_PENDING": "This registration is no longer pending — it has already been reviewed."
   }
 }

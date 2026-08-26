@@ -93,6 +93,11 @@
     "STORAGE_MIME_EXTENSION_MISMATCH": "Nội dung file không khớp phần mở rộng",
     "STORAGE_UNSUPPORTED_TYPE": "Định dạng file không được hỗ trợ",
     "STORAGE_UPLOAD_FAILED": "Tải file lên thất bại",
-    "VALIDATION_ERROR": "Dữ liệu không hợp lệ"
+    "VALIDATION_ERROR": "Dữ liệu không hợp lệ",
+    "AUTH_ORGANIZATION_PENDING": "Organization của bạn đang chờ xét duyệt. Vui lòng đợi quản trị viên xem xét hồ sơ đăng ký.",
+    "AUTH_ORGANIZATION_REJECTED": "Hồ sơ đăng ký Organization của bạn chưa được phê duyệt. Vui lòng kiểm tra email chúng tôi đã gửi để biết lý do.",
+    "AUTH_ORGANIZATION_INACTIVE": "Organization của bạn hiện không hoạt động. Vui lòng liên hệ quản trị viên.",
+    "PLATFORM_ORGANIZATION_NOT_FOUND": "Không tìm thấy Organization",
+    "PLATFORM_ORGANIZATION_NOT_PENDING": "Hồ sơ này không còn ở trạng thái chờ duyệt — nó đã được xét duyệt trước đó."
   }
 }

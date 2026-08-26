@@ -13,11 +13,9 @@ import { PodOrderResponseMapper } from './mappers/pod-order-response.mapper';
 import { PodPayoutMapper } from './mappers/pod-payout.mapper';
 import { PodTiktokAccountMapper } from './mappers/pod-tiktok-account.mapper';
 import { PodOrderController } from './pod-order.controller';
-import { PodOrderDesignController } from './pod-order-design.controller';
 import { PodPayoutController } from './pod-payout.controller';
 import { PodTiktokAccountController } from './pod-tiktok-account.controller';
 import { TiktokCallbackController } from './tiktok-callback.controller';
-import { PodOrderDesignRepository } from './repositories/pod-order-design.repository';
 import { PodOrderRepository } from './repositories/pod-order.repository';
 import { PodPayoutReportRepository } from './repositories/pod-payout-report.repository';
 import { PodPayoutRepository } from './repositories/pod-payout.repository';
@@ -27,7 +25,9 @@ import { PodTiktokOAuthStateRepository } from './repositories/pod-tiktok-oauth-s
 import { PodOrderSyncJob } from './schedulers/pod-order-sync.job';
 import { PodOrderIngestionService } from './services/pod-order-ingestion.service';
 import { PodOrderSyncService } from './services/pod-order-sync.service';
-import { PodOrderDesignService } from './services/pod-order-design.service';
+import { PodAccessScopeService } from './services/pod-access-scope.service';
+import { PodScopeGuard } from './guards/pod-scope.guard';
+import { PodOrderDesignResolver } from './services/pod-order-design-resolver.service';
 import { PodOrderService } from './services/pod-order.service';
 import { PodPayoutService } from './services/pod-payout.service';
 import { PodPayoutSyncService } from './services/pod-payout-sync.service';
@@ -58,7 +58,6 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     TiktokCallbackController,
     PodTiktokAccountController,
     PodOrderController,
-    PodOrderDesignController,
     PodPayoutController,
   ],
   providers: [
@@ -70,8 +69,9 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     PodTiktokAccountMapper,
     // Sprint 2 — Orders & Sync
     PodOrderService,
-    PodOrderDesignService,
-    PodOrderDesignRepository,
+    // Đơn hàng chỉ ĐỌC design từ Product Mapping. Không còn service/repository ghi design
+    // theo line item — đường ghi duy nhất là `MappingDesignService` của module Fulfillment.
+    PodOrderDesignResolver,
     PodOrderSyncService,
     PodSyncOrchestratorService,
     PodOrderIngestionService,
@@ -88,6 +88,9 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     PodPayoutReportRepository,
     PodPayoutMapper,
     TiktokFinanceClient,
+    // 🔴 Phân quyền theo shop — dùng chung cho MỌI module POD (xem PodAccessScopeService).
+    PodAccessScopeService,
+    PodScopeGuard,
     // Hạ tầng dùng chung
     TiktokEncryptionService,
     TiktokSignatureService,
@@ -98,6 +101,10 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     DistributedLockService,
   ],
   exports: [
+    // 🔴 Phạm vi shop: mọi module POD khác import PodTiktokModule để dùng lại ĐÚNG một
+    // nguồn sự thật này, thay vì mỗi nơi tự viết một phép lọc riêng.
+    PodAccessScopeService,
+    PodScopeGuard,
     // Hạ tầng để các Sprint sau (POD Detail, Fulfillment, Webhook) tái sử dụng.
     TiktokSignatureService,
     TiktokHttpService,

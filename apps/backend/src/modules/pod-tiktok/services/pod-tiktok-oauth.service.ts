@@ -8,10 +8,7 @@ import {
   TIKTOK_OAUTH_STATE_BYTES,
   type TiktokRegion,
 } from '../constants/tiktok.constants';
-import {
-  PodTiktokAuthorizeUrlDto,
-  PodTiktokLinkResultDto,
-} from '../dto/pod-tiktok-response.dto';
+import { PodTiktokAuthorizeUrlDto, PodTiktokLinkResultDto } from '../dto/pod-tiktok-response.dto';
 import {
   POD_TIKTOK_OAUTH_ERROR_CODES,
   PodTiktokAuthorizationDeniedException,
@@ -20,8 +17,7 @@ import {
 } from '../exceptions/pod-tiktok.exceptions';
 
 /** Thông điệp dự phòng khi lỗi không mang mã nghiệp vụ nào (không lộ chi tiết kỹ thuật). */
-const GENERIC_ERROR_MESSAGE =
-  'Không hoàn tất được việc liên kết TikTok Shop. Vui lòng thử lại.';
+const GENERIC_ERROR_MESSAGE = 'Không hoàn tất được việc liên kết TikTok Shop. Vui lòng thử lại.';
 import { PodTiktokOAuthStateRepository } from '../repositories/pod-tiktok-oauth-state.repository';
 import { PodTiktokAccountService, PodTiktokRequestMeta } from './pod-tiktok-account.service';
 
@@ -178,9 +174,7 @@ export class PodTiktokOAuthService {
         operation: 'oauth.callback',
         // Không log giá trị state — chỉ ghi việc nó có tồn tại hay không.
         stateKnown: existed,
-        msg: existed
-          ? 'State đã dùng hoặc hết hạn — từ chối'
-          : 'State không tồn tại — từ chối',
+        msg: existed ? 'State đã dùng hoặc hết hạn — từ chối' : 'State không tồn tại — từ chối',
       });
       return { success: false, ...this.describeError(new PodTiktokInvalidStateException()) };
     }

@@ -36,7 +36,10 @@ export class PodTiktokShopDto {
 export class PodTiktokAccountResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty({ example: 'NCMedia US Store' }) accountName!: string;
-  @ApiProperty({ description: 'open_id đã che bớt (audit/diagnostics)', example: '70107360***5637' })
+  @ApiProperty({
+    description: 'open_id đã che bớt (audit/diagnostics)',
+    example: '70107360***5637',
+  })
   openIdMasked!: string;
   @ApiProperty({ nullable: true, type: String }) sellerName!: string | null;
   @ApiProperty({

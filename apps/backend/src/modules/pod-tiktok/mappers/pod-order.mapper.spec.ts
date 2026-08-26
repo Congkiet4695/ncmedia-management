@@ -160,7 +160,9 @@ describe('PodOrderMapper', () => {
     });
 
     it('tiền rỗng/không hợp lệ → null (KHÔNG ép về 0)', () => {
-      const order = buildOrder({ payment: { currency: 'USD', total_amount: '', sub_total: 'abc' } });
+      const order = buildOrder({
+        payment: { currency: 'USD', total_amount: '', sub_total: 'abc' },
+      });
       const result = mapper.map(order);
       expect(result.data.totalAmount).toBeNull();
       expect(result.data.subTotal).toBeNull();
@@ -251,10 +253,12 @@ describe('PodOrderMapper', () => {
     describe('🔴 bỏ qua dữ liệu KHÔNG ổn định của TikTok', () => {
       it('buyer_avatar (URL có chữ ký, sinh lại mỗi lần gọi) KHÔNG làm đổi hash', () => {
         const a = buildOrder({
-          buyer_avatar: 'https://p19-common-sign.tiktokcdn-us.com/x.jpeg?refresh_token=aaa&x-signature=AAA',
+          buyer_avatar:
+            'https://p19-common-sign.tiktokcdn-us.com/x.jpeg?refresh_token=aaa&x-signature=AAA',
         });
         const b = buildOrder({
-          buyer_avatar: 'https://p16-common-sign.tiktokcdn-us.com/x.jpeg?refresh_token=bbb&x-signature=BBB',
+          buyer_avatar:
+            'https://p16-common-sign.tiktokcdn-us.com/x.jpeg?refresh_token=bbb&x-signature=BBB',
         });
         expect(mapper.hashOrder(a)).toBe(mapper.hashOrder(b));
       });
@@ -262,8 +266,10 @@ describe('PodOrderMapper', () => {
       it('sku_image đổi shard CDN (p16 ↔ p19) KHÔNG làm đổi hash', () => {
         const a = buildOrder();
         const b = buildOrder();
-        a.line_items![0].sku_image = 'https://p16-oec-general-useast5.ttcdn-us.com/tos/img.jpeg?dr=1';
-        b.line_items![0].sku_image = 'https://p19-oec-general-useast5.ttcdn-us.com/tos/img.jpeg?dr=1';
+        a.line_items![0].sku_image =
+          'https://p16-oec-general-useast5.ttcdn-us.com/tos/img.jpeg?dr=1';
+        b.line_items![0].sku_image =
+          'https://p19-oec-general-useast5.ttcdn-us.com/tos/img.jpeg?dr=1';
         expect(mapper.hashOrder(a)).toBe(mapper.hashOrder(b));
       });
 

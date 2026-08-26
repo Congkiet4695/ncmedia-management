@@ -73,7 +73,10 @@ describe('PodTiktokTokenService', () => {
       prisma as unknown as PrismaService,
       config as unknown as ConfigService,
       repo as unknown as PodTiktokAccountRepository,
-      { encrypt: (v: string) => `v1.${v}`, decrypt: (v: string) => v.replace('v1.', '') } as unknown as TiktokEncryptionService,
+      {
+        encrypt: (v: string) => `v1.${v}`,
+        decrypt: (v: string) => v.replace('v1.', ''),
+      } as unknown as TiktokEncryptionService,
       authClient as unknown as TiktokAuthClient,
       lock as unknown as DistributedLockService,
     );

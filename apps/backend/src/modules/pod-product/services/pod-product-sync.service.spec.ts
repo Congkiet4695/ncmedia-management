@@ -93,7 +93,9 @@ describe('PodProductSyncService', () => {
     const tokenService = {
       ensureValidAccessToken: jest.fn().mockResolvedValue({ ok: true, accessToken: 'token' }),
     } as unknown as PodTiktokTokenService;
-    const encryption = { decrypt: jest.fn(() => 'shop-cipher') } as unknown as TiktokEncryptionService;
+    const encryption = {
+      decrypt: jest.fn(() => 'shop-cipher'),
+    } as unknown as TiktokEncryptionService;
 
     service = new PodProductSyncService(
       repo as unknown as PodProductRepository,
@@ -179,7 +181,13 @@ describe('PodProductSyncService', () => {
       productApi.getProduct.mockImplementation((_ctx: unknown, id: string) =>
         id === 'p1'
           ? Promise.reject(
-              new TiktokClientError(TiktokErrorClass.BUSINESS, 12345, 'Không đọc được', 200, 'req-x'),
+              new TiktokClientError(
+                TiktokErrorClass.BUSINESS,
+                12345,
+                'Không đọc được',
+                200,
+                'req-x',
+              ),
             )
           : Promise.resolve({ data: detail(id), requestId: 'req-ok' }),
       );

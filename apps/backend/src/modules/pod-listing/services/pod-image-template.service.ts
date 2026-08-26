@@ -1,10 +1,5 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
-import {
-  PodImageAssetType,
-  Prisma,
-  StorageModuleName,
-  StorageReferenceType,
-} from '@prisma/client';
+import { PodImageAssetType, Prisma, StorageModuleName, StorageReferenceType } from '@prisma/client';
 import { imageSize } from 'image-size';
 import { PrismaService } from '../../../database/prisma.service';
 import { StorageService } from '../../storage/storage.service';
@@ -128,12 +123,7 @@ export class PodImageTemplateService {
     });
   }
 
-  async update(
-    organizationId: string,
-    userId: string,
-    id: string,
-    dto: UpdateImageTemplateDto,
-  ) {
+  async update(organizationId: string, userId: string, id: string, dto: UpdateImageTemplateDto) {
     await this.get(organizationId, id);
 
     return this.prisma.$transaction(async (tx) => {
@@ -528,7 +518,10 @@ export class PodImageTemplateService {
 
   /** "front-mockup.jpg" → "Front Mockup". */
   private titleFromFileName(fileName: string): string {
-    const base = fileName.replace(/\.[^.]+$/, '').replace(/[-_]+/g, ' ').trim();
+    const base = fileName
+      .replace(/\.[^.]+$/, '')
+      .replace(/[-_]+/g, ' ')
+      .trim();
     if (!base) return 'Image';
     return base
       .split(/\s+/)

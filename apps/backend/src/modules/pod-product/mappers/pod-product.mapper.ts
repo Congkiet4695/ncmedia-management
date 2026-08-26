@@ -227,7 +227,9 @@ export class PodProductMapper {
 
   /** sha256 của payload — khoá so sánh "có gì đổi không". */
   hash(payload: unknown): string {
-    return createHash('sha256').update(JSON.stringify(payload ?? {})).digest('hex');
+    return createHash('sha256')
+      .update(JSON.stringify(payload ?? {}))
+      .digest('hex');
   }
 
   // ---------------------------------------------------------------------------

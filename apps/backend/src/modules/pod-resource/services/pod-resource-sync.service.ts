@@ -214,7 +214,9 @@ export class PodResourceSyncService {
     userId: string,
     resource: PodResourceType,
     dto: SyncResourceDto,
-    handler: (target: Awaited<ReturnType<PodProductSyncRepository['findSyncTargets']>>[number]) => Promise<number>,
+    handler: (
+      target: Awaited<ReturnType<PodProductSyncRepository['findSyncTargets']>>[number],
+    ) => Promise<number>,
   ): Promise<ResourceSyncResultDto> {
     const jobId = randomUUID();
     const startedAt = new Date();
@@ -307,7 +309,10 @@ export class PodResourceSyncService {
     const error =
       fatal ??
       (failed.length > 0
-        ? failed.map((outcome) => `${outcome.shopName}: ${outcome.error}`).join(' · ').slice(0, 2000)
+        ? failed
+            .map((outcome) => `${outcome.shopName}: ${outcome.error}`)
+            .join(' · ')
+            .slice(0, 2000)
         : null);
 
     await this.prisma.$transaction([

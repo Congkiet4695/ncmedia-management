@@ -105,12 +105,7 @@ export const POD_PRICING_FORMULA_VARIABLES = ['cost', 'shipping', 'base', 'marku
 export const POD_PRICING_FORMULA_MAX_LENGTH = 500;
 
 /** Trường sắp xếp cho các danh sách template (whitelist chống injection qua orderBy). */
-export const POD_TEMPLATE_SORT_FIELDS = [
-  'createdAt',
-  'updatedAt',
-  'name',
-  'displayOrder',
-] as const;
+export const POD_TEMPLATE_SORT_FIELDS = ['createdAt', 'updatedAt', 'name', 'displayOrder'] as const;
 export type PodTemplateSortField = (typeof POD_TEMPLATE_SORT_FIELDS)[number];
 
 /** Trường sắp xếp cho danh sách Draft Listing. */

@@ -2,13 +2,13 @@ import { Injectable } from '@nestjs/common';
 import {
   FulfillmentEventType,
   FulfillmentOrder,
-  FulfillmentProductMapping,
   FulfillmentProvider,
   FulfillmentStatus,
   FulfillmentTrigger,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import type { MappingWithDesigns } from '../services/fulfillment-readiness.service';
 
 /** Include chuẩn khi đọc một bản ghi fulfillment (kèm items + tài khoản). */
 export const FULFILLMENT_ORDER_INCLUDE = {
@@ -158,10 +158,15 @@ export class FulfillmentRepository {
    * Nạp MỘT lần rồi khớp trong bộ nhớ ⇒ kiểm N đơn vẫn chỉ một truy vấn (không N+1).
    */
   /**
-   * Danh sách ánh xạ có lọc + phân trang (màn hình quản trị).
+   * Danh sách ánh xạ có lọc + phân trang (màn hình Product Mapping).
    *
-   * `keyword` tìm đồng thời trên tên sản phẩm nhà cung cấp, Seller SKU và Provider SKU —
-   * ba thứ người dùng thực sự nhớ khi đi tìm một ánh xạ.
+   * `keyword` tìm đồng thời trên **Product ID, Seller SKU**, Fulfillment SKU và tên sản phẩm
+   * nhà cung cấp — Product ID nằm trong đó vì nó là một nửa khoá nghiệp vụ, người dùng dán
+   * thẳng từ TikTok vào ô tìm kiếm.
+   *
+   * ⚠️ KHÔNG nạp design ở đây được nữa: design đã tách khỏi ánh xạ và khoá theo
+   * (Product ID + Seller SKU), không còn quan hệ Prisma để `include`. Service nạp design của
+   * cả trang bằng MỘT truy vấn riêng rồi ghép theo khoá — vẫn không N+1.
    */
   async listMappingsPaged(params: {
     organizationId: string;
@@ -171,7 +176,7 @@ export class FulfillmentRepository {
     keyword?: string;
     page: number;
     limit: number;
-  }): Promise<{ items: FulfillmentProductMapping[]; total: number }> {
+  }): Promise<{ items: MappingWithDesigns[]; total: number }> {
     const keyword = params.keyword?.trim();
     const where: Prisma.FulfillmentProductMappingWhereInput = {
       organizationId: params.organizationId,
@@ -182,9 +187,10 @@ export class FulfillmentRepository {
       ...(keyword
         ? {
             OR: [
-              { providerProductName: { contains: keyword, mode: 'insensitive' } },
+              { tiktokProductId: { contains: keyword, mode: 'insensitive' } },
               { sellerSku: { contains: keyword, mode: 'insensitive' } },
               { providerSku: { contains: keyword, mode: 'insensitive' } },
+              { providerProductName: { contains: keyword, mode: 'insensitive' } },
             ],
           }
         : {}),
@@ -225,8 +231,12 @@ export class FulfillmentRepository {
     const keyword = search?.trim();
     const like = keyword ? `%${keyword}%` : null;
 
+    // 🔴 Gom theo ĐÚNG khoá nghiệp vụ (product_id, seller_sku) — một dòng cho mỗi sản phẩm
+    // cần ánh xạ. Gom theo sku_id như trước sẽ hiện cùng một sản phẩm nhiều lần (mỗi shop
+    // một sku_id), mời người dùng khai trùng đúng cái mà UNIQUE index sẽ từ chối.
+    // Dòng hàng thiếu một trong hai khoá không thể ánh xạ ⇒ loại luôn.
     return this.prisma.$queryRaw`
-      SELECT DISTINCT ON (i.sku_id, i.seller_sku)
+      SELECT DISTINCT ON (i.product_id, i.seller_sku)
              i.product_id        AS "productId",
              i.sku_id            AS "skuId",
              i.seller_sku        AS "sellerSku",
@@ -237,57 +247,118 @@ export class FulfillmentRepository {
       FROM pod_order_items i
       WHERE i.organization_id = ${organizationId}::uuid
         AND i.deleted_at IS NULL
+        AND i.product_id IS NOT NULL
+        AND i.seller_sku IS NOT NULL
         AND (${like}::text IS NULL
              OR i.product_name ILIKE ${like}
              OR i.seller_sku   ILIKE ${like}
+             OR i.product_id   ILIKE ${like}
              OR i.sku_name     ILIKE ${like})
-      ORDER BY i.sku_id, i.seller_sku, i.created_at DESC
+      ORDER BY i.product_id, i.seller_sku, i.created_at DESC
       LIMIT 200`;
   }
 
-  listMappings(organizationId: string, accountId: string): Promise<FulfillmentProductMapping[]> {
+  /**
+   * Ánh xạ sản phẩm của một tài khoản, **kèm design đang hiệu lực**.
+   *
+   * 🔴 Nạp design ngay tại đây vì kiểm tra readiness luôn cần cả hai: có ánh xạ chưa, và
+   * ánh xạ đó đã có file in chưa. Tách hai truy vấn chỉ tạo cơ hội cho một trong hai bị quên.
+   */
+  listMappings(organizationId: string, accountId: string): Promise<MappingWithDesigns[]> {
     return this.prisma.fulfillmentProductMapping.findMany({
       where: { organizationId, accountId, deletedAt: null },
       orderBy: { createdAt: 'desc' },
     });
   }
 
-  findMappingById(organizationId: string, id: string) {
+  /**
+   * MỌI ánh xạ đang bật của tổ chức, kèm design.
+   *
+   * 🔴 Phạm vi TỔ CHỨC chứ không phải tài khoản: danh tính của ánh xạ là (Product ID +
+   * Seller SKU) trên toàn tổ chức, nên câu hỏi "sản phẩm này đã ánh xạ chưa" không phụ thuộc
+   * đang xét nhà cung cấp nào.
+   */
+  listMappingsForOrganization(organizationId: string): Promise<MappingWithDesigns[]> {
+    return this.prisma.fulfillmentProductMapping.findMany({
+      where: { organizationId, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /**
+   * Design đang hiệu lực của MỘT tổ chức, tra theo (Product ID + Seller SKU).
+   *
+   * 🔴 MỘT truy vấn cho cả trang. Design không còn là quan hệ của ánh xạ nên không
+   * `include` được; bù lại bằng một lượt đọc theo lô rồi ghép trong bộ nhớ — chi phí như cũ,
+   * và đổi lại design đọc được cho cả sản phẩm CHƯA ánh xạ.
+   *
+   * `keys` bỏ trống ⇒ lấy toàn bộ design của tổ chức (dùng khi cần cả bảng, vd readiness
+   * chạy cho nhiều đơn cùng lúc).
+   */
+  listProductDesigns(
+    organizationId: string,
+    keys?: Array<{ tiktokProductId: string; sellerSku: string }>,
+  ) {
+    return this.prisma.fulfillmentProductDesign.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        tiktokProductId: { not: null },
+        sellerSku: { not: null },
+        ...(keys && keys.length > 0 ? { OR: keys } : {}),
+      },
+      include: { storageFile: { include: { uploader: { select: { fullName: true } } } } },
+      orderBy: { placement: 'asc' },
+    });
+  }
+
+  findMappingById(organizationId: string, id: string): Promise<MappingWithDesigns | null> {
     return this.prisma.fulfillmentProductMapping.findFirst({
       where: { id, organizationId, deletedAt: null },
     });
   }
 
-  /** Ánh xạ trùng khoá TikTok trong cùng tài khoản (chặn khai báo mâu thuẫn). */
+  /**
+   * Ánh xạ đã tồn tại cho cặp khoá (Product ID + Seller SKU) — chặn khai hai bộ Design cho
+   * cùng một sản phẩm.
+   *
+   * 🔴 Phạm vi là TỔ CHỨC, không phải tài khoản nhà cung cấp. Nếu giới hạn theo tài khoản
+   * thì hai nhà cung cấp vẫn khai được cùng một sản phẩm, và sản phẩm đó có hai bộ Design —
+   * đúng thứ mà UNIQUE index ở migration `20260826170000` loại bỏ. Kiểm ở đây để người dùng
+   * nhận thông báo nghiệp vụ rõ ràng thay vì lỗi ràng buộc thô của Postgres.
+   */
   findConflictingMapping(
     organizationId: string,
-    accountId: string,
-    keys: { tiktokSkuId?: string | null; sellerSku?: string | null; tiktokProductId?: string | null },
+    keys: { tiktokProductId: string; sellerSku: string },
     excludeId?: string,
   ) {
-    const conditions: Prisma.FulfillmentProductMappingWhereInput[] = [];
-    if (keys.tiktokSkuId) conditions.push({ tiktokSkuId: keys.tiktokSkuId });
-    if (keys.sellerSku) conditions.push({ sellerSku: keys.sellerSku });
-    if (keys.tiktokProductId) conditions.push({ tiktokProductId: keys.tiktokProductId });
-    if (conditions.length === 0) return Promise.resolve(null);
-
     return this.prisma.fulfillmentProductMapping.findFirst({
       where: {
         organizationId,
-        accountId,
         deletedAt: null,
-        OR: conditions,
+        tiktokProductId: keys.tiktokProductId,
+        sellerSku: keys.sellerSku,
         ...(excludeId ? { id: { not: excludeId } } : {}),
       },
     });
   }
 
-  createMapping(data: Prisma.FulfillmentProductMappingUncheckedCreateInput) {
-    return this.prisma.fulfillmentProductMapping.create({ data });
+  createMapping(
+    data: Prisma.FulfillmentProductMappingUncheckedCreateInput,
+  ): Promise<MappingWithDesigns> {
+    return this.prisma.fulfillmentProductMapping.create({
+      data,
+    });
   }
 
-  updateMapping(id: string, data: Prisma.FulfillmentProductMappingUncheckedUpdateInput) {
-    return this.prisma.fulfillmentProductMapping.update({ where: { id }, data });
+  updateMapping(
+    id: string,
+    data: Prisma.FulfillmentProductMappingUncheckedUpdateInput,
+  ): Promise<MappingWithDesigns> {
+    return this.prisma.fulfillmentProductMapping.update({
+      where: { id },
+      data,
+    });
   }
 
   async softDeleteMapping(id: string, actorUserId: string): Promise<void> {
@@ -316,20 +387,14 @@ export class FulfillmentRepository {
    * Bản ghi fulfillment của NHIỀU đơn POD — dùng cho màn hình danh sách.
    * Một truy vấn cho cả trang ⇒ không N+1.
    */
-  findByPodOrderIds(
-    organizationId: string,
-    podOrderIds: string[],
-  ): Promise<FulfillmentOrder[]> {
+  findByPodOrderIds(organizationId: string, podOrderIds: string[]): Promise<FulfillmentOrder[]> {
     if (podOrderIds.length === 0) return Promise.resolve([]);
     return this.prisma.fulfillmentOrder.findMany({
       where: { organizationId, podOrderId: { in: podOrderIds }, deletedAt: null },
     });
   }
 
-  findById(
-    organizationId: string,
-    id: string,
-  ): Promise<FulfillmentOrderWithRelations | null> {
+  findById(organizationId: string, id: string): Promise<FulfillmentOrderWithRelations | null> {
     return this.prisma.fulfillmentOrder.findFirst({
       where: { id, organizationId, deletedAt: null },
       include: FULFILLMENT_ORDER_INCLUDE,
@@ -371,7 +436,13 @@ export class FulfillmentRepository {
     return this.prisma.fulfillmentOrder.update({ where: { id }, data });
   }
 
-  /** Ghi lại danh sách item đã gửi (thay toàn bộ — mỗi lần gửi là một ảnh chụp mới). */
+  /**
+   * Ghi lại danh sách item đã gửi (thay toàn bộ — mỗi lần gửi là một ảnh chụp mới).
+   *
+   * 🔴 `printFiles` và `baseCost` là ẢNH CHỤP: chúng ghi lại đơn này đã gửi ĐÚNG file nào và
+   * với giá vốn nào. Design nay sống ở Product Mapping và có thể bị thay/xoá bất cứ lúc nào;
+   * không có ảnh chụp thì đơn đã gửi mất luôn khả năng đối soát với xưởng in.
+   */
   async replaceItems(
     fulfillmentOrderId: string,
     organizationId: string,
@@ -380,6 +451,7 @@ export class FulfillmentRepository {
       providerSku: string;
       quantity: number;
       productionConfig: string | null;
+      baseCost: number | null;
       printFiles: Prisma.InputJsonValue;
     }>,
   ): Promise<void> {

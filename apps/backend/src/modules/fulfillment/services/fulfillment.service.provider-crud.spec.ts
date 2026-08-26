@@ -4,6 +4,9 @@ import { callArg } from '../../../testing/mock-call.util';
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
 import { FulfillmentAccountNotFoundException } from '../exceptions/fulfillment.exceptions';
 import { PodOrderRepository } from '../../pod-tiktok/repositories/pod-order.repository';
+import type { PodAccessScopeService } from '../../pod-tiktok/services/pod-access-scope.service';
+import { PrismaService } from '../../../database/prisma.service';
+import { ProductDesignMapper } from '../mappers/product-design.mapper';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import { FulfillmentReadinessService } from './fulfillment-readiness.service';
 import { FulfillmentService } from './fulfillment.service';
@@ -45,9 +48,9 @@ function build(repoOverrides: Record<string, jest.Mock> = {}) {
   const repo = {
     listAccounts: jest.fn().mockResolvedValue([account()]),
     countTiktokAccountsGroupedByProvider: jest.fn().mockResolvedValue(new Map([['prov-1', 3]])),
-    createAccount: jest.fn().mockImplementation((data: Record<string, unknown>) =>
-      Promise.resolve(account(data)),
-    ),
+    createAccount: jest
+      .fn()
+      .mockImplementation((data: Record<string, unknown>) => Promise.resolve(account(data))),
     findAccountById: jest.fn().mockResolvedValue(account()),
     countTiktokAccountsByProvider: jest.fn().mockResolvedValue(2),
     countOrdersByAccount: jest.fn().mockResolvedValue(7),
@@ -57,11 +60,14 @@ function build(repoOverrides: Record<string, jest.Mock> = {}) {
 
   const service = new FulfillmentService(
     { get: (_key: string, fallback?: string) => fallback ?? '' } as unknown as ConfigService,
+    // Năm phụ thuộc dưới đây không tham gia luồng quản lý nhà cung cấp.
+    {} as unknown as PrismaService,
     repo,
-    // Hai phụ thuộc dưới đây không tham gia luồng quản lý nhà cung cấp.
     {} as unknown as PodOrderRepository,
     {} as unknown as FulfillmentReadinessService,
+    {} as unknown as ProductDesignMapper,
     encryption,
+    {} as unknown as PodAccessScopeService,
   );
   return { service, repo: repo as unknown as Record<string, jest.Mock> };
 }

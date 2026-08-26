@@ -1,5 +1,6 @@
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse, Paginated } from '@/types/api';
+import type { PodDesign, PodDesignPlacement } from '@/features/pod-tiktok/order-types';
 import type {
   CreateFulfillmentProviderInput,
   FulfillmentError,
@@ -8,9 +9,15 @@ import type {
   FulfillmentHistoryEntry,
   FulfillmentOrder,
   FulfillmentState,
+  AutoMapResult,
+  CatalogProductQuery,
+  CatalogStatus,
+  CatalogSyncResult,
+  PaginatedCatalogProducts,
+  ProductDesignKey,
   ProductMapping,
   ProductMappingQuery,
-  ProviderCatalogProduct,
+  ProviderCatalogue,
   ProviderCatalogVariation,
   TestConnectionResult,
   TiktokProductOption,
@@ -158,26 +165,63 @@ export const productMappingService = {
     return res.data.data;
   },
 
-  async catalogProducts(accountId: string, search?: string): Promise<ProviderCatalogProduct[]> {
-    const res = await apiClient.get<ApiResponse<ProviderCatalogProduct[]>>(
-      `${BASE_PATH}/accounts/${accountId}/catalog/products`,
-      { params: { search } },
+  // -------------------------------------------------------------------------
+  // Danh mục nhà cung cấp — ĐỌC TỪ DATABASE
+  //
+  // 🔴 Không endpoint nào ở đây gọi Mango lúc người dùng bấm. Dữ liệu do Sync Job ghi xuống;
+  // muốn mới thì gọi `syncCatalog` (một tác vụ DÀI với danh mục lớn).
+  // -------------------------------------------------------------------------
+
+  async catalogues(accountId: string): Promise<ProviderCatalogue[]> {
+    const res = await apiClient.get<ApiResponse<ProviderCatalogue[]>>(
+      `${BASE_PATH}/accounts/${accountId}/catalog/catalogues`,
     );
     return res.data.data;
   },
 
+  async catalogProducts(
+    accountId: string,
+    query: CatalogProductQuery = {},
+  ): Promise<PaginatedCatalogProducts> {
+    const res = await apiClient.get<ApiResponse<PaginatedCatalogProducts>>(
+      `${BASE_PATH}/accounts/${accountId}/catalog/products`,
+      { params: query },
+    );
+    return res.data.data;
+  },
+
+  /** `productId` là khoá NỘI BỘ (uuid) lấy từ `catalogProducts`, không phải id của Mango. */
   async catalogVariations(
     accountId: string,
     productId: string,
   ): Promise<ProviderCatalogVariation[]> {
     const res = await apiClient.get<ApiResponse<ProviderCatalogVariation[]>>(
-      `${BASE_PATH}/accounts/${accountId}/catalog/products/${encodeURIComponent(productId)}/variations`,
+      `${BASE_PATH}/accounts/${accountId}/catalog/products/${productId}/variations`,
     );
     return res.data.data;
   },
 
-  async refreshCatalog(accountId: string): Promise<void> {
-    await apiClient.post(`${BASE_PATH}/accounts/${accountId}/catalog/refresh`);
+  async catalogStatus(accountId: string): Promise<CatalogStatus> {
+    const res = await apiClient.get<ApiResponse<CatalogStatus>>(
+      `${BASE_PATH}/accounts/${accountId}/catalog/status`,
+    );
+    return res.data.data;
+  },
+
+  /** Kéo danh mục từ nhà cung cấp về Database. Tác vụ DÀI — giao diện phải hiện tiến trình. */
+  async syncCatalog(accountId: string): Promise<CatalogSyncResult> {
+    const res = await apiClient.post<ApiResponse<CatalogSyncResult>>(
+      `${BASE_PATH}/accounts/${accountId}/catalog/sync`,
+    );
+    return res.data.data;
+  },
+
+  /** Rà ánh xạ tự động cho mọi sản phẩm chưa ánh xạ của tổ chức. */
+  async autoResolve(): Promise<AutoMapResult> {
+    const res = await apiClient.post<ApiResponse<AutoMapResult>>(
+      `${BASE_PATH}/mappings/auto-resolve`,
+    );
+    return res.data.data;
   },
 
   async create(input: UpsertProductMappingInput): Promise<ProductMapping> {
@@ -195,5 +239,62 @@ export const productMappingService = {
 
   async remove(id: string): Promise<void> {
     await apiClient.delete(`${BASE_PATH}/mappings/${id}`);
+  },
+
+  // -------------------------------------------------------------------------
+  // Design — thuộc về SẢN PHẨM (Product ID + Seller SKU), không thuộc đơn hàng
+  //
+  // 🔴 Khoá là (Product ID + Seller SKU) và ĐỘC LẬP với Product Mapping — sản phẩm chưa ánh
+  // xạ vẫn upload design được. Upload / Replace / Delete tác động lên SẢN PHẨM, nên mọi đơn
+  // mang cùng cặp khoá — kể cả đơn ngày mai mới đồng bộ về — đọc được kết quả ngay ở lần tải
+  // kế tiếp. Không có bước sao chép nào.
+  //
+  // Cặp khoá đi qua query string (không phải path) vì Seller SKU do người bán tự đặt và có
+  // thể chứa dấu `/`, khoảng trắng, unicode.
+  // -------------------------------------------------------------------------
+
+  async listDesigns(key: ProductDesignKey): Promise<PodDesign[]> {
+    const res = await apiClient.get<ApiResponse<PodDesign[]>>(`${BASE_PATH}/product-designs`, {
+      params: key,
+    });
+    return res.data.data;
+  },
+
+  /**
+   * Upload / thay thế design tại MỘT vị trí in.
+   *
+   * 🔴 KHÔNG cần sản phẩm đã có Product Mapping. Chỉ đụng đúng vị trí được gửi lên: thay
+   * Front thì Back giữ nguyên, và không bao giờ bắt gửi cả hai cùng lúc.
+   *
+   * Dùng multipart — KHÔNG đặt Content-Type thủ công để axios tự thêm boundary.
+   */
+  async uploadDesign(
+    key: ProductDesignKey,
+    placement: PodDesignPlacement,
+    file: File,
+    onProgress?: (percent: number) => void,
+  ): Promise<PodDesign> {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await apiClient.post<ApiResponse<PodDesign>>(
+      `${BASE_PATH}/product-designs/${placement}`,
+      form,
+      {
+        params: key,
+        headers: { 'Content-Type': undefined },
+        onUploadProgress: (event) => {
+          if (!onProgress || !event.total) return;
+          onProgress(Math.round((event.loaded * 100) / event.total));
+        },
+      },
+    );
+    return res.data.data;
+  },
+
+  /** Xoá design tại MỘT vị trí in. KHÔNG đụng Product Mapping, KHÔNG đụng đơn hàng. */
+  async deleteDesign(key: ProductDesignKey, placement: PodDesignPlacement): Promise<void> {
+    await apiClient.delete<ApiResponse<null>>(`${BASE_PATH}/product-designs/${placement}`, {
+      params: key,
+    });
   },
 };

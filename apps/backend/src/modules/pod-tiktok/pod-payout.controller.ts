@@ -1,4 +1,13 @@
-import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  HttpStatus,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
 import {
   ApiBearerAuth,
   ApiForbiddenResponse,
@@ -7,7 +16,6 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
-import { ADMIN_ROLE_CODE } from '../auth/constants/default-roles';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -22,6 +30,9 @@ import {
   PodPayoutSyncResultDto,
   TriggerPayoutSyncDto,
 } from './dto/pod-payout.dto';
+import { PodScope } from './decorators/pod-scope.decorator';
+import { PodScopeGuard } from './guards/pod-scope.guard';
+import type { PodAccessScope } from './services/pod-access-scope.service';
 import { PodPayoutService } from './services/pod-payout.service';
 
 /**
@@ -41,7 +52,8 @@ import { PodPayoutService } from './services/pod-payout.service';
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Access token không hợp lệ (AUTH_TOKEN_INVALID)' })
 @ApiForbiddenResponse({ description: 'Thiếu permission (AUTH_FORBIDDEN)' })
-@UseGuards(JwtAuthGuard, PermissionsGuard)
+// 🔴 `PodScopeGuard` nạp phạm vi shop cho MỌI route trong controller này.
+@UseGuards(JwtAuthGuard, PermissionsGuard, PodScopeGuard)
 @Controller('pod/tiktok/payout')
 export class PodPayoutController {
   constructor(private readonly service: PodPayoutService) {}
@@ -51,8 +63,18 @@ export class PodPayoutController {
    * Admin ⇒ `undefined` (toàn Organization). Còn lại ⇒ chỉ account do chính họ quản lý.
    * Cùng quy ước với `AccountController.scope` để hành vi nhất quán toàn hệ thống.
    */
-  private scope(user: AuthenticatedUser): string | undefined {
-    return user.role === ADMIN_ROLE_CODE ? undefined : user.userId;
+  /**
+   * Giới hạn theo seller cho các truy vấn payout.
+   *
+   * 🔴 Quyết định bằng PERMISSION (`pod.shop.all`), không phải mã role. Trước đây so
+   * `user.role === 'ADMIN'`, nên một role tuỳ biến do tổ chức tạo ra sẽ luôn bị coi là seller
+   * dù được cấp quyền xem toàn bộ — role là động (ADR-009) nên so mã role là khoá cứng.
+   *
+   * Giá trị trả về vẫn là USER id: bộ lọc payout ghép qua `employees.user_id` trong SQL thô,
+   * giữ nguyên để không phải viết lại truy vấn thống kê.
+   */
+  private sellerScope(user: AuthenticatedUser, scope: PodAccessScope): string | undefined {
+    return scope.allShops ? undefined : user.userId;
   }
 
   @Get('summary')
@@ -67,9 +89,10 @@ export class PodPayoutController {
   @ApiOkResponse({ type: PodPayoutSummaryDto })
   summary(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Query() query: PodPayoutFilterDto,
   ): Promise<PodPayoutSummaryDto> {
-    return this.service.summary(user.organizationId, query, this.scope(user));
+    return this.service.summary(user.organizationId, query, this.sellerScope(user, scope));
   }
 
   @Get('sellers')
@@ -83,9 +106,10 @@ export class PodPayoutController {
   @ApiOkResponse({ type: PaginatedPodPayoutSellerDto })
   sellers(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Query() query: PodPayoutBreakdownQueryDto,
   ): Promise<PaginatedPodPayoutSellerDto> {
-    return this.service.sellerBreakdown(user.organizationId, query, this.scope(user));
+    return this.service.sellerBreakdown(user.organizationId, query, this.sellerScope(user, scope));
   }
 
   @Get('accounts')
@@ -97,9 +121,10 @@ export class PodPayoutController {
   @ApiOkResponse({ type: PaginatedPodPayoutAccountDto })
   accounts(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Query() query: PodPayoutBreakdownQueryDto,
   ): Promise<PaginatedPodPayoutAccountDto> {
-    return this.service.accountBreakdown(user.organizationId, query, this.scope(user));
+    return this.service.accountBreakdown(user.organizationId, query, this.sellerScope(user, scope));
   }
 
   @Post('sync')

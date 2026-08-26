@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { FulfillmentProductMapping } from '@prisma/client';
+import { PodDesignPlacement, Prisma } from '@prisma/client';
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
 import type { PodOrderWithRelations } from '../../pod-tiktok/types/pod-order-with-relations.type';
 import type { TiktokRecipientAddress } from '../../pod-tiktok/types/tiktok-order.types';
@@ -9,6 +9,36 @@ import {
   ResolvedItem,
 } from '../mango/mappers/mango-order.mapper';
 import type { MangoPrintFile } from '../mango/types/mango-api.types';
+import { createMappingIndex, findMappingInIndex, mappingKeyOf } from '../shared/mapping-match';
+
+/**
+ * Product Mapping — chỉ còn phần "in ở đâu".
+ *
+ * ⚠️ KHÔNG còn quan hệ `designs`. Design tách hẳn khỏi ánh xạ và được tra riêng theo
+ * (Product ID + Seller SKU) — xem `DesignsByProductKey`. Giữ alias này để mọi nơi gọi không
+ * phải đổi kiểu, nhưng tên vẫn nói đúng nội dung mới.
+ */
+export type MappingWithDesigns = Prisma.FulfillmentProductMappingGetPayload<object>;
+
+/**
+ * Design ĐANG HIỆU LỰC, đúng những trường mà việc dựng `print_files` cần.
+ *
+ * 🔴 Hợp đồng: nơi gọi chỉ đưa vào design chưa bị xoá mềm (`deleted_at IS NULL` đã nằm trong
+ * truy vấn). Lọc lại ở đây là dựng bản sao thứ hai của luật "design nào còn sống" — và bản
+ * sao thứ hai luôn là bản trôi lệch.
+ */
+export interface ReadinessDesign {
+  placement: PodDesignPlacement;
+  storageFile: { publicUrl: string | null };
+}
+
+/**
+ * Design của cả tổ chức, tra theo khoá `mappingKeyOf(productId, sellerSku)`.
+ *
+ * 🔴 Truyền vào thay vì để `check()` tự truy vấn: `check()` là hàm ĐỒNG BỘ và được gọi cho
+ * hàng loạt đơn trong một vòng lặp; cho nó tự query là mở đường cho N+1.
+ */
+export type DesignsByProductKey = Map<string, ReadinessDesign[]>;
 
 /** Một lý do khiến đơn chưa gửi được — `code` để FE dịch/nhóm, `message` để hiển thị. */
 export interface ReadinessIssue {
@@ -46,6 +76,15 @@ export const READINESS_CODES = {
   ADDRESS_MASKED: 'ADDRESS_MASKED',
   ADDRESS_INCOMPLETE: 'ADDRESS_INCOMPLETE',
   MAPPING_MISSING: 'MAPPING_MISSING',
+  /**
+   * Sản phẩm ĐÃ có ánh xạ, nhưng ánh xạ đó khai cho một nhà cung cấp KHÁC với nhà cung cấp
+   * mà kết nối TikTok của đơn đang dùng.
+   *
+   * 🔴 Tách khỏi `MAPPING_MISSING` vì hai lỗi này sửa khác nhau hoàn toàn: một cái là "khai
+   * ánh xạ đi", cái này là "ánh xạ có rồi nhưng bạn đang gửi nhầm xưởng". Gửi bừa SKU của
+   * xưởng A sang xưởng B là in ra một sản phẩm khác hẳn.
+   */
+  MAPPING_PROVIDER_MISMATCH: 'MAPPING_PROVIDER_MISMATCH',
   DESIGN_MISSING: 'DESIGN_MISSING',
   DESIGN_NOT_PUBLIC: 'DESIGN_NOT_PUBLIC',
   PLACEMENT_UNSUPPORTED: 'PLACEMENT_UNSUPPORTED',
@@ -85,8 +124,15 @@ export class FulfillmentReadinessService {
    */
   check(
     order: PodOrderWithRelations,
-    mappings: FulfillmentProductMapping[],
+    mappings: MappingWithDesigns[],
+    /** Design của tổ chức, tra theo (Product ID + Seller SKU). Rỗng = chưa upload gì. */
+    designsByKey: DesignsByProductKey,
     publicBaseUrl?: string,
+    /**
+     * Tài khoản nhà cung cấp sẽ nhận đơn này. Truyền vào để phát hiện ánh xạ khai cho nhà
+     * cung cấp khác; bỏ trống thì bỏ qua phép kiểm đó.
+     */
+    expectedAccountId?: string,
   ): ReadinessResult {
     const issues: ReadinessIssue[] = [];
 
@@ -102,7 +148,14 @@ export class FulfillmentReadinessService {
     }
 
     const address = this.resolveAddress(order, issues);
-    const items = this.resolveItems(order, mappings, publicBaseUrl, issues);
+    const items = this.resolveItems(
+      order,
+      mappings,
+      designsByKey,
+      publicBaseUrl,
+      issues,
+      expectedAccountId,
+    );
 
     return {
       ready: issues.length === 0,
@@ -167,14 +220,18 @@ export class FulfillmentReadinessService {
   /** Ghép từng line item với ánh xạ SKU và design tương ứng. */
   private resolveItems(
     order: PodOrderWithRelations,
-    mappings: FulfillmentProductMapping[],
+    mappings: MappingWithDesigns[],
+    designsByKey: DesignsByProductKey,
     publicBaseUrl: string | undefined,
     issues: ReadinessIssue[],
+    expectedAccountId?: string,
   ): ResolvedItem[] {
     const resolved: ResolvedItem[] = [];
+    // Dựng chỉ mục MỘT lần cho cả đơn — tra O(1) thay vì quét lại danh sách cho mỗi dòng.
+    const index = createMappingIndex(mappings);
 
     for (const item of order.items) {
-      const mapping = this.findMapping(item, mappings);
+      const mapping = findMappingInIndex(item, index);
       if (!mapping) {
         issues.push({
           code: READINESS_CODES.MAPPING_MISSING,
@@ -187,13 +244,35 @@ export class FulfillmentReadinessService {
           productCategory: item.productCategory,
           message:
             `Chưa khai báo ánh xạ sản phẩm cho "${item.productName ?? item.sellerSku ?? item.id}"` +
-            `${item.sellerSku ? ` (Seller SKU: ${item.sellerSku})` : ''}. ` +
-            'Vào màn hình Ánh xạ sản phẩm để chọn SKU tương ứng bên xưởng in.',
+            ` (Product ID: ${item.productId ?? '—'} · Seller SKU: ${item.sellerSku ?? '—'}). ` +
+            'Vào màn hình Ánh xạ sản phẩm để khai cặp khoá này — khai một lần là mọi đơn ' +
+            'cùng sản phẩm đều dùng được.',
         });
         continue;
       }
 
-      const printFiles = this.resolvePrintFiles(item, mapping, publicBaseUrl, issues);
+      // 🔴 Ánh xạ được tra ở phạm vi TỔ CHỨC (đúng như danh tính của nó), nên có thể gặp bản
+      // ghi khai cho nhà cung cấp khác. Nói thẳng ra thay vì im lặng gửi SKU của xưởng này
+      // sang xưởng kia.
+      if (expectedAccountId && mapping.accountId !== expectedAccountId) {
+        issues.push({
+          code: READINESS_CODES.MAPPING_PROVIDER_MISMATCH,
+          podOrderItemId: item.id,
+          tiktokProductId: item.productId,
+          tiktokSkuId: item.skuId,
+          sellerSku: item.sellerSku,
+          productName: item.productName,
+          skuName: item.skuName,
+          productCategory: item.productCategory,
+          message:
+            `Sản phẩm "${item.productName ?? item.sellerSku ?? item.id}" đã có ánh xạ, nhưng ` +
+            'ánh xạ đó khai cho một nhà cung cấp KHÁC với nhà cung cấp gán cho kết nối TikTok ' +
+            'của đơn này. Sửa ánh xạ, hoặc đổi nhà cung cấp của kết nối TikTok cho khớp.',
+        });
+        continue;
+      }
+
+      const printFiles = this.resolvePrintFiles(item, mapping, designsByKey, publicBaseUrl, issues);
       if (printFiles.length === 0) continue;
 
       resolved.push({
@@ -202,28 +281,13 @@ export class FulfillmentReadinessService {
         // TikTok trả 1 line item = 1 đơn vị sản phẩm (Order API overview).
         quantity: 1,
         productionConfig: mapping.productionConfig,
+        // Giá vốn khai ở Product Mapping — chép làm ảnh chụp lúc gửi, xem `replaceItems`.
+        baseCost: mapping.baseCost === null ? null : Number(mapping.baseCost),
         printFiles,
       });
     }
 
     return resolved;
-  }
-
-  /**
-   * Tìm ánh xạ theo thứ tự ưu tiên: SKU biến thể → Seller SKU → Product ID.
-   * Càng cụ thể càng được ưu tiên, để một sản phẩm có thể khai chung rồi ghi đè theo biến thể.
-   */
-  private findMapping(
-    item: PodOrderWithRelations['items'][number],
-    mappings: FulfillmentProductMapping[],
-  ): FulfillmentProductMapping | null {
-    const active = mappings.filter((mapping) => mapping.isActive);
-    return (
-      (item.skuId && active.find((m) => m.tiktokSkuId === item.skuId)) ||
-      (item.sellerSku && active.find((m) => m.sellerSku === item.sellerSku)) ||
-      (item.productId && active.find((m) => m.tiktokProductId === item.productId)) ||
-      null
-    );
   }
 
   /**
@@ -235,25 +299,33 @@ export class FulfillmentReadinessService {
    */
   private resolvePrintFiles(
     item: PodOrderWithRelations['items'][number],
-    mapping: FulfillmentProductMapping,
+    mapping: MappingWithDesigns,
+    designsByKey: DesignsByProductKey,
     publicBaseUrl: string | undefined,
     issues: ReadinessIssue[],
   ): MangoPrintFile[] {
-    if (item.designs.length === 0) {
+    // 🔴 Design tra theo (Product ID + Seller SKU) của CHÍNH line item, KHÔNG qua ánh xạ.
+    // Design và ánh xạ là hai nghiệp vụ độc lập: đơn có thể đã có design từ trước khi ai đó
+    // khai ánh xạ, và đổi ánh xạ sang nhà cung cấp khác không được làm mất file in.
+    const key = mappingKeyOf(item.productId, item.sellerSku);
+    const designs = key ? (designsByKey.get(key) ?? []) : [];
+
+    if (designs.length === 0) {
       issues.push({
         code: READINESS_CODES.DESIGN_MISSING,
         podOrderItemId: item.id,
-        message: `Sản phẩm "${item.productName ?? item.id}" chưa có file design.`,
+        // Nêu đúng chỗ phải sửa: design giờ khai ở Product Mapping, không khai ở đơn.
+        message:
+          `Sản phẩm "${item.productName ?? item.id}" chưa có file design. ` +
+          'Upload design ở Product Mapping tương ứng — một lần là dùng cho mọi đơn cùng ' +
+          'Product ID + Seller SKU, kể cả đơn đồng bộ về sau này.',
       });
       return [];
     }
 
     const files: MangoPrintFile[] = [];
-    for (const design of item.designs) {
-      const key = this.mapper.resolvePlacement(
-        design.placement,
-        mapping.placementMap,
-      );
+    for (const design of designs) {
+      const key = this.mapper.resolvePlacement(design.placement, mapping.placementMap);
       if (!key) {
         issues.push({
           code: READINESS_CODES.PLACEMENT_UNSUPPORTED,

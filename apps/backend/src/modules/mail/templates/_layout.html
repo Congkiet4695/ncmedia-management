@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="vi">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{{SUBJECT}}</title>
+  </head>
+  <!--
+    Khung chung của mọi email hệ thống.
+
+    Dùng bảng + style nội tuyến chứ không phải flexbox/grid: Outlook và nhiều webmail vẫn bỏ
+    qua CSS hiện đại lẫn thẻ <style> ngoài. Đây là lý do email trông "cũ" — nó phải chạy được
+    ở nơi trình duyệt không tồn tại.
+  -->
+  <body style="margin: 0; padding: 0; background-color: #f4f5f7; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;">
+    <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background-color: #f4f5f7; padding: 32px 16px;">
+      <tr>
+        <td align="center">
+          <table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width: 560px; background-color: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 1px 3px rgba(16, 24, 40, 0.1);">
+            <tr>
+              <td style="padding: 24px 32px; border-bottom: 1px solid #eaecf0;">
+                <span style="font-size: 16px; font-weight: 700; color: #101828; letter-spacing: -0.01em;">{{APP_NAME}}</span>
+              </td>
+            </tr>
+            <tr>
+              <td style="padding: 32px;">{{CONTENT}}</td>
+            </tr>
+            <tr>
+              <td style="padding: 20px 32px; border-top: 1px solid #eaecf0; background-color: #fcfcfd;">
+                <p style="margin: 0; font-size: 12px; line-height: 18px; color: #98a2b3;">
+                  Email này được gửi tự động từ {{APP_NAME}}. Vui lòng không trả lời email này.
+                </p>
+              </td>
+            </tr>
+          </table>
+        </td>
+      </tr>
+    </table>
+  </body>
+</html>

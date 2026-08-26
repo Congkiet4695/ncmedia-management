@@ -208,7 +208,8 @@ export class TiktokHttpService {
    */
   private computeBackoff(attempt: number, retryAfterSeconds?: number): number {
     const generated = Math.min(
-      TiktokHttpService.BASE_DELAY_MS * 2 ** attempt + Math.random() * TiktokHttpService.MAX_JITTER_MS,
+      TiktokHttpService.BASE_DELAY_MS * 2 ** attempt +
+        Math.random() * TiktokHttpService.MAX_JITTER_MS,
       TiktokHttpService.MAX_DELAY_MS,
     );
     const header = retryAfterSeconds !== undefined ? retryAfterSeconds * 1_000 : undefined;

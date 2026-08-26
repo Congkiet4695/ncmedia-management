@@ -9,17 +9,15 @@ import {
   PodOrderStatsDto,
   PodSyncTriggerResultDto,
 } from '../dto/pod-order-response.dto';
-import {
-  PodOrderQueryDto,
-  PodSyncLogQueryDto,
-  TriggerSyncDto,
-} from '../dto/pod-order-query.dto';
+import { PodOrderQueryDto, PodSyncLogQueryDto, TriggerSyncDto } from '../dto/pod-order-query.dto';
 import {
   PodOrderNotFoundException,
   PodTiktokAccountNotFoundException,
   PodTiktokSyncInProgressException,
 } from '../exceptions/pod-tiktok.exceptions';
 import { PodOrderResponseMapper } from '../mappers/pod-order-response.mapper';
+import { PodAccessScopeService, type PodAccessScope } from './pod-access-scope.service';
+import { PodOrderDesignResolver } from './pod-order-design-resolver.service';
 import { PodOrderRepository } from '../repositories/pod-order.repository';
 import { PodSyncLogRepository } from '../repositories/pod-sync-log.repository';
 import { PodTiktokAccountRepository } from '../repositories/pod-tiktok-account.repository';
@@ -40,12 +38,20 @@ export class PodOrderService {
     private readonly mapper: PodOrderResponseMapper,
     private readonly syncService: PodOrderSyncService,
     private readonly orchestrator: PodSyncOrchestratorService,
+    /** Ghép line item → Product Mapping để lấy design (đơn chỉ ĐỌC, không sở hữu design). */
+    private readonly designResolver: PodOrderDesignResolver,
+    private readonly accessScope: PodAccessScopeService,
   ) {}
 
   async findAll(
     organizationId: string,
     query: PodOrderQueryDto,
+    scope: PodAccessScope,
   ): Promise<PaginatedPodOrderResponseDto> {
+    // Chọn shop ngoài phạm vi ⇒ 403 ngay, thay vì danh sách rỗng khó hiểu.
+    this.accessScope.assertShopAllowed(scope, query.shopId);
+    this.accessScope.assertAccountAllowed(scope, query.accountId);
+
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
@@ -58,6 +64,8 @@ export class PodOrderService {
     );
 
     const { items, total } = await this.repo.findMany(organizationId, {
+      shopScope: scope.allShops ? undefined : scope.shopIds,
+      accountScope: scope.allShops ? undefined : scope.accountIds,
       page,
       limit,
       search: query.search,
@@ -72,20 +80,63 @@ export class PodOrderService {
       sortOrder: query.sortOrder ?? 'desc',
     });
 
+    // 🔴 Design đọc từ Product Mapping — MỘT truy vấn cho cả trang, không N+1.
+    const designs = await this.designResolver.resolveForOrders(organizationId, items);
+
     return {
-      items: items.map((order) => this.mapper.toListItem(order)),
+      items: items.map((order) => this.mapper.toListItem(order, designs)),
       meta: { total, page, limit, totalPages: total === 0 ? 0 : Math.ceil(total / limit) },
     };
   }
 
-  async findOne(organizationId: string, id: string): Promise<PodOrderResponseDto> {
+  async findOne(
+    organizationId: string,
+    id: string,
+    scope: PodAccessScope,
+  ): Promise<PodOrderResponseDto> {
     const order = await this.repo.findById(organizationId, id);
     if (!order) throw new PodOrderNotFoundException();
-    return this.mapper.toResponse(order);
+    // 🔴 Lọc danh sách chưa đủ: `/orders/{id}` vẫn gọi thẳng được bằng id đoán ra.
+    this.accessScope.assertShopAllowed(scope, order.shopId);
+
+    const designs = await this.designResolver.resolveForOrders(organizationId, [order]);
+    return this.mapper.toResponse(order, designs);
   }
 
-  async stats(organizationId: string): Promise<PodOrderStatsDto> {
-    const rows = await this.repo.countByStatus(organizationId);
+  /**
+   * Thống kê cho các thẻ ở đầu màn hình danh sách.
+   *
+   * 🔴 Nhận ĐÚNG bộ lọc của danh sách và quy đổi khoảng ngày bằng CÙNG một hàm
+   * `resolveDateRange`. Trước đây hàm này bỏ qua mọi bộ lọc, nên lọc "hôm qua" xong bảng còn
+   * 3 đơn mà thẻ vẫn ghi 1.240 — hai con số mâu thuẫn trên cùng một màn hình.
+   */
+  async stats(
+    organizationId: string,
+    query: PodOrderQueryDto = {},
+    scope: PodAccessScope,
+  ): Promise<PodOrderStatsDto> {
+    this.accessScope.assertShopAllowed(scope, query.shopId);
+    this.accessScope.assertAccountAllowed(scope, query.accountId);
+
+    const range = resolveDateRange(
+      query.datePreset,
+      this.config.get<number>('timezoneOffsetMinutes', 420),
+      query.orderedFrom,
+      query.orderedTo,
+    );
+
+    const rows = await this.repo.countByStatus(organizationId, {
+      shopScope: scope.allShops ? undefined : scope.shopIds,
+      accountScope: scope.allShops ? undefined : scope.accountIds,
+      search: query.search,
+      status: query.status,
+      shopId: query.shopId,
+      accountId: query.accountId,
+      orderType: query.orderType,
+      hasPodItem: query.hasPodItem,
+      orderedFrom: range.from,
+      orderedTo: range.to,
+    });
     const byStatus = rows.reduce<Record<string, number>>((acc, row) => {
       acc[row.status] = row._count._all;
       return acc;
@@ -97,10 +148,15 @@ export class PodOrderService {
   async findSyncLogs(
     organizationId: string,
     query: PodSyncLogQueryDto,
+    scope: PodAccessScope,
   ): Promise<PaginatedPodSyncLogResponseDto> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
+    this.accessScope.assertShopAllowed(scope, query.shopId);
+    this.accessScope.assertAccountAllowed(scope, query.accountId);
     const { items, total } = await this.syncLogRepo.findMany(organizationId, {
+      // Nhật ký đồng bộ cũng gắn với shop ⇒ cùng phạm vi.
+      shopScope: scope.allShops ? undefined : scope.shopIds,
       page,
       limit,
       shopId: query.shopId,
