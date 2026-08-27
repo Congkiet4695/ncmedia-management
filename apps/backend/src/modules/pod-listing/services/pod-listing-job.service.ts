@@ -718,7 +718,6 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
           status: true,
           errorCount: true,
           payload: true,
-          payloadHash: true,
           tiktokDraftId: true,
           tiktokProductId: true,
           sessionProductId: true,
@@ -825,7 +824,6 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
         organizationId,
         ctx,
         payload: resolved,
-        payloadHash: draft.payloadHash,
         tiktokDraftId: draft.tiktokDraftId,
         imageUriCache: params.imageUriCache,
         log,
@@ -984,7 +982,6 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
         organizationId,
         ctx,
         payload: payload.resolved.payload,
-        payloadHash: payload.resolved.payloadHash,
         imageUriCache: params.imageUriCache,
         log,
       });

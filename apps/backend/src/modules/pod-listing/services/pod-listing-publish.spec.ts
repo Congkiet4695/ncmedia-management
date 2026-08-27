@@ -111,7 +111,6 @@ function buildService() {
       organizationId: 'org-1',
       ctx: CTX,
       payload,
-      payloadHash: 'hash-1',
       tiktokDraftId,
       // Ảnh đã có `uri` sẵn trong payload ⇒ cache được nạp từ đó, không upload lại.
       imageUriCache: new Map([['file-1', Promise.resolve('uri-1')]]),
@@ -158,10 +157,50 @@ describe('PodListingPublisherService.publishListing', () => {
     expect(productApi.createProduct).toHaveBeenCalledTimes(1);
     const body = createArgs()[1];
     expect(body.saveMode).toBe('LISTING');
-    // Thử lại sau lỗi mạng phải nhận về đúng sản phẩm cũ, không đẻ bản trùng.
-    expect(body.idempotencyKey).toBe('hash-1');
+    expect(typeof body.idempotencyKey).toBe('string');
+    // TikTok giới hạn 128 ký tự cho `idempotency_key`.
+    expect((body.idempotencyKey as string).length).toBeGreaterThan(0);
+    expect((body.idempotencyKey as string).length).toBeLessThanOrEqual(128);
     expect(outcome.mode).toBe('CREATE');
     expect(outcome.remoteProductId).toBe('TT-PRODUCT-NEW');
+  });
+
+  it('🔴 Retry: publish LẠI cùng một listing ⇒ `idempotencyKey` PHẢI khác lần trước', async () => {
+    const { publish, createArgs } = buildService();
+
+    // Cùng payload, cùng listing, cùng shop — đúng kịch bản bấm Retry sau khi lỗi.
+    const payload = buildPayload();
+    await publish(null, payload);
+    await publish(null, payload);
+
+    const first = createArgs(0)[1].idempotencyKey as string;
+    const second = createArgs(1)[1].idempotencyKey as string;
+
+    // Trước đây cả hai đều là sha256(payload) ⇒ TikTok trả 12052996 ở lần thứ hai.
+    expect(second).not.toBe(first);
+  });
+
+  it('🔴 Publish All: mỗi listing một `idempotencyKey` riêng, kể cả khi payload trùng nhau', async () => {
+    const { publish, createArgs } = buildService();
+
+    await publish(null, buildPayload());
+    await publish(null, buildPayload());
+
+    const keys = new Set([
+      createArgs(0)[1].idempotencyKey as string,
+      createArgs(1)[1].idempotencyKey as string,
+    ]);
+    expect(keys.size).toBe(2);
+  });
+
+  it('`idempotencyKey` KHÔNG dẫn xuất từ TikTok Product ID / Draft ID / SKU', async () => {
+    const { publish, createArgs } = buildService();
+
+    await publish(null);
+
+    const key = createArgs()[1].idempotencyKey as string;
+    expect(key).not.toContain('TT-PRODUCT');
+    expect(key).not.toContain('SKU');
   });
 
   it('Kho được quyết theo SHOP ngay lúc publish, không lấy từ payload', async () => {

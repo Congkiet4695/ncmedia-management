@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { PodListingLogLevel, PodListingStep } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
@@ -29,6 +30,41 @@ export type ListingLogger = (
   message: string,
   payload?: Record<string, unknown>,
 ) => Promise<void>;
+
+/**
+ * Sinh `idempotency_key` — thứ TikTok gọi là **external_id** trong thông báo lỗi.
+ *
+ * 🔴 Giá trị này phải **DUY NHẤT TRONG SHOP CHO MỖI REQUEST** (tài liệu TikTok: *"Ensure this
+ * key is unique within the shop for each request"*, khuyến nghị UUID v4, tối đa 128 ký tự).
+ * Gửi lại một key đã từng dùng ⇒ TikTok trả `12052996 Precondition Required — This operation
+ * requires a unique external_id` và **KHÔNG** tạo sản phẩm.
+ *
+ * 🔴 Vì thế key TUYỆT ĐỐI không được dẫn xuất từ nội dung payload, TikTok Product ID, Draft
+ * ID, Listing ID hay SKU — những giá trị đó lặp lại y hệt ở lần thử thứ hai. Trước đây key
+ * chính là `payloadHash` (sha256 của payload): cùng một listing luôn cho cùng một key, nên
+ * Retry và nhánh Create-sau-khi-đã-tạo-Draft chết vĩnh viễn ở đúng lỗi trên.
+ *
+ * Phần định danh chỉ để **tra cứu** khi TikTok Support hỏi (log/publish_request đều ghi lại);
+ * tính duy nhất do `randomUUID()` (v4) + timestamp bảo đảm, không do phần định danh đó.
+ *
+ * Định dạng: `<listingTemplate8>-<product8>-<ts36>-<uuidv4>` (~60 ký tự, luôn < 128).
+ *
+ * ⚠️ Đánh đổi có chủ ý: key mới mỗi lần gọi ⇒ `idempotency_key` KHÔNG còn chống trùng khi
+ * retry sau lỗi mạng. Hàng rào chống trùng thật sự nằm ở chỗ khác và vẫn nguyên vẹn:
+ * `tiktokDraftId` có giá trị ⇒ đi Edit Product, và payload `PUBLISHED` ⇒ không gọi TikTok.
+ */
+export function buildTiktokExternalId(payload: ResolvedListing): string {
+  const tail = (value: string | null | undefined): string =>
+    (value ?? '').replace(/-/g, '').slice(-8);
+
+  const trace = [tail(payload.source.listingTemplateId), tail(payload.source.productId ?? payload.source.sessionProductId)]
+    .filter((part) => part.length > 0)
+    .join('-');
+  const stamp = Date.now().toString(36);
+  const unique = randomUUID().replace(/-/g, '');
+
+  return [trace, stamp, unique].filter((part) => part.length > 0).join('-').slice(0, 128);
+}
 
 /** Kết quả đẩy MỘT listing lên TikTok. */
 export interface PublishOutcome {
@@ -182,7 +218,6 @@ export class PodListingPublisherService {
     organizationId: string;
     ctx: TiktokShopContext;
     payload: ResolvedListing;
-    payloadHash: string;
     imageUriCache: Map<string, Promise<string>>;
     log: ListingLogger;
   }): Promise<PublishOutcome> {
@@ -197,9 +232,11 @@ export class PodListingPublisherService {
     );
     // 🔴 Kho được quyết Ở ĐÂY — theo shop đang đăng, không phải theo Draft Product.
     const warehouse = await this.resolveWarehouse(params.organizationId, ctx, payload, log);
+    // 🔴 Sinh MỚI ở đây, mỗi lần gọi — kể cả khi hàng đợi chạy lại đúng item này.
+    const externalId = buildTiktokExternalId(payload);
     const request = this.buildCreateRequest(
       payload,
-      params.payloadHash,
+      externalId,
       images.uris,
       images.variantUris,
       warehouse.tiktokWarehouseId,
@@ -210,6 +247,7 @@ export class PodListingPublisherService {
       PodListingStep.CREATE_DRAFT,
       'Gửi Create Product (AS_DRAFT)',
       {
+        externalId,
         categoryId: request.categoryId,
         brandId: request.brandId,
         warehouseId: warehouse.tiktokWarehouseId,
@@ -259,8 +297,8 @@ export class PodListingPublisherService {
    * 🔴 Đây là hàng rào chống trùng sản phẩm của cả sprint. Draft đã tồn tại trên sàn thì
    * TUYỆT ĐỐI không gọi Create Product lần nữa — TikTok sẽ đẻ ra một sản phẩm thứ hai giống
    * hệt, và không có cách nào gộp lại. Nhánh `CREATE` chỉ dành cho listing CHƯA từng chạm
-   * sàn, và vẫn gửi kèm `idempotencyKey` (hash payload) để lần thử lại sau lỗi mạng nhận về
-   * đúng sản phẩm cũ.
+   * sàn, và gửi kèm `idempotencyKey` được sinh MỚI ở mỗi lần gọi (`buildTiktokExternalId`) —
+   * TikTok từ chối key đã dùng bằng lỗi `12052996 requires a unique external_id`.
    *
    * 🔴 Edit Product là **full edit**: gửi thiếu trường nào là TikTok xoá trắng trường đó.
    * Vì thế request được dựng lại từ ĐÚNG payload đã tạo ra Draft (`buildCreateRequest`),
@@ -273,7 +311,6 @@ export class PodListingPublisherService {
     organizationId: string;
     ctx: TiktokShopContext;
     payload: ResolvedListing;
-    payloadHash: string;
     /** Id Draft trên TikTok. Có giá trị ⇒ đi nhánh Edit; `null` ⇒ tạo mới ở chế độ LISTING. */
     tiktokDraftId: string | null;
     imageUriCache: Map<string, Promise<string>>;
@@ -297,9 +334,12 @@ export class PodListingPublisherService {
     // Kho vẫn được quyết theo SHOP, y như lúc tạo Draft — yêu cầu sprint nói rõ: không
     // validate kho ở cổng trước, kho được resolve tại thời điểm publish.
     const warehouse = await this.resolveWarehouse(params.organizationId, ctx, payload, log);
+    // 🔴 Sinh MỚI cho MỖI lần publish. Bấm Retry ⇒ chạy lại đúng dòng này ⇒ key khác hẳn
+    // lần trước. Publish All ⇒ mỗi listing gọi hàm này một lần nên mỗi sản phẩm một key.
+    const externalId = buildTiktokExternalId(payload);
     const request = this.buildCreateRequest(
       payload,
-      params.payloadHash,
+      externalId,
       images.uris,
       images.variantUris,
       warehouse.tiktokWarehouseId,
@@ -313,6 +353,8 @@ export class PodListingPublisherService {
       'Gửi Publish (save_mode = LISTING)',
       {
         mode,
+        // Nhánh EDIT không gửi key này đi (Edit Product không nhận) — ghi `null` cho đúng.
+        externalId: mode === 'CREATE' ? externalId : null,
         tiktokDraftId,
         warehouseId: warehouse.tiktokWarehouseId,
         warehouseSource: warehouse.source,
@@ -321,8 +363,8 @@ export class PodListingPublisherService {
       },
     );
 
-    // `idempotencyKey` chỉ có nghĩa lúc TẠO (chống tạo trùng); Edit Product không nhận nó,
-    // nên bỏ ra thay vì gửi kèm một trường TikTok không hiểu.
+    // `idempotencyKey` chỉ có nghĩa lúc TẠO; Edit Product không nhận nó, nên bỏ ra thay vì
+    // gửi kèm một trường TikTok không hiểu.
     const editRequest: TiktokCreateProductRequest = { ...request };
     delete editRequest.idempotencyKey;
 
@@ -742,7 +784,8 @@ export class PodListingPublisherService {
    */
   private buildCreateRequest(
     payload: ResolvedListing,
-    payloadHash: string,
+    /** `idempotency_key` — sinh MỚI cho mỗi lần gọi, xem `buildTiktokExternalId`. */
+    externalId: string,
     imageUris: string[],
     uriByFileId: Map<string, string>,
     /** Kho ĐÃ ĐƯỢC quyết theo shop — không lấy lại từ payload. */
@@ -766,9 +809,8 @@ export class PodListingPublisherService {
       description: payload.description,
       categoryId: payload.category.tiktokCategoryId ?? undefined,
       brandId: payload.brand.tiktokBrandId ?? undefined,
-      // Cùng một payload gửi lại (retry sau lỗi mạng) ⇒ TikTok trả về đúng sản phẩm cũ thay
-      // vì tạo bản trùng trên shop thật.
-      idempotencyKey: payloadHash,
+      // 🔴 DUY NHẤT cho mỗi request. Không phải hash payload — xem `buildTiktokExternalId`.
+      idempotencyKey: externalId,
       mainImages: imageUris.map((uri) => ({ uri })),
       packageWeight: payload.package.weight
         ? { value: payload.package.weight, unit: payload.package.weightUnit ?? undefined }
