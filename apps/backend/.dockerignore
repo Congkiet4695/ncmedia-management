@@ -1,6 +1,12 @@
 # Build context ignore — giữ image nhỏ & build sạch (không copy source thừa)
 node_modules
 dist
+# Build artefact cua SDK TikTok — luon build lai trong image de khong dinh ban cu
+vendor/**/dist
+vendor/**/*.tsbuildinfo
+# Build artefact cua SDK TikTok — luon build lai trong image de khong dinh ban cu
+vendor/**/dist
+vendor/**/*.tsbuildinfo
 coverage
 .git
 .gitignore

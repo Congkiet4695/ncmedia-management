@@ -26,3 +26,5 @@ logs/
 # OS
 .DS_Store
 Thumbs.db
+# File upload (anh design POD) — khong commit
+apps/backend/uploads/
