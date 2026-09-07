@@ -30,6 +30,8 @@ import {
 /** Trạng thái sắp xếp của một bảng. */
 interface TableState {
   page: number;
+  /** Số dòng mỗi trang — người dùng chọn qua ô "Số dòng mỗi trang". */
+  limit: number;
   search: string;
   sortField: PodPayoutSortField;
   sortOrder: 'asc' | 'desc';
@@ -37,6 +39,7 @@ interface TableState {
 
 const INITIAL_TABLE: TableState = {
   page: 1,
+  limit: 20,
   // Yêu cầu nghiệp vụ: mặc định sắp xếp GIẢM DẦN theo Payout.
   search: '',
   sortField: 'totalPayout',
@@ -71,6 +74,7 @@ export default function TiktokPayoutPage() {
   const sellersQuery = usePodPayoutSellers({
     ...filter,
     page: sellerTable.page,
+    limit: sellerTable.limit,
     search: sellerSearch || undefined,
     sortField: sellerTable.sortField,
     sortOrder: sellerTable.sortOrder,
@@ -78,6 +82,7 @@ export default function TiktokPayoutPage() {
   const accountsQuery = usePodPayoutAccounts({
     ...filter,
     page: accountTable.page,
+    limit: accountTable.limit,
     search: accountSearch || undefined,
     sortField: accountTable.sortField,
     sortOrder: accountTable.sortOrder,
@@ -201,6 +206,7 @@ export default function TiktokPayoutPage() {
         sortOrder={sellerTable.sortOrder}
         onSortChange={(field) => toggleSort(setSellerTable, field)}
         onPageChange={(page) => setSellerTable((prev) => ({ ...prev, page }))}
+        onPageSizeChange={(limit) => setSellerTable((prev) => ({ ...prev, limit, page: 1 }))}
       />
 
       <PayoutAccountTable
@@ -213,6 +219,7 @@ export default function TiktokPayoutPage() {
         sortOrder={accountTable.sortOrder}
         onSortChange={(field) => toggleSort(setAccountTable, field)}
         onPageChange={(page) => setAccountTable((prev) => ({ ...prev, page }))}
+        onPageSizeChange={(limit) => setAccountTable((prev) => ({ ...prev, limit, page: 1 }))}
       />
     </div>
   );

@@ -24,7 +24,6 @@ export type PodSyncTrigger = (typeof POD_SYNC_TRIGGERS)[number];
 export const POD_SYNC_PHASES = ['BACKFILL', 'INCREMENTAL'] as const;
 export type PodSyncPhase = (typeof POD_SYNC_PHASES)[number];
 
-
 /** Vị trí in design. Backend hỗ trợ sẵn 5 vị trí; UI hiện dùng FRONT/BACK. */
 export const POD_DESIGN_PLACEMENTS = ['FRONT', 'BACK', 'LEFT', 'RIGHT', 'SLEEVE'] as const;
 export type PodDesignPlacement = (typeof POD_DESIGN_PLACEMENTS)[number];

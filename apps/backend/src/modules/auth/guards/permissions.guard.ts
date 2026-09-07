@@ -2,15 +2,20 @@ import { CanActivate, ExecutionContext, ForbiddenException, Injectable } from '@
 import { Reflector } from '@nestjs/core';
 import type { Request } from 'express';
 import { PrismaService } from '../../../database/prisma.service';
-import { PERMISSIONS_KEY } from '../decorators/require-permissions.decorator';
+import { ANY_PERMISSIONS_KEY, PERMISSIONS_KEY } from '../decorators/require-permissions.decorator';
 import { TokenInvalidException } from '../exceptions/token-invalid.exception';
 import { AuthenticatedUser } from '../types/authenticated-user.interface';
 
 /**
  * PermissionsGuard — RBAC theo Permission (ADR-010). Chạy SAU JwtAuthGuard.
  *
- * Nạp danh sách permission `resource.action` của Role người dùng (từ role_permissions)
- * và so với @RequirePermissions. Thiếu quyền → 403 AUTH_FORBIDDEN.
+ * Nạp danh sách permission `resource.action` của Role người dùng (từ role_permissions) và
+ * so với hai loại yêu cầu:
+ *
+ *   - `@RequirePermissions(...)`    → **VÀ**: phải có ĐỦ.
+ *   - `@RequireAnyPermission(...)`  → **HOẶC**: có MỘT là đủ.
+ *
+ * Route khai báo cả hai thì phải thoả cả hai. Thiếu quyền → 403 AUTH_FORBIDDEN.
  */
 @Injectable()
 export class PermissionsGuard implements CanActivate {
@@ -20,26 +25,38 @@ export class PermissionsGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    const required =
-      this.reflector.getAllAndOverride<string[]>(PERMISSIONS_KEY, [
-        context.getHandler(),
-        context.getClass(),
-      ]) ?? [];
-    if (required.length === 0) return true;
+    const required = this.metadata(context, PERMISSIONS_KEY);
+    const anyOf = this.metadata(context, ANY_PERMISSIONS_KEY);
+    if (required.length === 0 && anyOf.length === 0) return true;
 
     const request = context.switchToHttp().getRequest<Request & { user?: AuthenticatedUser }>();
     const user = request.user;
     if (!user) throw new TokenInvalidException();
 
     const codes = await this.loadPermissionCodes(user.organizationId, user.role);
-    const ok = required.every((p) => codes.has(p));
-    if (!ok) {
+    // Gắn lại vào request: controller cần biết người dùng còn quyền gì khác (VD cờ `canSync`
+    // của màn hình Master Data) mà không phải hỏi database lần nữa.
+    user.permissions = [...codes];
+
+    const hasAll = required.every((permission) => codes.has(permission));
+    const hasAny = anyOf.length === 0 || anyOf.some((permission) => codes.has(permission));
+
+    if (!hasAll || !hasAny) {
       throw new ForbiddenException({
         code: 'AUTH_FORBIDDEN',
         message: 'Bạn không có quyền thực hiện thao tác này',
       });
     }
     return true;
+  }
+
+  private metadata(context: ExecutionContext, key: string): string[] {
+    return (
+      this.reflector.getAllAndOverride<string[]>(key, [
+        context.getHandler(),
+        context.getClass(),
+      ]) ?? []
+    );
   }
 
   private async loadPermissionCodes(

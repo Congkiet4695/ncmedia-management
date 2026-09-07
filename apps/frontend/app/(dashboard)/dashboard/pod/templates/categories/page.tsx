@@ -93,6 +93,7 @@ function CategoryTemplatesView() {
         }
         meta={state.meta}
         onPageChange={state.setPage}
+        onPageSizeChange={state.setPageSize}
       >
         <Table>
           <TableHeader>

@@ -11,18 +11,18 @@ const BASE = '/pod/resources';
 
 /** Tài nguyên → đường dẫn sync. Thêm tài nguyên mới chỉ là thêm một dòng ở đây. */
 const SYNC_PATH: Record<PodResourceType, string> = {
-  CATEGORY: `${BASE}/categories/sync`,
-  BRAND: `${BASE}/brands/sync`,
-  CATEGORY_ATTRIBUTE: `${BASE}/attributes/sync`,
   WAREHOUSE: `${BASE}/warehouses/sync`,
 };
 
 /**
- * API Resource Sync.
+ * API Resource Sync — tài nguyên **của tổ chức** (kho hàng).
  *
- * 🔴 Đây là cửa DUY NHẤT làm cache thay đổi. Mọi màn hình khác (Categories, Brands,
- * Warehouses, Template) chỉ đọc dữ liệu đã có trong database — không màn hình nào gọi
- * thẳng TikTok, kể cả khi mở dropdown.
+ * 🔴 Danh mục / thương hiệu / thuộc tính đã chuyển sang `features/pod-master-data`: chúng
+ * là dữ liệu master toàn cục và chỉ Super Admin đồng bộ. Ba endpoint sync cũ ở đây đã bị
+ * gỡ khỏi backend — gọi lại sẽ nhận 404.
+ *
+ * Mọi màn hình khác (Categories, Brands, Warehouses, Template) chỉ ĐỌC dữ liệu đã có trong
+ * database — không màn hình nào gọi thẳng TikTok, kể cả khi mở dropdown.
  */
 export const podResourceService = {
   async status(): Promise<PodResourceStatus[]> {
@@ -39,7 +39,7 @@ export const podResourceService = {
 
   async sync(
     resource: PodResourceType,
-    payload: { shopId?: string; categoryIds?: string[] } = {},
+    payload: { shopId?: string } = {},
   ): Promise<PodResourceSyncResult> {
     const res = await apiClient.post<ApiResponse<PodResourceSyncResult>>(
       SYNC_PATH[resource],

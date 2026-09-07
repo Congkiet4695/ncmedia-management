@@ -1,4 +1,5 @@
 import {
+  PodBrandMode,
   PodImageAssetType,
   PodListingMarket,
   PodPriceAdjustmentType,
@@ -99,6 +100,8 @@ function buildTemplate(over: Partial<ListingTemplateFull> = {}): ListingTemplate
     imageTemplateId: 'img-1',
     pricingStrategyId: 'price-1',
     warehouseId: 'wh-1',
+    // Listing Template không ghi đè brand ⇒ UNSET, nhường cho Category Template.
+    brandMode: PodBrandMode.UNSET,
     tiktokBrandId: null,
     brandName: null,
     shippingTemplateId: 'ship-1',
@@ -126,6 +129,7 @@ function buildTemplate(over: Partial<ListingTemplateFull> = {}): ListingTemplate
       tiktokCategoryId: '601352',
       categoryName: 'T-Shirts',
       categoryPath: 'Womenswear > T-Shirts',
+      brandMode: PodBrandMode.SPECIFIC,
       tiktokBrandId: 'brand-1',
       brandName: 'Comfort Colors',
       warehouseId: null,
@@ -396,10 +400,66 @@ describe('PodListingResolverService', () => {
     });
 
     it('brand ở Listing Template ghi đè brand của Category Template', () => {
-      const template = buildTemplate({ tiktokBrandId: 'brand-9', brandName: 'Gildan' });
+      const template = buildTemplate({
+        brandMode: PodBrandMode.SPECIFIC,
+        tiktokBrandId: 'brand-9',
+        brandName: 'Gildan',
+      });
       const { payload } = service.resolveFromContext(buildContext({ template }));
 
-      expect(payload.brand).toEqual({ tiktokBrandId: 'brand-9', name: 'Gildan' });
+      expect(payload.brand).toEqual({
+        mode: PodBrandMode.SPECIFIC,
+        tiktokBrandId: 'brand-9',
+        name: 'Gildan',
+      });
+    });
+
+    it('không ghi đè (UNSET) ⇒ dùng brand của Category Template', () => {
+      const { payload } = service.resolveFromContext(buildContext());
+
+      expect(payload.brand).toEqual({
+        mode: PodBrandMode.SPECIFIC,
+        tiktokBrandId: 'brand-1',
+        name: 'Comfort Colors',
+      });
+    });
+
+    it('🔴 Category Template chọn "No brand" ⇒ payload NONE, không mang id nào', () => {
+      const template = buildTemplate();
+      template.categoryTemplate!.brandMode = PodBrandMode.NONE;
+      template.categoryTemplate!.tiktokBrandId = null;
+      template.categoryTemplate!.brandName = 'No brand';
+
+      const { payload } = service.resolveFromContext(buildContext({ template }));
+
+      expect(payload.brand).toEqual({
+        mode: PodBrandMode.NONE,
+        tiktokBrandId: null,
+        name: 'No brand',
+      });
+    });
+
+    it('🔴 Listing Template chọn "No brand" ⇒ ghi đè brand CỤ THỂ của Category Template', () => {
+      // Đây là cái bẫy của phép `??` cũ: Listing Template chọn "No brand" có
+      // `tiktokBrandId = null`, nên `template.tiktokBrandId ?? category.tiktokBrandId` sẽ
+      // âm thầm rơi xuống lấy brand của Category Template — đúng thứ người dùng vừa bỏ.
+      const template = buildTemplate({ brandMode: PodBrandMode.NONE, tiktokBrandId: null });
+      const { payload } = service.resolveFromContext(buildContext({ template }));
+
+      expect(payload.brand.mode).toBe(PodBrandMode.NONE);
+      expect(payload.brand.tiktokBrandId).toBeNull();
+    });
+
+    it('cả hai đều chưa cấu hình ⇒ UNSET (validator sẽ chặn)', () => {
+      const template = buildTemplate();
+      template.categoryTemplate!.brandMode = PodBrandMode.UNSET;
+      template.categoryTemplate!.tiktokBrandId = null;
+      template.categoryTemplate!.brandName = null;
+
+      const { payload } = service.resolveFromContext(buildContext({ template }));
+
+      expect(payload.brand.mode).toBe(PodBrandMode.UNSET);
+      expect(payload.brand.tiktokBrandId).toBeNull();
     });
 
     it('cùng đầu vào ⇒ cùng hash (sinh lại không tạo thay đổi giả)', () => {

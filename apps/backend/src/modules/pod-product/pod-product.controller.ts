@@ -108,7 +108,7 @@ export class PodProductController {
     description:
       'Mặc định đồng bộ TĂNG DẦN (chỉ sản phẩm đổi sau lần đồng bộ trước). `full = true` ' +
       'quét lại toàn bộ — tốn quota TikTok, chỉ dùng khi cần đối soát. ' +
-      '`includeCatalog = true` đồng bộ luôn cây danh mục + thương hiệu của shop.',
+      'Danh mục / thương hiệu KHÔNG đồng bộ ở đây — đó là dữ liệu master toàn cục do Super Admin chạy.',
   })
   @ApiOkResponse({ type: PodProductSyncResultDto })
   triggerSync(
@@ -129,14 +129,13 @@ export class PodProductController {
       '`tiktokCategoryId` tra CHÍNH XÁC một danh mục — dùng khi mở lại template đã lưu.',
   })
   findCategories(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query('shopId') shopId?: string,
     @Query('search') search?: string,
     @Query('leafOnly') leafOnly?: string,
     @Query('tiktokCategoryId') tiktokCategoryId?: string,
   ) {
-    return this.service.findCategories(user.organizationId, {
-      shopId,
+    // Không nhận `shopId` và không truyền `organizationId`: cây danh mục là dữ liệu master
+    // TOÀN CỤC, mọi tổ chức đọc chung một bảng (xem PodMasterDataModule).
+    return this.service.findCategories({
       search,
       leafOnly: leafOnly === 'true',
       tiktokCategoryId,
@@ -153,11 +152,8 @@ export class PodProductController {
       '🔴 `categoryId` nhận CẢ HAI: UUID nội bộ hoặc `category_id` của TikTok — template lưu ' +
       'mã TikTok, nên mở ra sửa là nạp được thuộc tính ngay mà không cần tra ngược.',
   })
-  findCategoryAttributes(
-    @CurrentUser() user: AuthenticatedUser,
-    @Param('categoryId') categoryId: string,
-  ) {
-    return this.service.findCategoryAttributes(user.organizationId, categoryId);
+  findCategoryAttributes(@Param('categoryId') categoryId: string) {
+    return this.service.findCategoryAttributes(categoryId);
   }
 
   @Get('brands')
@@ -165,22 +161,25 @@ export class PodProductController {
   @ApiOperation({
     summary: 'Thương hiệu TikTok đã đồng bộ (có phân trang + tìm kiếm)',
     description:
-      'Bộ chọn brand tìm kiếm phía SERVER: một shop có thể có hàng chục nghìn thương hiệu, ' +
+      'Bộ chọn brand tìm kiếm phía SERVER: TikTok có hàng chục nghìn thương hiệu, ' +
       'tải hết về máy là không tưởng. `keyword` tìm theo tên hoặc `brand_id`. ' +
+      'Cỡ trang dùng `limit` (ADR-023); `pageSize` là tên cũ, vẫn nhận để tương thích ngược. ' +
       '🔴 "No brand" luôn đứng đầu danh sách.',
   })
   findBrands(
-    @CurrentUser() user: AuthenticatedUser,
-    @Query('shopId') shopId?: string,
     @Query('keyword') keyword?: string,
     @Query('page') page?: string,
+    @Query('limit') limit?: string,
+    // 🔴 `pageSize` là tên CŨ của tham số này — endpoint brands là chỗ duy nhất trong hệ
+    // thống lệch khỏi ADR-023 (`page` + `limit`). Nhận cả hai để client cũ / URL đã lưu
+    // không gãy; `limit` được ưu tiên.
     @Query('pageSize') pageSize?: string,
   ) {
-    return this.service.findBrands(user.organizationId, {
-      shopId,
+    const size = limit ?? pageSize;
+    return this.service.findBrands({
       keyword,
       page: page ? Number(page) : undefined,
-      pageSize: pageSize ? Number(pageSize) : undefined,
+      limit: size ? Number(size) : undefined,
     });
   }
 

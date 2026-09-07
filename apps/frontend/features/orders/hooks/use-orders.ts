@@ -48,7 +48,8 @@ export function useOrderSellers(enabled = true) {
 export function useOrderAccounts(platformId?: string) {
   return useQuery({
     queryKey: [ORDERS_KEY, 'accounts', platformId ?? 'all'],
-    queryFn: () => accountService.list({ platformId, limit: 100, sortBy: 'name', sortOrder: 'asc' }),
+    queryFn: () =>
+      accountService.list({ platformId, limit: 100, sortBy: 'name', sortOrder: 'asc' }),
     staleTime: 60 * 1000,
   });
 }

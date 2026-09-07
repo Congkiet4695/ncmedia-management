@@ -22,7 +22,14 @@ interface ImportDialogProps {
   onImported?: () => void;
 }
 
-export function ImportDialog({ open, onClose, path, title, description, onImported }: ImportDialogProps) {
+export function ImportDialog({
+  open,
+  onClose,
+  path,
+  title,
+  description,
+  onImported,
+}: ImportDialogProps) {
   const { t } = useTranslation();
   const translateApiError = useApiError();
   const [file, setFile] = useState<File | null>(null);
@@ -288,7 +295,15 @@ function formatDuration(ms: number, secondsTemplate: (value: string) => string):
   return ms < 1000 ? `${ms} ms` : secondsTemplate((ms / 1000).toFixed(2));
 }
 
-function Stat({ label, value, tone }: { label: string; value: number; tone?: 'success' | 'danger' | 'muted' }) {
+function Stat({
+  label,
+  value,
+  tone,
+}: {
+  label: string;
+  value: number;
+  tone?: 'success' | 'danger' | 'muted';
+}) {
   return (
     <div className="rounded-md border p-2 text-center">
       <p

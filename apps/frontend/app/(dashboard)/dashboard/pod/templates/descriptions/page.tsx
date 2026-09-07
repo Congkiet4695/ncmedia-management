@@ -76,6 +76,7 @@ function DescriptionTemplatesView() {
         status={{ value: state.status, onChange: state.setStatus }}
         meta={state.meta}
         onPageChange={state.setPage}
+        onPageSizeChange={state.setPageSize}
       >
         <Table>
           <TableHeader>

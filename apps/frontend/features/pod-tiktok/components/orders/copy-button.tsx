@@ -30,9 +30,12 @@ export function CopyButton({
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Dọn timer khi component biến mất (đổi trang, đổi bộ lọc) — tránh setState sau unmount.
-  useEffect(() => () => {
-    if (timer.current) clearTimeout(timer.current);
-  }, []);
+  useEffect(
+    () => () => {
+      if (timer.current) clearTimeout(timer.current);
+    },
+    [],
+  );
 
   const copy = useCallback(
     (event: React.MouseEvent) => {

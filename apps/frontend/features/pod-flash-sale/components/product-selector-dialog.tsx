@@ -1,0 +1,276 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import Image from 'next/image';
+import { Loader2, Search } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
+import { Badge } from '@/components/ui/badge';
+import { DataPagination } from '@/components/ui/data-pagination';
+import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { Combobox } from '@/components/ui/combobox';
+import { Input } from '@/components/ui/input';
+import { Modal } from '@/components/ui/modal';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from '@/components/ui/table';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { useLocaleFormat } from '@/hooks/use-locale-format';
+import {
+  usePodProductFilters,
+  usePodProducts,
+} from '@/features/pod-product/hooks/use-pod-products';
+import type { AddFlashSaleItemPayload } from '../types';
+
+/** Cỡ trang MẶC ĐỊNH — người dùng đổi được trong dialog. */
+const PAGE_SIZE = 10;
+
+interface ProductSelectorDialogProps {
+  open: boolean;
+  onClose: () => void;
+  /** Shop của đợt sale — bộ chọn KHÔNG bao giờ hiển thị sản phẩm của shop khác. */
+  shopId: string;
+  /** Sản phẩm đã có trong đợt sale — hiển thị "đã thêm" và không cho chọn lại. */
+  existingProductIds: string[];
+  submitting?: boolean;
+  onSubmit: (items: AddFlashSaleItemPayload[]) => void;
+}
+
+/**
+ * Dialog **Add Products** — chọn nhiều sản phẩm cho một đợt Flash Sale.
+ *
+ * ```
+ *   [ 🔍 tìm theo tên · Product ID · SKU ]  [ Trạng thái ▾ ]
+ *   ┌───┬─────┬──────────────────────┬────────────┬───────┬──────────┐
+ *   │ ☑ │ ảnh │ Tên sản phẩm         │ Product ID │ SKU   │ Giá      │
+ *   └───┴─────┴──────────────────────┴────────────┴───────┴──────────┘
+ *   ‹ 1/12 ›                                    [ Thêm 8 sản phẩm ]
+ * ```
+ *
+ * 🔴 Lựa chọn được giữ **xuyên qua phân trang và tìm kiếm**: người dùng tick vài sản phẩm ở
+ * trang 1, đổi từ khoá, tick tiếp ở trang 3 rồi mới bấm Thêm. Lưu lựa chọn theo trang (như
+ * cách một bảng ngây thơ hay làm) sẽ âm thầm đánh rơi những gì đã tick trước đó.
+ *
+ * 🔴 Chỉ gửi `productId`. Việc bung ra thành từng SKU do BACKEND làm, vì chỉ backend mới
+ * biết chắc biến thể nào còn bán và giá gốc hiện hành là bao nhiêu.
+ */
+export function ProductSelectorDialog({
+  open,
+  onClose,
+  shopId,
+  existingProductIds,
+  submitting,
+  onSubmit,
+}: ProductSelectorDialogProps) {
+  const { t } = useTranslation(['pod', 'common']);
+  const { formatCurrency } = useLocaleFormat();
+
+  const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(PAGE_SIZE);
+  const [searchInput, setSearchInput] = useState('');
+  const [status, setStatus] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const search = useDebouncedValue(searchInput, 350);
+
+  // Mở lại dialog là một phiên chọn MỚI — giữ lại lựa chọn cũ sẽ khiến người dùng vô tình
+  // thêm những sản phẩm họ đã bỏ ý định từ lần trước.
+  useEffect(() => {
+    if (!open) return;
+    setSelected(new Set());
+    setPage(1);
+    setSearchInput('');
+    setStatus('');
+  }, [open]);
+
+  // Đổi từ khoá / bộ lọc thì về trang 1, nếu không người dùng đứng ở trang 7 của một kết
+  // quả chỉ có 2 trang và thấy bảng trống.
+  useEffect(() => setPage(1), [search, status]);
+
+  const filters = usePodProductFilters();
+  const products = usePodProducts({
+    page,
+    limit,
+    shopId,
+    search: search || undefined,
+    status: status || undefined,
+  });
+
+  const existing = useMemo(() => new Set(existingProductIds), [existingProductIds]);
+  const items = products.data?.items ?? [];
+  const meta = products.data?.meta;
+
+  /** Sản phẩm trên trang hiện tại còn chọn được (chưa nằm trong đợt sale). */
+  const selectableOnPage = items.filter((product) => !existing.has(product.id));
+  const allOnPageSelected =
+    selectableOnPage.length > 0 && selectableOnPage.every((product) => selected.has(product.id));
+
+  const toggle = (productId: string): void => {
+    setSelected((previous) => {
+      const next = new Set(previous);
+      if (next.has(productId)) next.delete(productId);
+      else next.add(productId);
+      return next;
+    });
+  };
+
+  const toggleAllOnPage = (): void => {
+    setSelected((previous) => {
+      const next = new Set(previous);
+      for (const product of selectableOnPage) {
+        if (allOnPageSelected) next.delete(product.id);
+        else next.add(product.id);
+      }
+      return next;
+    });
+  };
+
+  const submit = (): void => {
+    onSubmit([...selected].map((productId) => ({ productId })));
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t('flashSale.selector.title')}
+      description={t('flashSale.selector.subtitle')}
+      className="max-w-4xl"
+      footer={
+        <div className="flex items-center justify-between gap-3">
+          <span className="text-sm text-muted-foreground">
+            {t('flashSale.selector.selected', { count: selected.size })}
+          </span>
+          <div className="flex gap-2">
+            <Button variant="outline" onClick={onClose} disabled={submitting}>
+              {t('common:action.cancel')}
+            </Button>
+            <Button onClick={submit} disabled={selected.size === 0 || submitting}>
+              {submitting && <Loader2 className="size-4 animate-spin" />}
+              {t('flashSale.selector.add', { count: selected.size })}
+            </Button>
+          </div>
+        </div>
+      }
+    >
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-end gap-2">
+          <div className="relative min-w-[220px] flex-1">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={searchInput}
+              onChange={(event) => setSearchInput(event.target.value)}
+              placeholder={t('flashSale.selector.searchPlaceholder')}
+              className="pl-9"
+            />
+          </div>
+          <Combobox
+            value={status}
+            onChange={setStatus}
+            options={[
+              { value: '', label: t('flashSale.selector.allStatuses') },
+              ...(filters.data?.statuses ?? []).map((value) => ({ value, label: value })),
+            ]}
+            className="w-[180px]"
+          />
+        </div>
+
+        {products.isLoading ? (
+          <div className="flex items-center justify-center py-10 text-muted-foreground">
+            <Loader2 className="size-5 animate-spin" />
+          </div>
+        ) : items.length === 0 ? (
+          <p className="py-10 text-center text-sm text-muted-foreground">
+            {t('flashSale.selector.empty')}
+          </p>
+        ) : (
+          <div className="overflow-x-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead className="w-10">
+                    <Checkbox
+                      checked={allOnPageSelected}
+                      indeterminate={selected.size > 0 && !allOnPageSelected}
+                      onChange={toggleAllOnPage}
+                      disabled={selectableOnPage.length === 0}
+                      aria-label={t('flashSale.selector.selectPage')}
+                    />
+                  </TableHead>
+                  <TableHead className="w-14" />
+                  <TableHead>{t('flashSale.selector.product')}</TableHead>
+                  <TableHead>{t('flashSale.selector.productId')}</TableHead>
+                  <TableHead className="text-right">{t('flashSale.selector.sku')}</TableHead>
+                  <TableHead className="text-right">{t('flashSale.selector.price')}</TableHead>
+                  <TableHead>{t('flashSale.selector.status')}</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {items.map((product) => {
+                  const already = existing.has(product.id);
+                  return (
+                    <TableRow key={product.id} className={already ? 'opacity-60' : undefined}>
+                      <TableCell>
+                        <Checkbox
+                          checked={already || selected.has(product.id)}
+                          disabled={already}
+                          onChange={() => toggle(product.id)}
+                          aria-label={product.title ?? product.tiktokProductId}
+                        />
+                      </TableCell>
+                      <TableCell>
+                        {product.thumbnailUrl ? (
+                          <Image
+                            src={product.thumbnailUrl}
+                            alt=""
+                            width={40}
+                            height={40}
+                            unoptimized
+                            className="size-10 rounded object-cover"
+                          />
+                        ) : (
+                          <div className="size-10 rounded bg-muted" />
+                        )}
+                      </TableCell>
+                      <TableCell className="max-w-[280px]">
+                        <p className="truncate text-sm font-medium">{product.title ?? '—'}</p>
+                        {already && (
+                          <p className="text-xs text-muted-foreground">
+                            {t('flashSale.selector.alreadyAdded')}
+                          </p>
+                        )}
+                      </TableCell>
+                      <TableCell className="font-mono text-xs">{product.tiktokProductId}</TableCell>
+                      <TableCell className="text-right tabular-nums">{product.skuCount}</TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatCurrency(product.minPrice, product.currency)}
+                      </TableCell>
+                      <TableCell>
+                        <Badge variant={product.status === 'ACTIVATE' ? 'success' : 'muted'}>
+                          {product.status ?? '—'}
+                        </Badge>
+                      </TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </div>
+        )}
+
+        <DataPagination
+          meta={meta}
+          onPageChange={setPage}
+          onPageSizeChange={(next) => {
+            setLimit(next);
+            setPage(1);
+          }}
+        />
+      </div>
+    </Modal>
+  );
+}

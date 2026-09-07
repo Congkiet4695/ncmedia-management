@@ -1,6 +1,11 @@
 'use client';
 
 import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  NO_BRAND_OPTION,
+  toBrandChoice,
+  toBrandPayload,
+} from '@/features/pod-listing/brand-selection';
 import { Loader2, Upload, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -13,7 +18,6 @@ import { Combobox, type ComboboxOption } from '@/components/ui/combobox';
 import { useApiError } from '@/hooks/use-api-error';
 import { useAuth } from '@/hooks/use-auth';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
-import { ResourceSyncButton } from '@/features/pod-resource/components/resource-sync-button';
 import { AttributeValuePicker, type AttributeSelection } from './attribute-value-picker';
 import {
   useCategoryAttributes,
@@ -124,7 +128,7 @@ export function CategoryTemplateDialog({ open, template, onClose }: CategoryTemp
   const debouncedBrandSearch = useDebouncedValue(brandSearch, 300);
   const brandsQuery = useSyncedBrands({
     keyword: debouncedBrandSearch || undefined,
-    pageSize: 50,
+    limit: 50,
   });
   const warehousesQuery = useWarehouses();
 
@@ -157,20 +161,26 @@ export function CategoryTemplateDialog({ open, template, onClose }: CategoryTemp
   // hiện ba dòng "No brand" giống hệt nhau.
   const brandOptions = useMemo<ComboboxOption[]>(() => {
     const seen = new Set<string>();
-    const options: ComboboxOption[] = [];
+    // 🔴 "No brand" LUÔN đứng đầu và KHÔNG đến từ bảng thương hiệu. Nó là một trạng thái
+    // (`brandMode = NONE`), không phải một `tiktok_brand_id`. Trước đây nó là một bản ghi
+    // do hệ thống tự tạo quanh một id viết cứng — chọn nó là template lưu id đó và sản phẩm
+    // lên sàn mang tên thương hiệu người dùng không hề chọn.
+    const options: ComboboxOption[] = [
+      {
+        value: NO_BRAND_OPTION,
+        label: t('listing.categoryTemplates.noBrand'),
+        hint: t('listing.categoryTemplates.noBrandHint'),
+      },
+    ];
     // Brand đang chọn luôn có mặt, kể cả khi nó không nằm trong kết quả tìm hiện tại.
-    if (brand.id) {
+    if (brand.id && brand.id !== NO_BRAND_OPTION) {
       seen.add(brand.id);
       options.push({ value: brand.id, label: brand.name || brand.id });
     }
     for (const item of brandsQuery.data?.items ?? []) {
       if (seen.has(item.tiktokBrandId)) continue;
       seen.add(item.tiktokBrandId);
-      options.push({
-        value: item.tiktokBrandId,
-        label: item.name ?? item.tiktokBrandId,
-        hint: item.isNoBrand ? t('listing.categoryTemplates.noBrandHint') : undefined,
-      });
+      options.push({ value: item.tiktokBrandId, label: item.name ?? item.tiktokBrandId });
     }
     return options;
   }, [brand, brandsQuery.data, t]);
@@ -211,7 +221,7 @@ export function CategoryTemplateDialog({ open, template, onClose }: CategoryTemp
     if (!open) return;
     setName(template?.name ?? '');
     setMarket(template?.market ?? 'US');
-    setBrand({ id: template?.tiktokBrandId ?? '', name: template?.brandName ?? '' });
+    setBrand(toBrandChoice(template ?? undefined));
     setWarehouseId(template?.warehouseId ?? '');
     setPackageWeight(template?.packageWeight ?? '');
     setWeightUnit(template?.weightUnit ?? 'KILOGRAM');
@@ -293,10 +303,9 @@ export function CategoryTemplateDialog({ open, template, onClose }: CategoryTemp
       tiktokCategoryId: category.id,
       categoryName: category.name || undefined,
       categoryPath: category.path || undefined,
-      // 🔴 "No brand" là một brand THẬT của TikTok: gửi đúng id của nó, không convert
-      // thành null và không bỏ field.
-      tiktokBrandId: brand.id || undefined,
-      brandName: brand.name || undefined,
+      // 🔴 Gửi `brandMode` TƯỜNG MINH. "No brand" là một trạng thái (NONE ⇒ payload gửi
+      // TikTok bỏ hẳn `brand_id`), không phải một `tiktok_brand_id` nào cả.
+      ...toBrandPayload(brand),
       warehouseId: warehouseId || undefined,
       packageWeight: packageWeight || undefined,
       weightUnit: packageWeight ? weightUnit : undefined,
@@ -513,23 +522,13 @@ export function CategoryTemplateDialog({ open, template, onClose }: CategoryTemp
               {t('listing.categoryTemplates.selectCategoryFirst')}
             </p>
           ) : attributes.length === 0 ? (
-            // Cache thuộc tính chỉ chứa các danh mục đã được kéo về. Chọn một danh mục
-            // chưa có thì đây là chỗ kéo nó — vẫn đi qua Resource Sync (ghi vào DB, có
-            // nhật ký), KHÔNG gọi thẳng TikTok từ form.
-            <div className="space-y-2">
-              <p className="text-sm text-muted-foreground">
-                {t('listing.categoryTemplates.noAttributes')}
-              </p>
-              {canSync && (
-                <ResourceSyncButton
-                  resource="CATEGORY_ATTRIBUTE"
-                  size="sm"
-                  label={t('listing.categoryTemplates.syncAttributes')}
-                  categoryIds={(selectedCategoryRows.data ?? []).map((row) => row.id)}
-                  onDone={() => void attributesQuery.refetch()}
-                />
-              )}
-            </div>
+            // 🔴 Không còn nút Sync ở đây. Thuộc tính danh mục là dữ liệu master TOÀN CỤC:
+            // một Seller bấm Sync từ form nghĩa là ghi vào dữ liệu dùng chung của mọi tổ
+            // chức. Danh mục chưa có thuộc tính là việc của Super Admin — nói rõ điều đó
+            // thay vì đưa ra một nút mà backend sẽ trả 403.
+            <p className="text-sm text-muted-foreground">
+              {t('listing.categoryTemplates.noAttributes')}
+            </p>
           ) : (
             <>
               <AttributeGroup

@@ -2,7 +2,12 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { accountService } from '../services/account.service';
-import type { AccountQuery, CreateAccountPayload, CredentialsPayload, UpdateAccountPayload } from '../types';
+import type {
+  AccountQuery,
+  CreateAccountPayload,
+  CredentialsPayload,
+  UpdateAccountPayload,
+} from '../types';
 
 const ACCOUNTS_KEY = 'accounts';
 

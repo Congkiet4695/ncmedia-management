@@ -19,7 +19,10 @@ export function createProfileFormSchema(t: ValidationT) {
     .or(z.literal(''));
 
   const max = (limit: number) =>
-    z.string().max(limit, t('maxLength', { count: limit })).or(z.literal(''));
+    z
+      .string()
+      .max(limit, t('maxLength', { count: limit }))
+      .or(z.literal(''));
 
   return z.object({
     fullName: z

@@ -60,6 +60,9 @@ function PublishHistoryView() {
   const canPublish = hasPermission('pod.listing.publish');
 
   const [page, setPage] = useState(1);
+  // Cỡ trang do người dùng chọn (ô "Số dòng mỗi trang"); đổi cỡ thì luôn về trang 1
+  // vì trang cũ có thể không còn tồn tại ở cỡ mới.
+  const [limit, setLimit] = useState(20);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<PodListingJobStatus | ''>('');
   // Mặc định hiện CẢ HAI loại: màn hình này là nhật ký của mọi lượt đã đẩy lên sàn, và lọc
@@ -70,7 +73,7 @@ function PublishHistoryView() {
   const retry = useRetryListingJob();
   const jobs = useListingJobs({
     page,
-    limit: 20,
+    limit,
     search: search || undefined,
     status: status || undefined,
     type: type || undefined,
@@ -89,6 +92,10 @@ function PublishHistoryView() {
         emptyMessage={t('listing.publishHistory.empty')}
         meta={jobs.data?.meta ?? null}
         onPageChange={setPage}
+        onPageSizeChange={(next) => {
+          setLimit(next);
+          setPage(1);
+        }}
         searchPlaceholder={t('listing.jobs.searchPlaceholder')}
         onSearchChange={(value) => {
           setPage(1);

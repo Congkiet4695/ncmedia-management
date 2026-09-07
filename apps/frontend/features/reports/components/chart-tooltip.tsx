@@ -33,7 +33,11 @@ export function ChartTooltip({
   return (
     <div
       className="rounded-md border px-3 py-2 text-xs shadow-md"
-      style={{ background: theme.tooltipBg, borderColor: theme.tooltipBorder, color: theme.tooltipText }}
+      style={{
+        background: theme.tooltipBg,
+        borderColor: theme.tooltipBorder,
+        color: theme.tooltipText,
+      }}
     >
       {label != null && (
         <p className="mb-1 font-medium" style={{ color: theme.tooltipText }}>

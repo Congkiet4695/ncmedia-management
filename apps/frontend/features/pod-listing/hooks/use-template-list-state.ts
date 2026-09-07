@@ -15,7 +15,8 @@ import type { PodListingMarket, PodTemplateQuery, PodTemplateSortField } from '.
 /** Bộ lọc trạng thái dùng chung cho cả sáu màn hình. */
 export type TemplateStatusFilter = 'ALL' | 'ACTIVE' | 'DEFAULT';
 
-const PAGE_SIZE = 20;
+/** Cỡ trang mặc định — người dùng đổi được qua ô "Số dòng mỗi trang". */
+const DEFAULT_PAGE_SIZE = 20;
 
 /**
  * Toàn bộ trạng thái danh sách của MỘT màn hình template: tìm kiếm, lọc, sắp xếp, phân
@@ -33,6 +34,7 @@ export function useTemplateListState<T extends { id: string; name: string }>(
   const translateApiError = useApiError();
 
   const [page, setPage] = useState(1);
+  const [limit, setLimitValue] = useState(DEFAULT_PAGE_SIZE);
   const [search, setSearchValue] = useState('');
   const [status, setStatusValue] = useState<TemplateStatusFilter>('ALL');
   const [market, setMarketValue] = useState<PodListingMarket | ''>('');
@@ -42,7 +44,7 @@ export function useTemplateListState<T extends { id: string; name: string }>(
   const query: PodTemplateQuery = useMemo(
     () => ({
       page,
-      limit: PAGE_SIZE,
+      limit,
       search: search || undefined,
       activeOnly: status === 'ACTIVE' ? true : undefined,
       defaultOnly: status === 'DEFAULT' ? true : undefined,
@@ -50,7 +52,7 @@ export function useTemplateListState<T extends { id: string; name: string }>(
       sortBy,
       sortOrder,
     }),
-    [page, search, status, market, sortBy, sortOrder, options.withMarket],
+    [page, limit, search, status, market, sortBy, sortOrder, options.withMarket],
   );
 
   const list = usePodTemplates<T>(kind, query);
@@ -73,6 +75,11 @@ export function useTemplateListState<T extends { id: string; name: string }>(
   const setSort = useCallback((by: PodTemplateSortField, order: 'asc' | 'desc') => {
     setSortBy(by);
     setSortOrder(order);
+    setPage(1);
+  }, []);
+  /** Đổi cỡ trang cũng về trang 1: trang 7 của cỡ 20 không tồn tại ở cỡ 100. */
+  const setPageSize = useCallback((value: number) => {
+    setLimitValue(value);
     setPage(1);
   }, []);
 
@@ -115,6 +122,8 @@ export function useTemplateListState<T extends { id: string; name: string }>(
     sort: { by: sortBy, order: sortOrder, onChange: setSort },
     page,
     setPage,
+    limit,
+    setPageSize,
     handleDelete,
     handleClone,
   };

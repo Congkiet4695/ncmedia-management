@@ -78,16 +78,14 @@ export const podListingService = {
 
   /** `tiktokCategoryId` tra CHÍNH XÁC một danh mục — dùng khi mở lại template đã lưu. */
   async syncedCategories(
-    params: {
-      shopId?: string;
-      search?: string;
-      leafOnly?: boolean;
-      tiktokCategoryId?: string;
-    } = {},
+    params: { search?: string; leafOnly?: boolean; tiktokCategoryId?: string } = {},
   ) {
-    const res = await apiClient.get<ApiResponse<PodSyncedCategory[]>>(`${POD}/products/categories`, {
-      params: clean({ ...params, leafOnly: params.leafOnly ? 'true' : undefined }),
-    });
+    const res = await apiClient.get<ApiResponse<PodSyncedCategory[]>>(
+      `${POD}/products/categories`,
+      {
+        params: clean({ ...params, leafOnly: params.leafOnly ? 'true' : undefined }),
+      },
+    );
     return res.data.data;
   },
 
@@ -99,7 +97,7 @@ export const podListingService = {
     return res.data.data;
   },
 
-  /** Brand có phân trang + tìm kiếm phía server (`?page&pageSize&keyword`). */
+  /** Brand có phân trang + tìm kiếm phía server (`?page&limit&keyword` — ADR-023). */
   async syncedBrands(params: PodBrandQuery = {}) {
     const res = await apiClient.get<ApiResponse<Paginated<PodSyncedBrand>>>(
       `${POD}/products/brands`,
@@ -493,7 +491,9 @@ export const podListingService = {
     return res.data.data;
   },
 
-  async uploadAsset(file: File): Promise<{ id: string; publicUrl: string | null; originalName: string }> {
+  async uploadAsset(
+    file: File,
+  ): Promise<{ id: string; publicUrl: string | null; originalName: string }> {
     const form = new FormData();
     form.append('files', file);
     form.append('module', 'POD_TIKTOK');

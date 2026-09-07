@@ -13,15 +13,17 @@ interface ResourceSyncButtonProps {
   size?: 'sm' | 'default';
   variant?: 'default' | 'outline';
   disabled?: boolean;
-  categoryIds?: string[];
   onDone?: () => void;
 }
 
 /**
- * Nút Sync dùng chung cho mọi màn hình tài nguyên.
+ * Nút Sync cho tài nguyên **của tổ chức** (kho hàng).
  *
- * Trong lúc chạy: nút khoá và hiện spinner — một lượt sync danh mục mất hơn 10 giây, không
- * có phản hồi thì người dùng sẽ bấm lại nhiều lần và đốt quota TikTok.
+ * 🔴 Không còn dùng cho danh mục / thương hiệu / thuộc tính: đó là dữ liệu master toàn cục
+ * và chỉ Super Admin đồng bộ (`MasterDataSyncButton`).
+ *
+ * Trong lúc chạy: nút khoá và hiện spinner — một lượt sync mất hơn 10 giây, không có phản
+ * hồi thì người dùng sẽ bấm lại nhiều lần và đốt quota TikTok.
  *
  * Kết quả (số bản ghi / thời gian / lỗi nguyên văn) do `useSyncResourceWithToast` báo.
  */
@@ -31,7 +33,6 @@ export function ResourceSyncButton({
   size = 'default',
   variant = 'outline',
   disabled,
-  categoryIds,
   onDone,
 }: ResourceSyncButtonProps) {
   const { t } = useTranslation('pod');
@@ -45,14 +46,10 @@ export function ResourceSyncButton({
       size={size}
       disabled={running || disabled}
       onClick={() => {
-        void run(resource, { categoryIds }).then(() => onDone?.());
+        void run(resource).then(() => onDone?.());
       }}
     >
-      {running ? (
-        <Loader2 className="size-4 animate-spin" />
-      ) : (
-        <RefreshCw className="size-4" />
-      )}
+      {running ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
       {running ? t('resources.syncing') : (label ?? t('resources.sync'))}
     </Button>
   );

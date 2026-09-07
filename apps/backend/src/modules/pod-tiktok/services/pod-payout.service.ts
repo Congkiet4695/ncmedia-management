@@ -193,7 +193,8 @@ export class PodPayoutService {
   } {
     return {
       page: query.page ?? 1,
-      pageSize: query.pageSize ?? 20,
+      // `limit` (ADR-023) ưu tiên; `pageSize` là tên cũ vẫn được chấp nhận.
+      pageSize: query.limit ?? query.pageSize ?? 20,
       // Yêu cầu nghiệp vụ: mặc định sắp xếp GIẢM DẦN theo Payout.
       sortField: query.sortField ?? 'totalPayout',
       sortOrder: query.sortOrder ?? 'desc',

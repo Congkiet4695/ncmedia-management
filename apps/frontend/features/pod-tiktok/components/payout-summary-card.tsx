@@ -54,9 +54,7 @@ export function PayoutSummaryCard({ data, loading, error }: PayoutSummaryCardPro
       <Card>
         <CardContent className="flex flex-col items-center gap-2 py-10 text-center">
           <AlertTriangle className="size-8 text-destructive" />
-          <p className="text-sm text-destructive">
-            {translateApiError(error)}
-          </p>
+          <p className="text-sm text-destructive">{translateApiError(error)}</p>
         </CardContent>
       </Card>
     );

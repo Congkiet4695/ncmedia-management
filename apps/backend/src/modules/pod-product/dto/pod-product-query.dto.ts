@@ -140,12 +140,4 @@ export class TriggerProductSyncDto {
   @IsBoolean()
   full?: boolean;
 
-  @ApiPropertyOptional({
-    description: 'Đồng bộ luôn cả danh mục + thương hiệu của shop (chậm hơn)',
-    default: false,
-  })
-  @IsOptional()
-  @Transform(({ value }: { value: unknown }) => value === true || value === 'true')
-  @IsBoolean()
-  includeCatalog?: boolean;
 }

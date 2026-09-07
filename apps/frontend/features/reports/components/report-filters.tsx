@@ -29,7 +29,11 @@ export function MetricSelect({
       <Label htmlFor={id} className="text-xs text-muted-foreground">
         {t('metric.label')}
       </Label>
-      <NativeSelect id={id} value={value} onChange={(e) => onChange(e.target.value as ReportMetric)}>
+      <NativeSelect
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value as ReportMetric)}
+      >
         {METRIC_OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>
             {t(o.labelKey)}
@@ -56,7 +60,11 @@ export function GroupBySelect({
       <Label htmlFor={id} className="text-xs text-muted-foreground">
         {t('groupBy.label')}
       </Label>
-      <NativeSelect id={id} value={value} onChange={(e) => onChange(e.target.value as ReportGroupBy)}>
+      <NativeSelect
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value as ReportGroupBy)}
+      >
         {GROUP_BY_OPTIONS.map((o) => (
           <option key={o.value} value={o.value}>
             {t(o.labelKey)}

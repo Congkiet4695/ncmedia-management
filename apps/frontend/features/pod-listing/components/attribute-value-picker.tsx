@@ -56,14 +56,14 @@ export function AttributeValuePicker({
     () =>
       (attribute.values ?? [])
         .filter((option) => Boolean(option.id))
-        .map((option) => ({ value: option.id as string, label: option.name ?? (option.id as string) })),
+        .map((option) => ({
+          value: option.id as string,
+          label: option.name ?? (option.id as string),
+        })),
     [attribute.values],
   );
 
-  const officialIds = useMemo(
-    () => new Set(options.map((option) => option.value)),
-    [options],
-  );
+  const officialIds = useMemo(() => new Set(options.map((option) => option.value)), [options]);
 
   // Một danh sách duy nhất cho người dùng nhìn; thứ tự giữ nguyên như đã chọn.
   const values = [...selection.valueIds, ...selection.customValues];

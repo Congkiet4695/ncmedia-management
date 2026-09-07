@@ -3,12 +3,14 @@
 import { useEffect, useState } from 'react';
 import Link from 'next/link';
 import { useQueryClient } from '@tanstack/react-query';
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import { Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { DataPagination } from '@/components/ui/data-pagination';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { useClampedPage } from '@/hooks/use-clamped-page';
 import { useApiError } from '@/hooks/use-api-error';
 import { DeleteDialog } from '@/features/employees/components/delete-dialog';
 import { EmployeeDialog } from '@/features/employees/components/employee-dialog';
@@ -65,6 +67,9 @@ function EmployeesView() {
 
   const items = employeesQuery.data?.items ?? [];
   const meta = employeesQuery.data?.meta;
+  // Xoá nốt record cuối của trang cuối ⇒ lùi về trang còn dữ liệu,
+  // không để giao diện kẹt ở "Trang 3 / 2" với một cái bảng trống.
+  useClampedPage(meta, (next) => patchQuery({ page: next }));
 
   const handleConfirmDelete = async () => {
     if (!deleting) return;
@@ -125,33 +130,11 @@ function EmployeesView() {
             />
           )}
 
-          {meta && meta.total > 0 && (
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>
-                {t('pageWithTotal', { page: meta.page, totalPages: meta.totalPages, total: meta.total })}
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={meta.page <= 1}
-                  onClick={() => patchQuery({ page: meta.page - 1 })}
-                >
-                  <ChevronLeft className="size-4" />
-                  {t('common:action.previous')}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={meta.page >= meta.totalPages}
-                  onClick={() => patchQuery({ page: meta.page + 1 })}
-                >
-                  {t('common:action.next')}
-                  <ChevronRight className="size-4" />
-                </Button>
-              </div>
-            </div>
-          )}
+          <DataPagination
+            meta={meta}
+            onPageChange={(next) => patchQuery({ page: next })}
+            onPageSizeChange={(next) => patchQuery({ limit: next, page: 1 })}
+          />
         </CardContent>
       </Card>
 

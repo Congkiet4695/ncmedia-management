@@ -31,10 +31,20 @@ export const SUPER_ADMIN_ROLE_CODE = 'SUPER_ADMIN';
  */
 export const PLATFORM_PERMISSION_PREFIX = 'platform.';
 
-/** Quyền của Role SUPER_ADMIN — và CHỈ role đó được nhận. */
+/**
+ * Quyền của Role SUPER_ADMIN — và CHỈ role đó được nhận.
+ *
+ * 🔴 `platform.masterdata.*` nằm ở đây chứ KHÔNG nằm trong catalog của org admin: dữ liệu
+ * master TikTok (danh mục / thương hiệu / thuộc tính) dùng chung cho MỌI tổ chức, nên một
+ * Admin tổ chức chạy đồng bộ là ghi đè dữ liệu của tất cả những người còn lại. Tiền tố
+ * `platform.` đã có sẵn hàng rào lọc ở `PermissionService` và ở seed — đặt quyền vào đúng
+ * nhóm này là đủ, không cần dựng thêm cơ chế phân quyền thứ hai.
+ */
 export const SUPER_ADMIN_PERMISSIONS = [
   'platform.organization.read',
   'platform.organization.approve',
+  'platform.masterdata.read',
+  'platform.masterdata.sync',
 ] as const;
 
 /**
@@ -86,6 +96,12 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   'pod.tiktok.order.read',
   'pod.tiktok.design.upload',
   'pod.tiktok.design.delete',
+  // Flash Sale: Seller tự chạy khuyến mãi cho shop được gán — cùng mức tin cậy đã trao ở
+  // `pod.listing.publish` (đưa hàng lên sàn). Phạm vi vẫn bị `PodAccessScopeService` chặn
+  // ở đúng những shop Admin đã gán, nên đây KHÔNG phải quyền xuyên shop.
+  'pod.flashsale.read',
+  'pod.flashsale.write',
+  'pod.flashsale.publish',
   // Payout: chỉ xem báo cáo của shop mình.
   'pod.tiktok.payout.read',
   // Ánh xạ sản phẩm (API nằm ở module Fulfillment).

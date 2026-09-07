@@ -59,9 +59,7 @@ export function ChartCard({
             </div>
           ) : error ? (
             <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
-              <p className="text-sm text-destructive">
-                {translateApiError(error)}
-              </p>
+              <p className="text-sm text-destructive">{translateApiError(error)}</p>
             </div>
           ) : isEmpty ? (
             <div className="flex h-full flex-col items-center justify-center gap-2 text-center">

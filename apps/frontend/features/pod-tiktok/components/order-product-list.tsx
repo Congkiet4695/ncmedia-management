@@ -154,9 +154,7 @@ export function OrderProductList({
                 onClick={() => onUploadDesign(item)}
               >
                 <ImageUp className="size-4" />
-                {item.mappingId === null
-                  ? t('product.designNoMapping')
-                  : t('product.uploadDesign')}
+                {item.mappingId === null ? t('product.designNoMapping') : t('product.uploadDesign')}
               </Button>
             </div>
           </div>

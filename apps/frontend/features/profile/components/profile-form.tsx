@@ -73,19 +73,35 @@ export function ProfileForm({ profile }: { profile: Profile }) {
           <Label htmlFor="fullName">
             {t('fullName')} <span className="text-destructive">*</span>
           </Label>
-          <Input id="fullName" disabled={submitting} aria-invalid={!!errors.fullName} {...register('fullName')} />
+          <Input
+            id="fullName"
+            disabled={submitting}
+            aria-invalid={!!errors.fullName}
+            {...register('fullName')}
+          />
           <FieldError message={errors.fullName?.message} />
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="phone">{t('phone')}</Label>
-          <Input id="phone" disabled={submitting} aria-invalid={!!errors.phone} {...register('phone')} />
+          <Input
+            id="phone"
+            disabled={submitting}
+            aria-invalid={!!errors.phone}
+            {...register('phone')}
+          />
           <FieldError message={errors.phone?.message} />
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="dateOfBirth">{t('dateOfBirth')}</Label>
-          <Input id="dateOfBirth" type="date" disabled={submitting} aria-invalid={!!errors.dateOfBirth} {...register('dateOfBirth')} />
+          <Input
+            id="dateOfBirth"
+            type="date"
+            disabled={submitting}
+            aria-invalid={!!errors.dateOfBirth}
+            {...register('dateOfBirth')}
+          />
           <FieldError message={errors.dateOfBirth?.message} />
         </div>
 
@@ -103,7 +119,12 @@ export function ProfileForm({ profile }: { profile: Profile }) {
 
         <div className="space-y-2">
           <Label htmlFor="bankQrUrl">{t('bankQrUrl')}</Label>
-          <Input id="bankQrUrl" placeholder="https://…" disabled={submitting} {...register('bankQrUrl')} />
+          <Input
+            id="bankQrUrl"
+            placeholder="https://…"
+            disabled={submitting}
+            {...register('bankQrUrl')}
+          />
           <FieldError message={errors.bankQrUrl?.message} />
         </div>
 
@@ -115,7 +136,12 @@ export function ProfileForm({ profile }: { profile: Profile }) {
 
         <div className="space-y-2 sm:col-span-2">
           <Label htmlFor="avatar">Avatar (URL)</Label>
-          <Input id="avatar" placeholder="https://…" disabled={submitting} {...register('avatar')} />
+          <Input
+            id="avatar"
+            placeholder="https://…"
+            disabled={submitting}
+            {...register('avatar')}
+          />
           <FieldError message={errors.avatar?.message} />
         </div>
       </div>

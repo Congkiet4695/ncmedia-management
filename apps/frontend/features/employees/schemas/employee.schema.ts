@@ -26,7 +26,10 @@ export function createEmployeeFormSchema(t: ValidationT) {
     .or(z.literal(''));
 
   const max = (limit: number) =>
-    z.string().max(limit, t('maxLength', { count: limit })).or(z.literal(''));
+    z
+      .string()
+      .max(limit, t('maxLength', { count: limit }))
+      .or(z.literal(''));
 
   return z.object({
     fullName: z
@@ -34,13 +37,7 @@ export function createEmployeeFormSchema(t: ValidationT) {
       .trim()
       .min(2, t('minLength', { count: 2 }))
       .max(255, t('maxLength', { count: 255 })),
-    email: z
-      .string()
-      .trim()
-      .toLowerCase()
-      .min(1, t('required'))
-      .email(t('email'))
-      .max(255),
+    email: z.string().trim().toLowerCase().min(1, t('required')).email(t('email')).max(255),
     status: z.enum(EMPLOYEE_STATUSES),
     roleId: z.string().uuid(t('invalidRole')).or(z.literal('')),
     larkAccount: max(255),

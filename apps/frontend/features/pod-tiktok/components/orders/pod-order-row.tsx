@@ -71,7 +71,11 @@ export function PodOrderRow({
     <>
       <TableRow
         onClick={() => onToggleExpand(order.id)}
-        className={cn('cursor-pointer align-top', selected && 'bg-primary/5', expanded && 'border-b-0')}
+        className={cn(
+          'cursor-pointer align-top',
+          selected && 'bg-primary/5',
+          expanded && 'border-b-0',
+        )}
       >
         <TableCell className="w-9 pr-0">
           <Checkbox

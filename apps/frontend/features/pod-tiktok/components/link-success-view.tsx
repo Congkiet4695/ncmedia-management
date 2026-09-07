@@ -110,9 +110,7 @@ export function LinkSuccessView() {
   if (!summary.success) {
     return (
       <FailureCard
-        message={
-          ('message' in summary && summary.message) || translateErrorCode(summary.errorCode)
-        }
+        message={('message' in summary && summary.message) || translateErrorCode(summary.errorCode)}
       />
     );
   }

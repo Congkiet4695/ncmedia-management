@@ -39,9 +39,7 @@ export function OrderNotesList({ notes, max }: OrderNotesListProps) {
                   <span className="whitespace-pre-wrap break-words">{n.content}</span>
                 </li>
               ))}
-              {hidden > 0 && (
-                <li className="text-muted-foreground/70">+{hidden} ghi chú khác…</li>
-              )}
+              {hidden > 0 && <li className="text-muted-foreground/70">+{hidden} ghi chú khác…</li>}
             </ul>
           </div>
         );

@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, PodPricingMarkupType } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { hasBrandSelection, normalizeBrandSelection } from './pod-brand-selection';
 import { resolveSkuItemPrice } from './pod-sku-price';
 import {
   POD_SKU_TEMPLATE_MAX_ITEMS,
@@ -224,7 +225,13 @@ export class PodTemplateService {
 
       const { attributes, ...data } = dto;
       const template = await tx.podCategoryTemplate.create({
-        data: { ...data, organizationId, createdBy: userId },
+        // `normalizeBrandSelection` đặt SAU `...data` để nó là tiếng nói cuối cùng về brand.
+        data: {
+          ...data,
+          ...normalizeBrandSelection(dto),
+          organizationId,
+          createdBy: userId,
+        },
         select: { id: true },
       });
 
@@ -258,7 +265,14 @@ export class PodTemplateService {
       const { attributes, ...data } = dto;
       await tx.podCategoryTemplate.update({
         where: { id },
-        data: { ...data, isActive: dto.isActive ?? true, updatedBy: userId },
+        data: {
+          ...data,
+          // Chỉ đụng tới brand khi request CÓ gửi lên — request đổi mỗi tên template không
+          // được âm thầm reset lựa chọn "No brand" về UNSET.
+          ...(hasBrandSelection(dto) ? normalizeBrandSelection(dto) : {}),
+          isActive: dto.isActive ?? true,
+          updatedBy: userId,
+        },
       });
 
       // Thuộc tính: **chỉ đụng tới khi request có gửi lên**.
@@ -295,6 +309,9 @@ export class PodTemplateService {
       tiktokCategoryId: source.tiktokCategoryId,
       categoryName: source.categoryName ?? undefined,
       categoryPath: source.categoryPath ?? undefined,
+      // Nhân bản phải giữ NGUYÊN ý định brand — kể cả "No brand". Bỏ `brandMode` ở đây
+      // là bản sao rơi về UNSET và bị validator chặn publish một cách khó hiểu.
+      brandMode: source.brandMode,
       tiktokBrandId: source.tiktokBrandId ?? undefined,
       brandName: source.brandName ?? undefined,
       warehouseId: source.warehouseId ?? undefined,
@@ -1405,8 +1422,9 @@ export class PodTemplateService {
     tiktokAttributeIds: string[],
   ): Promise<Map<string, AttributeDefinition>> {
     const rows = await tx.podCategoryAttribute.findMany({
+      // Không lọc theo `organizationId`: định nghĩa thuộc tính là dữ liệu master TOÀN CỤC
+      // (quy tắc của TikTok, giống nhau với mọi seller). Khoá tra là danh mục + mã thuộc tính.
       where: {
-        organizationId,
         tiktokAttributeId: { in: tiktokAttributeIds },
         category: { tiktokCategoryId },
       },

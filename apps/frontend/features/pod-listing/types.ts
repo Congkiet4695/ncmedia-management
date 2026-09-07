@@ -1,3 +1,4 @@
+import type { PodBrandMode } from './brand-selection';
 import type { Paginated, PaginationParams } from '@/types/api';
 
 /** Sales Market — khớp enum `PodListingMarket` của backend. */
@@ -83,12 +84,7 @@ export type PodListingScopeMatch = (typeof POD_LISTING_SCOPE_MATCHES)[number];
 export const POD_PRICING_FORMULA_VARIABLES = ['cost', 'shipping', 'base', 'markup'] as const;
 
 /** Cột sắp xếp — khớp whitelist `POD_TEMPLATE_SORT_FIELDS` của backend. */
-export const POD_TEMPLATE_SORT_FIELDS = [
-  'displayOrder',
-  'name',
-  'createdAt',
-  'updatedAt',
-] as const;
+export const POD_TEMPLATE_SORT_FIELDS = ['displayOrder', 'name', 'createdAt', 'updatedAt'] as const;
 export type PodTemplateSortField = (typeof POD_TEMPLATE_SORT_FIELDS)[number];
 
 export const POD_DRAFT_STATUSES = [
@@ -116,6 +112,10 @@ export interface PodTemplateQuery extends PaginationParams {
 // Dữ liệu TikTok đã đồng bộ (chỉ đọc — nguồn cho các bộ chọn)
 // ---------------------------------------------------------------------------
 
+/**
+ * Danh mục TikTok — **dữ liệu master TOÀN CỤC**. Không có `shop`: bản ghi dùng chung cho
+ * mọi tổ chức, chỉ Super Admin đồng bộ.
+ */
 export interface PodSyncedCategory {
   id: string;
   tiktokCategoryId: string;
@@ -124,7 +124,6 @@ export interface PodSyncedCategory {
   level: number;
   isLeaf: boolean;
   syncedAt: string;
-  shop: { id: string; name: string } | null;
 }
 
 /**
@@ -155,15 +154,18 @@ export interface PodSyncedBrand {
   /** Bản ghi do hệ thống tạo vì `Get Brands` không liệt kê "No brand". */
   isSystem: boolean;
   syncedAt: string;
-  shop: { id: string; name: string } | null;
 }
 
-/** Tham số tìm brand — tìm phía SERVER vì danh sách có thể hàng chục nghìn dòng. */
+/**
+ * Tham số tìm brand — tìm phía SERVER vì danh sách có thể hàng chục nghìn dòng.
+ *
+ * 🔴 `limit` (không phải `pageSize`): endpoint brands từng là chỗ DUY NHẤT lệch khỏi
+ * ADR-023. Backend nay nhận `limit` và vẫn chấp nhận `pageSize` như tên cũ.
+ */
 export interface PodBrandQuery {
-  shopId?: string;
   keyword?: string;
   page?: number;
-  pageSize?: number;
+  limit?: number;
 }
 
 export interface PodWarehouse {
@@ -225,6 +227,8 @@ export interface PodCategoryTemplate {
   tiktokCategoryId: string;
   categoryName: string | null;
   categoryPath: string | null;
+  /** `NONE` = người dùng chọn "No brand". Xem `features/pod-listing/brand-selection`. */
+  brandMode: PodBrandMode;
   tiktokBrandId: string | null;
   brandName: string | null;
   warehouseId: string | null;
@@ -485,6 +489,8 @@ export interface PodListingTemplate {
   imageTemplateId: string | null;
   pricingStrategyId: string | null;
   warehouseId: string | null;
+  /** `UNSET` = không ghi đè brand của Category Template. */
+  brandMode: PodBrandMode;
   tiktokBrandId: string | null;
   brandName: string | null;
   shippingTemplateId: string | null;
@@ -515,12 +521,7 @@ export interface PodListingTemplate {
 // ---------------------------------------------------------------------------
 
 export type PodTemplateBundleKind =
-  | 'CATEGORY'
-  | 'SKU'
-  | 'DESCRIPTION'
-  | 'IMAGE'
-  | 'PRICING'
-  | 'LISTING';
+  'CATEGORY' | 'SKU' | 'DESCRIPTION' | 'IMAGE' | 'PRICING' | 'LISTING';
 
 export interface PodTemplateBundle {
   version: number;
@@ -570,7 +571,11 @@ export interface ResolvedListing {
   title: string;
   description: string;
   category: { tiktokCategoryId: string | null; name: string | null; path: string | null };
-  brand: { tiktokBrandId: string | null; name: string | null };
+  /**
+   * `mode` là câu trả lời; `tiktokBrandId` chỉ có nghĩa khi `SPECIFIC`.
+   * Optional vì payload đóng băng trước khi sửa lỗi không có trường này.
+   */
+  brand: { mode?: PodBrandMode; tiktokBrandId: string | null; name: string | null };
   attributes: Array<{
     tiktokAttributeId: string;
     name: string | null;

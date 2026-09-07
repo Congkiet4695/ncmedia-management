@@ -1,10 +1,11 @@
-/** Tài nguyên dùng chung phải kéo từ TikTok về trước khi dựng Template. */
-export const POD_RESOURCE_TYPES = [
-  'CATEGORY',
-  'BRAND',
-  'CATEGORY_ATTRIBUTE',
-  'WAREHOUSE',
-] as const;
+/**
+ * Tài nguyên TikTok **của tổ chức** — thứ mỗi Organization tự đồng bộ.
+ *
+ * 🔴 CATEGORY / BRAND / CATEGORY_ATTRIBUTE đã RỜI khỏi đây: chúng là dữ liệu master toàn
+ * cục, chỉ Super Admin đồng bộ (`features/pod-master-data`). Còn lại đúng kho hàng — thứ
+ * thật sự khác nhau giữa các shop.
+ */
+export const POD_RESOURCE_TYPES = ['WAREHOUSE'] as const;
 export type PodResourceType = (typeof POD_RESOURCE_TYPES)[number];
 
 export type PodResourceSyncStatus = 'IDLE' | 'RUNNING' | 'SUCCESS' | 'PARTIAL' | 'FAILED';
@@ -19,10 +20,6 @@ export interface PodResourceStatus {
   durationMs: number | null;
   lastError: string | null;
   jobId: string | null;
-  /** Phải sync tài nguyên này trước thì tài nguyên kia mới có dữ liệu. */
-  dependsOn: PodResourceType | null;
-  /** `false` ⇒ khoá nút Sync vì phụ thuộc chưa có dữ liệu. */
-  ready: boolean;
 }
 
 /** Kết quả một lần bấm Sync. */

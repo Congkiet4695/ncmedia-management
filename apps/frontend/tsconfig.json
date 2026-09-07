@@ -21,5 +21,8 @@
     }
   },
   "include": ["next-env.d.ts", "**/*.ts", "**/*.tsx", ".next/types/**/*.ts"],
-  "exclude": ["node_modules"]
+  // `scripts/verify-pagination.ts` chạy bằng `node --experimental-strip-types` nên nó import
+  // kèm đuôi `.ts` — hợp lệ với Node nhưng `tsc` của app từ chối. File này không nằm trong
+  // bundle, nên loại khỏi phạm vi typecheck thay vì nới `allowImportingTsExtensions` cho cả dự án.
+  "exclude": ["node_modules", "scripts/verify-pagination.ts"]
 }

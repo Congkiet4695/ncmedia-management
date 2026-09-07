@@ -17,9 +17,7 @@ import type {
 
 /** Bỏ field rỗng/undefined khỏi query params. */
 function clean(obj: object): Record<string, unknown> {
-  return Object.fromEntries(
-    Object.entries(obj).filter(([, v]) => v !== undefined && v !== ''),
-  );
+  return Object.fromEntries(Object.entries(obj).filter(([, v]) => v !== undefined && v !== ''));
 }
 
 async function get<T>(url: string, params: object): Promise<T> {
@@ -28,8 +26,7 @@ async function get<T>(url: string, params: object): Promise<T> {
 }
 
 export const reportService = {
-  dashboardSummary: (p: DateRangeParams) =>
-    get<DashboardSummary>('/reports/dashboard-summary', p),
+  dashboardSummary: (p: DateRangeParams) => get<DashboardSummary>('/reports/dashboard-summary', p),
   overview: (p: TimeSeriesParams) => get<OverviewSeries>('/reports/overview', p),
   seller: (p: SellerTimeSeriesParams) => get<SellerReport>('/reports/seller', p),
   sellerChart: (p: MetricParams) => get<SellerChart>('/reports/seller-chart', p),

@@ -15,6 +15,7 @@ import {
   ClipboardList,
   Factory,
   FileStack,
+  Globe,
   History,
   Link2,
   LayoutDashboard,
@@ -30,6 +31,7 @@ import {
   Users,
   Wallet,
   Warehouse,
+  Zap,
   type LucideIcon,
 } from 'lucide-react';
 import type { Namespace } from '@/i18n/config';
@@ -41,6 +43,14 @@ export interface NavItemConfig {
   icon: LucideIcon;
   /** Mã permission cần có để thấy menu. Bỏ trống ⇒ ai cũng thấy. */
   permission?: string;
+  /**
+   * Có MỘT trong các quyền này là thấy menu (ngữ nghĩa HOẶC).
+   *
+   * 🔴 Cần cho những màn hình mà hai loại người dùng không chung quyền nào cùng phải vào
+   * được — vd TikTok Master Data: Admin tổ chức có `pod.product.read`, còn Super Admin nền
+   * tảng chỉ có `platform.*`. Khớp với `@RequireAnyPermission` phía backend.
+   */
+  anyPermission?: string[];
   /**
    * Mã permission KHÔNG được có thì mới hiện (menu self-service).
    * Vd "Hồ sơ của tôi" chỉ dành cho người không quản lý nhân viên.
@@ -145,15 +155,14 @@ export const NAVIGATION: NavItemConfig[] = [
         icon: Tags,
         permission: 'pod.product.read',
       },
-      // 🔴 `pod.product.sync` chứ không phải `pod.product.read`: đây là màn hình quản trị
-      // danh mục dùng chung của TikTok (có nút Sync), không phải màn hình duyệt sản phẩm của
-      // shop. Seller không có quyền này ⇒ menu tự ẩn, đúng §10 — và ẩn bằng QUYỀN chứ không
-      // bằng mã role, vì role là động (ADR-009).
+      // 🔴 `pod.product.read` (đổi từ `pod.product.sync`): màn hình này KHÔNG còn nút Sync —
+      // thương hiệu là dữ liệu master toàn cục, chỉ Super Admin đồng bộ. Giữ nguyên quyền cũ
+      // nghĩa là Seller vẫn không xem được một danh sách chỉ-đọc mà họ cần khi chọn brand.
       {
         labelKey: 'podBrands',
         href: '/dashboard/pod/brands',
         icon: BadgeCheck,
-        permission: 'pod.product.sync',
+        permission: 'pod.product.read',
       },
       {
         labelKey: 'podWarehouses',
@@ -161,8 +170,17 @@ export const NAVIGATION: NavItemConfig[] = [
         icon: Warehouse,
         permission: 'pod.product.sync',
       },
-      // Cửa duy nhất kéo dữ liệu dùng chung của TikTok về cache (Category / Brand /
-      // Attribute / Warehouse) — đặt ngay trên Templates vì phải chạy trước.
+      // TikTok Master Data TOÀN CỤC (Category / Brand / Category Attribute).
+      // 🔴 `pod.product.read` chứ không phải quyền sync: Admin tổ chức PHẢI xem được số liệu
+      // và lần đồng bộ gần nhất — không thì dropdown danh mục trống mà họ không biết vì sao.
+      // Nút "Sync Now" trong trang tự ẩn theo cờ `canSync` do server trả về.
+      {
+        labelKey: 'podMasterData',
+        href: '/dashboard/pod/master-data',
+        icon: Globe,
+        anyPermission: ['pod.product.read', 'platform.masterdata.read'],
+      },
+      // Tài nguyên của TỔ CHỨC (kho hàng) — đặt ngay trên Templates vì phải chạy trước.
       {
         labelKey: 'podResources',
         href: '/dashboard/pod/resources',
@@ -202,6 +220,16 @@ export const NAVIGATION: NavItemConfig[] = [
         href: '/dashboard/pod/publish-history',
         icon: History,
         permission: 'pod.listing.read',
+      },
+      // Flash Sale — khuyến mãi giới hạn thời gian (Promotion Activity của TikTok).
+      // 🔴 Gate bằng `pod.flashsale.read`: Seller được cấp quyền này theo mặc định nhưng
+      // vẫn chỉ thấy shop được Admin gán (PodAccessScopeService), giống mọi màn hình POD.
+      // Chưa có menu Promotion — sprint này chỉ làm Flash Sale.
+      {
+        labelKey: 'podFlashSales',
+        href: '/dashboard/pod/flash-sales',
+        icon: Zap,
+        permission: 'pod.flashsale.read',
       },
       {
         labelKey: 'podOrders',
@@ -253,6 +281,7 @@ export function resolveNavigation(
   for (const item of items) {
     if (item.hidden) continue;
     if (item.permission && !has(item.permission)) continue;
+    if (item.anyPermission?.length && !item.anyPermission.some(has)) continue;
     if (item.hiddenWhenPermission && has(item.hiddenWhenPermission)) continue;
 
     if (item.children?.length) {

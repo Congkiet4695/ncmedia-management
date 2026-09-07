@@ -48,18 +48,26 @@ export const POD_PRODUCT_SYNC_FAILURE_THRESHOLD = 5;
 // ---------------------------------------------------------------------------
 
 /**
- * `brand_id` của **No brand** trên TikTok Shop.
+ * ⛔ **KHÔNG dùng làm brand_id nữa.** Đây là id đã gây ra lỗi, giữ lại để CHẶN nó.
  *
- * 🔴 Đây là brand toàn cầu, dùng chung cho mọi seller và mọi vùng — không phải dữ liệu riêng
- * của shop nào. Nó nằm ở đây (một hằng số duy nhất, có chú thích) vì lúc `Get Brands` không
- * liệt kê "No brand" thì hệ thống vẫn phải gửi được một `brand_id` HỢP LỆ khi tạo sản phẩm.
+ * Hằng số này từng được chú thích là "`brand_id` của No brand toàn cầu trên TikTok Shop" và
+ * được `ensureNoBrand()` dùng để tự tạo một bản ghi thương hiệu tên "No brand". Điều đó SAI:
+ * id này chưa bao giờ được TikTok xác nhận là "No brand".
  *
- * Không convert thành `null`, không bỏ field: TikTok từ chối sản phẩm thiếu brand ở phần lớn
- * danh mục, và "để trống" không đồng nghĩa với "No brand".
+ * 🔴 Bằng chứng: sau khi đồng bộ 15.145 thương hiệu từ TikTok, bản ghi mang id này vẫn còn
+ * `is_system = true` — nghĩa là `Get Brands` CHƯA BAO GIỜ trả về nó. Khi payload gửi id này
+ * lên, TikTok phân giải nó thành thương hiệu THẬT sở hữu id ấy phía họ, và sản phẩm lên sàn
+ * mang tên một thương hiệu người dùng không hề chọn.
+ *
+ * Cách biểu diễn ĐÚNG của "No brand" là `PodBrandMode.NONE` — bỏ hẳn `brand_id` khỏi payload
+ * (`brandId` là optional trong Create Product API của TikTok).
+ *
+ * Hằng số còn tồn tại vì `PodListingPublisherService` phải nhận diện và loại bỏ id này khỏi
+ * những payload đã ĐÓNG BĂNG trước khi sửa lỗi — xem `LEGACY_NO_BRAND_IDS` ở đó.
  */
-export const POD_TIKTOK_NO_BRAND_ID = '7082427311584347905';
+export const POD_TIKTOK_LEGACY_FAKE_NO_BRAND_ID = '7082427311584347905';
 
-/** Tên hiển thị của bản ghi No brand do hệ thống tạo. */
+/** Tên hiển thị của lựa chọn "No brand" trên giao diện và trong ảnh chụp template. */
 export const POD_TIKTOK_NO_BRAND_NAME = 'No brand';
 
 /**

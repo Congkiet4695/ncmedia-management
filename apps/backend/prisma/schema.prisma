@@ -392,6 +392,8 @@ model User {
   podTiktokAccountsAuthorized PodTiktokAccount[] @relation("PodTiktokAuthorizer")
   // File do User này upload (Storage Module dùng chung toàn hệ thống).
   storageFilesUploaded        StorageFile[]      @relation("StorageUploader")
+  // Flash Sale do User này tạo — cột "Created By" của màn hình danh sách.
+  podFlashSalesCreated        PodFlashSale[]     @relation("PodFlashSaleCreator")
 
   @@index([organizationId])
   @@index([roleId])
@@ -985,6 +987,8 @@ model PodTiktokAccount {
   payments              PodTiktokPayment[]
   statements            PodTiktokStatement[]
   statementTransactions PodTiktokStatementTransaction[]
+  flashSales            PodFlashSale[]
+  flashSaleTemplates    PodFlashSaleTemplate[]
 
   // Không link trùng cùng một seller (open_id) trong CÙNG Organization.
   // Uỷ quyền lại (reauthorize) → UPDATE bản ghi cũ, không tạo mới.
@@ -1078,8 +1082,6 @@ model PodTiktokShop {
   orders                PodOrder[]
   syncLogs              PodSyncLog[]
   products              PodProduct[]
-  productCategories     PodProductCategory[]
-  productBrands         PodProductBrand[]
   productSyncHistories  PodProductSyncHistory[]
   warehouses            PodTiktokWarehouse[]
   listingPayloads       PodListingPayload[]
@@ -1088,6 +1090,8 @@ model PodTiktokShop {
   statements            PodTiktokStatement[]
   statementTransactions PodTiktokStatementTransaction[]
   listingSessionShops   PodListingSessionShop[]
+  flashSales            PodFlashSale[]
+  flashSaleTemplates    PodFlashSaleTemplate[]
 
   // Chống link trùng Shop trong cùng Organization (hàng rào ở tầng DB).
   @@unique([organizationId, tiktokShopId])
@@ -2907,6 +2911,7 @@ model PodProduct {
   syncLogs        PodProductSyncLog[]
   listingPayloads PodListingPayload[]
   listingJobItems PodListingJobItem[]
+  flashSaleItems  PodFlashSaleItem[]
 
   @@unique([shopId, tiktokProductId])
   @@index([organizationId])
@@ -2964,8 +2969,9 @@ model PodProductVariant {
   createdBy String?   @map("created_by") @db.Uuid
   updatedBy String?   @map("updated_by") @db.Uuid
 
-  product PodProduct        @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  images  PodProductImage[]
+  product        PodProduct         @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  images         PodProductImage[]
+  flashSaleItems PodFlashSaleItem[]
 
   @@unique([productId, tiktokSkuId])
   @@index([organizationId])
@@ -3062,39 +3068,43 @@ model PodProductAttribute {
 }
 
 // ---------------------------------------------------------------------------
-// PodProductCategory — cây danh mục TikTok (cache).
+// PodProductCategory — cây danh mục TikTok. **DỮ LIỆU MASTER TOÀN CỤC.**
 //
-// 🔴 Danh mục phụ thuộc THỊ TRƯỜNG của shop ⇒ scope theo `shop_id`, không dùng chung
-// toàn hệ thống. Public App phục vụ nhiều seller ở nhiều thị trường khác nhau.
+// 🔴 KHÔNG có `organization_id`, KHÔNG có `shop_id`. Cây danh mục do TikTok định nghĩa; nó
+// không thuộc về tổ chức nào. Mô hình cũ (một bản sao cho mỗi shop) bắt mỗi Organization tự
+// bấm Sync trước khi dùng được hệ thống, và nhân bản cùng một cây hàng chục nghìn dòng cho
+// từng shop. Nay chỉ Super Admin đồng bộ MỘT lần vào bảng này và mọi Organization cùng đọc
+// — xem `PodMasterDataSyncService`.
+//
+// Thứ đã rời khỏi bảng cùng lúc đó: `permission_statuses`. Trường ấy trả lời "shop NÀY có
+// được đăng bán ở danh mục này không" — một câu trả lời theo seller, không thể sống trong
+// bảng dùng chung. Nó chưa từng được đọc ở bất kỳ đâu trong mã nguồn nên bị bỏ thay vì di
+// trú (xem docs/SPRINT_AUTH_GLOBAL_MASTER_DATA.md §7).
 // ---------------------------------------------------------------------------
 
 model PodProductCategory {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  shopId         String @map("shop_id") @db.Uuid
+  id       String                @id @default(uuid()) @db.Uuid
+  /// Sàn phát hành bộ dữ liệu này. Khoá tự nhiên là (provider, tiktokCategoryId).
+  provider PodMasterDataProvider @default(TIKTOK)
 
-  tiktokCategoryId   String  @map("tiktok_category_id") @db.VarChar(64)
-  parentTiktokId     String? @map("parent_tiktok_id") @db.VarChar(64)
-  localName          String? @map("local_name") @db.VarChar(255)
-  isLeaf             Boolean @default(false) @map("is_leaf")
+  tiktokCategoryId String  @map("tiktok_category_id") @db.VarChar(64)
+  parentTiktokId   String? @map("parent_tiktok_id") @db.VarChar(64)
+  localName        String? @map("local_name") @db.VarChar(255)
+  isLeaf           Boolean @default(false) @map("is_leaf")
   /// Độ sâu + đường dẫn tên đầy đủ, dựng khi đồng bộ để truy vấn không phải đệ quy.
-  level              Int     @default(0)
-  path               String? @db.VarChar(1024)
-  /// `permission_statuses[]` — seller có được đăng bán ở danh mục này không.
-  permissionStatuses Json?   @map("permission_statuses")
+  level            Int     @default(0)
+  path             String? @db.VarChar(1024)
 
   syncedAt  DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  shop       PodTiktokShop          @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   products   PodProduct[]
   attributes PodCategoryAttribute[]
 
-  @@unique([shopId, tiktokCategoryId])
-  @@index([organizationId])
-  @@index([shopId, isLeaf])
+  @@unique([provider, tiktokCategoryId])
+  @@index([provider, isLeaf])
   @@index([parentTiktokId])
   @@map("pod_product_categories")
 }
@@ -3103,12 +3113,17 @@ model PodProductCategory {
 // PodCategoryAttribute — ĐỊNH NGHĨA thuộc tính của một danh mục (bắt buộc? kiểu?
 // giá trị hợp lệ?). Đây là nền cho Sprint 3 (Template) và cho việc validate listing
 // sau này: quy tắc ĐẾN TỪ API, không hardcode trong mã.
+//
+// 🔴 **DỮ LIỆU MASTER TOÀN CỤC**, đi theo danh mục. Không mang `organization_id`: quy tắc
+// "danh mục Áo thun bắt buộc có thuộc tính Size" là quy tắc của TikTok, giống nhau với mọi
+// seller. Khoá tự nhiên (category_id, tiktok_attribute_id) đã là khoá toàn cục vì
+// `category_id` nay trỏ tới bản ghi danh mục dùng chung.
 // ---------------------------------------------------------------------------
 
 model PodCategoryAttribute {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  categoryId     String @map("category_id") @db.Uuid
+  id         String @id @default(uuid()) @db.Uuid
+  /// Danh mục (TOÀN CỤC) mà định nghĩa thuộc tính này thuộc về.
+  categoryId String @map("category_id") @db.Uuid
 
   tiktokAttributeId   String  @map("tiktok_attribute_id") @db.VarChar(64)
   name                String? @db.VarChar(255)
@@ -3130,18 +3145,23 @@ model PodCategoryAttribute {
   category PodProductCategory @relation(fields: [categoryId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
   @@unique([categoryId, tiktokAttributeId])
-  @@index([organizationId])
+  @@index([tiktokAttributeId])
   @@map("pod_category_attributes")
 }
 
 // ---------------------------------------------------------------------------
-// PodProductBrand — thương hiệu (cache theo shop, cùng lý do với danh mục).
+// PodProductBrand — thương hiệu TikTok. **DỮ LIỆU MASTER TOÀN CỤC** (cùng lý do với danh mục).
+//
+// 🔴 `authorized_status` / `brand_status` được GIỮ LẠI nhưng mang giá trị của **shop nguồn**
+// đã dùng cho lượt đồng bộ toàn cục gần nhất, không phải của shop đang xem. Chúng ở lại vì
+// màn hình Brands và `PodProductService` đang đọc, và bỏ đi là làm hỏng chức năng đang chạy
+// mà không ai yêu cầu. Muốn trạng thái uỷ quyền ĐÚNG theo từng shop thì cần một bảng
+// `pod_shop_brand_authorizations` riêng — xem phần Rủi ro / Follow-up của báo cáo sprint.
 // ---------------------------------------------------------------------------
 
 model PodProductBrand {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-  shopId         String @map("shop_id") @db.Uuid
+  id       String                @id @default(uuid()) @db.Uuid
+  provider PodMasterDataProvider @default(TIKTOK)
 
   tiktokBrandId    String  @map("tiktok_brand_id") @db.VarChar(64)
   name             String? @db.VarChar(255)
@@ -3155,6 +3175,7 @@ model PodProductBrand {
   isNoBrand Boolean @default(false) @map("is_no_brand")
   /// Bản ghi do HỆ THỐNG tạo vì TikTok không trả về (xem `ensureNoBrand`). Lần đồng bộ sau
   /// TikTok trả về thật thì bản ghi được cập nhật tại chỗ và cờ này tắt đi.
+  /// Toàn cục: MỘT bản ghi "No brand" cho cả hệ thống, không phải mỗi shop một cái.
   isSystem  Boolean @default(false) @map("is_system")
 
   syncedAt  DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
@@ -3162,13 +3183,11 @@ model PodProductBrand {
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
 
-  shop     PodTiktokShop @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   products PodProduct[]
 
-  @@unique([shopId, tiktokBrandId])
-  @@index([organizationId])
+  @@unique([provider, tiktokBrandId])
   @@index([name])
-  @@index([organizationId, isNoBrand])
+  @@index([provider, isNoBrand])
   @@map("pod_product_brands")
 }
 
@@ -3374,6 +3393,18 @@ enum PodPriceAdjustmentType {
 ///
 /// 🔴 Template CHỈ ĐỌC những bảng cache này. Cách duy nhất để dữ liệu vào là bấm Sync —
 /// không màn hình nào được gọi thẳng TikTok khi mở dropdown.
+/// Sàn phát hành một bộ **dữ liệu master toàn cục** (danh mục / thương hiệu / thuộc tính).
+///
+/// 🔴 Có enum thay vì mặc định ngầm "tất cả đều là TikTok": khoá tự nhiên của mọi bảng master
+/// là (provider, providerId). Ngày thêm eBay hay Etsy, `123456` của TikTok và `123456` của
+/// eBay là hai danh mục khác nhau — không có cột `provider` thì chúng đụng khoá và một trong
+/// hai bị ghi đè im lặng.
+enum PodMasterDataProvider {
+  TIKTOK
+
+  @@map("pod_master_data_provider")
+}
+
 enum PodResourceType {
   /// Cây danh mục (`pod_product_categories`).
   CATEGORY
@@ -3435,6 +3466,85 @@ model PodResourceSync {
 }
 
 // ---------------------------------------------------------------------------
+// PodMasterDataSync — metadata đồng bộ **dữ liệu master TOÀN CỤC** (Super Admin).
+//
+// 🔴 Vì sao KHÔNG tái dùng `pod_resource_syncs`: bảng đó có khoá `(organization_id, resource)`
+// — nó trả lời "tổ chức X đã sync tài nguyên Y lúc nào". Dữ liệu master toàn cục không có
+// tổ chức nào để điền vào cột đó, và nhét một `organization_id` giả vào là dựng lại đúng mô
+// hình theo-tổ-chức mà sprint này gỡ bỏ. `pod_resource_syncs` ở lại phục vụ WAREHOUSE, thứ
+// thật sự thuộc về từng shop.
+//
+// Đây cũng là chốt chặn CHỐNG CHẠY CHỒNG: `status = SYNCING` + khoá Redis
+// (`DistributedLockService`) — một lượt tại một thời điểm cho mỗi (provider, resource).
+// ---------------------------------------------------------------------------
+
+model PodMasterDataSync {
+  id       String                @id @default(uuid()) @db.Uuid
+  provider PodMasterDataProvider @default(TIKTOK)
+  resource PodResourceType
+
+  status PodResourceSyncStatus @default(IDLE)
+
+  /// Mốc thời gian của lượt GẦN NHẤT — giữ đủ ba mốc để phân biệt "đang chạy rất lâu" với
+  /// "đã hỏng lúc nào đó": startedAt luôn có, chỉ MỘT trong completedAt/failedAt được set.
+  startedAt   DateTime? @map("started_at") @db.Timestamptz(6)
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+  failedAt    DateTime? @map("failed_at") @db.Timestamptz(6)
+  /// Lần đồng bộ THÀNH CÔNG gần nhất — con số hiển thị "Last Sync" trên giao diện.
+  lastSyncAt  DateTime? @map("last_sync_at") @db.Timestamptz(6)
+
+  /// Số bản ghi ghi được ở lượt gần nhất (số bản ghi ĐANG CÓ do màn hình tự đếm).
+  totalRecords Int     @default(0) @map("total_records")
+  durationMs   Int?    @map("duration_ms")
+  /// Lỗi của lượt gần nhất — NULL khi thành công. Lượt hỏng KHÔNG xoá dữ liệu đang có.
+  lastError    String? @map("last_error") @db.VarChar(2000)
+
+  /// Mã lượt chạy gần nhất, để nối sang `pod_master_data_sync_logs`.
+  jobId        String? @map("job_id") @db.Uuid
+  /// Shop đã mượn token để gọi TikTok. API master data của TikTok BẮT BUỘC có shop context,
+  /// nên đồng bộ toàn cục vẫn phải chọn một shop làm nguồn — ghi lại để truy vết dữ liệu lệch.
+  sourceShopId String? @map("source_shop_id") @db.Uuid
+  lastRunBy    String? @map("last_run_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([provider, resource])
+  @@map("pod_master_data_syncs")
+}
+
+// ---------------------------------------------------------------------------
+// PodMasterDataSyncLog — NHẬT KÝ từng lượt đồng bộ master toàn cục.
+// Bảng vận hành: xoá cứng theo retention, không soft delete (giống các bảng log khác).
+// ---------------------------------------------------------------------------
+
+model PodMasterDataSyncLog {
+  id       String                @id @default(uuid()) @db.Uuid
+  provider PodMasterDataProvider @default(TIKTOK)
+  resource PodResourceType
+  /// Gom các dòng của cùng một lần bấm Sync (một lượt chạy cả ba tài nguyên).
+  jobId    String                @map("job_id") @db.Uuid
+
+  status PodResourceSyncStatus
+
+  totalRecords Int     @default(0) @map("total_records")
+  durationMs   Int     @default(0) @map("duration_ms")
+  /// Thông điệp lỗi nguyên trạng — đây là thứ Super Admin cần đọc khi sync hỏng.
+  errorMessage String? @map("error_message") @db.VarChar(2000)
+
+  sourceShopId String?   @map("source_shop_id") @db.Uuid
+  startedAt    DateTime  @map("started_at") @db.Timestamptz(6)
+  finishedAt   DateTime? @map("finished_at") @db.Timestamptz(6)
+  triggeredBy  String?   @map("triggered_by") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  @@index([provider, resource, startedAt])
+  @@index([jobId])
+  @@map("pod_master_data_sync_logs")
+}
+
+// ---------------------------------------------------------------------------
 // PodResourceSyncLog — NHẬT KÝ từng lượt, tách theo shop.
 //
 // Bảng vận hành (xoá cứng theo retention, không soft delete) — giống các bảng log khác.
@@ -3475,6 +3585,24 @@ model PodResourceSyncLog {
 /// 🔴 Quan hệ đi theo chiều **Template → Product**: template mô tả "tôi áp cho những sản
 /// phẩm nào", sản phẩm KHÔNG mang cột trỏ về template. Đây là điều kiện để Bulk Listing —
 /// gắn template vào từng sản phẩm thì 10.000 sản phẩm là 10.000 lần gán tay.
+/// Cách một template quyết định THƯƠNG HIỆU cho sản phẩm sắp đăng.
+///
+/// 🔴 Vì sao cần enum thay vì để `tiktok_brand_id = NULL` gánh cả hai nghĩa: "người dùng CHỌN
+/// không gắn thương hiệu" và "chưa ai cấu hình thương hiệu" là hai ý định khác hẳn nhau, và
+/// hệ thống phải xử lý khác nhau — cái đầu được publish, cái sau phải chặn lại. Gộp cả hai
+/// vào một ô NULL nghĩa là hoặc chặn oan người đã chọn "No brand", hoặc thả lọt listing chưa
+/// cấu hình. Đây chính là gốc của lỗi "chọn No brand nhưng lên sàn thành TestCase-Authorization".
+enum PodBrandMode {
+  /// Chưa ai cấu hình thương hiệu ⇒ validator CHẶN publish.
+  UNSET
+  /// Người dùng chọn **"No brand"** ⇒ payload gửi TikTok BỎ HẲN `brand_id`.
+  NONE
+  /// Dùng đúng `tiktok_brand_id` đã chọn.
+  SPECIFIC
+
+  @@map("pod_brand_mode")
+}
+
 enum PodListingScopeMatch {
   /// Mọi sản phẩm đã đồng bộ của tổ chức.
   ALL
@@ -3596,9 +3724,11 @@ model PodCategoryTemplate {
   categoryName     String? @map("category_name") @db.VarChar(255)
   categoryPath     String? @map("category_path") @db.VarChar(1024)
 
-  /// Thương hiệu (đồng bộ từ TikTok). NULL = không gắn brand.
-  tiktokBrandId String? @map("tiktok_brand_id") @db.VarChar(64)
-  brandName     String? @map("brand_name") @db.VarChar(255)
+  /// Thương hiệu. `brandMode` mới là câu trả lời, `tiktokBrandId` chỉ có nghĩa khi
+  /// `brandMode = SPECIFIC`. Xem `PodBrandMode` để biết vì sao không dùng NULL làm cờ.
+  brandMode     PodBrandMode @default(UNSET) @map("brand_mode")
+  tiktokBrandId String?      @map("tiktok_brand_id") @db.VarChar(64)
+  brandName     String?      @map("brand_name") @db.VarChar(255)
 
   /// Kiện hàng mặc định. Lưu CHUỖI đúng như TikTok yêu cầu (không ép số).
   packageWeight String? @map("package_weight") @db.VarChar(32)
@@ -4151,8 +4281,10 @@ model PodListingTemplate {
   warehouseId           String? @map("warehouse_id") @db.Uuid
 
   /// Brand ghi đè brand của Category Template (một số dòng sản phẩm dùng brand khác).
-  tiktokBrandId String? @map("tiktok_brand_id") @db.VarChar(64)
-  brandName     String? @map("brand_name") @db.VarChar(255)
+  /// `brandMode = UNSET` ⇒ KHÔNG ghi đè, dùng brand của Category Template.
+  brandMode     PodBrandMode @default(UNSET) @map("brand_mode")
+  tiktokBrandId String?      @map("tiktok_brand_id") @db.VarChar(64)
+  brandName     String?      @map("brand_name") @db.VarChar(255)
 
   /// Vận chuyển: `shipping_template_id` phía TikTok + thời gian xử lý (ngày).
   shippingTemplateId String? @map("shipping_template_id") @db.VarChar(64)
@@ -5002,4 +5134,327 @@ model PodListingLog {
   @@index([jobId, createdAt])
   @@index([listingItemId, createdAt])
   @@map("pod_listing_logs")
+}
+
+// ===========================================================================
+// SPRINT FLASH SALE — Khuyến mãi giới hạn thời gian trên TikTok Shop
+//
+// Ánh xạ sang **Promotion Activity** của TikTok (`activity_type = FLASHSALE`):
+//
+// ```
+//   Create Activity ──▶ activity_id ──▶ Update Activity Products ──▶ Get Activity
+//        (tên, giờ)                       (giá deal, giới hạn mua)      (trạng thái)
+// ```
+//
+// 🔴 Ba nguyên tắc của toàn bộ nhóm bảng này:
+//  1. **Danh sách chỉ đọc DB.** Không màn hình nào gọi TikTok để vẽ một dòng; trạng thái
+//     phía sàn do `PodFlashSaleSyncService` kéo về theo lịch.
+//  2. **Template KHÔNG mang thời gian.** Đó là lý do nó tách khỏi `PodFlashSale`: cùng một
+//     cấu hình sản phẩm/giá dùng lại cho mọi ngày.
+//  3. **Mọi lượt gọi sàn để lại vết** ở `PodFlashSaleLog` (request, response, mã lỗi) —
+//     nút Retry và màn hình Detail đều đọc từ đó.
+// ===========================================================================
+
+/// Vòng đời một Flash Sale trong HỆ THỐNG (không phải trạng thái phía TikTok).
+///
+/// 🔴 Cố ý tách khỏi `status` của TikTok (DRAFT / NOT_START / ONGOING / EXPIRED /
+/// DEACTIVATED / NOT_EFFECTIVE): người vận hành cần biết "đã đẩy lên sàn chưa, có lỗi
+/// không", còn TikTok chỉ nói "đang chạy hay chưa". Ánh xạ hai chiều nằm ở
+/// `pod-flash-sale.constants.ts` — một nơi duy nhất.
+enum PodFlashSaleStatus {
+  /// Đang soạn — chưa đủ điều kiện đẩy lên sàn.
+  DRAFT
+  /// Đã qua kiểm tra, chờ bấm Publish.
+  READY
+  /// Đang gọi TikTok (Create Activity / Update Products).
+  PUBLISHING
+  /// Đã lên sàn (TikTok NOT_START hoặc ONGOING).
+  RUNNING
+  /// Đã kết thúc (hết `end_at`, hoặc TikTok trả EXPIRED).
+  ENDED
+  /// Publish thất bại — còn nguyên dữ liệu để Retry.
+  FAILED
+  /// Người dùng huỷ (đã gọi Deactivate nếu từng lên sàn).
+  CANCELLED
+
+  @@map("pod_flash_sale_status")
+}
+
+/// Trạng thái của MỘT dòng sản phẩm/biến thể trong Flash Sale.
+enum PodFlashSaleItemStatus {
+  /// Vừa thêm, giá deal chưa hợp lệ hoặc chưa nhập.
+  PENDING
+  /// Giá + giới hạn hợp lệ, sẵn sàng gửi.
+  READY
+  /// TikTok đã nhận vào hoạt động khuyến mãi.
+  PUBLISHED
+  /// TikTok từ chối riêng dòng này (các dòng khác vẫn có thể thành công).
+  FAILED
+  /// Đã gỡ khỏi hoạt động trên sàn.
+  REMOVED
+
+  @@map("pod_flash_sale_item_status")
+}
+
+/// `product_level` của TikTok — quyết định giá deal đặt ở SPU hay ở từng SKU.
+///
+/// 🔴 Không phải tuỳ chọn trang trí: `VARIATION` bắt buộc `quantity_limit` và
+/// `quantity_per_user` ở mức sản phẩm phải là `-1`, giới hạn thật nằm ở từng SKU.
+/// Bộ dựng payload xử lý khác biệt này, xem `PodFlashSalePublisherService`.
+enum PodFlashSaleProductLevel {
+  /// Áp cho cả sản phẩm — mọi SKU cùng một giá deal.
+  PRODUCT
+  /// Áp cho từng SKU được chọn.
+  VARIATION
+
+  @@map("pod_flash_sale_product_level")
+}
+
+/// Hành động đã ghi vết trong `PodFlashSaleLog`.
+enum PodFlashSaleLogAction {
+  CREATE_ACTIVITY
+  UPDATE_ACTIVITY
+  UPDATE_PRODUCTS
+  REMOVE_PRODUCTS
+  DEACTIVATE
+  SYNC_STATUS
+  VALIDATE
+
+  @@map("pod_flash_sale_log_action")
+}
+
+enum PodFlashSaleLogLevel {
+  INFO
+  WARN
+  ERROR
+
+  @@map("pod_flash_sale_log_level")
+}
+
+// ---------------------------------------------------------------------------
+// PodFlashSale — MỘT đợt Flash Sale của một shop.
+// ---------------------------------------------------------------------------
+
+model PodFlashSale {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  /// Kết nối (authorization) sở hữu shop — giữ để lọc/phân quyền theo account.
+  accountId      String @map("account_id") @db.Uuid
+  /// 🔴 Shop đích. API khuyến mãi của TikTok là **Shop-tag** (bắt buộc `shop_cipher`), nên
+  /// một Flash Sale luôn thuộc đúng MỘT shop — không có khái niệm "đăng lên nhiều shop".
+  shopId         String @map("shop_id") @db.Uuid
+
+  /// Sàn thực thi. Hôm nay chỉ `TIKTOK`; để dạng chuỗi để thêm eBay/Amazon sau này
+  /// không phải migration enum (cùng cách `Platform.code` đang làm).
+  provider            String  @default("TIKTOK") @db.VarChar(32)
+  /// `activity_id` do TikTok cấp. NULL = chưa từng lên sàn.
+  providerFlashSaleId String? @map("provider_flash_sale_id") @db.VarChar(64)
+
+  /// TikTok giới hạn `title` 50 ký tự và **duy nhất trong shop** — validator chặn trước.
+  name        String  @db.VarChar(255)
+  description String? @db.Text
+
+  status       PodFlashSaleStatus       @default(DRAFT)
+  productLevel PodFlashSaleProductLevel @default(VARIATION) @map("product_level")
+
+  /// Mốc bắt đầu/kết thúc — LƯU Ở UTC. `timezone` chỉ để hiển thị lại đúng múi giờ mà
+  /// người dùng đã nhập; TikTok nhận Unix timestamp nên không quan tâm múi giờ.
+  startAt  DateTime @map("start_at") @db.Timestamptz(6)
+  endAt    DateTime @map("end_at") @db.Timestamptz(6)
+  timezone String   @default("UTC") @db.VarChar(64)
+
+  /// Số dòng sản phẩm — cột danh sách đọc thẳng, không đếm lại bằng join.
+  itemCount Int @default(0) @map("item_count")
+
+  /// Trạng thái thô phía TikTok (ONGOING / NOT_START / EXPIRED …) — giữ nguyên văn để
+  /// đối chiếu khi trạng thái nội bộ và sàn lệch nhau.
+  providerStatus String?   @map("provider_status") @db.VarChar(40)
+  publishedAt    DateTime? @map("published_at") @db.Timestamptz(6)
+  lastSyncedAt   DateTime? @map("last_synced_at") @db.Timestamptz(6)
+
+  /// Vết thất bại gần nhất — hiển thị ngay ở danh sách, không phải mở log ra mới thấy.
+  lastErrorCode      String? @map("last_error_code") @db.VarChar(32)
+  lastErrorMessage   String? @map("last_error_message") @db.VarChar(2000)
+  lastErrorRequestId String? @map("last_error_request_id") @db.VarChar(64)
+  /// Số lần ĐÃ THỬ LẠI publish (không tính lần đầu).
+  retryCount         Int     @default(0) @map("retry_count")
+
+  /// Template đã sinh ra đợt này (Duplicate/Apply Template). NULL = tạo tay.
+  sourceTemplateId String? @map("source_template_id") @db.Uuid
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  account        PodTiktokAccount      @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  shop           PodTiktokShop         @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  sourceTemplate PodFlashSaleTemplate? @relation(fields: [sourceTemplateId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  creator        User?                 @relation("PodFlashSaleCreator", fields: [createdBy], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  items PodFlashSaleItem[]
+  logs  PodFlashSaleLog[]
+
+  /// Một `activity_id` chỉ được ánh xạ tới MỘT bản ghi trong cùng shop — chặn nhân bản
+  /// dữ liệu khi scheduler và người dùng cùng ghi.
+  @@unique([shopId, providerFlashSaleId])
+  @@index([organizationId, status])
+  @@index([organizationId, startAt])
+  @@index([shopId, status])
+  @@index([accountId])
+  @@index([status, endAt])
+  @@map("pod_flash_sales")
+}
+
+// ---------------------------------------------------------------------------
+// PodFlashSaleItem — MỘT sản phẩm (mức PRODUCT) hoặc MỘT biến thể (mức VARIATION).
+//
+// 🔴 Vì sao có cả năm cột định danh: TikTok gộp "biến thể" và "SKU" làm một, các sàn khác
+// thì không. `variantId`/`skuId` là định danh NỘI BỘ (dùng để join và hiển thị), ba cột
+// `provider*` là định danh PHÍA SÀN (dùng để gửi đi và đối soát kết quả trả về).
+// ---------------------------------------------------------------------------
+
+model PodFlashSaleItem {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  flashSaleId    String @map("flash_sale_id") @db.Uuid
+
+  /// Sản phẩm đã đồng bộ (`pod_products`).
+  productId String  @map("product_id") @db.Uuid
+  /// Biến thể (`pod_product_variants`). NULL khi Flash Sale chạy ở mức PRODUCT.
+  variantId String? @map("variant_id") @db.Uuid
+  /// `seller_sku` — mã SKU do người bán đặt. Hiển thị ở cột "SKU" và dùng để đối soát
+  /// khi TikTok trả về danh sách SKU của hoạt động.
+  skuId     String? @map("sku_id") @db.VarChar(255)
+
+  /// Giá niêm yết đang bán (bản chụp tại thời điểm thêm vào) — cột "Retail Price".
+  /// 🔴 Chụp lại thay vì join sang `pod_product_variants` mỗi lần đọc: giá gốc có thể đổi
+  /// sau khi đợt sale đã lên sàn, và người vận hành cần thấy đúng con số đã dùng để tính.
+  originalPrice   Decimal @map("original_price") @db.Decimal(18, 4)
+  /// Giá deal gửi lên sàn — cột "Deal Price".
+  flashSalePrice  Decimal @map("flash_sale_price") @db.Decimal(18, 4)
+  /// % giảm, làm tròn 2 chữ số. Luôn được tính lại từ hai cột trên (không tin số client gửi).
+  discountPercent Decimal @map("discount_percent") @db.Decimal(7, 4)
+  currency        String? @db.VarChar(10)
+
+  /// `quantity_limit` — tổng số suất của cả đợt. `-1` = không giới hạn.
+  totalPurchaseLimit    Int @default(-1) @map("total_purchase_limit")
+  /// `quantity_per_user` — số suất mỗi người mua. `-1` = không giới hạn.
+  customerPurchaseLimit Int @default(-1) @map("customer_purchase_limit")
+
+  /// `tiktok_product_id` — chụp lại để payload không phải join lúc publish.
+  providerProductId String? @map("provider_product_id") @db.VarChar(64)
+  /// `tiktok_sku_id` của biến thể.
+  providerVariantId String? @map("provider_variant_id") @db.VarChar(64)
+  /// Id SKU mà TikTok XÁC NHẬN trong hoạt động (Get Activity → `products[].skus[].id`).
+  /// Khác `providerVariantId` ở chỗ nó chỉ có sau khi sàn nhận — dùng để biết dòng nào
+  /// thực sự vào được đợt sale.
+  providerSkuId     String? @map("provider_sku_id") @db.VarChar(64)
+
+  status    PodFlashSaleItemStatus @default(PENDING)
+  /// Mã lỗi TikTok riêng của dòng này.
+  errorCode String?                @map("error_code") @db.VarChar(32)
+  error     String?                @db.VarChar(2000)
+
+  /// Thứ tự hiển thị trong bảng — giữ đúng thứ tự người dùng đã thêm.
+  sortOrder Int @default(0) @map("sort_order")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  flashSale PodFlashSale       @relation(fields: [flashSaleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  product   PodProduct         @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  variant   PodProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  /// Mức VARIATION: mỗi biến thể xuất hiện đúng một lần trong một đợt.
+  /// 🔴 Mức PRODUCT (`variantId = NULL`) KHÔNG bị ràng buộc này chặn — trong PostgreSQL,
+  /// NULL không bằng chính nó nên UNIQUE cho qua mọi dòng NULL. Chống trùng ở mức PRODUCT
+  /// do partial unique index trong migration đảm nhiệm (Prisma chưa khai báo được).
+  @@unique([flashSaleId, variantId])
+  @@index([organizationId])
+  @@index([flashSaleId, sortOrder])
+  @@index([productId])
+  @@map("pod_flash_sale_items")
+}
+
+// ---------------------------------------------------------------------------
+// PodFlashSaleTemplate — cấu hình dùng lại cho mọi ngày.
+//
+// 🔴 **Không lưu thời gian, không lưu trạng thái, không lưu id phía sàn.** Đó chính là lý
+// do tồn tại của bảng này: tạo đợt sale hôm sau chỉ còn là chọn template + đặt giờ.
+// ---------------------------------------------------------------------------
+
+model PodFlashSaleTemplate {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  /// Kết nối mặc định khi áp template. Template gắn với account vì `tiktok_product_id`
+  /// chỉ có nghĩa trong phạm vi shop của account đó.
+  accountId      String @map("account_id") @db.Uuid
+  /// Shop mặc định — áp template sang shop khác được, nhưng phải khớp sản phẩm.
+  shopId         String @map("shop_id") @db.Uuid
+
+  name        String  @db.VarChar(255)
+  description String? @db.Text
+
+  /// Toàn bộ cấu hình sản phẩm ở dạng JSON (`PodFlashSaleTemplateConfig`).
+  ///
+  /// 🔴 JSON chứ không phải bảng con: template là một BẢN CHỤP bất biến. Tách bảng con sẽ
+  /// kéo theo khoá ngoại tới sản phẩm/biến thể, và khi một sản phẩm bị xoá thì template
+  /// hỏng theo — trong khi điều đúng là template vẫn còn, chỉ dòng đó báo "không còn khả
+  /// dụng" lúc áp. Hình dạng JSON được kiểm ở tầng service trước khi ghi.
+  config Json
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  account PodTiktokAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  shop    PodTiktokShop    @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  flashSales PodFlashSale[]
+
+  @@index([organizationId])
+  @@index([accountId])
+  @@index([shopId])
+  @@map("pod_flash_sale_templates")
+}
+
+// ---------------------------------------------------------------------------
+// PodFlashSaleLog — vết MỘT lượt gọi sàn (hoặc một lượt kiểm tra).
+//
+// Giữ cả `request` lẫn `response` vì màn hình Detail yêu cầu hiển thị đúng hai thứ đó, và
+// vì mở ticket với TikTok luôn cần `request_id` kèm thân request đã gửi.
+// ---------------------------------------------------------------------------
+
+model PodFlashSaleLog {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  flashSaleId    String @map("flash_sale_id") @db.Uuid
+
+  action  PodFlashSaleLogAction
+  level   PodFlashSaleLogLevel  @default(INFO)
+  message String                @db.VarChar(2000)
+
+  /// Thân request đã gửi và response đã nhận, ĐÃ lược token/cipher.
+  request  Json?
+  response Json?
+
+  /// Mã + thông điệp lỗi nguyên văn của TikTok, và `request_id` để mở ticket.
+  errorCode    String? @map("error_code") @db.VarChar(32)
+  errorMessage String? @map("error_message") @db.VarChar(2000)
+  requestId    String? @map("request_id") @db.VarChar(64)
+  /// Lần thử thứ mấy (0 = lần đầu).
+  attempt      Int     @default(0)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  createdBy String?  @map("created_by") @db.Uuid
+
+  flashSale PodFlashSale @relation(fields: [flashSaleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([organizationId])
+  @@index([flashSaleId, createdAt])
+  @@map("pod_flash_sale_logs")
 }

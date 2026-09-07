@@ -41,14 +41,15 @@ export default function PodResourcesPage() {
 }
 
 /**
- * **POD → Resources** — nơi duy nhất kéo dữ liệu dùng chung của TikTok về cache.
+ * **POD → Resources** — tài nguyên TikTok **của tổ chức này**.
  *
  * Mỗi tài nguyên một dòng: số bản ghi đang có, lần đồng bộ gần nhất, thời gian chạy,
  * trạng thái, nút Sync và nút xem nhật ký.
  *
- * 🔴 Trình tự có ý nghĩa: **Categories trước, Attributes sau** — thuộc tính lấy theo danh
- * mục nên chưa có danh mục thì nút Sync của Attributes bị khoá kèm lời giải thích, thay vì
- * cho bấm rồi trả về 0 bản ghi khó hiểu.
+ * 🔴 Chỉ còn **kho hàng**. Danh mục / thương hiệu / thuộc tính đã chuyển sang màn hình
+ * **POD → TikTok Master Data**: chúng dùng chung cho mọi tổ chức và chỉ Super Admin đồng
+ * bộ, nên để nút Sync của chúng ở đây nghĩa là mỗi Admin tổ chức ghi đè được dữ liệu của
+ * tất cả những người còn lại.
  */
 function ResourcesView() {
   const { t } = useTranslation(['pod', 'common']);
@@ -144,7 +145,6 @@ function ResourceRow({
   onViewLog: () => void;
 }) {
   const { t } = useTranslation('pod');
-  const blocked = !row.ready;
 
   return (
     <TableRow>
@@ -153,11 +153,6 @@ function ResourceRow({
         <p className="text-xs text-muted-foreground">
           {t(`resources.descriptions.${row.resource}`)}
         </p>
-        {blocked && row.dependsOn && (
-          <p className="mt-1 text-xs text-warning-foreground">
-            {t('resources.blockedBy', { resource: t(`resources.names.${row.dependsOn}`) })}
-          </p>
-        )}
       </TableCell>
 
       <TableCell className="text-right tabular-nums">
@@ -187,9 +182,7 @@ function ResourceRow({
             <FileText className="size-4" />
             {t('resources.viewLog')}
           </Button>
-          {canSync && (
-            <ResourceSyncButton resource={row.resource} size="sm" disabled={blocked} />
-          )}
+          {canSync && <ResourceSyncButton resource={row.resource} size="sm" />}
         </div>
       </TableCell>
     </TableRow>

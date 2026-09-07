@@ -23,7 +23,11 @@ export interface PodPayoutFilter {
 
 export interface PodPayoutBreakdownQuery extends PodPayoutFilter {
   page?: number;
-  pageSize?: number;
+  /**
+   * 🔴 `limit` (không phải `pageSize`) — thống nhất với ADR-023 và với `PaginationMeta` mà
+   * chính endpoint này trả về. Backend nhận cả hai tên; `limit` được ưu tiên.
+   */
+  limit?: number;
   sortField?: PodPayoutSortField;
   sortOrder?: 'asc' | 'desc';
 }

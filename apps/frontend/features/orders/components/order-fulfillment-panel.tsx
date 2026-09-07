@@ -59,7 +59,11 @@ export function OrderFulfillmentPanel({ order }: { order: Order }) {
   };
 
   const onClaim = async () => {
-    await run(() => claimM.mutateAsync(order.id), 'Bạn đã nhận xử lý đơn hàng.', 'Không thể nhận xử lý');
+    await run(
+      () => claimM.mutateAsync(order.id),
+      'Bạn đã nhận xử lý đơn hàng.',
+      'Không thể nhận xử lý',
+    );
     setConfirmClaim(false);
   };
 
@@ -92,7 +96,11 @@ export function OrderFulfillmentPanel({ order }: { order: Order }) {
                 variant="outline"
                 disabled={releaseM.isPending}
                 onClick={() =>
-                  run(() => releaseM.mutateAsync(order.id), 'Đã release đơn hàng.', 'Release thất bại')
+                  run(
+                    () => releaseM.mutateAsync(order.id),
+                    'Đã release đơn hàng.',
+                    'Release thất bại',
+                  )
                 }
               >
                 {releaseM.isPending ? (
@@ -110,7 +118,8 @@ export function OrderFulfillmentPanel({ order }: { order: Order }) {
       <CardContent className="space-y-5">
         {order.isClaimed && !mine && !isAdmin && (
           <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
-            Đơn đang được xử lý bởi {order.fulfilledByName ?? 'Fulfillment khác'}. Bạn không thể chỉnh sửa.
+            Đơn đang được xử lý bởi {order.fulfilledByName ?? 'Fulfillment khác'}. Bạn không thể
+            chỉnh sửa.
           </p>
         )}
 
@@ -124,7 +133,12 @@ export function OrderFulfillmentPanel({ order }: { order: Order }) {
               ) : (
                 <ul className="space-y-2">
                   {order.items.map((item) => (
-                    <OrderItemFulfillmentRow key={item.id} orderId={order.id} item={item} run={run} />
+                    <OrderItemFulfillmentRow
+                      key={item.id}
+                      orderId={order.id}
+                      item={item}
+                      run={run}
+                    />
                   ))}
                 </ul>
               )}
@@ -148,7 +162,11 @@ export function OrderFulfillmentPanel({ order }: { order: Order }) {
               </div>
               <div className="flex-1 space-y-1.5">
                 <Label htmlFor="ful-status-note">Ghi chú (tuỳ chọn)</Label>
-                <Input id="ful-status-note" value={statusNote} onChange={(e) => setStatusNote(e.target.value)} />
+                <Input
+                  id="ful-status-note"
+                  value={statusNote}
+                  onChange={(e) => setStatusNote(e.target.value)}
+                />
               </div>
               <Button
                 variant="outline"
@@ -183,7 +201,11 @@ export function OrderFulfillmentPanel({ order }: { order: Order }) {
         description="Nếu nhận xử lý, các Fulfillment khác sẽ không thể chỉnh sửa đơn hàng này."
       >
         <div className="flex justify-end gap-2">
-          <Button variant="outline" onClick={() => setConfirmClaim(false)} disabled={claimM.isPending}>
+          <Button
+            variant="outline"
+            onClick={() => setConfirmClaim(false)}
+            disabled={claimM.isPending}
+          >
             Hủy
           </Button>
           <Button onClick={onClaim} disabled={claimM.isPending}>
@@ -259,7 +281,11 @@ function OrderItemFulfillmentRow({
             )
           }
         >
-          {updateM.isPending ? <Loader2 className="size-4 animate-spin" /> : <Truck className="size-4" />}
+          {updateM.isPending ? (
+            <Loader2 className="size-4 animate-spin" />
+          ) : (
+            <Truck className="size-4" />
+          )}
           Lưu
         </Button>
       </div>

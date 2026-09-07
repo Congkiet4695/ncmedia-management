@@ -85,13 +85,28 @@ export class PodPayoutBreakdownQueryDto extends PodPayoutFilterDto {
   @Min(1)
   page?: number = 1;
 
-  @ApiPropertyOptional({ minimum: 1, maximum: 100, default: 20 })
+  @ApiPropertyOptional({ minimum: 1, maximum: 100, default: 20, description: 'Số dòng mỗi trang (ADR-023).' })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
   @Max(100)
-  pageSize?: number = 20;
+  limit?: number = 20;
+
+  /**
+   * Tên CŨ của `limit` ở riêng nhóm endpoint Payout.
+   *
+   * 🔴 Giữ lại để client cũ / URL đã lưu không gãy. `limit` luôn được ưu tiên; khi cả hai
+   * cùng vắng thì mặc định 20. Không đặt `= 20` ở đây, nếu không `limit` sẽ không bao giờ
+   * thắng được giá trị mặc định của tham số cũ.
+   */
+  @ApiPropertyOptional({ minimum: 1, maximum: 100, deprecated: true, description: 'Tên cũ của `limit`.' })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  pageSize?: number;
 
   @ApiPropertyOptional({
     enum: PAYOUT_SORT_FIELDS,

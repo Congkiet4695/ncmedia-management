@@ -29,11 +29,7 @@ export function OrderPriceCell({ price }: { price: OrderPriceBreakdown }) {
         value={money(price.tax)}
         hint={price.tax === null ? t('orders.price.taxHint') : undefined}
       />
-      <Line
-        label={t('orders.price.buyerPaid')}
-        value={money(price.buyerPaid)}
-        emphasis
-      />
+      <Line label={t('orders.price.buyerPaid')} value={money(price.buyerPaid)} emphasis />
       <Line
         label={t('orders.price.estimated')}
         value={money(price.estimated)}

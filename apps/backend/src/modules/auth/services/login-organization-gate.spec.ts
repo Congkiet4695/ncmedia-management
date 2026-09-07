@@ -7,6 +7,7 @@ import { InvalidCredentialsException } from '../exceptions/invalid-credentials.e
 import { OrganizationInactiveException } from '../exceptions/organization-inactive.exception';
 import { OrganizationPendingApprovalException } from '../exceptions/organization-pending-approval.exception';
 import { OrganizationRejectedException } from '../exceptions/organization-rejected.exception';
+import { AuthEventLogger } from './auth-event.logger';
 import { LoginService } from './login.service';
 import { RateLimitService } from './rate-limit.service';
 import { RefreshTokenService } from './refresh-token.service';
@@ -60,7 +61,7 @@ describe('LoginService — cổng trạng thái Organization', () => {
     jest.clearAllMocks();
     rateLimit.hit.mockResolvedValue({ limited: false, count: 1 });
     tokenService.createAccessToken.mockResolvedValue({ token: 'access', expiresIn: 900 });
-    refreshTokenService.createRefreshToken.mockResolvedValue({ token: 'refresh' });
+    refreshTokenService.createRefreshToken.mockResolvedValue({ id: 'session-1', token: 'refresh' });
 
     const moduleRef: TestingModule = await Test.createTestingModule({
       providers: [
@@ -70,6 +71,7 @@ describe('LoginService — cổng trạng thái Organization', () => {
         { provide: TokenService, useValue: tokenService },
         { provide: RefreshTokenService, useValue: refreshTokenService },
         { provide: RateLimitService, useValue: rateLimit },
+        AuthEventLogger,
       ],
     }).compile();
     service = moduleRef.get(LoginService);

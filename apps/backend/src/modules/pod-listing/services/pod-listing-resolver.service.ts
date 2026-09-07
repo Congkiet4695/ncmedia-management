@@ -1,12 +1,14 @@
 import { Injectable } from '@nestjs/common';
 import {
   Prisma,
+  PodBrandMode,
   PodImageAssetType,
   PodListingSessionImageType,
   PodPriceAdjustmentType,
 } from '@prisma/client';
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../../../database/prisma.service';
+import { POD_TIKTOK_NO_BRAND_NAME } from '../../pod-product/constants/pod-product.constants';
 import { POD_DRAFT_ISSUE_CODES } from '../constants/pod-listing.constants';
 import { calculatePricing } from './pod-pricing.calculator';
 import { resolveSkuItemPrice } from './pod-sku-price';
@@ -51,7 +53,15 @@ export interface ResolvedListing {
   description: string;
 
   category: { tiktokCategoryId: string | null; name: string | null; path: string | null };
-  brand: { tiktokBrandId: string | null; name: string | null };
+  /**
+   * Thương hiệu đã quyết. `mode` là câu trả lời, `tiktokBrandId` chỉ có nghĩa khi
+   * `mode = SPECIFIC`.
+   *
+   * 🔴 `mode` là optional vì payload đã ĐÓNG BĂNG trước khi sửa lỗi không có trường này.
+   * Nơi đọc phải coi `undefined` là "payload cũ" và suy ra ý định từ `tiktokBrandId` —
+   * xem `PodListingPublisherService.resolveBrandId`.
+   */
+  brand: { mode?: PodBrandMode; tiktokBrandId: string | null; name: string | null };
   attributes: Array<{
     tiktokAttributeId: string;
     name: string | null;
@@ -344,11 +354,7 @@ export class PodListingResolverService {
         name: category?.categoryName ?? null,
         path: category?.categoryPath ?? null,
       },
-      brand: {
-        // Brand ở Listing Template được ưu tiên hơn brand của Category Template.
-        tiktokBrandId: template.tiktokBrandId ?? category?.tiktokBrandId ?? null,
-        name: template.brandName ?? category?.brandName ?? null,
-      },
+      brand: this.resolveBrand(template, category),
       attributes: (category?.attributes ?? []).map((attribute) => ({
         tiktokAttributeId: attribute.tiktokAttributeId,
         name: attribute.attributeName,
@@ -406,6 +412,36 @@ export class PodListingResolverService {
    * lấy từ ảnh sản phẩm và không phải upload lại cho từng listing. Ở đây chỉ việc chép
    * nguyên bộ theo đúng thứ tự người dùng đã kéo thả.
    */
+  /**
+   * Chốt thương hiệu cho listing: **Listing Template thắng Category Template**.
+   *
+   * 🔴 "Thắng" ở đây tính theo `brandMode`, KHÔNG tính theo `tiktokBrandId` có null hay
+   * không. Đó là điểm khác biệt quan trọng: một Listing Template chọn "No brand" có
+   * `tiktokBrandId = NULL`, và nếu vẫn dùng `??` như trước thì nó sẽ rơi xuống lấy brand của
+   * Category Template — đúng kiểu bug âm thầm gán một thương hiệu người dùng không chọn.
+   *
+   * `UNSET` = "tôi không ý kiến" ⇒ nhường cho Category Template.
+   */
+  private resolveBrand(
+    template: { brandMode: PodBrandMode; tiktokBrandId: string | null; brandName: string | null },
+    category: { brandMode: PodBrandMode; tiktokBrandId: string | null; brandName: string | null } | null | undefined,
+  ): ResolvedListing['brand'] {
+    const source =
+      template.brandMode !== PodBrandMode.UNSET ? template : (category ?? template);
+
+    if (source.brandMode === PodBrandMode.NONE) {
+      return { mode: PodBrandMode.NONE, tiktokBrandId: null, name: POD_TIKTOK_NO_BRAND_NAME };
+    }
+    if (source.brandMode === PodBrandMode.SPECIFIC && source.tiktokBrandId) {
+      return {
+        mode: PodBrandMode.SPECIFIC,
+        tiktokBrandId: source.tiktokBrandId,
+        name: source.brandName ?? null,
+      };
+    }
+    return { mode: PodBrandMode.UNSET, tiktokBrandId: null, name: null };
+  }
+
   private resolveImages(
     imageTemplate: ListingTemplateFull['imageTemplate'],
     sessionProduct: SessionProductSource | null,

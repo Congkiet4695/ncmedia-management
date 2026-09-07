@@ -16,12 +16,7 @@ export type OrderStatus =
   | 'SHIPPED'
   | 'COMPLETED';
 
-export type OrderItemStatus =
-  | 'PENDING'
-  | 'PROCESSING'
-  | 'SHIPPED'
-  | 'DELIVERED'
-  | 'CANCELLED';
+export type OrderItemStatus = 'PENDING' | 'PROCESSING' | 'SHIPPED' | 'DELIVERED' | 'CANCELLED';
 
 export type OrderNoteType = 'SELLER' | 'WAREHOUSE';
 

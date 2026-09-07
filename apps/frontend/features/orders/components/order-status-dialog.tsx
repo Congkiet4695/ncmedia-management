@@ -8,7 +8,12 @@ import { Label } from '@/components/ui/label';
 import { Modal } from '@/components/ui/modal';
 import { NativeSelect } from '@/components/ui/native-select';
 import { Input } from '@/components/ui/input';
-import { ORDER_STATUSES, ORDER_STATUS_LABELS, orderStatusSchema, type OrderStatusInput } from '../schemas/order.schema';
+import {
+  ORDER_STATUSES,
+  ORDER_STATUS_LABELS,
+  orderStatusSchema,
+  type OrderStatusInput,
+} from '../schemas/order.schema';
 import type { OrderStatus } from '../types';
 
 interface OrderStatusDialogProps {
@@ -36,7 +41,12 @@ export function OrderStatusDialog({
   });
 
   return (
-    <Modal open={open} onClose={onClose} title="Đổi trạng thái đơn" description="Lưu vào timeline trạng thái.">
+    <Modal
+      open={open}
+      onClose={onClose}
+      title="Đổi trạng thái đơn"
+      description="Lưu vào timeline trạng thái."
+    >
       <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
         <div className="space-y-2">
           <Label htmlFor="status-select">Trạng thái mới</Label>

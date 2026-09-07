@@ -1,9 +1,10 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
+import { DataPagination } from '@/components/ui/data-pagination';
 import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
@@ -26,8 +27,9 @@ export function ProductSyncHistoryDialog({ open, onClose }: ProductSyncHistoryDi
   const { t } = useTranslation(['pod', 'common']);
   const { formatDateTime } = useLocaleFormat();
   const [page, setPage] = useState(1);
+  const [limit, setLimit] = useState(10);
 
-  const historyQuery = usePodProductSyncHistory({ page, limit: 10 });
+  const historyQuery = usePodProductSyncHistory({ page, limit });
   const items = historyQuery.data?.items ?? [];
   const meta = historyQuery.data?.meta;
 
@@ -55,33 +57,15 @@ export function ProductSyncHistoryDialog({ open, onClose }: ProductSyncHistoryDi
           </ul>
         )}
 
-        {meta && meta.totalPages > 1 && (
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>
-              {t('common:pagination.page', { page: meta.page, totalPages: meta.totalPages })}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={meta.page <= 1}
-                onClick={() => setPage((current) => current - 1)}
-              >
-                <ChevronLeft className="size-4" />
-                {t('common:action.previous')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={meta.page >= meta.totalPages}
-                onClick={() => setPage((current) => current + 1)}
-              >
-                {t('common:action.next')}
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
-          </div>
-        )}
+        <DataPagination
+          meta={meta}
+          onPageChange={setPage}
+          onPageSizeChange={(next) => {
+            setLimit(next);
+            setPage(1);
+          }}
+          disabled={historyQuery.isFetching}
+        />
       </div>
     </Modal>
   );

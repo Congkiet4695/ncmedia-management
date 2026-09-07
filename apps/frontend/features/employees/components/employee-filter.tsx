@@ -55,7 +55,9 @@ export function EmployeeFilter({
         <NativeSelect
           id="emp-status"
           value={status ?? ''}
-          onChange={(e) => onStatusChange((e.target.value || undefined) as EmployeeStatus | undefined)}
+          onChange={(e) =>
+            onStatusChange((e.target.value || undefined) as EmployeeStatus | undefined)
+          }
         >
           <option value="">{t('all')}</option>
           {EMPLOYEE_STATUSES.map((s) => (

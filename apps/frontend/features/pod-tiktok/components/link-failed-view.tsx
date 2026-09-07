@@ -7,11 +7,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { CardContent, CardHeader } from '@/components/ui/card';
 import { usePodTiktokLinkResult } from '../hooks/use-pod-tiktok';
-import {
-  LinkResultShell,
-  TIKTOK_ACCOUNTS_PATH,
-  useLinkErrorMessage,
-} from './link-result-shell';
+import { LinkResultShell, TIKTOK_ACCOUNTS_PATH, useLinkErrorMessage } from './link-result-shell';
 
 /**
  * Trang báo uỷ quyền TikTok thất bại.

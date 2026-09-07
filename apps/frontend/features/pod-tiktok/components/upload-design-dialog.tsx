@@ -68,13 +68,7 @@ export function UploadDesignDialog({ open, item, onClose }: UploadDesignDialogPr
   );
 }
 
-function DialogBody({
-  item,
-  onPreview,
-}: {
-  item: PodOrderItem;
-  onPreview: (src: string) => void;
-}) {
+function DialogBody({ item, onPreview }: { item: PodOrderItem; onPreview: (src: string) => void }) {
   const { t } = useTranslation(['pod', 'common']);
 
   /**

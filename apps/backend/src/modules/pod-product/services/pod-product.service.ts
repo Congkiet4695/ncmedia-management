@@ -19,7 +19,6 @@ import {
 import { PodProductResponseMapper } from '../mappers/pod-product-response.mapper';
 import { PodProductRepository } from '../repositories/pod-product.repository';
 import { PodProductSyncRepository } from '../repositories/pod-product-sync.repository';
-import { PodProductCatalogService } from './pod-product-catalog.service';
 import { PodProductSyncService } from './pod-product-sync.service';
 
 /**
@@ -51,7 +50,6 @@ export class PodProductService {
     private readonly syncRepo: PodProductSyncRepository,
     private readonly mapper: PodProductResponseMapper,
     private readonly syncService: PodProductSyncService,
-    private readonly catalogService: PodProductCatalogService,
     private readonly accessScope: PodAccessScopeService,
   ) {}
 
@@ -113,14 +111,9 @@ export class PodProductService {
     userId: string,
     dto: TriggerProductSyncDto,
   ): Promise<PodProductSyncResultDto> {
-    if (dto.includeCatalog) {
-      // Danh mục/thương hiệu phải có TRƯỚC để sản phẩm nối được FK ngay trong lượt này.
-      await this.catalogService.syncCatalogForShops({
-        organizationId,
-        accountId: dto.accountId,
-        shopId: dto.shopId,
-      });
-    }
+    // 🔴 Cờ `includeCatalog` đã bị GỠ: nó cho phép bất kỳ Admin tổ chức nào ghi vào cây
+    // danh mục / thương hiệu — dữ liệu nay dùng chung cho MỌI tổ chức. Đồng bộ master data
+    // là việc của Super Admin (`POST /pod/master-data/sync`).
 
     const outcomes = await this.syncService.syncShops(
       { organizationId, accountId: dto.accountId, shopId: dto.shopId },
@@ -195,12 +188,13 @@ export class PodProductService {
    * Cây danh mục TikTok đã đồng bộ (màn hình **POD → Categories** và bộ chọn danh mục
    * của Category Template).
    *
-   * 🔴 Đây là dữ liệu ĐỌC TỪ TIKTOK, không phải danh mục do NCMedia tự định nghĩa.
+   * 🔴 Đây là dữ liệu ĐỌC TỪ TIKTOK, không phải danh mục do NCMedia tự định nghĩa, và nó
+   * **TOÀN CỤC** — không nhận `organizationId` hay `shopId`. Mọi tổ chức thấy đúng một cây.
+   * Đây là chỗ dễ hiểu nhầm nhất của sprint: thiếu bộ lọc tenant ở đây KHÔNG phải sơ suất
+   * ADR-004 mà là bản chất của bảng (xem `PodMasterDataSyncService`).
    */
   async findCategories(
-    organizationId: string,
     params: {
-      shopId?: string;
       search?: string;
       leafOnly?: boolean;
       limit?: number;
@@ -210,9 +204,7 @@ export class PodProductService {
   ) {
     return this.prisma.podProductCategory.findMany({
       where: {
-        organizationId,
         deletedAt: null,
-        ...(params.shopId ? { shopId: params.shopId } : {}),
         ...(params.leafOnly ? { isLeaf: true } : {}),
         ...(params.tiktokCategoryId ? { tiktokCategoryId: params.tiktokCategoryId } : {}),
         ...(params.search
@@ -233,7 +225,6 @@ export class PodProductService {
         level: true,
         isLeaf: true,
         syncedAt: true,
-        shop: { select: { id: true, name: true } },
       },
       orderBy: [{ path: 'asc' }],
       take: params.limit ?? 500,
@@ -248,15 +239,15 @@ export class PodProductService {
    * trường), nên nếu chỉ nhận UUID thì mở template ra sửa là không nạp được thuộc tính —
    * đúng cái lỗi "Select a category to load attributes" trong khi danh mục đã chọn rồi.
    *
-   * Một mã TikTok có thể ứng với nhiều dòng cache (mỗi shop một dòng) ⇒ gộp theo
-   * `tiktok_attribute_id` để form không hiện thuộc tính lặp lại.
+   * `distinct` giữ nguyên dù dữ liệu nay là toàn cục: TikTok vẫn trả về cùng một
+   * `tiktok_attribute_id` ở nhiều bản ghi, và form không được hiện thuộc tính lặp lại.
    */
-  async findCategoryAttributes(organizationId: string, categoryRef: string) {
-    const categoryIds = await this.resolveCategoryIds(organizationId, categoryRef);
+  async findCategoryAttributes(categoryRef: string) {
+    const categoryIds = await this.resolveCategoryIds(categoryRef);
     if (categoryIds.length === 0) return [];
 
     return this.prisma.podCategoryAttribute.findMany({
-      where: { organizationId, categoryId: { in: categoryIds } },
+      where: { categoryId: { in: categoryIds } },
       distinct: ['tiktokAttributeId'],
       orderBy: [{ isRequired: 'desc' }, { name: 'asc' }],
     });
@@ -265,39 +256,40 @@ export class PodProductService {
   /**
    * Danh mục nội bộ ứng với một mã bất kỳ.
    *
-   * UUID ⇒ chính nó. Mã TikTok ⇒ mọi dòng cache của tổ chức mang mã đó (nhiều shop).
+   * UUID ⇒ chính nó. Mã TikTok ⇒ đúng MỘT bản ghi toàn cục (khoá `provider` +
+   * `tiktokCategoryId`). Trả mảng để giữ nguyên hợp đồng với `findCategoryAttributes`.
    */
-  private async resolveCategoryIds(organizationId: string, categoryRef: string): Promise<string[]> {
+  private async resolveCategoryIds(categoryRef: string): Promise<string[]> {
     if (UUID_PATTERN.test(categoryRef)) return [categoryRef];
 
     const rows = await this.prisma.podProductCategory.findMany({
-      where: { organizationId, tiktokCategoryId: categoryRef, deletedAt: null },
+      where: { tiktokCategoryId: categoryRef, deletedAt: null },
       select: { id: true },
     });
     return rows.map((row) => row.id);
   }
 
   /**
-   * Thương hiệu đã đồng bộ (màn hình **POD → Brands** và bộ chọn brand).
+   * Thương hiệu đã đồng bộ (màn hình **POD → Brands** và bộ chọn brand). **TOÀN CỤC** —
+   * xem ghi chú ở `findCategories`.
    *
-   * 🔴 Có **phân trang** vì một shop có thể có hàng chục nghìn thương hiệu: bộ chọn ở
-   * frontend tìm kiếm phía server và chỉ tải đúng trang đang xem, không bao giờ tải hết.
+   * 🔴 Có **phân trang** vì TikTok có hàng chục nghìn thương hiệu: bộ chọn ở frontend tìm
+   * kiếm phía server và chỉ tải đúng trang đang xem, không bao giờ tải hết.
    *
    * 🔴 **"No brand" luôn đứng đầu** danh sách, kể cả khi đang lọc: đó là lựa chọn mặc định
    * của gần như mọi mặt hàng POD, bắt người dùng cuộn tìm nó giữa 20.000 dòng là vô lý.
    */
   async findBrands(
-    organizationId: string,
-    params: { shopId?: string; keyword?: string; page?: number; pageSize?: number } = {},
+    params: { keyword?: string; page?: number; limit?: number } = {},
   ) {
     const page = Math.max(1, params.page ?? 1);
-    const pageSize = Math.min(200, Math.max(1, params.pageSize ?? 50));
+    // Kẹp trong khoảng hợp lệ ngay tại đây: endpoint này nhận query thô (không qua DTO
+    // validate) nên `limit = 0`, âm, hay 10.000 đều có thể tới. 200 là trần, 50 là mặc định.
+    const pageSize = Math.min(200, Math.max(1, params.limit ?? 50));
     const keyword = params.keyword?.trim();
 
     const where: Prisma.PodProductBrandWhereInput = {
-      organizationId,
       deletedAt: null,
-      ...(params.shopId ? { shopId: params.shopId } : {}),
       ...(keyword
         ? {
             OR: [
@@ -317,7 +309,6 @@ export class PodProductService {
       isNoBrand: true,
       isSystem: true,
       syncedAt: true,
-      shop: { select: { id: true, name: true } },
     } satisfies Prisma.PodProductBrandSelect;
 
     const [items, total] = await this.prisma.$transaction([
@@ -357,14 +348,18 @@ export class PodProductService {
     shops: Array<{ id: string; name: string }>;
   }> {
     const [categories, brands, statuses, shops] = await Promise.all([
+      // 🔴 Bộ lọc phải đi qua quan hệ `products` CÓ `organizationId`. Bảng danh mục /
+      // thương hiệu nay là toàn cục, nên `products: { some: { deletedAt: null } }` trần sẽ
+      // trả về cả danh mục mà tổ chức KHÁC đang bán — vừa lộ thông tin, vừa mời người dùng
+      // bấm một bộ lọc chắc chắn ra 0 kết quả.
       this.prisma.podProductCategory.findMany({
-        where: { organizationId, deletedAt: null, products: { some: { deletedAt: null } } },
+        where: { deletedAt: null, products: { some: { organizationId, deletedAt: null } } },
         select: { id: true, localName: true, path: true },
         orderBy: { path: 'asc' },
         take: 500,
       }),
       this.prisma.podProductBrand.findMany({
-        where: { organizationId, deletedAt: null, products: { some: { deletedAt: null } } },
+        where: { deletedAt: null, products: { some: { organizationId, deletedAt: null } } },
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
         take: 500,

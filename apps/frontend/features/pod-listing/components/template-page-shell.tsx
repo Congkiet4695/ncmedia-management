@@ -1,14 +1,17 @@
 'use client';
 
 import { useEffect, useState, type ReactNode } from 'react';
-import { ArrowDownAZ, ArrowUpAZ, ChevronLeft, ChevronRight, Loader2, Plus, Search } from 'lucide-react';
+import { ArrowDownAZ, ArrowUpAZ, Loader2, Plus, Search } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Combobox } from '@/components/ui/combobox';
+import { DataPagination } from '@/components/ui/data-pagination';
 import { useApiError } from '@/hooks/use-api-error';
+import { useClampedPage } from '@/hooks/use-clamped-page';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import type { PaginationMeta } from '@/types/api';
 import { POD_TEMPLATE_SORT_FIELDS, type PodTemplateSortField } from '../types';
 
 interface SortConfig {
@@ -35,9 +38,15 @@ interface TemplatePageShellProps {
   filters?: ReactNode;
   sort?: SortConfig;
   /** Lọc theo trạng thái bật/tắt — dùng chung cho cả sáu màn hình. */
-  status?: { value: 'ALL' | 'ACTIVE' | 'DEFAULT'; onChange: (value: 'ALL' | 'ACTIVE' | 'DEFAULT') => void };
-  meta?: { page: number; totalPages: number; total: number } | null;
+  status?: {
+    value: 'ALL' | 'ACTIVE' | 'DEFAULT';
+    onChange: (value: 'ALL' | 'ACTIVE' | 'DEFAULT') => void;
+  };
+  /** `meta` nguyên vẹn từ API (ADR-023). Bỏ trống ⇒ màn hình không phân trang. */
+  meta?: PaginationMeta | null;
   onPageChange?: (page: number) => void;
+  /** Bỏ trống ⇒ ẩn ô chọn số dòng (màn hình có cỡ trang cố định). */
+  onPageSizeChange?: (limit: number) => void;
   children: ReactNode;
 }
 
@@ -65,12 +74,16 @@ export function TemplatePageShell({
   status,
   meta,
   onPageChange,
+  onPageSizeChange,
   children,
 }: TemplatePageShellProps) {
   const { t } = useTranslation(['pod', 'common']);
   const translateApiError = useApiError();
   const [searchInput, setSearchInput] = useState('');
   const debounced = useDebouncedValue(searchInput, 350);
+
+  // Xoá nốt record cuối của trang cuối ⇒ lùi về trang còn dữ liệu, không để "Trang 3 / 2".
+  useClampedPage(meta, (page) => onPageChange?.(page));
 
   useEffect(() => {
     onSearchChange?.(debounced);
@@ -173,36 +186,13 @@ export function TemplatePageShell({
             <div className="overflow-x-auto">{children}</div>
           )}
 
-          {meta && meta.totalPages > 1 && onPageChange && (
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>
-                {t('common:pagination.pageWithTotal', {
-                  page: meta.page,
-                  totalPages: meta.totalPages,
-                  total: meta.total,
-                })}
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={meta.page <= 1}
-                  onClick={() => onPageChange(meta.page - 1)}
-                >
-                  <ChevronLeft className="size-4" />
-                  {t('common:action.previous')}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={meta.page >= meta.totalPages}
-                  onClick={() => onPageChange(meta.page + 1)}
-                >
-                  {t('common:action.next')}
-                  <ChevronRight className="size-4" />
-                </Button>
-              </div>
-            </div>
+          {onPageChange && (
+            <DataPagination
+              meta={meta}
+              onPageChange={onPageChange}
+              onPageSizeChange={onPageSizeChange}
+              disabled={loading}
+            />
           )}
         </CardContent>
       </Card>

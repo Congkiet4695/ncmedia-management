@@ -84,7 +84,12 @@ export function AccountForm({
           <Label htmlFor="name">
             Tên Account <span className="text-destructive">*</span>
           </Label>
-          <Input id="name" disabled={submitting} aria-invalid={!!errors.name} {...register('name')} />
+          <Input
+            id="name"
+            disabled={submitting}
+            aria-invalid={!!errors.name}
+            {...register('name')}
+          />
           <FieldError message={errors.name?.message} />
         </div>
 
@@ -127,7 +132,12 @@ export function AccountForm({
 
         <div className="space-y-2">
           <Label htmlFor="loginTool">Tool đăng nhập</Label>
-          <Input id="loginTool" placeholder="Hidemyacc…" disabled={submitting} {...register('loginTool')} />
+          <Input
+            id="loginTool"
+            placeholder="Hidemyacc…"
+            disabled={submitting}
+            {...register('loginTool')}
+          />
         </div>
 
         <div className="space-y-2">
@@ -152,7 +162,12 @@ export function AccountForm({
 
         <div className="space-y-2">
           <Label htmlFor="moneyReturnedAt">Ngày về tiền</Label>
-          <Input id="moneyReturnedAt" type="date" disabled={submitting} {...register('moneyReturnedAt')} />
+          <Input
+            id="moneyReturnedAt"
+            type="date"
+            disabled={submitting}
+            {...register('moneyReturnedAt')}
+          />
         </div>
 
         {AMOUNT_FIELDS.map((field) => (
@@ -185,7 +200,12 @@ export function AccountForm({
 
         <div className="space-y-2 sm:col-span-2">
           <Label htmlFor="docsUrl">Docs (URL)</Label>
-          <Input id="docsUrl" placeholder="https://…" disabled={submitting} {...register('docsUrl')} />
+          <Input
+            id="docsUrl"
+            placeholder="https://…"
+            disabled={submitting}
+            {...register('docsUrl')}
+          />
         </div>
 
         <div className="space-y-2">

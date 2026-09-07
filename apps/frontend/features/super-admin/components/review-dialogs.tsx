@@ -40,9 +40,7 @@ export function ApproveDialog({
             <CheckCircle2 className="size-5" />
           </div>
           <div className="space-y-1">
-            <p className="text-sm">
-              {t('approve.confirm', { name: organization.name })}
-            </p>
+            <p className="text-sm">{t('approve.confirm', { name: organization.name })}</p>
             <p className="text-xs text-muted-foreground">{t('approve.hint')}</p>
           </div>
         </div>
@@ -127,7 +125,9 @@ export function RejectDialog({
             </span>
           </div>
           {touched && tooShort && (
-            <p className="text-sm text-destructive">{t('reject.reasonTooShort', { count: REASON_MIN })}</p>
+            <p className="text-sm text-destructive">
+              {t('reject.reasonTooShort', { count: REASON_MIN })}
+            </p>
           )}
         </div>
 

@@ -6,6 +6,7 @@ import { Building2, CheckCircle2, Clock, Eye, Loader2, XCircle } from 'lucide-re
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { DataPagination } from '@/components/ui/data-pagination';
 import { Card, CardContent } from '@/components/ui/card';
 import { Combobox } from '@/components/ui/combobox';
 import { Input } from '@/components/ui/input';
@@ -19,6 +20,7 @@ import {
 } from '@/components/ui/table';
 import { RequirePermission } from '@/components/require-permission';
 import { useApiError } from '@/hooks/use-api-error';
+import { useClampedPage } from '@/hooks/use-clamped-page';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { OrganizationStatusBadge } from '@/features/super-admin/components/organization-status-badge';
@@ -62,6 +64,8 @@ function OrganizationsView() {
   const { formatDateTime } = useLocaleFormat();
 
   const [page, setPage] = useState(1);
+  // Cỡ trang do người dùng chọn; đổi cỡ thì luôn về trang 1.
+  const [limit, setLimit] = useState(20);
   const [searchInput, setSearchInput] = useState('');
   const search = useDebouncedValue(searchInput, 350);
   const [status, setStatus] = useState<OrganizationStatus | ''>('PENDING');
@@ -71,7 +75,7 @@ function OrganizationsView() {
   const dashboard = useSuperAdminDashboard();
   const query = useOrganizations({
     page,
-    limit: 20,
+    limit,
     status: status || undefined,
     search: search || undefined,
   });
@@ -81,6 +85,8 @@ function OrganizationsView() {
 
   const items = query.data?.items ?? [];
   const meta = query.data?.meta;
+  // Duyệt/từ chối tổ chức cuối cùng của trang cuối ⇒ lùi về trang còn dữ liệu.
+  useClampedPage(meta, setPage);
 
   /** Thông báo kèm cảnh báo nếu email không gửi được — người dùng cần biết sự thật đó. */
   const notify = (message: string, emailSent?: boolean): void => {
@@ -260,35 +266,14 @@ function OrganizationsView() {
             </div>
           )}
 
-          {meta && meta.totalPages > 1 && (
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>
-                {t('common:pagination.pageWithTotal', {
-                  page: meta.page,
-                  totalPages: meta.totalPages,
-                  total: meta.total,
-                })}
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={meta.page <= 1}
-                  onClick={() => setPage((prev) => prev - 1)}
-                >
-                  {t('common:action.previous')}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={meta.page >= meta.totalPages}
-                  onClick={() => setPage((prev) => prev + 1)}
-                >
-                  {t('common:action.next')}
-                </Button>
-              </div>
-            </div>
-          )}
+          <DataPagination
+            meta={meta}
+            onPageChange={setPage}
+            onPageSizeChange={(next) => {
+              setLimit(next);
+              setPage(1);
+            }}
+          />
         </CardContent>
       </Card>
 

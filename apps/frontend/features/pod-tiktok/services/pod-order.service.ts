@@ -39,7 +39,13 @@ export const podOrderService = {
    * quan tâm — và giữ chúng lại sẽ làm cache key đổi vô ích mỗi lần người dùng sang trang.
    */
   async stats(query: PodOrderQuery = {}): Promise<PodOrderStats> {
-    const { page: _page, limit: _limit, sortBy: _sortBy, sortOrder: _sortOrder, ...filters } = query;
+    const {
+      page: _page,
+      limit: _limit,
+      sortBy: _sortBy,
+      sortOrder: _sortOrder,
+      ...filters
+    } = query;
     const res = await apiClient.get<ApiResponse<PodOrderStats>>(`${BASE_PATH}/orders/stats`, {
       params: clean(filters as Record<string, unknown>),
     });

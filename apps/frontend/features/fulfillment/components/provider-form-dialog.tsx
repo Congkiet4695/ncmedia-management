@@ -178,9 +178,7 @@ export function ProviderFormDialog({
               )}
             </>
           )}
-          {!isEdit && (
-            <p className="text-xs text-muted-foreground">{t('provider.apiKeyMasked')}</p>
-          )}
+          {!isEdit && <p className="text-xs text-muted-foreground">{t('provider.apiKeyMasked')}</p>}
         </div>
 
         <div className="flex justify-end gap-2 pt-2">

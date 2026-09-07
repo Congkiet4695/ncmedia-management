@@ -94,7 +94,12 @@ export function LinkAccountDialog({ open, onClose }: LinkAccountDialogProps) {
   };
 
   return (
-    <Modal open={open} onClose={onClose} title={t('link.title')} description={t('link.description')}>
+    <Modal
+      open={open}
+      onClose={onClose}
+      title={t('link.title')}
+      description={t('link.description')}
+    >
       <div className="space-y-5">
         {/* Bước 1 — nhập tên kết nối rồi tạo Authorization URL */}
         <form onSubmit={handleSubmit(handleGenerate)} className="space-y-4">

@@ -1,19 +1,15 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PodResourceSyncStatus, PodResourceType } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { PrismaService } from '../../../database/prisma.service';
-import { PodProductCatalogService } from '../../pod-product/services/pod-product-catalog.service';
-import { PodProductSyncRepository } from '../../pod-product/repositories/pod-product-sync.repository';
 import { PodWarehouseService } from '../../pod-listing/services/pod-warehouse.service';
 import {
-  POD_RESOURCE_DEPENDS_ON,
   POD_RESOURCE_LOG_MAX_ITEMS,
   POD_RESOURCE_ORDER,
 } from '../constants/pod-resource.constants';
 import type {
   ResourceLogQueryDto,
   ResourceSyncResultDto,
-  SyncAttributesDto,
   SyncResourceDto,
 } from '../dto/pod-resource.dto';
 
@@ -35,26 +31,22 @@ export interface ResourceStatus {
   durationMs: number | null;
   lastError: string | null;
   jobId: string | null;
-  /** Phải sync tài nguyên này trước thì tài nguyên kia mới có dữ liệu. */
-  dependsOn: PodResourceType | null;
-  /** `false` khi phụ thuộc chưa được sync — UI khoá nút Sync và nói rõ lý do. */
-  ready: boolean;
 }
 
 /**
- * PodResourceSyncService — nạp **dữ liệu dùng chung** của TikTok về cache và ghi lại
- * trạng thái từng lượt.
+ * PodResourceSyncService — nạp tài nguyên TikTok **thuộc về một tổ chức** và ghi lại trạng
+ * thái từng lượt.
  *
- * 🔴 Vì sao module này tồn tại: trước đó cách duy nhất để có danh mục/thương hiệu là bật
- * cờ `includeCatalog` khi đồng bộ **sản phẩm**. Màn hình Categories/Brands vì thế luôn
- * trống mà không có nút nào để sửa, kéo theo Category Template không chọn được danh mục —
- * hệ thống đứng hình đúng ở bước đầu tiên.
+ * 🔴 Phạm vi module này đã THU HẸP còn **kho hàng**. Danh mục / thương hiệu / thuộc tính
+ * danh mục chuyển sang `PodMasterDataModule` vì chúng là dữ liệu master của TikTok, giống
+ * nhau với mọi seller: bắt từng tổ chức tự kéo về một bản sao riêng nghĩa là mỗi tổ chức
+ * mới đều phải tự dựng hệ thống trước khi dùng được, và cùng một cây 12.000 danh mục bị
+ * nhân bản theo số shop. Kho hàng thì ngược lại — nó là thứ từng seller tự khai.
  *
- * Ba nguyên tắc:
+ * Hai nguyên tắc còn nguyên:
  *
- * 1. **Template chỉ đọc cache.** Không màn hình nào gọi TikTok khi mở dropdown.
- * 2. **Cache chỉ đổi qua Sync.** Một cửa duy nhất, có nhật ký, biết ai bấm và lúc nào.
- * 3. **Lỗi phải hiện ra.** Fail-soft theo shop, nhưng lỗi được ghi vào log và trả về —
+ * 1. **Cache chỉ đổi qua Sync.** Một cửa duy nhất, có nhật ký, biết ai bấm và lúc nào.
+ * 2. **Lỗi phải hiện ra.** Fail-soft theo shop, nhưng lỗi được ghi vào log và trả về —
  *    không có chuyện báo "đồng bộ xong" trong khi chẳng kéo được gì.
  */
 @Injectable()
@@ -63,48 +55,18 @@ export class PodResourceSyncService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly catalog: PodProductCatalogService,
     private readonly warehouses: PodWarehouseService,
-    private readonly syncRepo: PodProductSyncRepository,
   ) {}
 
   // ---------------------------------------------------------------------------
   // Sync
   // ---------------------------------------------------------------------------
 
-  syncCategories(organizationId: string, userId: string, dto: SyncResourceDto) {
-    return this.run(organizationId, userId, PodResourceType.CATEGORY, dto, (target) =>
-      this.catalog.syncShopCategories(target),
-    );
-  }
-
-  syncBrands(organizationId: string, userId: string, dto: SyncResourceDto) {
-    return this.run(organizationId, userId, PodResourceType.BRAND, dto, (target) =>
-      this.catalog.syncShopBrands(target),
-    );
-  }
-
-  async syncAttributes(organizationId: string, userId: string, dto: SyncAttributesDto) {
-    // Không có danh mục thì không có gì để lấy thuộc tính — nói thẳng thay vì chạy rỗng
-    // rồi báo "0 bản ghi" khiến người dùng tưởng TikTok không trả về gì.
-    const categories = await this.prisma.podProductCategory.count({
-      where: { organizationId, deletedAt: null },
-    });
-    if (categories === 0) {
-      throw new BadRequestException({
-        code: 'POD_RESOURCE_DEPENDENCY_MISSING',
-        message: 'Chưa có danh mục nào trong cache. Hãy Sync Categories trước.',
-      });
-    }
-
-    return this.run(organizationId, userId, PodResourceType.CATEGORY_ATTRIBUTE, dto, (target) =>
-      this.catalog.syncShopCategoryAttributes(target, { categoryIds: dto.categoryIds }),
-    );
-  }
-
   /**
-   * Kho hàng đi qua `PodWarehouseService` (nó tự duyệt shop) nên không dùng chung khung
-   * `run()` — nhưng vẫn ghi trạng thái và nhật ký y hệt để màn hình Resources đồng nhất.
+   * Đồng bộ kho hàng của mọi shop đủ điều kiện trong tổ chức.
+   *
+   * `PodWarehouseService` tự duyệt shop nên không cần khung `run()` riêng — nhưng vẫn ghi
+   * trạng thái và nhật ký y hệt để màn hình Resources đồng nhất.
    */
   async syncWarehouses(
     organizationId: string,
@@ -146,43 +108,34 @@ export class PodResourceSyncService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Trạng thái mọi tài nguyên.
+   * Trạng thái tài nguyên của tổ chức.
    *
    * `totalRecords` **đếm trực tiếp trong database**, không đọc con số của lượt sync cuối:
-   * hai giá trị đó lệch nhau ngay khi có bản ghi bị xoá, và người dùng cần biết cache
-   * đang thực sự có gì.
+   * hai giá trị đó lệch nhau ngay khi có bản ghi bị xoá, và người dùng cần biết cache đang
+   * thực sự có gì.
    */
   async status(organizationId: string): Promise<ResourceStatus[]> {
-    const [rows, categories, brands, attributes, warehouses] = await Promise.all([
+    const [rows, warehouses] = await Promise.all([
       this.prisma.podResourceSync.findMany({ where: { organizationId } }),
-      this.prisma.podProductCategory.count({ where: { organizationId, deletedAt: null } }),
-      this.prisma.podProductBrand.count({ where: { organizationId, deletedAt: null } }),
-      this.prisma.podCategoryAttribute.count({ where: { organizationId } }),
       this.prisma.podTiktokWarehouse.count({ where: { organizationId, deletedAt: null } }),
     ]);
 
-    const counts: Record<PodResourceType, number> = {
-      [PodResourceType.CATEGORY]: categories,
-      [PodResourceType.BRAND]: brands,
-      [PodResourceType.CATEGORY_ATTRIBUTE]: attributes,
+    const counts: Partial<Record<PodResourceType, number>> = {
       [PodResourceType.WAREHOUSE]: warehouses,
     };
     const byResource = new Map(rows.map((row) => [row.resource, row]));
 
     return POD_RESOURCE_ORDER.map((resource) => {
       const row = byResource.get(resource);
-      const dependsOn = POD_RESOURCE_DEPENDS_ON[resource] ?? null;
 
       return {
         resource,
-        totalRecords: counts[resource],
+        totalRecords: counts[resource] ?? 0,
         status: row?.status ?? PodResourceSyncStatus.IDLE,
         lastSyncAt: row?.lastSyncAt ?? null,
         durationMs: row?.durationMs ?? null,
         lastError: row?.lastError ?? null,
         jobId: row?.jobId ?? null,
-        dependsOn,
-        ready: dependsOn === null || counts[dependsOn] > 0,
       };
     });
   }
@@ -202,67 +155,6 @@ export class PodResourceSyncService {
   // ---------------------------------------------------------------------------
   // Private
   // ---------------------------------------------------------------------------
-
-  /**
-   * Khung chung: chọn shop → chạy từng shop (fail-soft) → ghi trạng thái + nhật ký.
-   *
-   * Không có shop nào hợp lệ là **lỗi**, không phải "thành công 0 bản ghi": nguyên nhân
-   * gần như luôn là chưa kết nối TikTok hoặc token chết, và người dùng cần thấy điều đó.
-   */
-  private async run(
-    organizationId: string,
-    userId: string,
-    resource: PodResourceType,
-    dto: SyncResourceDto,
-    handler: (
-      target: Awaited<ReturnType<PodProductSyncRepository['findSyncTargets']>>[number],
-    ) => Promise<number>,
-  ): Promise<ResourceSyncResultDto> {
-    const jobId = randomUUID();
-    const startedAt = new Date();
-    await this.markRunning(organizationId, resource, jobId, userId);
-
-    const targets = await this.syncRepo.findSyncTargets({
-      organizationId,
-      shopId: dto.shopId,
-    });
-
-    if (targets.length === 0) {
-      return this.finish(
-        organizationId,
-        userId,
-        resource,
-        jobId,
-        startedAt,
-        [],
-        'Không có shop TikTok nào đủ điều kiện đồng bộ (chưa kết nối hoặc token đã hết hạn).',
-      );
-    }
-
-    const outcomes: ShopOutcome[] = [];
-    for (const target of targets) {
-      const shopStartedAt = new Date();
-      try {
-        const records = await handler(target);
-        outcomes.push({ shopId: target.id, shopName: target.name, records });
-      } catch (error) {
-        // Fail-soft: shop hỏng không chặn shop còn lại, nhưng lỗi được giữ lại nguyên văn.
-        const message = this.message(error);
-        outcomes.push({ shopId: target.id, shopName: target.name, records: 0, error: message });
-        this.logger.error({
-          module: 'pod-resource',
-          operation: 'resource.sync.shop.fail',
-          organizationId,
-          resource,
-          shopId: target.id,
-          durationMs: Date.now() - shopStartedAt.getTime(),
-          msg: message,
-        });
-      }
-    }
-
-    return this.finish(organizationId, userId, resource, jobId, startedAt, outcomes, null);
-  }
 
   private async markRunning(
     organizationId: string,
@@ -367,7 +259,7 @@ export class PodResourceSyncService {
       durationMs,
       shops: outcomes.length,
       failedShops: failed.length,
-      msg: 'Đã đồng bộ tài nguyên TikTok',
+      msg: 'Đã đồng bộ tài nguyên TikTok của tổ chức',
     });
 
     return {

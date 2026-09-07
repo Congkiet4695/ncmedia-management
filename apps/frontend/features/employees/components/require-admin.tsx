@@ -20,9 +20,7 @@ export function RequireAdmin({ children }: { children: ReactNode }) {
       <div className="flex flex-col items-center justify-center gap-2 py-20 text-center">
         <ShieldAlert className="size-10 text-destructive" />
         <h2 className="text-lg font-semibold">{t('common:state.forbiddenTitle')}</h2>
-        <p className="max-w-sm text-sm text-muted-foreground">
-          {t('adminOnly')}
-        </p>
+        <p className="max-w-sm text-sm text-muted-foreground">{t('adminOnly')}</p>
       </div>
     );
   }

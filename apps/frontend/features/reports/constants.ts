@@ -36,10 +36,24 @@ export const QUICK_RANGE_OPTIONS: { value: QuickRange; labelKey: string }[] = [
  * (dataviz skill · references/palette.md). Dùng cho biểu đồ nhiều Seller.
  */
 export const CATEGORICAL_LIGHT = [
-  '#2a78d6', '#008300', '#e87ba4', '#eda100', '#1baf7a', '#eb6834', '#4a3aa7', '#e34948',
+  '#2a78d6',
+  '#008300',
+  '#e87ba4',
+  '#eda100',
+  '#1baf7a',
+  '#eb6834',
+  '#4a3aa7',
+  '#e34948',
 ];
 export const CATEGORICAL_DARK = [
-  '#3987e5', '#008300', '#d55181', '#c98500', '#199e70', '#d95926', '#9085e9', '#e66767',
+  '#3987e5',
+  '#008300',
+  '#d55181',
+  '#c98500',
+  '#199e70',
+  '#d95926',
+  '#9085e9',
+  '#e66767',
 ];
 
 /** Màu series đơn (doanh thu/đơn) — blue slot 1. */

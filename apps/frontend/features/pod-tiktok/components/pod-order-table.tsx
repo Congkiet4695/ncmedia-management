@@ -111,9 +111,7 @@ export function PodOrderTable({
               {/* Tablet ẩn hai cột tra cứu để cột Products còn đủ chỗ thở (§Responsive). */}
               <TableHead className="hidden lg:table-cell">{t('orders.columns.price')}</TableHead>
               <TableHead>{t('orders.columns.status')}</TableHead>
-              <TableHead className="hidden lg:table-cell">
-                {t('orders.columns.tracking')}
-              </TableHead>
+              <TableHead className="hidden lg:table-cell">{t('orders.columns.tracking')}</TableHead>
               <TableHead>{t('orders.columns.fulfillment')}</TableHead>
               <TableHead className="text-right">{t('orders.columns.action')}</TableHead>
             </TableRow>
@@ -193,4 +191,3 @@ function TableSkeleton() {
     </div>
   );
 }
-

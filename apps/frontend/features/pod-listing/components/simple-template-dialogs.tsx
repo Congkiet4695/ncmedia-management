@@ -538,7 +538,10 @@ export function PricingStrategyDialog({
           />
           <div className="space-y-1">
             <Label>{t('listing.common.currency')}</Label>
-            <Input value={form.currency} onChange={(event) => set('currency')(event.target.value)} />
+            <Input
+              value={form.currency}
+              onChange={(event) => set('currency')(event.target.value)}
+            />
           </div>
         </div>
 
@@ -561,7 +564,9 @@ export function PricingStrategyDialog({
             <input
               type="checkbox"
               checked={form.isDefault}
-              onChange={(event) => setForm((prev) => ({ ...prev, isDefault: event.target.checked }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, isDefault: event.target.checked }))
+              }
             />
             {t('listing.common.setDefault')}
           </label>
@@ -622,7 +627,10 @@ function evaluateFormula(formula: string, vars: Record<string, number>): number 
       if (!matched) return null;
     } else {
       // Dấu âm ở đầu biểu thức / sau `(` / sau toán tử ⇒ chèn 0 để thành phép trừ.
-      if ((token === '-' || token === '+') && (previous === null || previous === '(' || previous in precedence)) {
+      if (
+        (token === '-' || token === '+') &&
+        (previous === null || previous === '(' || previous in precedence)
+      ) {
         output.push(0);
       }
       while (operators.length > 0) {

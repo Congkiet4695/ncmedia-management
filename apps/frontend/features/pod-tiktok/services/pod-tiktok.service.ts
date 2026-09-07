@@ -57,9 +57,7 @@ export const podTiktokService = {
    * 🔴 Frontend KHÔNG xử lý OAuth — không đổi token, không đọc `code`, không lưu nó ở đâu.
    * Toàn bộ nghiệp vụ (validate state, exchange token, lấy shop, lưu account) ở backend.
    */
-  async completeOAuth(
-    payload: CompleteTiktokOAuthPayload,
-  ): Promise<PodTiktokOAuthCompleteResult> {
+  async completeOAuth(payload: CompleteTiktokOAuthPayload): Promise<PodTiktokOAuthCompleteResult> {
     const res = await apiClient.post<ApiResponse<PodTiktokOAuthCompleteResult>>(
       OAUTH_COMPLETE_PATH,
       clean(payload as unknown as Record<string, unknown>),
@@ -119,10 +117,9 @@ export const podTiktokService = {
   },
 
   async assignSeller(id: string, sellerId: string | null): Promise<PodTiktokAccount> {
-    const res = await apiClient.patch<ApiResponse<PodTiktokAccount>>(
-      `${BASE_PATH}/${id}/seller`,
-      { sellerId },
-    );
+    const res = await apiClient.patch<ApiResponse<PodTiktokAccount>>(`${BASE_PATH}/${id}/seller`, {
+      sellerId,
+    });
     return res.data.data;
   },
 };

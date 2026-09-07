@@ -60,12 +60,15 @@ export function TemplateTransferBar({
       const result = await importBundle.mutateAsync(bundle);
 
       if (result.failed > 0) {
-        toast.error(t('listing.transfer.importPartial', { created: result.created, failed: result.failed }), {
-          description: result.errors
-            .slice(0, 3)
-            .map((error) => `#${error.index + 1} ${error.name ?? ''}: ${error.message}`)
-            .join(' · '),
-        });
+        toast.error(
+          t('listing.transfer.importPartial', { created: result.created, failed: result.failed }),
+          {
+            description: result.errors
+              .slice(0, 3)
+              .map((error) => `#${error.index + 1} ${error.name ?? ''}: ${error.message}`)
+              .join(' · '),
+          },
+        );
       } else {
         toast.success(t('listing.transfer.imported', { count: result.created }));
       }

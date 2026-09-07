@@ -1,6 +1,8 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PodListingTemplateItemType, Prisma } from '@prisma/client';
+import {
+  PodBrandMode, PodListingTemplateItemType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { hasBrandSelection, normalizeBrandSelection } from './pod-brand-selection';
 import type {
   CreateListingTemplateDto,
   PodTemplateQueryDto,
@@ -236,6 +238,8 @@ export class PodListingTemplateService {
       imageTemplateId: null,
       pricingStrategyId: null,
       warehouseId: null,
+      // UNSET = "template rỗng chưa nói gì về brand" ⇒ nhường cho Category Template quyết.
+      brandMode: PodBrandMode.UNSET,
       tiktokBrandId: null,
       brandName: null,
       shippingTemplateId: null,
@@ -274,7 +278,13 @@ export class PodListingTemplateService {
 
       const { scopes, ...data } = dto;
       const template = await tx.podListingTemplate.create({
-        data: { ...data, organizationId, createdBy: userId },
+        // `normalizeBrandSelection` đặt SAU `...data` để nó là tiếng nói cuối cùng về brand.
+        data: {
+          ...data,
+          ...normalizeBrandSelection(dto),
+          organizationId,
+          createdBy: userId,
+        },
         select: { id: true },
       });
       await this.syncItems(tx, organizationId, template.id, dto);
@@ -294,7 +304,13 @@ export class PodListingTemplateService {
       const { scopes, ...data } = dto;
       await tx.podListingTemplate.update({
         where: { id },
-        data: { ...data, isActive: dto.isActive ?? true, updatedBy: userId },
+        data: {
+          ...data,
+          // Chỉ đụng tới brand khi request CÓ gửi lên (xem `pod-brand-selection`).
+          ...(hasBrandSelection(dto) ? normalizeBrandSelection(dto) : {}),
+          isActive: dto.isActive ?? true,
+          updatedBy: userId,
+        },
       });
       await tx.podListingTemplateItem.deleteMany({ where: { listingTemplateId: id } });
       await this.syncItems(tx, organizationId, id, dto);
@@ -327,6 +343,7 @@ export class PodListingTemplateService {
       imageTemplateId: source.imageTemplateId ?? undefined,
       pricingStrategyId: source.pricingStrategyId ?? undefined,
       warehouseId: source.warehouseId ?? undefined,
+      brandMode: source.brandMode,
       tiktokBrandId: source.tiktokBrandId ?? undefined,
       brandName: source.brandName ?? undefined,
       shippingTemplateId: source.shippingTemplateId ?? undefined,

@@ -2,11 +2,7 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { podOrderService } from '../services/pod-order.service';
-import type {
-  PodOrderQuery,
-  PodSyncLogQuery,
-  TriggerSyncPayload,
-} from '../order-types';
+import type { PodOrderQuery, PodSyncLogQuery, TriggerSyncPayload } from '../order-types';
 
 const POD_ORDERS_KEY = 'pod-tiktok-orders';
 const POD_SYNC_LOGS_KEY = 'pod-tiktok-sync-logs';

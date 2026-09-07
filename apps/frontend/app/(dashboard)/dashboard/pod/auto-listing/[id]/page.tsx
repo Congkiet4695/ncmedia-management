@@ -18,6 +18,7 @@ import {
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { DataPagination } from '@/components/ui/data-pagination';
 import { Card, CardContent } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -97,6 +98,8 @@ function SessionDetailView({ sessionId }: { sessionId: string }) {
   const running = session.data?.status === 'LISTING';
 
   const [page, setPage] = useState(1);
+  // Cỡ trang do người dùng chọn; đổi cỡ thì luôn về trang 1.
+  const [limit, setLimit] = useState(50);
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<string[]>([]);
   const [editing, setEditing] = useState<PodSessionProduct | null>(null);
@@ -105,7 +108,7 @@ function SessionDetailView({ sessionId }: { sessionId: string }) {
 
   const products = useSessionProducts(
     sessionId,
-    { page, limit: 50, search: search || undefined },
+    { page, limit, search: search || undefined },
     running,
   );
 
@@ -475,29 +478,15 @@ function SessionDetailView({ sessionId }: { sessionId: string }) {
             </Table>
           )}
 
-          {(products.data?.meta.totalPages ?? 0) > 1 && (
-            <div className="flex items-center justify-end gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page <= 1}
-                onClick={() => setPage((prev) => prev - 1)}
-              >
-                {t('common:action.previous')}
-              </Button>
-              <span className="text-sm text-muted-foreground">
-                {page} / {products.data?.meta.totalPages}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={page >= (products.data?.meta.totalPages ?? 1)}
-                onClick={() => setPage((prev) => prev + 1)}
-              >
-                {t('common:action.next')}
-              </Button>
-            </div>
-          )}
+          <DataPagination
+            meta={products.data?.meta}
+            onPageChange={setPage}
+            onPageSizeChange={(next) => {
+              setLimit(next);
+              setPage(1);
+            }}
+            disabled={products.isFetching}
+          />
         </CardContent>
       </Card>
 

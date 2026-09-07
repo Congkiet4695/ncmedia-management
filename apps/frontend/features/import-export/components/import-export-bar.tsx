@@ -65,7 +65,11 @@ export function ImportExportBar({
             disabled={busy !== null}
             onClick={() => download('example', exportExamplePath, exampleFilename)}
           >
-            {busy === 'example' ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4" />}
+            {busy === 'example' ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <FileDown className="size-4" />
+            )}
             Export Example
           </Button>
           <Button
@@ -74,7 +78,11 @@ export function ImportExportBar({
             disabled={busy !== null}
             onClick={() => download('export', exportPath, exportFilename)}
           >
-            {busy === 'export' ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+            {busy === 'export' ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <Download className="size-4" />
+            )}
             Export
           </Button>
         </>

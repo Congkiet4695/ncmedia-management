@@ -40,9 +40,7 @@ export const superAdminService = {
 
   /** §7 — chi tiết Organization + Owner + lịch sử duyệt. */
   async organization(id: string): Promise<OrganizationDetail> {
-    const res = await apiClient.get<ApiResponse<OrganizationDetail>>(
-      `${BASE}/organizations/${id}`,
-    );
+    const res = await apiClient.get<ApiResponse<OrganizationDetail>>(`${BASE}/organizations/${id}`);
     return res.data.data;
   },
 

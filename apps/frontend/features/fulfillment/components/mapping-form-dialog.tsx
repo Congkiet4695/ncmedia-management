@@ -1,17 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import {
-  Check,
-  ChevronLeft,
-  ChevronRight,
-  Loader2,
-  RefreshCw,
-  Search,
-  Sparkles,
-} from 'lucide-react';
+import { Check, Loader2, RefreshCw, Search, Sparkles } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
+import { DataPagination } from '@/components/ui/data-pagination';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -64,6 +57,7 @@ interface MappingFormDialogProps {
 }
 
 /** Số sản phẩm mỗi trang khi duyệt danh mục nhà cung cấp. */
+/** Cỡ trang MẶC ĐỊNH của bộ chọn sản phẩm — người dùng đổi được trong dialog. */
 const PRODUCT_PAGE_SIZE = 20;
 
 /**
@@ -110,6 +104,7 @@ export function MappingFormDialog({
   const [catalogueId, setCatalogueId] = useState('');
   const [catalogSearch, setCatalogSearch] = useState('');
   const [productPage, setProductPage] = useState(1);
+  const [productLimit, setProductLimit] = useState(PRODUCT_PAGE_SIZE);
   const [productId, setProductId] = useState('');
   const [variantId, setVariantId] = useState('');
   const [variantSearch, setVariantSearch] = useState('');
@@ -126,7 +121,7 @@ export function MappingFormDialog({
   const catalogues = useProviderCatalogues(open ? accountId || undefined : undefined);
   const catalogProducts = useProviderCatalogProducts(open ? accountId || undefined : undefined, {
     page: productPage,
-    limit: PRODUCT_PAGE_SIZE,
+    limit: productLimit,
     ...(debouncedCatalogSearch ? { search: debouncedCatalogSearch } : {}),
     ...(catalogueId ? { catalogueId } : {}),
   });
@@ -535,39 +530,14 @@ export function MappingFormDialog({
           </PickerList>
 
           {/* Phân trang phía SERVER — không tải cả danh mục về trình duyệt nữa */}
-          {productMeta && productMeta.totalPages > 1 && (
-            <div className="flex items-center justify-between text-xs text-muted-foreground">
-              <span>
-                {t('common:pagination.pageWithTotal', {
-                  page: productMeta.page,
-                  totalPages: productMeta.totalPages,
-                  total: productMeta.total,
-                })}
-              </span>
-              <div className="flex gap-1">
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={productMeta.page <= 1}
-                  onClick={() => setProductPage((page) => page - 1)}
-                  aria-label={t('common:action.previous')}
-                >
-                  <ChevronLeft className="size-3.5" />
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  size="sm"
-                  disabled={productMeta.page >= productMeta.totalPages}
-                  onClick={() => setProductPage((page) => page + 1)}
-                  aria-label={t('common:action.next')}
-                >
-                  <ChevronRight className="size-3.5" />
-                </Button>
-              </div>
-            </div>
-          )}
+          <DataPagination
+            meta={productMeta}
+            onPageChange={setProductPage}
+            onPageSizeChange={(next) => {
+              setProductLimit(next);
+              setProductPage(1);
+            }}
+          />
         </div>
 
         {/* Bước 5 — biến thể (tìm được theo tên / SKU / màu / size) */}

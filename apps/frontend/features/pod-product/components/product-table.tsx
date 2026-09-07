@@ -90,9 +90,7 @@ export function ProductTable({ products, loading }: ProductTableProps) {
               )}
             </TableCell>
             <TableCell className="text-right tabular-nums">{product.skuCount}</TableCell>
-            <TableCell className="text-right tabular-nums">
-              {formatPriceRange(product)}
-            </TableCell>
+            <TableCell className="text-right tabular-nums">{formatPriceRange(product)}</TableCell>
             <TableCell className="text-right tabular-nums">{product.totalInventory}</TableCell>
             <TableCell>
               <p className="truncate text-sm">{product.shopName ?? '—'}</p>

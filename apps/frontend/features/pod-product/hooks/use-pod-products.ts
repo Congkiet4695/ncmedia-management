@@ -34,7 +34,11 @@ export function usePodProductFilters() {
   });
 }
 
-export function usePodProductSyncHistory(params: { page?: number; limit?: number; shopId?: string }) {
+export function usePodProductSyncHistory(params: {
+  page?: number;
+  limit?: number;
+  shopId?: string;
+}) {
   return useQuery({
     queryKey: [POD_PRODUCT_KEY, 'sync-history', params],
     queryFn: () => podProductService.syncHistory(params),

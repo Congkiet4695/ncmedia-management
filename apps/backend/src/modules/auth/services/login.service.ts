@@ -3,6 +3,7 @@ import { OrganizationStatus, UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../database/prisma.service';
 import { maskEmail } from '../../../common/utils/mask-email.util';
+import { AUTH_EVENT } from '../constants/auth-events';
 import { LoginRequestDto } from '../dto/login-request.dto';
 import { LoginResponseDto } from '../dto/login-response.dto';
 import { AccountDisabledException } from '../exceptions/account-disabled.exception';
@@ -12,6 +13,7 @@ import { OrganizationInactiveException } from '../exceptions/organization-inacti
 import { OrganizationPendingApprovalException } from '../exceptions/organization-pending-approval.exception';
 import { OrganizationRejectedException } from '../exceptions/organization-rejected.exception';
 import { RateLimitedException } from '../exceptions/rate-limited.exception';
+import { AuthEventLogger } from './auth-event.logger';
 import { RateLimitService } from './rate-limit.service';
 import { IssuedRefreshToken, RefreshTokenService } from './refresh-token.service';
 import { TokenMeta, TokenService, TokenSubject } from './token.service';
@@ -58,6 +60,7 @@ export class LoginService {
     private readonly tokenService: TokenService,
     private readonly refreshTokenService: RefreshTokenService,
     private readonly rateLimit: RateLimitService,
+    private readonly events: AuthEventLogger,
   ) {}
 
   async login(dto: LoginRequestDto, meta: TokenMeta = {}): Promise<LoginResponseDto> {
@@ -88,6 +91,11 @@ export class LoginService {
     if (!user || !passwordOk) {
       await this.registerFailure(user?.id, email, ip);
       this.logger.warn(`Login failed - invalid credentials email=${maskEmail(email)}`);
+      this.events.warn(AUTH_EVENT.LOGIN_FAILED, {
+        userId: user?.id,
+        reason: 'INVALID_CREDENTIALS',
+        ipAddress: ip,
+      });
       throw new InvalidCredentialsException();
     }
 
@@ -133,6 +141,14 @@ export class LoginService {
     await this.rateLimit.reset(`login_fail:${email}:${ip}`).catch(() => undefined);
 
     this.logger.log(`Login success email=${maskEmail(email)}`);
+    // Log CÓ CẤU TRÚC song song với log văn bản: `AUTH_LOGIN_SUCCESS` + `sessionId` là thứ
+    // nối được một lần đăng nhập với chuỗi refresh của nó khi truy vết sự cố phiên.
+    this.events.info(AUTH_EVENT.LOGIN_SUCCESS, {
+      userId: user.id,
+      organizationId: user.organizationId,
+      sessionId: issued.id,
+      ipAddress: ip,
+    });
 
     // (15) Response
     return {

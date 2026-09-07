@@ -99,7 +99,10 @@ export class FulfillmentCatalogQueryService {
         total,
         page: params.page,
         limit: params.limit,
-        totalPages: Math.max(1, Math.ceil(total / params.limit)),
+        // `total === 0 ⇒ totalPages = 0` — cùng công thức với mọi service khác trong hệ
+        // thống. `Math.max(1, …)` sẽ trả về 1 cho danh sách RỖNG, và giao diện hiện
+        // "Trang 1 / 1" bên dưới một cái bảng không có dòng nào.
+        totalPages: total === 0 ? 0 : Math.ceil(total / params.limit),
       },
       lastSyncedAt: lastSyncedAt?.toISOString() ?? null,
     };

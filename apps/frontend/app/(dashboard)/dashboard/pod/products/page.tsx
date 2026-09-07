@@ -1,15 +1,17 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, History, Loader2, RefreshCw, Search } from 'lucide-react';
+import { History, Loader2, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { DataPagination } from '@/components/ui/data-pagination';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Combobox } from '@/components/ui/combobox';
 import { RequirePermission } from '@/components/require-permission';
 import { useApiError } from '@/hooks/use-api-error';
+import { useClampedPage } from '@/hooks/use-clamped-page';
 import { useAuth } from '@/hooks/use-auth';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { ProductSyncHistoryDialog } from '@/features/pod-product/components/product-sync-history-dialog';
@@ -67,6 +69,9 @@ function PodProductsView() {
 
   const items = productsQuery.data?.items ?? [];
   const meta = productsQuery.data?.meta;
+  // Xoá nốt record cuối của trang cuối ⇒ lùi về trang còn dữ liệu,
+  // không để giao diện kẹt ở "Trang 3 / 2" với một cái bảng trống.
+  useClampedPage(meta, (next) => setQuery((prev) => ({ ...prev, page: next })));
   const filters = filtersQuery.data;
 
   const handleSync = async (full: boolean) => {
@@ -198,37 +203,11 @@ function PodProductsView() {
             <ProductTable products={items} loading={productsQuery.isLoading} />
           )}
 
-          {meta && meta.total > 0 && (
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>
-                {t('common:pagination.pageWithTotal', {
-                  page: meta.page,
-                  totalPages: meta.totalPages,
-                  total: meta.total,
-                })}
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={meta.page <= 1}
-                  onClick={() => setQuery((prev) => ({ ...prev, page: meta.page - 1 }))}
-                >
-                  <ChevronLeft className="size-4" />
-                  {t('common:action.previous')}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={meta.page >= meta.totalPages}
-                  onClick={() => setQuery((prev) => ({ ...prev, page: meta.page + 1 }))}
-                >
-                  {t('common:action.next')}
-                  <ChevronRight className="size-4" />
-                </Button>
-              </div>
-            </div>
-          )}
+          <DataPagination
+            meta={meta}
+            onPageChange={(next) => setQuery((prev) => ({ ...prev, page: next }))}
+            onPageSizeChange={(next) => setQuery((prev) => ({ ...prev, limit: next, page: 1 }))}
+          />
         </CardContent>
       </Card>
 

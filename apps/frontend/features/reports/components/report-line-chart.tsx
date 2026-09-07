@@ -65,7 +65,11 @@ export function ReportLineChart({
         />
         <Tooltip
           content={
-            <ChartTooltip theme={theme} valueFormatter={valueFormatter} labelFormatter={labelFormatter} />
+            <ChartTooltip
+              theme={theme}
+              valueFormatter={valueFormatter}
+              labelFormatter={labelFormatter}
+            />
           }
           cursor={{ stroke: theme.axis, strokeWidth: 1 }}
         />

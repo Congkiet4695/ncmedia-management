@@ -1,16 +1,18 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { ChevronLeft, ChevronRight, Link2, Loader2, Search } from 'lucide-react';
+import { Link2, Loader2, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { DataPagination } from '@/components/ui/data-pagination';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Modal } from '@/components/ui/modal';
 import { Combobox } from '@/components/ui/combobox';
 import { RequirePermission } from '@/components/require-permission';
 import { useAuth } from '@/hooks/use-auth';
+import { useClampedPage } from '@/hooks/use-clamped-page';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useApiError } from '@/hooks/use-api-error';
 import { LinkAccountDialog } from '@/features/pod-tiktok/components/link-account-dialog';
@@ -68,6 +70,9 @@ function PodTiktokAccountsView() {
 
   const items = accountsQuery.data?.items ?? [];
   const meta = accountsQuery.data?.meta;
+  // Xoá nốt record cuối của trang cuối ⇒ lùi về trang còn dữ liệu,
+  // không để giao diện kẹt ở "Trang 3 / 2" với một cái bảng trống.
+  useClampedPage(meta, (next) => patchQuery({ page: next }));
 
   const handleConfirmUnlink = async () => {
     if (!unlinking) return;
@@ -141,37 +146,11 @@ function PodTiktokAccountsView() {
             />
           )}
 
-          {meta && meta.total > 0 && (
-            <div className="flex items-center justify-between text-sm text-muted-foreground">
-              <span>
-                {t('account.pageWithConnections', {
-                  page: meta.page,
-                  totalPages: meta.totalPages,
-                  total: meta.total,
-                })}
-              </span>
-              <div className="flex gap-2">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={meta.page <= 1}
-                  onClick={() => patchQuery({ page: meta.page - 1 })}
-                >
-                  <ChevronLeft className="size-4" />
-                  {t('common:action.previous')}
-                </Button>
-                <Button
-                  variant="outline"
-                  size="sm"
-                  disabled={meta.page >= meta.totalPages}
-                  onClick={() => patchQuery({ page: meta.page + 1 })}
-                >
-                  {t('common:action.next')}
-                  <ChevronRight className="size-4" />
-                </Button>
-              </div>
-            </div>
-          )}
+          <DataPagination
+            meta={meta}
+            onPageChange={(next) => patchQuery({ page: next })}
+            onPageSizeChange={(next) => patchQuery({ limit: next, page: 1 })}
+          />
         </CardContent>
       </Card>
 

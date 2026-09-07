@@ -46,7 +46,11 @@ export function EmployeeImportExportBar({ query, onImported }: EmployeeImportExp
         disabled={busy !== null}
         onClick={() => run('export', () => employeeService.exportExcel(query))}
       >
-        {busy === 'export' ? <Loader2 className="size-4 animate-spin" /> : <Download className="size-4" />}
+        {busy === 'export' ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <Download className="size-4" />
+        )}
         Export Excel
       </Button>
 
@@ -56,7 +60,11 @@ export function EmployeeImportExportBar({ query, onImported }: EmployeeImportExp
         disabled={busy !== null}
         onClick={() => run('template', () => employeeService.downloadTemplate())}
       >
-        {busy === 'template' ? <Loader2 className="size-4 animate-spin" /> : <FileDown className="size-4" />}
+        {busy === 'template' ? (
+          <Loader2 className="size-4 animate-spin" />
+        ) : (
+          <FileDown className="size-4" />
+        )}
         Download Template
       </Button>
 

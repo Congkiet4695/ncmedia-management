@@ -133,10 +133,14 @@ export function SkuTemplateDialog({ open, template, onClose }: SkuTemplateDialog
   const axesDirty = useMemo(() => {
     if (!current) return cleanedAxes.length > 0;
     const shape = (list: Array<{ name: string; values: string[] }>): string =>
-      list.map((axis) => `${axis.name.toLowerCase()}:${axis.values.join('|').toLowerCase()}`).join(';');
+      list
+        .map((axis) => `${axis.name.toLowerCase()}:${axis.values.join('|').toLowerCase()}`)
+        .join(';');
 
     return (
-      shape(cleanedAxes.map((axis) => ({ name: axis.name, values: axis.values.map((v) => v.value) }))) !==
+      shape(
+        cleanedAxes.map((axis) => ({ name: axis.name, values: axis.values.map((v) => v.value) })),
+      ) !==
       shape(
         current.variants.map((variant) => ({
           name: variant.name,
@@ -262,7 +266,9 @@ export function SkuTemplateDialog({ open, template, onClose }: SkuTemplateDialog
               <CurrencyInput
                 currency={defaults.currency}
                 value={defaults.retail}
-                onChange={(event) => setDefaults((prev) => ({ ...prev, retail: event.target.value }))}
+                onChange={(event) =>
+                  setDefaults((prev) => ({ ...prev, retail: event.target.value }))
+                }
               />
             </div>
             <div className="space-y-1">

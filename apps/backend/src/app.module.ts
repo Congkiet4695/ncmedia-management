@@ -26,6 +26,8 @@ import { PodTiktokModule } from './modules/pod-tiktok/pod-tiktok.module';
 import { PodProductModule } from './modules/pod-product/pod-product.module';
 import { PodListingSessionModule } from './modules/pod-listing-session/pod-listing-session.module';
 import { PodListingModule } from './modules/pod-listing/pod-listing.module';
+import { PodFlashSaleModule } from './modules/pod-flash-sale/pod-flash-sale.module';
+import { PodMasterDataModule } from './modules/pod-master-data/pod-master-data.module';
 import { PodResourceModule } from './modules/pod-resource/pod-resource.module';
 import { TikTokSdkModule } from './modules/tiktok-sdk/tiktok-sdk.module';
 import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
@@ -134,7 +136,10 @@ import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
     PodListingModule,
     PodListingSessionModule,
     // Module POD — Resource Synchronization (Category / Brand / Attribute / Warehouse)
+    PodMasterDataModule,
     PodResourceModule,
+    // Module POD — Flash Sale (Promotion Activity `FLASHSALE` của TikTok Shop)
+    PodFlashSaleModule,
     // Gửi đơn POD sang xưởng in (MangoTeePrints)
     FulfillmentModule,
   ],

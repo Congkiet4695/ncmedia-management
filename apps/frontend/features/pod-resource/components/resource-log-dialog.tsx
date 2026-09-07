@@ -17,14 +17,16 @@ import { useResourceLogs } from '../hooks';
 import type { PodResourceSyncStatus, PodResourceType } from '../types';
 
 /** Màu badge theo trạng thái — hỏng phải đỏ, một phần phải vàng, không được xanh hết. */
-const STATUS_VARIANT: Record<PodResourceSyncStatus, 'success' | 'warning' | 'destructive' | 'muted'> =
-  {
-    SUCCESS: 'success',
-    PARTIAL: 'warning',
-    FAILED: 'destructive',
-    RUNNING: 'muted',
-    IDLE: 'muted',
-  };
+const STATUS_VARIANT: Record<
+  PodResourceSyncStatus,
+  'success' | 'warning' | 'destructive' | 'muted'
+> = {
+  SUCCESS: 'success',
+  PARTIAL: 'warning',
+  FAILED: 'destructive',
+  RUNNING: 'muted',
+  IDLE: 'muted',
+};
 
 /**
  * Nhật ký đồng bộ của một tài nguyên.
@@ -43,7 +45,10 @@ export function ResourceLogDialog({
 }) {
   const { t } = useTranslation(['pod', 'common']);
   const { formatDateTime } = useLocaleFormat();
-  const logs = useResourceLogs({ resource: resource ?? undefined, limit: 50 }, open && Boolean(resource));
+  const logs = useResourceLogs(
+    { resource: resource ?? undefined, limit: 50 },
+    open && Boolean(resource),
+  );
 
   return (
     <Modal

@@ -12,11 +12,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { RequirePermission } from '@/components/require-permission';
-import { useAuth } from '@/hooks/use-auth';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { TemplatePageShell } from '@/features/pod-listing/components/template-page-shell';
 import { useSyncedCategories } from '@/features/pod-listing/hooks/use-pod-listing';
-import { ResourceSyncButton } from '@/features/pod-resource/components/resource-sync-button';
 
 export default function PodCategoriesPage() {
   const { t } = useTranslation('pod');
@@ -30,13 +28,15 @@ export default function PodCategoriesPage() {
 /**
  * **POD → Categories** — cây danh mục TikTok đã đồng bộ.
  *
- * Màn hình CHỈ ĐỌC: danh mục do TikTok định nghĩa, hệ thống không tạo/sửa. Cách duy nhất
- * để có dữ liệu là bấm **Sync Categories** — nút nằm ngay đây thay vì bắt người dùng đi
- * tìm ở màn hình khác. Danh sách tự làm mới sau khi sync xong.
+ * Màn hình CHỈ ĐỌC: danh mục do TikTok định nghĩa, hệ thống không tạo/sửa.
+ *
+ * 🔴 Không còn nút **Sync Categories** ở đây. Cây danh mục là dữ liệu master TOÀN CỤC: một
+ * Admin tổ chức bấm Sync nghĩa là ghi đè dữ liệu dùng chung của mọi tổ chức khác. Việc đồng
+ * bộ thuộc về Super Admin (POD → TikTok Master Data) và chỉ cần làm một lần. Cột "Shop"
+ * cũng đã bỏ — bản ghi không còn thuộc về shop nào.
  */
 function CategoriesView() {
   const { t } = useTranslation('pod');
-  const { hasPermission } = useAuth();
   const { formatDateTime } = useLocaleFormat();
   const [search, setSearch] = useState('');
 
@@ -47,11 +47,6 @@ function CategoriesView() {
     <TemplatePageShell
       title={t('listing.categories.title')}
       subtitle={t('listing.categories.subtitle')}
-      actions={
-        hasPermission('pod.product.sync') ? (
-          <ResourceSyncButton resource="CATEGORY" label={t('resources.syncCategories')} />
-        ) : undefined
-      }
       loading={categoriesQuery.isLoading}
       error={categoriesQuery.error}
       empty={categories.length === 0}
@@ -66,7 +61,6 @@ function CategoriesView() {
             <TableHead>{t('listing.categories.tiktokId')}</TableHead>
             <TableHead>{t('listing.categories.level')}</TableHead>
             <TableHead>{t('listing.categories.leaf')}</TableHead>
-            <TableHead>{t('listing.common.shop')}</TableHead>
             <TableHead>{t('listing.common.syncedAt')}</TableHead>
           </TableRow>
         </TableHeader>
@@ -86,7 +80,6 @@ function CategoriesView() {
                   <Badge variant="muted">{t('listing.categories.leafNo')}</Badge>
                 )}
               </TableCell>
-              <TableCell className="text-sm">{category.shop?.name ?? '—'}</TableCell>
               <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                 {formatDateTime(category.syncedAt)}
               </TableCell>

@@ -6,8 +6,15 @@ import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/hooks/use-auth';
 
 interface RequirePermissionProps {
-  /** Mã permission `resource.action` bắt buộc để truy cập. */
-  permission: string;
+  /**
+   * Mã permission `resource.action` bắt buộc để truy cập. Truyền MẢNG ⇒ ngữ nghĩa **HOẶC**:
+   * có một trong số đó là đủ.
+   *
+   * 🔴 Dạng mảng cần cho những màn hình mà hai loại người dùng không chung quyền nào cùng
+   * phải vào được — vd TikTok Master Data: Admin tổ chức có `pod.product.read`, Super Admin
+   * nền tảng chỉ có `platform.*`. Khớp với `@RequireAnyPermission` phía backend.
+   */
+  permission: string | string[];
   children: ReactNode;
   /** Thông báo khi thiếu quyền (mặc định chung chung). */
   message?: string;
@@ -23,7 +30,11 @@ export function RequirePermission({ permission, children, message }: RequirePerm
 
   if (loading) return null; // AuthProvider đã hiển thị loading toàn cục
 
-  if (!hasPermission(permission)) {
+  const allowed = Array.isArray(permission)
+    ? permission.some(hasPermission)
+    : hasPermission(permission);
+
+  if (!allowed) {
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-20 text-center">
         <ShieldAlert className="size-10 text-destructive" />

@@ -4,7 +4,10 @@ import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import type { PodOrderStatus, PodSyncStatus } from '../order-types';
 
-const ORDER_VARIANT: Record<PodOrderStatus, 'success' | 'warning' | 'destructive' | 'muted' | 'default'> = {
+const ORDER_VARIANT: Record<
+  PodOrderStatus,
+  'success' | 'warning' | 'destructive' | 'muted' | 'default'
+> = {
   UNPAID: 'muted',
   ON_HOLD: 'warning',
   AWAITING_SHIPMENT: 'default',
@@ -33,7 +36,10 @@ export function PodOrderStatusBadge({ status }: { status: PodOrderStatus }) {
   return <Badge variant={ORDER_VARIANT[status] ?? 'muted'}>{label(status)}</Badge>;
 }
 
-const SYNC_VARIANT: Record<PodSyncStatus, 'success' | 'warning' | 'destructive' | 'muted' | 'default'> = {
+const SYNC_VARIANT: Record<
+  PodSyncStatus,
+  'success' | 'warning' | 'destructive' | 'muted' | 'default'
+> = {
   RUNNING: 'default',
   SUCCESS: 'success',
   PARTIAL: 'warning',
@@ -43,8 +49,7 @@ const SYNC_VARIANT: Record<PodSyncStatus, 'success' | 'warning' | 'destructive' 
 
 export function usePodSyncStatusLabel(): (status: PodSyncStatus) => string {
   const { t, i18n } = useTranslation('pod');
-  return (status) =>
-    i18n.exists(`pod:syncStatus.${status}`) ? t(`syncStatus.${status}`) : status;
+  return (status) => (i18n.exists(`pod:syncStatus.${status}`) ? t(`syncStatus.${status}`) : status);
 }
 
 export function PodSyncStatusBadge({ status }: { status: PodSyncStatus }) {

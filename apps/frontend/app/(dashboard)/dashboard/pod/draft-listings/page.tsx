@@ -80,6 +80,9 @@ function DraftListingsView() {
   const canDelete = hasPermission('pod.draft.generate');
 
   const [page, setPage] = useState(1);
+  // Cỡ trang do người dùng chọn (ô "Số dòng mỗi trang"); đổi cỡ thì luôn về trang 1
+  // vì trang cũ có thể không còn tồn tại ở cỡ mới.
+  const [limit, setLimit] = useState(20);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<PodDraftStatus | ''>('');
   const [reviewStatus, setReviewStatus] = useState<PodReviewStatus | ''>('');
@@ -95,7 +98,7 @@ function DraftListingsView() {
   const drafts = useDraftListings(
     {
       page,
-      limit: 20,
+      limit,
       search: search || undefined,
       status: status || undefined,
       reviewStatus: reviewStatus || undefined,
@@ -184,6 +187,10 @@ function DraftListingsView() {
         emptyMessage={t('listing.drafts.empty')}
         meta={drafts.data?.meta ?? null}
         onPageChange={setPage}
+        onPageSizeChange={(next) => {
+          setLimit(next);
+          setPage(1);
+        }}
         searchPlaceholder={t('listing.products.searchPlaceholder')}
         onSearchChange={(value) => {
           setPage(1);

@@ -1,8 +1,9 @@
 'use client';
 
 import { useState } from 'react';
-import { ChevronLeft, ChevronRight, History, Loader2 } from 'lucide-react';
+import { History, Loader2 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { DataPagination } from '@/components/ui/data-pagination';
 import { Modal } from '@/components/ui/modal';
 import {
   Table,
@@ -40,7 +41,8 @@ export function SyncHistoryDialog({ open, onClose, shopId }: SyncHistoryDialogPr
   const translateApiError = useApiError();
   const { formatDateTime } = useLocaleFormat();
   const [page, setPage] = useState(1);
-  const logsQuery = usePodSyncLogs({ page, limit: 10, shopId }, open);
+  const [limit, setLimit] = useState(10);
+  const logsQuery = usePodSyncLogs({ page, limit, shopId }, open);
 
   const items = logsQuery.data?.items ?? [];
   const meta = logsQuery.data?.meta;
@@ -176,37 +178,15 @@ export function SyncHistoryDialog({ open, onClose, shopId }: SyncHistoryDialogPr
           </div>
         )}
 
-        {meta && meta.total > 0 && (
-          <div className="flex items-center justify-between text-sm text-muted-foreground">
-            <span>
-              {t('syncHistory.pageWithRuns', {
-                page: meta.page,
-                totalPages: meta.totalPages,
-                total: meta.total,
-              })}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={meta.page <= 1}
-                onClick={() => setPage((p) => p - 1)}
-              >
-                <ChevronLeft className="size-4" />
-                {t('common:action.previous')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={meta.page >= meta.totalPages}
-                onClick={() => setPage((p) => p + 1)}
-              >
-                {t('common:action.next')}
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
-          </div>
-        )}
+        <DataPagination
+          meta={meta}
+          onPageChange={setPage}
+          onPageSizeChange={(next) => {
+            setLimit(next);
+            setPage(1);
+          }}
+          disabled={logsQuery.isFetching}
+        />
       </div>
     </Modal>
   );

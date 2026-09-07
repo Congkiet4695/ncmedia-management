@@ -34,6 +34,7 @@ import { PodPayoutSyncService } from './services/pod-payout-sync.service';
 import { PodSyncOrchestratorService } from './services/pod-sync-orchestrator.service';
 import { PodTiktokAccountService } from './services/pod-tiktok-account.service';
 import { PodTiktokOAuthService } from './services/pod-tiktok-oauth.service';
+import { PodTiktokShopContextService } from './services/pod-tiktok-shop-context.service';
 import { PodTiktokTokenService } from './services/pod-tiktok-token.service';
 import { TiktokEncryptionService } from './services/tiktok-encryption.service';
 
@@ -76,6 +77,7 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     PodSyncOrchestratorService,
     PodOrderIngestionService,
     PodTiktokTokenService,
+    PodTiktokShopContextService,
     PodOrderRepository,
     PodSyncLogRepository,
     PodOrderMapper,
@@ -115,6 +117,7 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     TiktokEncryptionService,
     DistributedLockService,
     PodTiktokTokenService,
+    PodTiktokShopContextService,
     PodTiktokAccountRepository,
     PodOrderRepository,
   ],

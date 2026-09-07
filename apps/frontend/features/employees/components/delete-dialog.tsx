@@ -13,7 +13,13 @@ interface DeleteDialogProps {
   onClose: () => void;
 }
 
-export function DeleteDialog({ open, employeeName, loading, onConfirm, onClose }: DeleteDialogProps) {
+export function DeleteDialog({
+  open,
+  employeeName,
+  loading,
+  onConfirm,
+  onClose,
+}: DeleteDialogProps) {
   const { t } = useTranslation(['employee', 'common']);
   return (
     <Modal

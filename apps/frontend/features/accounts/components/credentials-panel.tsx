@@ -111,7 +111,12 @@ export function CredentialsPanel({ accountId }: { accountId: string }) {
         {FIELDS.map((f) => (
           <div key={f.key} className="space-y-2">
             <Label htmlFor={`cred-${f.key}`}>{f.label}</Label>
-            <Input id={`cred-${f.key}`} autoComplete="off" disabled={mutation.isPending} {...register(f.key)} />
+            <Input
+              id={`cred-${f.key}`}
+              autoComplete="off"
+              disabled={mutation.isPending}
+              {...register(f.key)}
+            />
             {errors[f.key] && <p className="text-sm text-destructive">{errors[f.key]?.message}</p>}
           </div>
         ))}

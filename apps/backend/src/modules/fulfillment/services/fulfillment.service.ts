@@ -289,7 +289,10 @@ export class FulfillmentService {
 
     return {
       items: filtered,
-      meta: { total, page, limit, totalPages: Math.max(1, Math.ceil(total / limit)) },
+      // `total === 0 ⇒ totalPages = 0` — cùng công thức với mọi service khác trong hệ
+      // thống. `Math.max(1, …)` sẽ trả về 1 cho danh sách RỖNG, và giao diện hiện
+      // "Trang 1 / 1" bên dưới một cái bảng không có dòng nào.
+      meta: { total, page, limit, totalPages: total === 0 ? 0 : Math.ceil(total / limit) },
     };
   }
 

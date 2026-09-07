@@ -18,11 +18,7 @@ export const ORGANIZATION_STATUSES = [
 export type OrganizationStatus = (typeof ORGANIZATION_STATUSES)[number];
 
 /** Ba trạng thái xuất hiện trên bộ lọc chính (§6). */
-export const ORGANIZATION_FILTER_STATUSES: OrganizationStatus[] = [
-  'PENDING',
-  'ACTIVE',
-  'REJECTED',
-];
+export const ORGANIZATION_FILTER_STATUSES: OrganizationStatus[] = ['PENDING', 'ACTIVE', 'REJECTED'];
 
 /** Chủ Organization — người đã bấm nút đăng ký. */
 export interface OrganizationOwner {

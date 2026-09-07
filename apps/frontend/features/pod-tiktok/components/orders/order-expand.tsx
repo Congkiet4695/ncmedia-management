@@ -238,15 +238,7 @@ function Section({
   );
 }
 
-function Field({
-  label,
-  value,
-  wrap,
-}: {
-  label: string;
-  value: string | null;
-  wrap?: boolean;
-}) {
+function Field({ label, value, wrap }: { label: string; value: string | null; wrap?: boolean }) {
   return (
     <div className="flex gap-2">
       <dt className="w-28 shrink-0 text-muted-foreground opacity-80">{label}</dt>

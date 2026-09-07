@@ -60,7 +60,9 @@ export function AccountFilter({
         <NativeSelect
           id="acc-status"
           value={status ?? ''}
-          onChange={(e) => onStatusChange((e.target.value || undefined) as AccountStatus | undefined)}
+          onChange={(e) =>
+            onStatusChange((e.target.value || undefined) as AccountStatus | undefined)
+          }
         >
           <option value="">Tất cả</option>
           {ACCOUNT_STATUSES.map((s) => (

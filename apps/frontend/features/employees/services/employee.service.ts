@@ -92,7 +92,11 @@ export const employeeService = {
    */
   async exportExcel(query: EmployeeQuery): Promise<void> {
     const { page: _page, limit: _limit, ...filters } = query;
-    await downloadXlsx('/employees/export', 'employees.xlsx', clean(filters as Record<string, unknown>));
+    await downloadXlsx(
+      '/employees/export',
+      'employees.xlsx',
+      clean(filters as Record<string, unknown>),
+    );
   },
 
   /** Tải file Excel mẫu để import. */

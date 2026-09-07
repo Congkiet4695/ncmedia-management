@@ -11,11 +11,7 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { useAuth } from '@/hooks/use-auth';
 import { formatDate } from '@/lib/format';
 import { getApiErrorMessage } from '@/utils/http';
-import {
-  useCreateOrderNote,
-  useDeleteOrderNote,
-  useUpdateOrderNote,
-} from '../hooks/use-orders';
+import { useCreateOrderNote, useDeleteOrderNote, useUpdateOrderNote } from '../hooks/use-orders';
 import { ORDER_NOTE_TYPES, ORDER_NOTE_TYPE_LABELS } from '../schemas/order.schema';
 import type { OrderNote, OrderNoteType } from '../types';
 
@@ -175,7 +171,11 @@ export function OrderNotesPanel({ orderId, notes }: { orderId: string; notes: Or
               />
             </div>
             <Button disabled={createM.isPending || !content.trim()} onClick={onAdd}>
-              {createM.isPending ? <Loader2 className="size-4 animate-spin" /> : <Plus className="size-4" />}
+              {createM.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Plus className="size-4" />
+              )}
               Thêm
             </Button>
           </div>

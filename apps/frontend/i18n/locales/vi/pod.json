@@ -107,6 +107,203 @@
     "noKeyTitle": "Sản phẩm thiếu khoá",
     "noKeyHint": "Dòng hàng này thiếu Product ID hoặc Seller SKU. Design được lưu theo cặp khoá đó, nên không xác định được lưu cho sản phẩm nào. Hãy đồng bộ lại đơn từ TikTok."
   },
+  "flashSale": {
+    "title": "Flash Sale",
+    "subtitle": "Khuyến mãi giới hạn thời gian trên TikTok Shop. Danh sách chỉ đọc dữ liệu đã đồng bộ — không gọi TikTok.",
+    "create": "Tạo Flash Sale",
+    "empty": "Chưa có đợt Flash Sale nào",
+    "searchPlaceholder": "Tìm theo tên hoặc Activity ID",
+    "allStatuses": "Tất cả trạng thái",
+    "allShops": "Tất cả shop",
+    "filterStartFrom": "Bắt đầu từ ngày",
+    "filterStartTo": "Bắt đầu đến ngày",
+    "noPermission": "Bạn không có quyền xem Flash Sale.",
+    "status": {
+      "DRAFT": "Nháp",
+      "READY": "Sẵn sàng",
+      "PUBLISHING": "Đang đẩy lên sàn",
+      "RUNNING": "Đang chạy",
+      "ENDED": "Đã kết thúc",
+      "FAILED": "Thất bại",
+      "CANCELLED": "Đã huỷ"
+    },
+    "itemStatus": {
+      "PENDING": "Chưa đặt giá",
+      "READY": "Sẵn sàng",
+      "PUBLISHED": "Đã lên sàn",
+      "FAILED": "Lỗi",
+      "REMOVED": "Đã gỡ"
+    },
+    "productLevel": {
+      "PRODUCT": "Theo sản phẩm",
+      "VARIATION": "Theo biến thể (SKU)"
+    },
+    "columns": {
+      "name": "Tên Flash Sale",
+      "shop": "Shop",
+      "status": "Trạng thái",
+      "start": "Bắt đầu",
+      "end": "Kết thúc",
+      "items": "Sản phẩm",
+      "createdBy": "Người tạo",
+      "updated": "Cập nhật"
+    },
+    "actions": {
+      "publish": "Publish",
+      "retry": "Thử lại Publish",
+      "cancel": "Huỷ đợt sale",
+      "duplicate": "Nhân bản",
+      "saveTemplate": "Lưu Template",
+      "addProducts": "Thêm sản phẩm",
+      "batchEdit": "Sửa hàng loạt"
+    },
+    "confirm": {
+      "publish": "Đẩy \"{{name}}\" lên TikTok? Giá khuyến mãi sẽ có hiệu lực với người mua thật.",
+      "cancel": "Huỷ \"{{name}}\" trên TikTok? Khuyến mãi sẽ ngừng ngay lập tức.",
+      "delete": "Xoá \"{{name}}\"?",
+      "deleteItems": "Xoá {{count}} dòng sản phẩm khỏi đợt sale này?"
+    },
+    "toast": {
+      "created": "Đã tạo Flash Sale",
+      "saved": "Đã lưu thông tin",
+      "deleted": "Đã xoá Flash Sale",
+      "duplicated": "Đã nhân bản Flash Sale",
+      "published": "Đã đẩy {{count}} sản phẩm lên TikTok",
+      "cancelled": "Đã huỷ đợt Flash Sale",
+      "synced": "Đã cập nhật trạng thái từ TikTok",
+      "itemsAdded": "Đợt sale hiện có {{count}} dòng sản phẩm",
+      "itemsDeleted": "Đã xoá dòng đã chọn",
+      "itemSaved": "Đã lưu dòng sản phẩm",
+      "batchApplied": "Đã áp thay đổi cho {{count}} dòng",
+      "templateSaved": "Đã lưu Template"
+    },
+    "form": {
+      "shop": "Shop",
+      "pickShop": "Chọn shop",
+      "noShop": "Chưa có shop nào được gán",
+      "shopLocked": "Không đổi được shop sau khi đã tạo — sản phẩm đã thêm thuộc về shop này.",
+      "name": "Tên Flash Sale",
+      "namePlaceholder": "Ví dụ: Flash Sale 12.12",
+      "nameHint": "{{used}}/{{max}} ký tự. TikTok yêu cầu tên duy nhất trong shop.",
+      "startAt": "Bắt đầu",
+      "endAt": "Kết thúc",
+      "timezone": "Múi giờ",
+      "timezoneHint": "Giờ bên trên là giờ của múi giờ này, không phải giờ máy bạn.",
+      "productLevel": "Product Type",
+      "productLevelHint": {
+        "PRODUCT": "Một giá deal cho cả sản phẩm — mọi SKU dùng chung mức giá đó.",
+        "VARIATION": "Giá deal riêng cho từng SKU. Đổi sang Theo sản phẩm sẽ gộp các dòng SKU lại."
+      },
+      "template": "Áp Template (tuỳ chọn)",
+      "templateNone": "Không dùng template",
+      "templateEmpty": "Shop này chưa có template nào",
+      "templateItems": "{{count}} sản phẩm",
+      "templateHint": "Chọn template để nạp sẵn sản phẩm, % giảm và giới hạn mua ngay khi tạo.",
+      "description": "Ghi chú",
+      "descriptionPlaceholder": "Ghi chú nội bộ — không gửi lên TikTok"
+    },
+    "new": {
+      "title": "Tạo Flash Sale",
+      "subtitle": "Khai thông tin trước, thêm sản phẩm ở bước sau.",
+      "section": "Thông tin",
+      "submit": "Tạo và thêm sản phẩm"
+    },
+    "detail": {
+      "activityId": "TikTok Activity ID",
+      "infoSection": "Thông tin",
+      "itemsSection": "Sản phẩm",
+      "historySection": "Lịch sử",
+      "historyHint": "Mỗi lượt gọi TikTok để lại request, response và mã lỗi.",
+      "itemCounts": "{{total}} dòng · {{ready}} sẵn sàng · {{pending}} chưa đặt giá · {{failed}} lỗi",
+      "selected": "Đã chọn {{count}} dòng",
+      "clearSelection": "Bỏ chọn",
+      "errorsTitle": "{{count}} lỗi cần xử lý trước khi Publish",
+      "warningsTitle": "{{count}} cảnh báo",
+      "lastErrorTitle": "Lần Publish gần nhất thất bại (mã {{code}}, lần thử {{attempt}})",
+      "publishBlocked": "Còn lỗi chưa xử lý — xem danh sách phía trên.",
+      "syncHint": "Đọc lại trạng thái từ TikTok. Đây là nút DUY NHẤT trên màn hình gọi tới sàn."
+    },
+    "items": {
+      "empty": "Chưa có sản phẩm nào. Bấm Thêm sản phẩm để bắt đầu.",
+      "selectAll": "Chọn tất cả",
+      "product": "Sản phẩm",
+      "sku": "SKU",
+      "retailPrice": "Giá niêm yết",
+      "dealPrice": "Giá Flash Sale",
+      "discount": "% giảm",
+      "totalLimit": "Tổng suất",
+      "customerLimit": "Mỗi khách",
+      "status": "Trạng thái",
+      "unlimitedShort": "∞"
+    },
+    "priceIssue": {
+      "invalid": "Giá không hợp lệ",
+      "notPositive": "Giá phải lớn hơn 0",
+      "aboveRetail": "Giá Flash Sale không được cao hơn giá niêm yết",
+      "noDiscount": "Giá Flash Sale phải thấp hơn giá niêm yết"
+    },
+    "selector": {
+      "title": "Thêm sản phẩm",
+      "subtitle": "Chỉ hiển thị sản phẩm của shop thuộc đợt sale này. Lựa chọn được giữ khi đổi trang.",
+      "searchPlaceholder": "Tìm theo tên · Product ID · SKU",
+      "allStatuses": "Tất cả trạng thái",
+      "empty": "Không tìm thấy sản phẩm nào",
+      "selected": "Đã chọn {{count}} sản phẩm",
+      "add": "Thêm {{count}} sản phẩm",
+      "selectPage": "Chọn cả trang",
+      "product": "Sản phẩm",
+      "productId": "Product ID",
+      "sku": "SKU",
+      "price": "Giá",
+      "status": "Trạng thái",
+      "alreadyAdded": "Đã có trong đợt sale"
+    },
+    "batch": {
+      "title": "Sửa hàng loạt {{count}} dòng",
+      "subtitle": "Ô để trống nghĩa là giữ nguyên giá trị hiện tại của từng dòng.",
+      "apply": "Áp dụng cho {{count}} dòng",
+      "unchanged": "Giữ nguyên",
+      "dealPrice": "Đặt cùng một giá Flash Sale",
+      "discount": "Giảm theo %",
+      "priceHint": "Đặt giá: mọi dòng về đúng con số đó. Giảm theo %: mỗi dòng tính trên giá niêm yết riêng của nó. Chỉ dùng được một trong hai.",
+      "totalLimit": "Tổng suất",
+      "customerLimit": "Giới hạn mỗi khách",
+      "limitHint": "Nhập -1 hoặc để trống nghĩa là không giới hạn. Giá trị hợp lệ khác: 1 đến 99."
+    },
+    "duplicate": {
+      "title": "Nhân bản Flash Sale",
+      "subtitle": "Bản sao mang theo {{count}} dòng sản phẩm cùng giá deal và giới hạn mua.",
+      "confirm": "Tạo bản sao",
+      "hint": "Giờ nhập theo múi giờ {{timezone}} của đợt gốc. Dời giờ bắt đầu sẽ dời giờ kết thúc để giữ nguyên độ dài đợt."
+    },
+    "template": {
+      "saveTitle": "Lưu thành Template",
+      "saveSubtitle": "Chụp lại cấu hình của {{count}} dòng sản phẩm để dùng cho ngày khác.",
+      "name": "Tên Template",
+      "description": "Mô tả",
+      "savesTitle": "Template lưu:",
+      "saves": "Danh sách sản phẩm · SKU · % giảm · giới hạn mua · mức áp dụng.",
+      "notSavesTitle": "Template KHÔNG lưu:",
+      "notSaves": "Ngày giờ · trạng thái · Activity ID. Giá deal được tính lại theo giá niêm yết tại thời điểm áp."
+    },
+    "logs": {
+      "empty": "Chưa có lượt gọi TikTok nào",
+      "attempt": "lần thử {{attempt}}",
+      "errorCode": "Mã lỗi TikTok",
+      "requestId": "Request ID",
+      "request": "Request đã gửi",
+      "response": "Response nhận về"
+    },
+    "logAction": {
+      "CREATE_ACTIVITY": "Tạo hoạt động khuyến mãi",
+      "UPDATE_ACTIVITY": "Cập nhật hoạt động",
+      "UPDATE_PRODUCTS": "Gửi sản phẩm + giá deal",
+      "REMOVE_PRODUCTS": "Gỡ sản phẩm",
+      "DEACTIVATE": "Huỷ trên TikTok",
+      "SYNC_STATUS": "Đồng bộ trạng thái",
+      "VALIDATE": "Kiểm tra dữ liệu"
+    }
+  },
   "link": {
     "accountName": "Tên kết nối",
     "accountNameHint": "Tên này dùng để nhận diện kết nối trong hệ thống, được gán tự động ngay khi Seller Approve.",
@@ -187,7 +384,8 @@
       "missingRequired": "Cần nhập tên và chọn danh mục.",
       "multiSelect": "nhiều lựa chọn",
       "noAttributes": "Danh mục này chưa có thuộc tính nào được đồng bộ.",
-      "noBrandHint": "luôn có sẵn",
+      "noBrand": "Không có thương hiệu (No brand)",
+      "noBrandHint": "Đăng không kèm thương hiệu — TikTok không nhận brand_id",
       "noValueAvailable": "TikTok không cấp danh sách giá trị cho thuộc tính này.",
       "noValueMatch": "Không có giá trị nào khớp.",
       "productAttributes": "Thuộc tính sản phẩm",
@@ -1036,7 +1234,7 @@
   },
   "resources": {
     "title": "Đồng bộ dữ liệu",
-    "subtitle": "Kéo dữ liệu dùng chung của TikTok về cache. Template chỉ đọc cache này — không màn hình nào tự gọi TikTok.",
+    "subtitle": "Đồng bộ tài nguyên TikTok thuộc về tổ chức này. Danh mục, thương hiệu và thuộc tính danh mục nằm ở TikTok Master Data, dùng chung toàn nền tảng.",
     "resource": "Tài nguyên",
     "records": "Bản ghi",
     "lastSync": "Đồng bộ lần cuối",
@@ -1046,8 +1244,6 @@
     "never": "Chưa đồng bộ",
     "sync": "Đồng bộ",
     "syncing": "Đang đồng bộ…",
-    "syncCategories": "Đồng bộ danh mục",
-    "syncBrands": "Đồng bộ thương hiệu",
     "syncSuccess": "Đã đồng bộ {{records}} bản ghi trong {{seconds}}s",
     "syncPartial": "Đã đồng bộ {{records}} bản ghi, {{failed}} shop lỗi",
     "syncFailed": "Đồng bộ thất bại",
@@ -1058,17 +1254,10 @@
     "summaryRow": "Tổng kết lượt",
     "startedAt": "Bắt đầu",
     "hasErrors": "Có tài nguyên đồng bộ thất bại",
-    "blockedBy": "Hãy đồng bộ {{resource}} trước",
     "names": {
-      "CATEGORY": "Danh mục",
-      "BRAND": "Thương hiệu",
-      "CATEGORY_ATTRIBUTE": "Thuộc tính danh mục",
       "WAREHOUSE": "Kho hàng"
     },
     "descriptions": {
-      "CATEGORY": "Cây danh mục TikTok — bắt buộc có trước khi tạo Category Template.",
-      "BRAND": "Danh sách thương hiệu shop dùng được.",
-      "CATEGORY_ATTRIBUTE": "Định nghĩa thuộc tính theo danh mục, dùng để dựng form template.",
       "WAREHOUSE": "Kho hàng dùng để giao listing."
     }
   },
@@ -1114,5 +1303,34 @@
     "RUNNING": "Đang chạy",
     "SKIPPED": "Bỏ qua",
     "SUCCESS": "Thành công"
+  },
+  "masterData": {
+    "title": "TikTok Master Data",
+    "subtitle": "Danh mục, thương hiệu và thuộc tính danh mục do TikTok phát hành. Một bộ dữ liệu dùng chung cho mọi tổ chức — Super Admin đồng bộ một lần.",
+    "resource": "Tài nguyên",
+    "records": "Bản ghi",
+    "lastSync": "Đồng bộ thành công gần nhất",
+    "duration": "Thời gian chạy",
+    "status": "Trạng thái",
+    "never": "Chưa đồng bộ",
+    "syncNow": "Đồng bộ ngay",
+    "syncing": "Đang đồng bộ…",
+    "syncSuccess": "Đã đồng bộ {{records}} bản ghi trong {{seconds}} giây",
+    "syncPartial": "Đã đồng bộ {{records}} bản ghi — có tài nguyên bị lỗi",
+    "syncFailed": "Đồng bộ thất bại",
+    "hasErrors": "Có tài nguyên đồng bộ lỗi",
+    "failureKeepsData": "Dữ liệu hiện có được giữ nguyên — lượt hỏng không xoá gì cả. Bạn có thể chạy lại.",
+    "blockedBy": "Cần đồng bộ {{resource}} trước",
+    "readOnlyNotice": "Bộ dữ liệu này dùng chung cho mọi tổ chức và do Super Admin của nền tảng đồng bộ. Bạn không cần đồng bộ gì — chỉ việc sử dụng.",
+    "names": {
+      "CATEGORY": "Danh mục",
+      "BRAND": "Thương hiệu",
+      "CATEGORY_ATTRIBUTE": "Thuộc tính danh mục"
+    },
+    "descriptions": {
+      "CATEGORY": "Cây danh mục TikTok — bắt buộc có trước khi dựng Category Template.",
+      "BRAND": "Toàn bộ thương hiệu TikTok phát hành, gồm cả \"No brand\".",
+      "CATEGORY_ATTRIBUTE": "Định nghĩa thuộc tính theo danh mục, dùng để dựng form template."
+    }
   }
 }

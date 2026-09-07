@@ -48,10 +48,7 @@ export function OrderDateFilter({ preset, from, to, onChange }: OrderDateFilterP
     setCustomTo(to ?? '');
   }, [from, to]);
 
-  const label =
-    active === 'CUSTOM' && from && to
-      ? `${from} → ${to}`
-      : t(`date.preset.${active}`);
+  const label = active === 'CUSTOM' && from && to ? `${from} → ${to}` : t(`date.preset.${active}`);
 
   const handlePreset = (value: PodDatePreset) => {
     if (value === 'CUSTOM') {
@@ -141,9 +138,7 @@ export function OrderDateFilter({ preset, from, to, onChange }: OrderDateFilterP
                   className="h-9"
                 />
               </div>
-              {rangeErrorKey && (
-                <p className="text-xs text-destructive">{t(rangeErrorKey)}</p>
-              )}
+              {rangeErrorKey && <p className="text-xs text-destructive">{t(rangeErrorKey)}</p>}
               <Button type="button" size="sm" className="w-full" onClick={applyCustom}>
                 {t('action.apply')}
               </Button>

@@ -23,6 +23,12 @@ const VARIANTS: Record<string, 'success' | 'destructive' | 'warning' | 'muted'> 
   SUCCESS: 'success',
   RETRYING: 'warning',
   SKIPPED: 'destructive',
+  // Flash Sale — dùng chung bảng màu này thay vì dựng một badge riêng: người đọc chỉ cần
+  // biết "xanh / vàng / đỏ", và hai bảng màu song song là hai bảng sẽ lệch nhau.
+  // `DRAFT` xám (chưa làm gì), `RUNNING` xanh (đang chạy trên sàn), `ENDED` xám (đã xong).
+  DRAFT: 'muted',
+  RUNNING: 'success',
+  ENDED: 'muted',
   // Trạng thái DUYỆT phía TikTok (Sprint Publish)
   UNDER_REVIEW: 'warning',
   APPROVED: 'success',

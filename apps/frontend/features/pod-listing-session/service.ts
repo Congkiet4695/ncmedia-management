@@ -174,7 +174,10 @@ export const podListingSessionService = {
   },
 
   async validate(id: string): Promise<PodSessionValidation> {
-    const res = await apiClient.post<ApiResponse<PodSessionValidation>>(`${BASE}/${id}/validate`, {});
+    const res = await apiClient.post<ApiResponse<PodSessionValidation>>(
+      `${BASE}/${id}/validate`,
+      {},
+    );
     return res.data.data;
   },
 

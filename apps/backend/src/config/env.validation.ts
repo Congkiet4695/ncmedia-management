@@ -23,6 +23,8 @@ export const envValidationSchema = Joi.object({
   JWT_REFRESH_SECRET: Joi.string().required(),
   JWT_ACCESS_TTL: Joi.string().default('15m'),
   JWT_REFRESH_TTL: Joi.string().default('7d'),
+  // Cửa sổ ân hạn khi xoay vòng refresh token (giây) — xem RefreshService.
+  JWT_REFRESH_ROTATION_GRACE_SECONDS: Joi.number().integer().min(0).max(300).default(30),
   REFRESH_TOKEN_HMAC_SECRET: Joi.string().required(),
 
   /**
@@ -138,6 +140,10 @@ export const envValidationSchema = Joi.object({
   // --- Trạng thái duyệt listing (Sprint Publish) ---
   TIKTOK_LISTING_REVIEW_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   TIKTOK_LISTING_REVIEW_CRON: Joi.string().default('*/5 * * * *'),
+
+  // --- Trạng thái Flash Sale trên sàn (Sprint Flash Sale) ---
+  TIKTOK_FLASH_SALE_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+  TIKTOK_FLASH_SALE_SYNC_CRON: Joi.string().default('*/5 * * * *'),
 
   // --- Mail Module (Gmail SMTP) ---
   // MAIL_USER/MAIL_PASS để trống là hợp lệ: dev/CI không có SMTP thật, module tự chuyển sang

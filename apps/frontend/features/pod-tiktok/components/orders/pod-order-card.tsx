@@ -59,7 +59,12 @@ export function PodOrderCard({
   const tracking = collectTrackingNumbers(order);
 
   return (
-    <article className={cn('overflow-hidden rounded-lg border', selected && 'border-primary/50 bg-primary/5')}>
+    <article
+      className={cn(
+        'overflow-hidden rounded-lg border',
+        selected && 'border-primary/50 bg-primary/5',
+      )}
+    >
       <header className="flex items-start gap-2 border-b bg-muted/30 p-3">
         <Checkbox
           checked={selected}

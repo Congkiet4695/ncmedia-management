@@ -107,6 +107,203 @@
     "noKeyTitle": "Product key missing",
     "noKeyHint": "This line item has no Product ID or Seller SKU. Design is stored under that key pair, so there is no product to store it against. Re-sync the order from TikTok."
   },
+  "flashSale": {
+    "title": "Flash Sales",
+    "subtitle": "Time-limited promotions on TikTok Shop. The list reads synced data only — it never calls TikTok.",
+    "create": "New Flash Sale",
+    "empty": "No flash sales yet",
+    "searchPlaceholder": "Search by name or Activity ID",
+    "allStatuses": "All statuses",
+    "allShops": "All shops",
+    "filterStartFrom": "Starting from",
+    "filterStartTo": "Starting before",
+    "noPermission": "You do not have permission to view Flash Sales.",
+    "status": {
+      "DRAFT": "Draft",
+      "READY": "Ready",
+      "PUBLISHING": "Publishing",
+      "RUNNING": "Running",
+      "ENDED": "Ended",
+      "FAILED": "Failed",
+      "CANCELLED": "Cancelled"
+    },
+    "itemStatus": {
+      "PENDING": "No deal price",
+      "READY": "Ready",
+      "PUBLISHED": "Live",
+      "FAILED": "Failed",
+      "REMOVED": "Removed"
+    },
+    "productLevel": {
+      "PRODUCT": "Per product",
+      "VARIATION": "Per variation (SKU)"
+    },
+    "columns": {
+      "name": "Flash Sale",
+      "shop": "Shop",
+      "status": "Status",
+      "start": "Start",
+      "end": "End",
+      "items": "Products",
+      "createdBy": "Created by",
+      "updated": "Updated"
+    },
+    "actions": {
+      "publish": "Publish",
+      "retry": "Retry publish",
+      "cancel": "Cancel sale",
+      "duplicate": "Duplicate",
+      "saveTemplate": "Save as Template",
+      "addProducts": "Add products",
+      "batchEdit": "Batch edit"
+    },
+    "confirm": {
+      "publish": "Publish \"{{name}}\" to TikTok? Deal prices go live for real buyers.",
+      "cancel": "Cancel \"{{name}}\" on TikTok? The promotion stops immediately.",
+      "delete": "Delete \"{{name}}\"?",
+      "deleteItems": "Remove {{count}} product rows from this flash sale?"
+    },
+    "toast": {
+      "created": "Flash sale created",
+      "saved": "Details saved",
+      "deleted": "Flash sale deleted",
+      "duplicated": "Flash sale duplicated",
+      "published": "Published {{count}} products to TikTok",
+      "cancelled": "Flash sale cancelled",
+      "synced": "Status refreshed from TikTok",
+      "itemsAdded": "This flash sale now has {{count}} product rows",
+      "itemsDeleted": "Selected rows removed",
+      "itemSaved": "Row saved",
+      "batchApplied": "Applied to {{count}} rows",
+      "templateSaved": "Template saved"
+    },
+    "form": {
+      "shop": "Shop",
+      "pickShop": "Pick a shop",
+      "noShop": "No shop assigned to you yet",
+      "shopLocked": "The shop cannot change after creation — the products already added belong to it.",
+      "name": "Flash sale name",
+      "namePlaceholder": "e.g. Flash Sale 12.12",
+      "nameHint": "{{used}}/{{max}} characters. TikTok requires the name to be unique within the shop.",
+      "startAt": "Starts",
+      "endAt": "Ends",
+      "timezone": "Time zone",
+      "timezoneHint": "The times above are in this time zone, not your device's.",
+      "productLevel": "Product type",
+      "productLevelHint": {
+        "PRODUCT": "One deal price for the whole product — every SKU shares it.",
+        "VARIATION": "A deal price per SKU. Switching to Per product merges the SKU rows."
+      },
+      "template": "Apply a template (optional)",
+      "templateNone": "No template",
+      "templateEmpty": "This shop has no templates yet",
+      "templateItems": "{{count}} products",
+      "templateHint": "Pick a template to preload products, discounts and purchase limits at creation.",
+      "description": "Notes",
+      "descriptionPlaceholder": "Internal notes — not sent to TikTok"
+    },
+    "new": {
+      "title": "New Flash Sale",
+      "subtitle": "Fill in the details first; products come next.",
+      "section": "Details",
+      "submit": "Create and add products"
+    },
+    "detail": {
+      "activityId": "TikTok Activity ID",
+      "infoSection": "Details",
+      "itemsSection": "Products",
+      "historySection": "History",
+      "historyHint": "Every TikTok call leaves its request, response and error code here.",
+      "itemCounts": "{{total}} rows · {{ready}} ready · {{pending}} without a deal price · {{failed}} failed",
+      "selected": "{{count}} rows selected",
+      "clearSelection": "Clear selection",
+      "errorsTitle": "{{count}} issues to fix before publishing",
+      "warningsTitle": "{{count}} warnings",
+      "lastErrorTitle": "Last publish failed (code {{code}}, attempt {{attempt}})",
+      "publishBlocked": "Unresolved issues — see the list above.",
+      "syncHint": "Re-read the status from TikTok. This is the ONLY button on this screen that calls the platform."
+    },
+    "items": {
+      "empty": "No products yet. Use Add products to start.",
+      "selectAll": "Select all",
+      "product": "Product",
+      "sku": "SKU",
+      "retailPrice": "Retail price",
+      "dealPrice": "Deal price",
+      "discount": "Discount",
+      "totalLimit": "Total limit",
+      "customerLimit": "Per buyer",
+      "status": "Status",
+      "unlimitedShort": "∞"
+    },
+    "priceIssue": {
+      "invalid": "Invalid price",
+      "notPositive": "Price must be greater than 0",
+      "aboveRetail": "Deal price cannot exceed the retail price",
+      "noDiscount": "Deal price must be lower than the retail price"
+    },
+    "selector": {
+      "title": "Add products",
+      "subtitle": "Only products from this flash sale's shop. Your selection survives paging.",
+      "searchPlaceholder": "Search by title · Product ID · SKU",
+      "allStatuses": "All statuses",
+      "empty": "No products found",
+      "selected": "{{count}} products selected",
+      "add": "Add {{count}} products",
+      "selectPage": "Select this page",
+      "product": "Product",
+      "productId": "Product ID",
+      "sku": "SKUs",
+      "price": "Price",
+      "status": "Status",
+      "alreadyAdded": "Already in this sale"
+    },
+    "batch": {
+      "title": "Batch edit {{count}} rows",
+      "subtitle": "An empty field means each row keeps its current value.",
+      "apply": "Apply to {{count}} rows",
+      "unchanged": "Unchanged",
+      "dealPrice": "Set one deal price",
+      "discount": "Discount by %",
+      "priceHint": "Set a price: every row becomes that exact number. Discount by %: each row is computed from its own retail price. Only one of the two applies.",
+      "totalLimit": "Total limit",
+      "customerLimit": "Limit per buyer",
+      "limitHint": "Enter -1 or leave blank for unlimited. Other valid values: 1 to 99."
+    },
+    "duplicate": {
+      "title": "Duplicate flash sale",
+      "subtitle": "The copy carries all {{count}} product rows with their deal prices and limits.",
+      "confirm": "Create copy",
+      "hint": "Times are entered in the source sale's {{timezone}} zone. Moving the start also moves the end, keeping the same duration."
+    },
+    "template": {
+      "saveTitle": "Save as Template",
+      "saveSubtitle": "Capture the configuration of {{count}} product rows for another day.",
+      "name": "Template name",
+      "description": "Description",
+      "savesTitle": "The template stores:",
+      "saves": "Product list · SKUs · discount % · purchase limits · product type.",
+      "notSavesTitle": "The template does NOT store:",
+      "notSaves": "Dates and times · status · Activity ID. Deal prices are recomputed from the retail price at the time it is applied."
+    },
+    "logs": {
+      "empty": "No TikTok calls yet",
+      "attempt": "attempt {{attempt}}",
+      "errorCode": "TikTok error code",
+      "requestId": "Request ID",
+      "request": "Request sent",
+      "response": "Response received"
+    },
+    "logAction": {
+      "CREATE_ACTIVITY": "Create promotion activity",
+      "UPDATE_ACTIVITY": "Update activity",
+      "UPDATE_PRODUCTS": "Send products and deal prices",
+      "REMOVE_PRODUCTS": "Remove products",
+      "DEACTIVATE": "Deactivate on TikTok",
+      "SYNC_STATUS": "Sync status",
+      "VALIDATE": "Validate data"
+    }
+  },
   "link": {
     "accountName": "Account name",
     "accountNameHint": "This name identifies the connection in the platform. It is applied automatically once the seller approves.",
@@ -187,7 +384,8 @@
       "missingRequired": "Name and category are required.",
       "multiSelect": "multi",
       "noAttributes": "This category has no synced attributes yet.",
-      "noBrandHint": "always available",
+      "noBrand": "No brand",
+      "noBrandHint": "Publish without a brand — TikTok receives no brand_id",
       "noValueAvailable": "TikTok gives no value list for this attribute.",
       "noValueMatch": "No value matches.",
       "productAttributes": "Product attributes",
@@ -1036,7 +1234,7 @@
   },
   "resources": {
     "title": "Resources",
-    "subtitle": "Pull the shared TikTok data into the local cache. Templates read only from this cache — no screen ever calls TikTok on its own.",
+    "subtitle": "Sync the TikTok resources that belong to this organization. Categories, brands and category attributes live in TikTok Master Data and are shared platform-wide.",
     "resource": "Resource",
     "records": "Records",
     "lastSync": "Last sync",
@@ -1046,8 +1244,6 @@
     "never": "Never synced",
     "sync": "Sync",
     "syncing": "Syncing…",
-    "syncCategories": "Sync Categories",
-    "syncBrands": "Sync Brands",
     "syncSuccess": "Synced {{records}} record(s) in {{seconds}}s",
     "syncPartial": "Synced {{records}} record(s), {{failed}} shop(s) failed",
     "syncFailed": "Sync failed",
@@ -1058,17 +1254,10 @@
     "summaryRow": "Run summary",
     "startedAt": "Started at",
     "hasErrors": "Some resources failed to sync",
-    "blockedBy": "Sync {{resource}} first",
     "names": {
-      "CATEGORY": "Categories",
-      "BRAND": "Brands",
-      "CATEGORY_ATTRIBUTE": "Category attributes",
       "WAREHOUSE": "Warehouses"
     },
     "descriptions": {
-      "CATEGORY": "TikTok category tree — required before any Category Template.",
-      "BRAND": "Brand list available to the shop.",
-      "CATEGORY_ATTRIBUTE": "Attribute definitions per category, used to render template forms.",
       "WAREHOUSE": "Warehouses the listing can ship from."
     }
   },
@@ -1114,5 +1303,34 @@
     "RUNNING": "Running",
     "SKIPPED": "Skipped",
     "SUCCESS": "Succeeded"
+  },
+  "masterData": {
+    "title": "TikTok Master Data",
+    "subtitle": "Categories, brands and category attributes published by TikTok. One shared dataset for every organization — synchronized once by the Super Admin.",
+    "resource": "Resource",
+    "records": "Records",
+    "lastSync": "Last successful sync",
+    "duration": "Duration",
+    "status": "Status",
+    "never": "Never synced",
+    "syncNow": "Sync Now",
+    "syncing": "Syncing…",
+    "syncSuccess": "Synced {{records}} record(s) in {{seconds}}s",
+    "syncPartial": "Synced {{records}} record(s) — some resources failed",
+    "syncFailed": "Sync failed",
+    "hasErrors": "Some resources failed to sync",
+    "failureKeepsData": "Existing data was kept — a failed run never deletes what is already synced. You can retry.",
+    "blockedBy": "Sync {{resource}} first",
+    "readOnlyNotice": "This dataset is shared across all organizations and is synchronized by the platform Super Admin. You do not need to sync anything — just use the data.",
+    "names": {
+      "CATEGORY": "Categories",
+      "BRAND": "Brands",
+      "CATEGORY_ATTRIBUTE": "Category attributes"
+    },
+    "descriptions": {
+      "CATEGORY": "TikTok category tree — required before any Category Template.",
+      "BRAND": "Every brand TikTok publishes, including \"No brand\".",
+      "CATEGORY_ATTRIBUTE": "Attribute definitions per category, used to render template forms."
+    }
   }
 }

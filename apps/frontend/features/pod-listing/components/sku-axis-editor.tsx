@@ -164,7 +164,9 @@ function AxisRow({
             <input
               value={draft}
               disabled={disabled}
-              placeholder={axis.values.length === 0 ? t('listing.skuTemplates.valuePlaceholder') : ''}
+              placeholder={
+                axis.values.length === 0 ? t('listing.skuTemplates.valuePlaceholder') : ''
+              }
               className="min-w-[120px] flex-1 bg-transparent px-1 text-sm outline-none"
               onChange={(event) => {
                 setDraft(event.target.value);

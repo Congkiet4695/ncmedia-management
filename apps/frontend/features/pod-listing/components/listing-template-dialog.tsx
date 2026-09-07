@@ -13,6 +13,11 @@ import { Combobox, type ComboboxOption } from '@/components/ui/combobox';
 import { useApiError } from '@/hooks/use-api-error';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import {
+  NO_BRAND_OPTION,
+  toBrandChoice,
+  toBrandPayload,
+} from '@/features/pod-listing/brand-selection';
+import {
   usePodTemplates,
   useSavePodTemplate,
   useScopedProductCount,
@@ -108,14 +113,22 @@ export function ListingTemplateDialog({ open, template, onClose }: ListingTempla
   const debouncedBrandSearch = useDebouncedValue(brandSearch, 300);
   const brandsQuery = useSyncedBrands({
     keyword: debouncedBrandSearch || undefined,
-    pageSize: 50,
+    limit: 50,
   });
 
   const brandOptions = useMemo<ComboboxOption[]>(() => {
     const seen = new Set<string>();
-    const options: ComboboxOption[] = [];
+    // 🔴 "No brand" LUÔN đứng đầu và KHÔNG đến từ bảng thương hiệu — nó là trạng thái
+    // `brandMode = NONE`, xem `features/pod-listing/brand-selection`.
+    const options: ComboboxOption[] = [
+      {
+        value: NO_BRAND_OPTION,
+        label: t('listing.categoryTemplates.noBrand'),
+        hint: t('listing.categoryTemplates.noBrandHint'),
+      },
+    ];
     // Brand đang chọn luôn có mặt dù kết quả tìm hiện tại không chứa nó.
-    if (form.tiktokBrandId) {
+    if (form.tiktokBrandId && form.tiktokBrandId !== NO_BRAND_OPTION) {
       seen.add(form.tiktokBrandId);
       options.push({ value: form.tiktokBrandId, label: form.brandName || form.tiktokBrandId });
     }
@@ -125,7 +138,7 @@ export function ListingTemplateDialog({ open, template, onClose }: ListingTempla
       options.push({ value: item.tiktokBrandId, label: item.name ?? item.tiktokBrandId });
     }
     return options;
-  }, [brandsQuery.data, form.tiktokBrandId, form.brandName]);
+  }, [brandsQuery.data, form.tiktokBrandId, form.brandName, t]);
 
   useEffect(() => {
     if (!open) return;
@@ -138,8 +151,9 @@ export function ListingTemplateDialog({ open, template, onClose }: ListingTempla
       imageTemplateId: template?.imageTemplateId ?? '',
       pricingStrategyId: template?.pricingStrategyId ?? '',
       warehouseId: template?.warehouseId ?? '',
-      tiktokBrandId: template?.tiktokBrandId ?? '',
-      brandName: template?.brandName ?? '',
+      // `brandMode = NONE` ⇒ ô hiển thị "No brand" (không phải một id).
+      tiktokBrandId: toBrandChoice(template ?? undefined).id,
+      brandName: toBrandChoice(template ?? undefined).name,
       shippingTemplateId: template?.shippingTemplateId ?? '',
       handlingDays: template?.handlingDays != null ? String(template.handlingDays) : '',
       packageWeight: template?.packageWeight ?? '',
@@ -174,9 +188,9 @@ export function ListingTemplateDialog({ open, template, onClose }: ListingTempla
           imageTemplateId: form.imageTemplateId || undefined,
           pricingStrategyId: form.pricingStrategyId || undefined,
           warehouseId: form.warehouseId || undefined,
-          tiktokBrandId: form.tiktokBrandId || undefined,
-          // 🔴 "No brand" là brand THẬT của TikTok: gửi đúng id + tên, không bỏ field.
-          brandName: form.brandName || undefined,
+          // 🔴 Gửi `brandMode` TƯỜNG MINH. UNSET ở Listing Template = "không ghi đè",
+          // NONE = ép "No brand" kể cả khi Category Template có brand cụ thể.
+          ...toBrandPayload({ id: form.tiktokBrandId, name: form.brandName }),
           shippingTemplateId: form.shippingTemplateId || undefined,
           handlingDays: form.handlingDays ? Number(form.handlingDays) : undefined,
           packageWeight: form.packageWeight || undefined,
@@ -375,7 +389,9 @@ export function ListingTemplateDialog({ open, template, onClose }: ListingTempla
                 key={key}
                 className="w-[90px]"
                 value={form[key]}
-                placeholder={t(`listing.categoryTemplates.${key.replace('package', '').toLowerCase()}`)}
+                placeholder={t(
+                  `listing.categoryTemplates.${key.replace('package', '').toLowerCase()}`,
+                )}
                 onChange={(event) => setForm((prev) => ({ ...prev, [key]: event.target.value }))}
               />
             ))}
@@ -407,7 +423,9 @@ export function ListingTemplateDialog({ open, template, onClose }: ListingTempla
             <input
               type="checkbox"
               checked={form.isDefault}
-              onChange={(event) => setForm((prev) => ({ ...prev, isDefault: event.target.checked }))}
+              onChange={(event) =>
+                setForm((prev) => ({ ...prev, isDefault: event.target.checked }))
+              }
             />
             {t('listing.common.setDefault')}
           </label>
@@ -474,7 +492,7 @@ function ScopeEditor({
   });
   const brands = useSyncedBrands({
     keyword: useDebouncedValue(brandSearch, 300) || undefined,
-    pageSize: 50,
+    limit: 50,
   });
 
   const patch = (index: number, next: Partial<PodListingTemplateScope>) =>
@@ -563,7 +581,9 @@ function ScopeEditor({
                     onSearchChange={
                       scope.matchType === 'CATEGORY' ? setCategorySearch : setBrandSearch
                     }
-                    loading={scope.matchType === 'CATEGORY' ? categories.isFetching : brands.isFetching}
+                    loading={
+                      scope.matchType === 'CATEGORY' ? categories.isFetching : brands.isFetching
+                    }
                     clearable
                     placeholder={t('listing.common.notSelected')}
                   />

@@ -132,9 +132,7 @@ export function FulfillmentPanel({ podOrderId, canFulfill, canCancel }: Fulfillm
           {state?.provider ? (
             <>
               <Badge variant={state.provider.isActive ? 'success' : 'warning'}>
-                {state.provider.isActive
-                  ? t('readiness.ready')
-                  : t('readiness.notConfigured')}
+                {state.provider.isActive ? t('readiness.ready') : t('readiness.notConfigured')}
               </Badge>
               <span className="text-xs text-muted-foreground">{state.provider.name}</span>
             </>
@@ -145,9 +143,7 @@ export function FulfillmentPanel({ podOrderId, canFulfill, canCancel }: Fulfillm
           )}
           {record ? (
             <>
-              <Badge variant={STATUS_VARIANT[record.status]}>
-                {t(`status.${record.status}`)}
-              </Badge>
+              <Badge variant={STATUS_VARIANT[record.status]}>{t(`status.${record.status}`)}</Badge>
               {/* Trạng thái gốc của nhà cung cấp — cần khi đối soát với xưởng in. */}
               {record.providerStatus && (
                 <span className="font-mono text-xs text-muted-foreground">
@@ -252,7 +248,9 @@ export function FulfillmentPanel({ podOrderId, canFulfill, canCancel }: Fulfillm
               <dd className="inline-flex items-center gap-1">
                 <Truck className="size-3" />
                 <span className="font-mono">{record.trackingNumber}</span>
-                {record.carrier && <span className="text-muted-foreground">({record.carrier})</span>}
+                {record.carrier && (
+                  <span className="text-muted-foreground">({record.carrier})</span>
+                )}
               </dd>
             </div>
           )}
@@ -381,9 +379,7 @@ export function FulfillmentPanel({ podOrderId, canFulfill, canCancel }: Fulfillm
                 </li>
               ))}
               {(historyQuery.data ?? []).length === 0 && (
-                <p className="py-6 text-center text-sm text-muted-foreground">
-                  {t('noHistory')}
-                </p>
+                <p className="py-6 text-center text-sm text-muted-foreground">{t('noHistory')}</p>
               )}
             </ol>
           )}
@@ -392,10 +388,7 @@ export function FulfillmentPanel({ podOrderId, canFulfill, canCancel }: Fulfillm
             <section className="space-y-2">
               <h3 className="text-sm font-semibold text-destructive">{t('errorDetail')}</h3>
               {errorsQuery.data?.map((error) => (
-                <div
-                  key={error.id}
-                  className="rounded-md border border-destructive/40 p-2 text-xs"
-                >
+                <div key={error.id} className="rounded-md border border-destructive/40 p-2 text-xs">
                   <div className="flex flex-wrap gap-2">
                     <span className="font-mono">{error.operation}</span>
                     <Badge variant="destructive">{error.errorClass}</Badge>

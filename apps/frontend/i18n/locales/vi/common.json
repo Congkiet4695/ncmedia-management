@@ -118,12 +118,14 @@
   },
   "member": "Thành viên",
   "pagination": {
-    "page": "Trang {{page}}/{{totalPages}}",
+    "goToPage": "Tới trang {{page}}",
+    "navLabel": "Phân trang",
+    "page": "Trang {{page}} / {{totalPages}}",
     "pageWithRows": "Trang {{page}}/{{totalPages}} · {{total}} dòng",
     "pageWithTotal": "Trang {{page}}/{{totalPages}} · {{total}} bản ghi",
     "perPage": "Số dòng mỗi trang",
     "rows": "{{count}} dòng",
-    "showing": "Hiển thị {{from}}–{{to}} trên {{total}}"
+    "showing": "Hiển thị {{from}}–{{to}} trên {{total}} bản ghi"
   },
   "search": {
     "noResult": "Không tìm thấy kết quả nào",

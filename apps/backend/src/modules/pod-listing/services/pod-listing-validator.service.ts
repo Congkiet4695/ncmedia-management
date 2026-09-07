@@ -50,12 +50,21 @@ export class PodListingValidatorService {
     if (!payload.category.tiktokCategoryId) {
       blockers.push(this.blocker('MISSING_CATEGORY', 'category', 'Chưa chọn danh mục TikTok'));
     }
-    if (!payload.brand.tiktokBrandId) {
+    // 🔴 "No brand" KHÔNG phải lỗi — nó là một lựa chọn hợp lệ, và payload sẽ bỏ hẳn
+    // `brand_id`. Chỉ `UNSET` (chưa ai cấu hình) mới chặn.
+    //
+    // Kiểm theo `mode`, không theo `tiktokBrandId`: template chọn "No brand" có
+    // `tiktokBrandId = null`, nên phép kiểm cũ `if (!tiktokBrandId)` chặn oan đúng những
+    // người đã chọn đúng. Payload cũ (đóng băng trước khi sửa lỗi) không có `mode` ⇒ suy ra
+    // từ `tiktokBrandId` như trước.
+    const brandMode = payload.brand.mode ?? (payload.brand.tiktokBrandId ? 'SPECIFIC' : 'UNSET');
+    if (brandMode === 'UNSET') {
       blockers.push(
         this.blocker(
           'MISSING_BRAND',
           'brand',
-          'Chưa chọn thương hiệu — đặt ở Category Template hoặc Listing Template',
+          'Chưa chọn thương hiệu — đặt ở Category Template hoặc Listing Template. ' +
+            'Nếu sản phẩm không có thương hiệu, hãy chọn "No brand".',
         ),
       );
     }

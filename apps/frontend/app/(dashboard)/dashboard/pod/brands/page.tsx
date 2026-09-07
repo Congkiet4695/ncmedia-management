@@ -12,12 +12,10 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { RequirePermission } from '@/components/require-permission';
-import { useAuth } from '@/hooks/use-auth';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { TemplatePageShell } from '@/features/pod-listing/components/template-page-shell';
 import { useSyncedBrands } from '@/features/pod-listing/hooks/use-pod-listing';
-import { ResourceSyncButton } from '@/features/pod-resource/components/resource-sync-button';
 
 export default function PodBrandsPage() {
   const { t } = useTranslation('pod');
@@ -29,6 +27,10 @@ export default function PodBrandsPage() {
 }
 
 /**
+ * 🔴 Màn hình CHỈ ĐỌC, không còn nút Sync: thương hiệu là dữ liệu master TOÀN CỤC do Super
+ * Admin đồng bộ một lần cho cả nền tảng (POD → TikTok Master Data). Cột "Shop" cũng đã bỏ —
+ * bản ghi không còn thuộc về shop nào.
+ *
  * **POD → Brands** — thương hiệu TikTok đã đồng bộ (chỉ đọc).
  *
  * `authorizedStatus` là thứ quan trọng nhất trên màn hình này: brand chưa được cấp quyền
@@ -36,25 +38,21 @@ export default function PodBrandsPage() {
  */
 function BrandsView() {
   const { t } = useTranslation('pod');
-  const { hasPermission } = useAuth();
   const { formatDateTime } = useLocaleFormat();
   const [search, setSearch] = useState('');
   const [page, setPage] = useState(1);
+  // TikTok có hàng chục nghìn thương hiệu ⇒ mặc định 50 dòng, người dùng đổi được.
+  const [limit, setLimit] = useState(50);
   // Gõ tới đâu hỏi server tới đó — danh sách brand quá lớn để lọc tại chỗ.
   const keyword = useDebouncedValue(search.trim(), 300);
 
-  const brandsQuery = useSyncedBrands({ keyword: keyword || undefined, page, pageSize: 50 });
+  const brandsQuery = useSyncedBrands({ keyword: keyword || undefined, page, limit });
   const brands = brandsQuery.data?.items ?? [];
 
   return (
     <TemplatePageShell
       title={t('listing.brands.title')}
       subtitle={t('listing.brands.subtitle')}
-      actions={
-        hasPermission('pod.product.sync') ? (
-          <ResourceSyncButton resource="BRAND" label={t('resources.syncBrands')} />
-        ) : undefined
-      }
       loading={brandsQuery.isLoading}
       error={brandsQuery.error}
       empty={brands.length === 0}
@@ -66,6 +64,10 @@ function BrandsView() {
       searchPlaceholder={t('listing.brands.searchPlaceholder')}
       meta={brandsQuery.data?.meta ?? null}
       onPageChange={setPage}
+      onPageSizeChange={(next) => {
+        setLimit(next);
+        setPage(1);
+      }}
     >
       <Table>
         <TableHeader>
@@ -74,7 +76,6 @@ function BrandsView() {
             <TableHead>{t('listing.brands.tiktokId')}</TableHead>
             <TableHead>{t('listing.brands.authorized')}</TableHead>
             <TableHead>{t('listing.brands.status')}</TableHead>
-            <TableHead>{t('listing.common.shop')}</TableHead>
             <TableHead>{t('listing.common.syncedAt')}</TableHead>
           </TableRow>
         </TableHeader>
@@ -102,7 +103,6 @@ function BrandsView() {
                 )}
               </TableCell>
               <TableCell className="text-sm">{brand.brandStatus ?? '—'}</TableCell>
-              <TableCell className="text-sm">{brand.shop?.name ?? '—'}</TableCell>
               <TableCell className="whitespace-nowrap text-sm text-muted-foreground">
                 {formatDateTime(brand.syncedAt)}
               </TableCell>

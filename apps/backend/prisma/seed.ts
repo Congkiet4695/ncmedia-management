@@ -142,6 +142,14 @@ const PERMISSIONS: Array<{
   // quyen voi viec tao Draft (von khong anh huong gi toi shop that).
   { code: 'pod.listing.publish',       module: 'POD_TIKTOK', resource: 'pod.listing',       action: 'publish', description: 'Publish Draft len TikTok (gui duyet), retry publish va dong bo trang thai duyet' },
 
+  // Sprint Flash Sale: khuyen mai gioi han thoi gian (Promotion Activity `FLASHSALE`).
+  // 🔴 `publish` TACH khoi `write` co chu y: soan mot dot sale khong anh huong gi toi shop,
+  // con publish thi doi gia ban that cho nguoi mua that. Gop chung nghia la ai sua duoc gia
+  // trong nhap thi cung day duoc no len san.
+  { code: 'pod.flashsale.read',        module: 'POD_TIKTOK', resource: 'pod.flashsale',     action: 'read',    description: 'Xem Flash Sale, san pham trong dot sale, template va nhat ky' },
+  { code: 'pod.flashsale.write',       module: 'POD_TIKTOK', resource: 'pod.flashsale',     action: 'write',   description: 'Tao/sua/xoa Flash Sale, them-sua san pham, nhan ban va luu Template' },
+  { code: 'pod.flashsale.publish',     module: 'POD_TIKTOK', resource: 'pod.flashsale',     action: 'publish', description: 'Publish Flash Sale len TikTok, retry va huy hoat dong khuyen mai' },
+
   { code: 'pod.tiktok.payout.read',    module: 'POD_TIKTOK', resource: 'pod.tiktok.payout',  action: 'read',   description: 'Xem báo cáo Payout TikTok' },
   { code: 'pod.tiktok.payout.sync',    module: 'POD_TIKTOK', resource: 'pod.tiktok.payout',  action: 'sync',   description: 'Đồng bộ dữ liệu Payout từ TikTok Finance API' },
   // Module Fulfillment — gui don sang xuong in (MangoTeePrints)
@@ -167,6 +175,11 @@ const PERMISSIONS: Array<{
   // ---------------------------------------------------------------------------
   { code: 'platform.organization.read',    module: 'PLATFORM', resource: 'platform.organization', action: 'read',    description: 'Super Admin: xem danh sách + chi tiết Organization đã đăng ký' },
   { code: 'platform.organization.approve', module: 'PLATFORM', resource: 'platform.organization', action: 'approve', description: 'Super Admin: duyệt / từ chối Organization đăng ký mới' },
+  // TikTok Master Data TOÀN CỤC — Categories / Brands / Category Attributes.
+  // 🔴 Đồng bộ là hành động GHI vào dữ liệu dùng chung của mọi Organization, nên nó thuộc
+  // nhóm `platform.*` chứ không phải `pod.*`. Org admin chỉ ĐỌC (qua `pod.product.read`).
+  { code: 'platform.masterdata.read',      module: 'PLATFORM', resource: 'platform.masterdata',    action: 'read',    description: 'Super Admin: xem nhật ký đồng bộ TikTok Master Data toàn cục' },
+  { code: 'platform.masterdata.sync',      module: 'PLATFORM', resource: 'platform.masterdata',    action: 'sync',    description: 'Super Admin: đồng bộ TikTok Master Data toàn cục (Categories / Brands / Attributes)' },
 ];
 
 /** Permission mặc định cho Role EMPLOYEE — dùng chung với register.service (default-roles.ts). */

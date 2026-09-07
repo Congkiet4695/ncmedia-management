@@ -3,7 +3,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
-import { getAccessToken } from '@/lib/auth-cookies';
+import { hasSession } from '@/lib/auth-cookies';
 import { useMounted } from '@/hooks/use-mounted';
 import { useAuthStore } from '@/stores/auth.store';
 import { useMe } from '@/features/auth/hooks/use-me';
@@ -13,8 +13,8 @@ const AUTH_ROUTES = ['/login', '/register'];
 /**
  * AuthProvider — khởi tạo phiên khi app start.
  *
- * Flow: App Start → có Access Token? → GET /me → lưu Zustand → render App.
- *       Lỗi /me → clearSession() → redirect /login.
+ * Flow: App Start → có PHIÊN (refresh token)? → GET /me → lưu Zustand → render App.
+ *       /me hỏng SAU KHI apiClient đã thử gia hạn → clearSession() → redirect /login.
  *
  * Hiển thị Loading Screen cho tới khi /me hoàn tất (yêu cầu).
  */
@@ -27,21 +27,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearSession = useAuthStore((s) => s.clearSession);
   const setLoading = useAuthStore((s) => s.setLoading);
 
-  const token = mounted ? getAccessToken() : undefined;
-  const hasToken = Boolean(token);
-  const meQuery = useMe(hasToken);
+  // 🔴 Căn cứ là REFRESH token, không phải access token: access token hết hạn sau 15 phút
+  // là chuyện bình thường và `apiClient` tự gia hạn khi /me trả 401. Lấy access token làm
+  // điều kiện gọi /me nghĩa là mở lại trang sau 15 phút sẽ bị coi như chưa đăng nhập.
+  const sessionAlive = mounted ? hasSession() : false;
+  const meQuery = useMe(sessionAlive);
 
-  // Không có token → không có phiên (dừng loading).
+  // Không có phiên → dừng loading, không gọi /me.
   useEffect(() => {
-    if (mounted && !hasToken) clearSession();
-  }, [mounted, hasToken, clearSession]);
+    if (mounted && !sessionAlive) clearSession();
+  }, [mounted, sessionAlive, clearSession]);
 
   // /me thành công → lưu phiên vào Zustand.
   useEffect(() => {
     if (meQuery.isSuccess && meQuery.data) setSession(meQuery.data);
   }, [meQuery.isSuccess, meQuery.data, setSession]);
 
-  // /me lỗi (401/expired) → xóa phiên + về /login.
+  // /me lỗi → xóa phiên + về /login.
+  //
+  // 🔴 Tới được đây nghĩa là `apiClient` ĐÃ thử gia hạn và thất bại: 401 do access token
+  // hết hạn được interceptor nuốt và phát lại request, không bao giờ nổi lên thành
+  // `meQuery.isError`. Nên lỗi ở đây là phiên hỏng thật, đăng xuất là đúng.
   useEffect(() => {
     if (meQuery.isError) {
       clearSession();
@@ -50,7 +56,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, [meQuery.isError, clearSession, router, pathname]);
 
   // Đang giải quyết phiên: chưa mount, hoặc đang fetch /me lần đầu.
-  const resolving = !mounted || (hasToken && meQuery.isLoading);
+  const resolving = !mounted || (sessionAlive && meQuery.isLoading);
 
   // Đồng bộ cờ loading cho các consumer (useAuth).
   useEffect(() => {

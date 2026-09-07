@@ -20,6 +20,7 @@ import {
   ValidateNested,
 } from 'class-validator';
 import {
+  PodBrandMode,
   PodImageAssetType,
   PodListingMarket,
   PodListingScopeMatch,
@@ -233,7 +234,21 @@ export class CreateCategoryTemplateDto {
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(255) categoryName?: string;
   @ApiPropertyOptional() @IsOptional() @IsString() @MaxLength(1024) categoryPath?: string;
 
-  @ApiPropertyOptional({ description: 'ID thương hiệu TikTok đã đồng bộ' })
+  /**
+   * Cách chọn thương hiệu.
+   *
+   * 🔴 `NONE` là **lựa chọn có chủ đích** của người dùng ("No brand") — payload gửi TikTok
+   * sẽ BỎ HẲN `brand_id`. Khác hẳn `UNSET` (chưa cấu hình), vốn bị chặn ở bước validate.
+   *
+   * Bỏ trống: giữ tương thích ngược với client cũ — có `tiktokBrandId` thì hiểu là
+   * `SPECIFIC`, không có thì `UNSET` (xem `normalizeBrandSelection`).
+   */
+  @ApiPropertyOptional({ enum: PodBrandMode, description: 'UNSET | NONE ("No brand") | SPECIFIC' })
+  @IsOptional()
+  @IsEnum(PodBrandMode)
+  brandMode?: PodBrandMode;
+
+  @ApiPropertyOptional({ description: 'ID thương hiệu TikTok đã đồng bộ. Chỉ dùng khi brandMode = SPECIFIC.' })
   @IsOptional()
   @IsString()
   @MaxLength(64)
@@ -971,6 +986,17 @@ export class CreateListingTemplateDto {
   @IsOptional()
   @IsUUID()
   warehouseId?: string;
+
+  /**
+   * Ghi đè cách chọn thương hiệu của Category Template.
+   *
+   * `UNSET` (mặc định) = KHÔNG ghi đè. `NONE` = ép "No brand" kể cả khi Category Template
+   * có brand cụ thể.
+   */
+  @ApiPropertyOptional({ enum: PodBrandMode, description: 'UNSET (không ghi đè) | NONE | SPECIFIC' })
+  @IsOptional()
+  @IsEnum(PodBrandMode)
+  brandMode?: PodBrandMode;
 
   @ApiPropertyOptional({ description: 'Brand ghi đè brand của Category Template' })
   @IsOptional()

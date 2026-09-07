@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { PodListingLogLevel, PodListingStep } from '@prisma/client';
+import {
+  PodBrandMode, PodListingLogLevel, PodListingStep } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { PodTiktokTokenService } from '../../pod-tiktok/services/pod-tiktok-token.service';
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
@@ -21,6 +22,7 @@ import {
   POD_LISTING_MAX_IMAGES,
   POD_PRIVATE_HOST_PATTERN,
 } from '../constants/pod-listing.constants';
+import { POD_TIKTOK_LEGACY_FAKE_NO_BRAND_ID } from '../../pod-product/constants/pod-product.constants';
 import type { ResolvedListing } from './pod-listing-resolver.service';
 
 /** Ghi một dòng nhật ký cho item đang chạy. */
@@ -53,6 +55,37 @@ export type ListingLogger = (
  * retry sau lỗi mạng. Hàng rào chống trùng thật sự nằm ở chỗ khác và vẫn nguyên vẹn:
  * `tiktokDraftId` có giá trị ⇒ đi Edit Product, và payload `PUBLISHED` ⇒ không gọi TikTok.
  */
+/**
+ * Những `brand_id` TUYỆT ĐỐI không được gửi lên TikTok.
+ *
+ * `7082427311584347905` từng được `ensureNoBrand()` tự bịa ra và gán tên "No brand", rồi
+ * người dùng chọn nó và template lưu lại. TikTok nhận id này lại phân giải thành thương hiệu
+ * THẬT sở hữu nó phía họ — đó là lý do sản phẩm lên sàn mang tên một thương hiệu không ai
+ * chọn. Chi tiết: `POD_TIKTOK_LEGACY_FAKE_NO_BRAND_ID`.
+ */
+const LEGACY_FAKE_BRAND_IDS: ReadonlySet<string> = new Set([POD_TIKTOK_LEGACY_FAKE_NO_BRAND_ID]);
+
+/**
+ * `brand_id` cuối cùng gửi lên TikTok — **cổng chặn cuối cùng** của luồng thương hiệu.
+ *
+ * 🔴 Vì sao phép kiểm này nằm ở đây chứ không chỉ ở template: payload đã được ĐÓNG BĂNG vào
+ * `pod_listing_payloads.payload` lúc sinh draft. Mọi draft tạo ra TRƯỚC khi sửa lỗi vẫn mang
+ * nguyên `tiktokBrandId` giả trong ảnh chụp đó, và publish/retry đọc lại chính ảnh chụp ấy.
+ * Sửa template thôi thì những draft cũ vẫn đăng sai. Đây là chỗ duy nhất mọi đường publish
+ * đều đi qua.
+ *
+ * `brandId` là optional trong Create Product API của TikTok, nên bỏ hẳn field là cách biểu
+ * diễn hợp lệ của "không có thương hiệu".
+ */
+export function resolveTiktokBrandId(brand: ResolvedListing['brand']): string | undefined {
+  if (brand.mode === PodBrandMode.NONE) return undefined;
+  const id = brand.tiktokBrandId?.trim();
+  if (!id) return undefined;
+  // Payload cũ: `mode` không có, nhưng id giả thì vẫn phải chặn.
+  if (LEGACY_FAKE_BRAND_IDS.has(id)) return undefined;
+  return id;
+}
+
 export function buildTiktokExternalId(payload: ResolvedListing): string {
   const tail = (value: string | null | undefined): string =>
     (value ?? '').replace(/-/g, '').slice(-8);
@@ -249,7 +282,10 @@ export class PodListingPublisherService {
       {
         externalId,
         categoryId: request.categoryId,
-        brandId: request.brandId,
+        // Ghi cả HAI: ý định của template và giá trị thật sự gửi đi. Đây là cặp số liệu
+        // duy nhất trả lời được "vì sao sản phẩm này lên sàn mang thương hiệu đó".
+        brandMode: payload.brand.mode ?? 'LEGACY_PAYLOAD',
+        brandId: request.brandId ?? 'OMITTED',
         warehouseId: warehouse.tiktokWarehouseId,
         warehouseSource: warehouse.source,
         skus: request.skus?.length ?? 0,
@@ -808,7 +844,7 @@ export class PodListingPublisherService {
       title: payload.title.trim().slice(0, 255),
       description: payload.description,
       categoryId: payload.category.tiktokCategoryId ?? undefined,
-      brandId: payload.brand.tiktokBrandId ?? undefined,
+      brandId: resolveTiktokBrandId(payload.brand),
       // 🔴 DUY NHẤT cho mỗi request. Không phải hash payload — xem `buildTiktokExternalId`.
       idempotencyKey: externalId,
       mainImages: imageUris.map((uri) => ({ uri })),

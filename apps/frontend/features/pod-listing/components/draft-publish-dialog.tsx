@@ -69,7 +69,9 @@ export function DraftPublishDialog({
             <span>{draft.shop?.name ?? '—'}</span>
             {draft.publishedAt && <span>· {formatDateTime(draft.publishedAt)}</span>}
             {draft.publishRetryCount > 0 && (
-              <span>· {t('listing.jobs.retryCount')}: {draft.publishRetryCount}</span>
+              <span>
+                · {t('listing.jobs.retryCount')}: {draft.publishRetryCount}
+              </span>
             )}
           </div>
 
@@ -127,13 +129,27 @@ function DraftContent({ draft }: { draft: PodDraftListingDetail }) {
 
   return (
     <div className="max-h-[50vh] space-y-3 overflow-y-auto text-sm">
-      <Row label={t('listing.categoryTemplates.category')} value={payload?.category?.path ?? payload?.category?.name} />
-      <Row label={t('listing.categoryTemplates.brand')} value={payload?.brand?.name} />
+      <Row
+        label={t('listing.categoryTemplates.category')}
+        value={payload?.category?.path ?? payload?.category?.name}
+      />
+      {/* 🔴 `NONE` phải hiện "No brand" chứ không phải "—": người dùng cần thấy lựa chọn
+          của mình được giữ, và thấy rõ nó khác với "chưa cấu hình". */}
+      <Row
+        label={t('listing.categoryTemplates.brand')}
+        value={
+          payload?.brand?.mode === 'NONE'
+            ? t('listing.categoryTemplates.noBrand')
+            : payload?.brand?.name
+        }
+      />
       <Row label={t('listing.drafts.tiktokDraftId')} value={draft.tiktokDraftId} mono />
       <Row label={t('listing.publishHistory.tiktokProductId')} value={draft.tiktokProductId} mono />
 
       <div>
-        <p className="mb-1 font-medium">{t('listing.products.images', { count: payload?.images?.length ?? 0 })}</p>
+        <p className="mb-1 font-medium">
+          {t('listing.products.images', { count: payload?.images?.length ?? 0 })}
+        </p>
         <div className="flex flex-wrap gap-2">
           {(payload?.images ?? []).slice(0, 9).map((image, index) => (
             // eslint-disable-next-line @next/next/no-img-element

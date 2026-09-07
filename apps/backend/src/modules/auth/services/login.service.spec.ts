@@ -7,6 +7,7 @@ import { AccountDisabledException } from '../exceptions/account-disabled.excepti
 import { AccountLockedException } from '../exceptions/account-locked.exception';
 import { InvalidCredentialsException } from '../exceptions/invalid-credentials.exception';
 import { RateLimitedException } from '../exceptions/rate-limited.exception';
+import { AuthEventLogger } from './auth-event.logger';
 import { LoginService } from './login.service';
 import { RateLimitService } from './rate-limit.service';
 import { RefreshTokenService } from './refresh-token.service';
@@ -65,6 +66,7 @@ describe('LoginService', () => {
     rateLimit.reset.mockResolvedValue(undefined);
     tokenService.createAccessToken.mockResolvedValue({ token: 'access-jwt', expiresIn: 900 });
     refreshTokenService.createRefreshToken.mockResolvedValue({
+      id: 'session-1',
       token: 'refresh-jwt',
       userId: 'user-1',
       jti: 'jti-1',
@@ -81,6 +83,7 @@ describe('LoginService', () => {
         { provide: TokenService, useValue: tokenService },
         { provide: RefreshTokenService, useValue: refreshTokenService },
         { provide: RateLimitService, useValue: rateLimit },
+        AuthEventLogger,
       ],
     }).compile();
     service = moduleRef.get(LoginService);

@@ -81,9 +81,7 @@ export function JobLogDialog({ jobId, onClose }: { jobId: string | null; onClose
               {job.data.finishedAt && <span>· {formatDateTime(job.data.finishedAt)}</span>}
             </div>
             <JobProgressBar job={job.data} />
-            {job.data.lastError && (
-              <p className="text-sm text-destructive">{job.data.lastError}</p>
-            )}
+            {job.data.lastError && <p className="text-sm text-destructive">{job.data.lastError}</p>}
           </div>
         )}
 
@@ -156,7 +154,9 @@ function ItemList({
   const { t } = useTranslation('pod');
 
   if (rows.length === 0) {
-    return <p className="py-10 text-center text-sm text-muted-foreground">{t('listing.jobs.empty')}</p>;
+    return (
+      <p className="py-10 text-center text-sm text-muted-foreground">{t('listing.jobs.empty')}</p>
+    );
   }
 
   return (
@@ -178,9 +178,7 @@ function ItemList({
               <p className="text-xs text-muted-foreground">
                 {row.shop?.name ?? '—'}
                 {row.remoteProductId ? ` · ${row.remoteProductId}` : ''}
-                {row.retryCount > 0
-                  ? ` · ${t('listing.jobs.retryCount')}: ${row.retryCount}`
-                  : ''}
+                {row.retryCount > 0 ? ` · ${t('listing.jobs.retryCount')}: ${row.retryCount}` : ''}
               </p>
               {/* Lỗi của TỪNG sản phẩm, ngay tại dòng của nó (yêu cầu §11). */}
               {row.error && <p className="text-xs text-destructive">{row.error}</p>}
@@ -242,7 +240,15 @@ function LogList({
             {formatDateTime(log.createdAt)}
           </span>
           <span className="w-28 shrink-0 text-muted-foreground">{log.step}</span>
-          <span className={log.level === 'ERROR' ? 'text-destructive' : log.level === 'WARN' ? 'text-amber-600' : ''}>
+          <span
+            className={
+              log.level === 'ERROR'
+                ? 'text-destructive'
+                : log.level === 'WARN'
+                  ? 'text-amber-600'
+                  : ''
+            }
+          >
             {log.message}
           </span>
         </div>

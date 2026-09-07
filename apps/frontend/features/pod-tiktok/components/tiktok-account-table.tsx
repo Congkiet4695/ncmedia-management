@@ -61,9 +61,7 @@ export function TiktokAccountTable({
     return (
       <div className="flex flex-col items-center justify-center gap-2 py-16 text-center">
         <Store className="size-10 text-muted-foreground" />
-        <p className="text-sm text-muted-foreground">
-          {t('account.emptyList')}
-        </p>
+        <p className="text-sm text-muted-foreground">{t('account.emptyList')}</p>
       </div>
     );
   }
@@ -143,7 +141,12 @@ export function TiktokAccountTable({
               </TableCell>
               <TableCell>
                 <div className="flex items-center justify-end gap-1">
-                  <Button asChild variant="ghost" size="icon" aria-label={t('common:action.viewDetail')}>
+                  <Button
+                    asChild
+                    variant="ghost"
+                    size="icon"
+                    aria-label={t('common:action.viewDetail')}
+                  >
                     <Link href={`/dashboard/pod/tiktok-accounts/${account.id}`}>
                       <Eye className="size-4" />
                     </Link>

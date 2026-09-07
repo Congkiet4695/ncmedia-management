@@ -49,7 +49,9 @@ function OrderItemGridBase({ items }: { items: OrderPreviewItem[] }) {
                       {attr && <span className="ml-1 text-xs text-muted-foreground">({attr})</span>}
                     </td>
                     <td className="py-1.5 pr-4 text-right tabular-nums">{i.quantity}</td>
-                    <td className="py-1.5 pr-4 text-right tabular-nums">{formatUSD(i.unitPrice)}</td>
+                    <td className="py-1.5 pr-4 text-right tabular-nums">
+                      {formatUSD(i.unitPrice)}
+                    </td>
                     <td className="py-1.5 pr-4 text-right font-medium tabular-nums">
                       {formatUSD(i.quantity * i.unitPrice)}
                     </td>

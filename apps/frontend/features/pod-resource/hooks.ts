@@ -37,15 +37,8 @@ export function useResourceLogs(
 export function useSyncResource() {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: ({
-      resource,
-      shopId,
-      categoryIds,
-    }: {
-      resource: PodResourceType;
-      shopId?: string;
-      categoryIds?: string[];
-    }) => podResourceService.sync(resource, { shopId, categoryIds }),
+    mutationFn: ({ resource, shopId }: { resource: PodResourceType; shopId?: string }) =>
+      podResourceService.sync(resource, { shopId }),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [KEY] });
       void queryClient.invalidateQueries({ queryKey: ['pod-listing'] });
@@ -57,21 +50,17 @@ export function useSyncResource() {
 /**
  * Bấm Sync và tự báo kết quả bằng toast.
  *
- * Gom vào một chỗ vì bốn màn hình (Resources, Categories, Brands, Warehouses) cần y hệt
- * cách đọc kết quả: thành công thì nói rõ **bao nhiêu bản ghi trong bao nhiêu giây**, hỏng
- * thì hiện **nguyên văn lỗi của TikTok** chứ không phải "đồng bộ thất bại".
+ * Thành công thì nói rõ **bao nhiêu bản ghi trong bao nhiêu giây**, hỏng thì hiện **nguyên
+ * văn lỗi của TikTok** chứ không phải "đồng bộ thất bại".
  */
 export function useSyncResourceWithToast() {
   const { t } = useTranslation('pod');
   const translateApiError = useApiError();
   const sync = useSyncResource();
 
-  const run = async (
-    resource: PodResourceType,
-    options: { categoryIds?: string[] } = {},
-  ): Promise<PodResourceSyncResult | null> => {
+  const run = async (resource: PodResourceType): Promise<PodResourceSyncResult | null> => {
     try {
-      const result = await sync.mutateAsync({ resource, categoryIds: options.categoryIds });
+      const result = await sync.mutateAsync({ resource });
       const seconds = (result.durationMs / 1000).toFixed(1);
 
       if (result.status === 'FAILED') {

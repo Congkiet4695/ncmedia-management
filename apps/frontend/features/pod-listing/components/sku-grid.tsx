@@ -266,7 +266,11 @@ export function SkuGrid({ template }: { template: PodSkuTemplate }) {
             )}
             {t('listing.skuTemplates.exportExcel')}
           </Button>
-          <Button size="sm" disabled={dirtyIds.length === 0 || savingGrid} onClick={() => void handleSaveGrid()}>
+          <Button
+            size="sm"
+            disabled={dirtyIds.length === 0 || savingGrid}
+            onClick={() => void handleSaveGrid()}
+          >
             {savingGrid ? <Loader2 className="size-4 animate-spin" /> : <Save className="size-4" />}
             {t('listing.skuTemplates.saveGrid', { count: dirtyIds.length })}
           </Button>
@@ -299,7 +303,9 @@ export function SkuGrid({ template }: { template: PodSkuTemplate }) {
             <CurrencyInput
               currency={currency}
               value={bulk.retailPrice}
-              onChange={(event) => setBulk((prev) => ({ ...prev, retailPrice: event.target.value }))}
+              onChange={(event) =>
+                setBulk((prev) => ({ ...prev, retailPrice: event.target.value }))
+              }
             />
           </div>
           <div className="w-[130px] space-y-1">
@@ -528,7 +534,13 @@ function FilePickerButton({
 
   return (
     <>
-      <Button variant="outline" size="sm" className={label ? '' : 'h-8 px-2'} disabled={busy} asChild>
+      <Button
+        variant="outline"
+        size="sm"
+        className={label ? '' : 'h-8 px-2'}
+        disabled={busy}
+        asChild
+      >
         <label htmlFor={inputId} className="cursor-pointer">
           {busy ? <Loader2 className="size-4 animate-spin" /> : icon}
           {label}

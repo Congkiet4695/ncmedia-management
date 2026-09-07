@@ -118,12 +118,14 @@
   },
   "member": "Member",
   "pagination": {
+    "goToPage": "Go to page {{page}}",
+    "navLabel": "Pagination",
     "page": "Page {{page}} of {{totalPages}}",
     "pageWithRows": "Page {{page}} of {{totalPages}} · {{total}} rows",
     "pageWithTotal": "Page {{page}} of {{totalPages}} · {{total}} records",
     "perPage": "Rows per page",
     "rows": "{{count}} rows",
-    "showing": "Showing {{from}}–{{to}} of {{total}}"
+    "showing": "Showing {{from}}–{{to}} of {{total}} records"
   },
   "search": {
     "noResult": "No results found",

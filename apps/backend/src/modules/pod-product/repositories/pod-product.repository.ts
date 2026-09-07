@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Prisma, PodProductRawSource } from '@prisma/client';
+import { PodMasterDataProvider, PodProductRawSource, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import type { PodProductSortField } from '../constants/pod-product.constants';
 import type { MappedProduct } from '../mappers/pod-product.mapper';
@@ -307,8 +307,9 @@ export class PodProductRepository {
 
   /**
    * Gắn `brandId`/`categoryId` nội bộ dựa trên ID phía TikTok.
-   * Danh mục/thương hiệu được đồng bộ ở luồng riêng nên có thể chưa tồn tại —
-   * khi đó bỏ trống FK và vẫn còn `tiktok*Id` + tên để hiển thị.
+   * Danh mục/thương hiệu là **dữ liệu master toàn cục** (Super Admin đồng bộ), tra theo
+   * (provider, providerId) chứ không theo shop. Chúng có thể chưa được đồng bộ khi sản phẩm
+   * về tới — khi đó bỏ trống FK và vẫn còn `tiktok*Id` + tên để hiển thị.
    */
   private async linkCatalogReferences(
     tx: Prisma.TransactionClient,
@@ -320,8 +321,8 @@ export class PodProductRepository {
       mapped.product.tiktokCategoryId
         ? tx.podProductCategory.findUnique({
             where: {
-              shopId_tiktokCategoryId: {
-                shopId,
+              provider_tiktokCategoryId: {
+                provider: PodMasterDataProvider.TIKTOK,
                 tiktokCategoryId: mapped.product.tiktokCategoryId,
               },
             },
@@ -331,7 +332,10 @@ export class PodProductRepository {
       mapped.product.tiktokBrandId
         ? tx.podProductBrand.findUnique({
             where: {
-              shopId_tiktokBrandId: { shopId, tiktokBrandId: mapped.product.tiktokBrandId },
+              provider_tiktokBrandId: {
+                provider: PodMasterDataProvider.TIKTOK,
+                tiktokBrandId: mapped.product.tiktokBrandId,
+              },
             },
             select: { id: true },
           })

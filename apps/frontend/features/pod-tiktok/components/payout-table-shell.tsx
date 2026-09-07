@@ -1,8 +1,9 @@
 'use client';
 
 import { type ReactNode } from 'react';
-import { AlertTriangle, ChevronLeft, ChevronRight, Inbox, Search } from 'lucide-react';
+import { AlertTriangle, Inbox, Search } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { DataPagination } from '@/components/ui/data-pagination';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Table, TableBody, TableCell, TableRow } from '@/components/ui/table';
@@ -22,6 +23,7 @@ interface PayoutTableShellProps {
   isEmpty: boolean;
   meta?: PaginationMeta;
   onPageChange: (page: number) => void;
+  onPageSizeChange: (limit: number) => void;
   /** Số cột — để khung xương và ô trống trải đúng chiều rộng bảng. */
   columnCount: number;
   header: ReactNode;
@@ -46,6 +48,7 @@ export function PayoutTableShell({
   isEmpty,
   meta,
   onPageChange,
+  onPageSizeChange,
   columnCount,
   header,
   children,
@@ -78,9 +81,7 @@ export function PayoutTableShell({
         {error ? (
           <div className="flex flex-col items-center gap-2 py-12 text-center">
             <AlertTriangle className="size-8 text-destructive" />
-            <p className="text-sm text-destructive">
-              {translateApiError(error)}
-            </p>
+            <p className="text-sm text-destructive">{translateApiError(error)}</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
@@ -114,37 +115,12 @@ export function PayoutTableShell({
           </div>
         )}
 
-        {meta && meta.total > 0 && (
-          <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-muted-foreground">
-            <span>
-              {t('common:pagination.pageWithRows', {
-                page: meta.page,
-                totalPages: meta.totalPages,
-                total: formatNumber(meta.total),
-              })}
-            </span>
-            <div className="flex gap-2">
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={meta.page <= 1}
-                onClick={() => onPageChange(meta.page - 1)}
-              >
-                <ChevronLeft className="size-4" />
-                {t('common:action.previous')}
-              </Button>
-              <Button
-                variant="outline"
-                size="sm"
-                disabled={meta.page >= meta.totalPages}
-                onClick={() => onPageChange(meta.page + 1)}
-              >
-                {t('common:action.next')}
-                <ChevronRight className="size-4" />
-              </Button>
-            </div>
-          </div>
-        )}
+        <DataPagination
+          meta={meta}
+          onPageChange={onPageChange}
+          onPageSizeChange={onPageSizeChange}
+          disabled={loading}
+        />
       </CardContent>
     </Card>
   );

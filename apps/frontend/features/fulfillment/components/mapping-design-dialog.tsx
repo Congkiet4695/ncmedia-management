@@ -41,11 +41,7 @@ export function MappingDesignDialog({ open, mapping, onClose }: MappingDesignDia
           <div className="space-y-5">
             {/* Khoá nghiệp vụ — thứ quyết định design này áp cho những đơn nào. */}
             <div className="grid gap-x-6 gap-y-2 rounded-md border bg-muted/40 p-3 text-sm sm:grid-cols-2">
-              <InfoLine
-                label={t('mapping.tiktokProductId')}
-                value={mapping.tiktokProductId}
-                mono
-              />
+              <InfoLine label={t('mapping.tiktokProductId')} value={mapping.tiktokProductId} mono />
               <InfoLine label={t('mapping.sellerSku')} value={mapping.sellerSku} mono />
               <InfoLine label={t('mapping.providerSku')} value={mapping.providerSku} mono />
               <InfoLine label={t('mapping.provider')} value={mapping.providerName} />
@@ -64,9 +60,7 @@ export function MappingDesignDialog({ open, mapping, onClose }: MappingDesignDia
                     sellerSku: mapping.sellerSku ?? '',
                   }}
                   placement={placement}
-                  design={
-                    mapping.designs.find((design) => design.placement === placement) ?? null
-                  }
+                  design={mapping.designs.find((design) => design.placement === placement) ?? null}
                   onPreview={setLightbox}
                 />
               ))}

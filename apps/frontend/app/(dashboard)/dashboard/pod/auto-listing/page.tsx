@@ -54,12 +54,15 @@ function ListingSessionListView() {
   const canWrite = hasPermission('pod.session.write');
 
   const [page, setPage] = useState(1);
+  // Cỡ trang do người dùng chọn (ô "Số dòng mỗi trang"); đổi cỡ thì luôn về trang 1
+  // vì trang cũ có thể không còn tồn tại ở cỡ mới.
+  const [limit, setLimit] = useState(20);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState<PodSessionStatus | ''>('');
 
   const sessions = useListingSessions({
     page,
-    limit: 20,
+    limit,
     search: search || undefined,
     status: status || undefined,
   });
@@ -82,6 +85,10 @@ function ListingSessionListView() {
       searchPlaceholder={t('listing.sessions.searchPlaceholder')}
       meta={sessions.data?.meta ?? null}
       onPageChange={setPage}
+        onPageSizeChange={(next) => {
+          setLimit(next);
+          setPage(1);
+        }}
       filters={
         <Combobox
           value={status}

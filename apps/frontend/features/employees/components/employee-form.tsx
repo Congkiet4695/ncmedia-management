@@ -79,7 +79,12 @@ export function EmployeeForm({
           <Label htmlFor="fullName">
             {t('field.fullName')} <span className="text-destructive">*</span>
           </Label>
-          <Input id="fullName" disabled={submitting} aria-invalid={!!errors.fullName} {...register('fullName')} />
+          <Input
+            id="fullName"
+            disabled={submitting}
+            aria-invalid={!!errors.fullName}
+            {...register('fullName')}
+          />
           <FieldError message={errors.fullName?.message} />
         </div>
 
@@ -136,49 +141,101 @@ export function EmployeeForm({
 
         <div className="space-y-2">
           <Label htmlFor="phone">{t('field.phone')}</Label>
-          <Input id="phone" disabled={submitting} aria-invalid={!!errors.phone} {...register('phone')} />
+          <Input
+            id="phone"
+            disabled={submitting}
+            aria-invalid={!!errors.phone}
+            {...register('phone')}
+          />
           <FieldError message={errors.phone?.message} />
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="cccd">CCCD</Label>
-          <Input id="cccd" disabled={submitting} aria-invalid={!!errors.cccd} {...register('cccd')} />
+          <Input
+            id="cccd"
+            disabled={submitting}
+            aria-invalid={!!errors.cccd}
+            {...register('cccd')}
+          />
           <FieldError message={errors.cccd?.message} />
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="startDate">{t('startDateLabel')}</Label>
-          <Input id="startDate" type="date" disabled={submitting} aria-invalid={!!errors.startDate} {...register('startDate')} />
+          <Input
+            id="startDate"
+            type="date"
+            disabled={submitting}
+            aria-invalid={!!errors.startDate}
+            {...register('startDate')}
+          />
           <FieldError message={errors.startDate?.message} />
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="resignedAt">{t('resignedAtLabel')}</Label>
-          <Input id="resignedAt" type="date" disabled={submitting} aria-invalid={!!errors.resignedAt} {...register('resignedAt')} />
+          <Input
+            id="resignedAt"
+            type="date"
+            disabled={submitting}
+            aria-invalid={!!errors.resignedAt}
+            {...register('resignedAt')}
+          />
           <FieldError message={errors.resignedAt?.message} />
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="dateOfBirth">{t('dateOfBirth')}</Label>
-          <Input id="dateOfBirth" type="date" disabled={submitting} aria-invalid={!!errors.dateOfBirth} {...register('dateOfBirth')} />
+          <Input
+            id="dateOfBirth"
+            type="date"
+            disabled={submitting}
+            aria-invalid={!!errors.dateOfBirth}
+            {...register('dateOfBirth')}
+          />
           <FieldError message={errors.dateOfBirth?.message} />
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="salary">{t('salaryVnd')}</Label>
-          <Input id="salary" type="number" min={0} step={1000} disabled={submitting} aria-invalid={!!errors.salary} {...register('salary')} />
+          <Input
+            id="salary"
+            type="number"
+            min={0}
+            step={1000}
+            disabled={submitting}
+            aria-invalid={!!errors.salary}
+            {...register('salary')}
+          />
           <FieldError message={errors.salary?.message} />
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="orderKpi">{t('field.orderKpi')}</Label>
-          <Input id="orderKpi" type="number" min={0} step={1} disabled={submitting} aria-invalid={!!errors.orderKpi} {...register('orderKpi')} />
+          <Input
+            id="orderKpi"
+            type="number"
+            min={0}
+            step={1}
+            disabled={submitting}
+            aria-invalid={!!errors.orderKpi}
+            {...register('orderKpi')}
+          />
           <FieldError message={errors.orderKpi?.message} />
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="revenueKpi">{t('revenueKpi')} ($)</Label>
-          <Input id="revenueKpi" type="number" min={0} step={100} disabled={submitting} aria-invalid={!!errors.revenueKpi} {...register('revenueKpi')} />
+          <Input
+            id="revenueKpi"
+            type="number"
+            min={0}
+            step={100}
+            disabled={submitting}
+            aria-invalid={!!errors.revenueKpi}
+            {...register('revenueKpi')}
+          />
           <FieldError message={errors.revenueKpi?.message} />
         </div>
 
@@ -196,19 +253,34 @@ export function EmployeeForm({
 
         <div className="space-y-2">
           <Label htmlFor="cccdImageUrl">{t('cccdImageUrl')}</Label>
-          <Input id="cccdImageUrl" placeholder="https://…" disabled={submitting} {...register('cccdImageUrl')} />
+          <Input
+            id="cccdImageUrl"
+            placeholder="https://…"
+            disabled={submitting}
+            {...register('cccdImageUrl')}
+          />
           <FieldError message={errors.cccdImageUrl?.message} />
         </div>
 
         <div className="space-y-2">
           <Label htmlFor="bankQrUrl">{t('bankQrUrl')}</Label>
-          <Input id="bankQrUrl" placeholder="https://…" disabled={submitting} {...register('bankQrUrl')} />
+          <Input
+            id="bankQrUrl"
+            placeholder="https://…"
+            disabled={submitting}
+            {...register('bankQrUrl')}
+          />
           <FieldError message={errors.bankQrUrl?.message} />
         </div>
 
         <div className="space-y-2 sm:col-span-2">
           <Label htmlFor="avatar">Avatar (URL)</Label>
-          <Input id="avatar" placeholder="https://…" disabled={submitting} {...register('avatar')} />
+          <Input
+            id="avatar"
+            placeholder="https://…"
+            disabled={submitting}
+            {...register('avatar')}
+          />
           <FieldError message={errors.avatar?.message} />
         </div>
       </div>

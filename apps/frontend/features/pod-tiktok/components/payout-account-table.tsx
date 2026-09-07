@@ -18,6 +18,7 @@ interface PayoutAccountTableProps {
   sortOrder: 'asc' | 'desc';
   onSortChange: (field: PodPayoutSortField) => void;
   onPageChange: (page: number) => void;
+  onPageSizeChange: (limit: number) => void;
 }
 
 /** Ô tiêu đề bấm được để đổi cột sắp xếp. */
@@ -67,6 +68,7 @@ export function PayoutAccountTable({
   sortOrder,
   onSortChange,
   onPageChange,
+  onPageSizeChange,
 }: PayoutAccountTableProps) {
   const { t } = useTranslation('pod');
   const { formatCurrency, formatNumber } = useLocaleFormat();
@@ -84,6 +86,7 @@ export function PayoutAccountTable({
       isEmpty={items.length === 0}
       meta={data?.meta}
       onPageChange={onPageChange}
+      onPageSizeChange={onPageSizeChange}
       columnCount={4}
       header={
         <TableHeader>

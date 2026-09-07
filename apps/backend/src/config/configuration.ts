@@ -60,13 +60,30 @@ export default () => ({
     password: process.env.REDIS_PASSWORD || undefined,
   },
 
-  // Khai báo hạ tầng cho Auth — CHƯA implement Auth ở giai đoạn này.
+  /**
+   * Auth — vòng đời token (ADR-006).
+   *
+   * 🔴 `accessTtl` cố ý NGẮN và KHÔNG được kéo dài để chữa lỗi đăng xuất. Access token ngắn
+   * an toàn được là nhờ có `/auth/refresh`; tăng TTL chỉ kéo dài cửa sổ mà một token bị rò
+   * rỉ còn dùng được, mà vẫn không giữ nổi phiên qua một ngày làm việc.
+   */
   jwt: {
     accessSecret: process.env.JWT_ACCESS_SECRET,
     refreshSecret: process.env.JWT_REFRESH_SECRET,
     accessTtl: process.env.JWT_ACCESS_TTL ?? '15m',
     refreshTtl: process.env.JWT_REFRESH_TTL ?? '7d',
     refreshHmacSecret: process.env.REFRESH_TOKEN_HMAC_SECRET,
+    /**
+     * Cửa sổ ân hạn (giây) cho refresh token vừa bị xoay vòng — xem `RefreshService`.
+     *
+     * Quá NHỎ ⇒ hai request refresh song song bị hiểu nhầm là token bị đánh cắp và cả phiên
+     * bị cắt. Quá LỚN ⇒ token đã xoay vòng còn dùng được lâu, làm yếu khả năng phát hiện
+     * token dùng lại. 30 giây bao trọn mọi race thực tế của trình duyệt.
+     */
+    refreshRotationGraceSeconds: parseInt(
+      process.env.JWT_REFRESH_ROTATION_GRACE_SECONDS ?? '30',
+      10,
+    ),
   },
 
   swagger: {
@@ -274,8 +291,9 @@ export default () => ({
     productSync: {
       enabled: (process.env.TIKTOK_PRODUCT_SYNC_ENABLED ?? 'false') === 'true',
       cron: process.env.TIKTOK_PRODUCT_SYNC_CRON ?? '0 */6 * * *',
-      /** Đồng bộ kèm cây danh mục + thương hiệu trong lượt theo lịch (chậm hơn nhiều). */
-      includeCatalog: (process.env.TIKTOK_PRODUCT_SYNC_INCLUDE_CATALOG ?? 'false') === 'true',
+      // 🔴 `includeCatalog` đã bị GỠ BỎ: cây danh mục + thương hiệu là dữ liệu master TOÀN
+      // CỤC, chỉ Super Admin đồng bộ (`POST /pod/master-data/sync`). Để lại một cờ ENV cho
+      // phép lượt đồng bộ sản phẩm của MỘT tổ chức ghi đè dữ liệu của mọi tổ chức khác.
     },
 
     /**
@@ -287,6 +305,18 @@ export default () => ({
     listingReview: {
       enabled: (process.env.TIKTOK_LISTING_REVIEW_ENABLED ?? 'true') === 'true',
       cron: process.env.TIKTOK_LISTING_REVIEW_CRON ?? '*/5 * * * *',
+    },
+
+    /**
+     * Đọc lại trạng thái FLASH SALE trên sàn (Sprint Flash Sale).
+     *
+     * 5 phút/lần, bật mặc định. 🔴 Chu kỳ này KHÔNG liên quan tới nhịp tự làm mới 30 giây
+     * của giao diện: màn hình chỉ đọc database, còn đây mới là nơi duy nhất gọi TikTok.
+     * Tăng tần suất làm mới ở giao diện không tốn thêm một lượt quota nào.
+     */
+    flashSaleSync: {
+      enabled: (process.env.TIKTOK_FLASH_SALE_SYNC_ENABLED ?? 'true') === 'true',
+      cron: process.env.TIKTOK_FLASH_SALE_SYNC_CRON ?? '*/5 * * * *',
     },
 
     /**

@@ -309,7 +309,8 @@ export function ImageTemplateDialog({ open, template, onClose }: ImageTemplateDi
                         void actions.update.mutateAsync({ itemId: item.id, payload })
                       }
                       busy={
-                        (actions.replace.isPending && actions.replace.variables?.itemId === item.id) ||
+                        (actions.replace.isPending &&
+                          actions.replace.variables?.itemId === item.id) ||
                         (actions.remove.isPending && actions.remove.variables === item.id)
                       }
                     />
@@ -439,9 +440,7 @@ function ImageCard({
       <div className="flex items-center gap-2">
         <GripVertical className="size-4 cursor-grab text-muted-foreground" />
         <span className="text-xs text-muted-foreground">#{index + 1}</span>
-        {item.isRequired && (
-          <Badge variant="warning">{t('listing.imageTemplates.required')}</Badge>
-        )}
+        {item.isRequired && <Badge variant="warning">{t('listing.imageTemplates.required')}</Badge>}
       </div>
 
       <button

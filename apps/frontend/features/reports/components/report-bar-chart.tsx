@@ -64,14 +64,7 @@ function CategoryTick(props: {
   return (
     <g transform={`translate(${x},${y})`}>
       <title>{full}</title>
-      <text
-        dy={2}
-        dx={-2}
-        textAnchor="end"
-        transform="rotate(-35)"
-        fill={fill}
-        fontSize={11}
-      >
+      <text dy={2} dx={-2} textAnchor="end" transform="rotate(-35)" fill={fill} fontSize={11}>
         {text}
       </text>
     </g>
@@ -170,12 +163,20 @@ export function ReportBarChart({
         )}
         <Tooltip
           content={
-            <ChartTooltip theme={theme} valueFormatter={valueFormatter} labelFormatter={labelFormatter} />
+            <ChartTooltip
+              theme={theme}
+              valueFormatter={valueFormatter}
+              labelFormatter={labelFormatter}
+            />
           }
           cursor={{ fill: theme.grid, fillOpacity: 0.3 }}
         />
         {series.length > 1 && (
-          <Legend verticalAlign="top" align="left" wrapperStyle={{ fontSize: 12, paddingBottom: 8 }} />
+          <Legend
+            verticalAlign="top"
+            align="left"
+            wrapperStyle={{ fontSize: 12, paddingBottom: 8 }}
+          />
         )}
         {series.map((s) => (
           <Bar

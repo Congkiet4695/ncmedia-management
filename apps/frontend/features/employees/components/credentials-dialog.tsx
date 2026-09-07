@@ -44,8 +44,16 @@ function ReadonlyField({
     <div className="space-y-1">
       <p className="text-xs text-muted-foreground">{label}</p>
       <div className="flex items-center gap-2">
-        <code className="flex-1 truncate rounded-md border bg-muted px-3 py-2 text-sm">{value}</code>
-        <Button type="button" variant="outline" size="icon" aria-label={`Copy ${label}`} onClick={onCopy}>
+        <code className="flex-1 truncate rounded-md border bg-muted px-3 py-2 text-sm">
+          {value}
+        </code>
+        <Button
+          type="button"
+          variant="outline"
+          size="icon"
+          aria-label={`Copy ${label}`}
+          onClick={onCopy}
+        >
           <Copy className="size-4" />
         </Button>
       </div>
@@ -87,9 +95,7 @@ export function CredentialsDialog({
           onCopy={() => copy(password, t('auth:login.password'))}
         />
 
-        <p className="text-xs text-amber-600 dark:text-amber-400">
-          {t('passwordOnce')}
-        </p>
+        <p className="text-xs text-amber-600 dark:text-amber-400">{t('passwordOnce')}</p>
 
         <div className="flex justify-end gap-2">
           {email && (

@@ -96,7 +96,13 @@ export type PodTiktokAccountListResult = Paginated<PodTiktokAccountListItem>;
 export interface PodTiktokAccountQuery extends PaginationParams {
   search?: string;
   status?: PodTiktokStatus;
-  sortBy?: 'createdAt' | 'accountName' | 'status' | 'accessTokenExpiresAt' | 'refreshTokenExpiresAt' | 'lastSyncedAt';
+  sortBy?:
+    | 'createdAt'
+    | 'accountName'
+    | 'status'
+    | 'accessTokenExpiresAt'
+    | 'refreshTokenExpiresAt'
+    | 'lastSyncedAt';
   sortOrder?: 'asc' | 'desc';
 }
 

@@ -55,7 +55,9 @@ export async function uploadXlsx(
 export function downloadErrorCsv(errors: ImportRowError[], filename: string): void {
   const esc = (v: unknown) => `"${String(v ?? '').replace(/"/g, '""')}"`;
   const header = ['Sheet', 'Row', 'Field', 'Message'].map(esc).join(',');
-  const body = errors.map((e) => [e.sheet, e.row, e.field, e.message].map(esc).join(',')).join('\n');
+  const body = errors
+    .map((e) => [e.sheet, e.row, e.field, e.message].map(esc).join(','))
+    .join('\n');
   const blob = new Blob(['﻿' + header + '\n' + body], { type: 'text/csv;charset=utf-8' });
   triggerDownload(blob, filename);
 }
