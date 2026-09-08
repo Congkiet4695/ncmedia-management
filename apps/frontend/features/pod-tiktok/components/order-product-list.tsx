@@ -61,12 +61,14 @@ export function OrderProductList({
           key={item.id}
           className="flex flex-col gap-3 rounded-md border p-2 sm:flex-row sm:items-center"
         >
-          {/* Ảnh sản phẩm */}
+          {/* Ảnh CHÍNH của sản phẩm — KHÔNG phải `skuImage` (ảnh biến thể TikTok gửi kèm
+              dòng đơn). Cùng nguồn với thumbnail ở danh sách đơn để hai màn hình không hiện
+              hai tấm ảnh khác nhau cho cùng một sản phẩm. */}
           <div className="flex size-14 shrink-0 items-center justify-center overflow-hidden rounded border bg-muted/40">
-            {item.skuImage ? (
+            {item.productImage ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img
-                src={item.skuImage}
+                src={item.productImage}
                 alt={item.productName ?? t('product.fallbackAlt')}
                 className="size-full object-cover"
                 loading="lazy"

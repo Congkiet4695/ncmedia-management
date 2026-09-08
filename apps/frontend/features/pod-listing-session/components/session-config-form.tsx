@@ -2,6 +2,7 @@
 
 import { useTranslation } from 'react-i18next';
 import { Input } from '@/components/ui/input';
+import { shopOptionLabel } from '@/features/pod-tiktok/shop-label';
 import { Label } from '@/components/ui/label';
 import { Combobox, MultiCombobox } from '@/components/ui/combobox';
 import { usePodProductFilters } from '@/features/pod-product/hooks/use-pod-products';
@@ -113,7 +114,7 @@ export function SessionConfigForm({
         <MultiCombobox
           values={value.shopIds}
           onChange={(shopIds) => patch({ shopIds })}
-          options={shops.map((shop) => ({ value: shop.id, label: shop.name }))}
+          options={shops.map((shop) => ({ value: shop.id, label: shopOptionLabel(shop) }))}
           disabled={disabled}
           placeholder={
             shops.length === 0 ? t('listing.sessions.noShop') : t('listing.sessions.pickShops')

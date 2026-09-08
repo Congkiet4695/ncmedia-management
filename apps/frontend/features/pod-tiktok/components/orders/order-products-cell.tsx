@@ -109,7 +109,7 @@ function ProductRow({
     if (images.length === 0) return;
     // Vị trí trong danh sách ĐÃ LỌC ảnh rỗng, không phải `rowIndex` — sản phẩm không có ảnh
     // bị loại khỏi bộ xem nên hai chỉ số lệch nhau.
-    const clicked = allRows[rowIndex]?.skuImage;
+    const clicked = allRows[rowIndex]?.productImageFull ?? allRows[rowIndex]?.productImage;
     const index = Math.max(
       0,
       images.findIndex((image) => image.src === clicked),
@@ -126,16 +126,19 @@ function ProductRow({
           event.stopPropagation();
           openProductImages();
         }}
-        disabled={!row.skuImage}
+        disabled={!row.productImage}
         aria-label={t('product.viewImage')}
         className={`${THUMB} relative shrink-0 overflow-hidden rounded border bg-muted/40 ${
-          row.skuImage ? 'cursor-zoom-in' : 'cursor-default'
+          row.productImage ? 'cursor-zoom-in' : 'cursor-default'
         }`}
       >
-        {row.skuImage ? (
+        {/* 🔴 Ảnh CHÍNH của sản phẩm, KHÔNG phải `skuImage` (ảnh biến thể TikTok gửi kèm
+            dòng đơn). Thiếu ảnh chính ⇒ ô trống, không rơi về ảnh biến thể: một ô trống nói
+            đúng sự thật, một ảnh sai thì không. */}
+        {row.productImage ? (
           // eslint-disable-next-line @next/next/no-img-element
           <img
-            src={row.skuImage}
+            src={row.productImage}
             alt={row.productName ?? t('product.fallbackAlt')}
             className="size-full object-cover"
             loading="lazy"

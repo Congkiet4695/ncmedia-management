@@ -8,6 +8,7 @@ import {
 } from '../dto/pod-order-response.dto';
 import { StorageMapper } from '../../storage/storage.mapper';
 import type { ResolvedItemDesigns } from '../services/pod-order-design-resolver.service';
+import type { ResolvedProductImage } from '../services/pod-order-product-image.resolver';
 import { PodOrderWithRelations } from '../types/pod-order-with-relations.type';
 
 /** Dòng nhật ký kèm quan hệ shop/account (khớp include của repository). */
@@ -31,6 +32,7 @@ export class PodOrderResponseMapper {
   toResponse(
     order: PodOrderWithRelations,
     designs: Map<string, ResolvedItemDesigns>,
+    productImages: Map<string, ResolvedProductImage>,
   ): PodOrderResponseDto {
     return {
       id: order.id,
@@ -40,6 +42,8 @@ export class PodOrderResponseMapper {
       shop: {
         id: order.shop.id,
         name: order.shop.name,
+        // `account` đã nằm trong include của mọi đường đọc đơn ⇒ không thêm truy vấn nào.
+        connectionName: order.account.accountName,
         tiktokShopId: order.shop.tiktokShopId,
         region: order.shop.region,
       },
@@ -86,7 +90,7 @@ export class PodOrderResponseMapper {
       lastSyncedAt: order.lastSyncedAt.toISOString(),
       syncVersion: order.syncVersion,
 
-      items: order.items.map((item) => this.toItemDto(item, designs)),
+      items: order.items.map((item) => this.toItemDto(item, designs, productImages)),
       packages: order.packages.map((pkg) => ({
         id: pkg.id,
         tiktokPackageId: pkg.tiktokPackageId,
@@ -100,11 +104,17 @@ export class PodOrderResponseMapper {
   toListItem(
     order: PodOrderWithRelations,
     designs: Map<string, ResolvedItemDesigns>,
+    productImages: Map<string, ResolvedProductImage>,
   ): PodOrderListItemDto {
     return {
       id: order.id,
       tiktokOrderId: order.tiktokOrderId,
+      // 🔴 Danh sách đơn giữ CẢ HAI tên: Connection Name để biết đơn về từ kết nối nào,
+      // Shop Name để đối chiếu với Seller Center. `account` đã nằm sẵn trong include nên
+      // không phát sinh thêm truy vấn nào.
+      connectionName: order.account.accountName,
       shopName: order.shop.name,
+      accountId: order.account.id,
       // Nhà cung cấp của kết nối TikTok — giao diện cần để mở dialog "Map Product" với nhà
       // cung cấp điền sẵn. Đã nằm sẵn trong include, không phát sinh truy vấn.
       fulfillmentAccountId: order.account.fulfillmentAccountId,
@@ -125,7 +135,7 @@ export class PodOrderResponseMapper {
       updatedTime: order.tiktokUpdatedAt.toISOString(),
       lastSync: order.lastSyncedAt.toISOString(),
       // Sản phẩm đi kèm ngay ở danh sách (đã nạp sẵn qua include — không phát sinh N+1).
-      items: order.items.map((item) => this.toItemDto(item, designs)),
+      items: order.items.map((item) => this.toItemDto(item, designs, productImages)),
     };
   }
 
@@ -165,6 +175,7 @@ export class PodOrderResponseMapper {
   private toItemDto(
     item: PodOrderWithRelations['items'][number],
     designs: Map<string, ResolvedItemDesigns>,
+    productImages: Map<string, ResolvedProductImage>,
   ): PodOrderItemDto {
     const resolved = designs.get(item.id);
     return {
@@ -176,6 +187,10 @@ export class PodOrderResponseMapper {
       skuName: item.skuName,
       sellerSku: item.sellerSku,
       skuImage: item.skuImage,
+      // Ảnh CHÍNH của sản phẩm — do `PodOrderProductImageResolver` ghép theo
+      // (shop, mã sản phẩm TikTok). Không có ⇒ null, KHÔNG rơi về `skuImage`.
+      productImage: productImages.get(item.id)?.thumbUrl ?? null,
+      productImageFull: productImages.get(item.id)?.url ?? null,
       // TikTok trả 1 line item = 1 đơn vị sản phẩm (xem Order API overview).
       quantity: 1,
       productCategory: item.productCategory,

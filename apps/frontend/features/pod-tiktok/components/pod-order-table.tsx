@@ -20,8 +20,6 @@ import type { PodOrderItem, PodOrderListItem } from '../order-types';
 interface PodOrderTableProps {
   orders: PodOrderListItem[];
   loading?: boolean;
-  /** Map `shopName` → id kết nối TikTok, để tên shop bấm được (§1). */
-  accountIdByShopName: Map<string, string>;
   selectedIds: Set<string>;
   expandedIds: Set<string>;
   canViewFulfillment: boolean;
@@ -58,7 +56,6 @@ const SKELETON_ROWS = 6;
 export function PodOrderTable({
   orders,
   loading,
-  accountIdByShopName,
   selectedIds,
   expandedIds,
   canViewFulfillment,
@@ -86,9 +83,6 @@ export function PodOrderTable({
 
   const allSelected = orders.every((order) => selectedIds.has(order.id));
   const someSelected = !allSelected && orders.some((order) => selectedIds.has(order.id));
-
-  const accountIdOf = (order: PodOrderListItem): string | undefined =>
-    order.shopName ? accountIdByShopName.get(order.shopName) : undefined;
 
   return (
     <>
@@ -121,7 +115,7 @@ export function PodOrderTable({
               <PodOrderRow
                 key={order.id}
                 order={order}
-                accountId={accountIdOf(order)}
+                accountId={order.accountId}
                 selected={selectedIds.has(order.id)}
                 expanded={expandedIds.has(order.id)}
                 canViewFulfillment={canViewFulfillment}
@@ -144,7 +138,7 @@ export function PodOrderTable({
           <PodOrderCard
             key={order.id}
             order={order}
-            accountId={accountIdOf(order)}
+            accountId={order.accountId}
             selected={selectedIds.has(order.id)}
             expanded={expandedIds.has(order.id)}
             canViewFulfillment={canViewFulfillment}

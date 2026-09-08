@@ -1,6 +1,10 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { PodProductSyncStatus, PodProductSyncTrigger, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import {
+  SHOP_CONNECTION_SELECT,
+  connectionNameOf,
+} from '../../pod-tiktok/shared/shop-identity';
 import { POD_PRODUCT_ACTIVE_STATUS } from '../constants/pod-product.constants';
 import type {
   PaginatedPodProductResponseDto,
@@ -382,7 +386,7 @@ export class PodProductService {
     categories: Array<{ id: string; name: string }>;
     brands: Array<{ id: string; name: string }>;
     statuses: string[];
-    shops: Array<{ id: string; name: string }>;
+    shops: Array<{ id: string; name: string; connectionName: string }>;
   }> {
     const [categories, brands, statuses, shops] = await Promise.all([
       // 🔴 Bộ lọc phải đi qua quan hệ `products` CÓ `organizationId`. Bảng danh mục /
@@ -415,7 +419,8 @@ export class PodProductService {
           deletedAt: null,
           ...(scope.allShops ? {} : { id: { in: scope.shopIds } }),
         },
-        select: { id: true, name: true },
+        // Connection Name đi kèm để dropdown hiển thị đúng thứ người vận hành đặt tên.
+        select: { id: true, name: true, ...SHOP_CONNECTION_SELECT },
         orderBy: { name: 'asc' },
       }),
     ]);
@@ -429,7 +434,13 @@ export class PodProductService {
       statuses: statuses
         .map((row) => row.status)
         .filter((status): status is string => Boolean(status)),
-      shops: shops.map((shop) => ({ id: shop.id, name: shop.name })),
+      // 🔴 Trả CẢ HAI: dropdown dùng `connectionName` làm nhãn, `name` để phân biệt khi
+      // hai kết nối được đặt tên giống nhau.
+      shops: shops.map((shop) => ({
+        id: shop.id,
+        name: shop.name,
+        connectionName: connectionNameOf(shop),
+      })),
     };
   }
 }

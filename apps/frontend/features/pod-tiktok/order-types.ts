@@ -82,7 +82,17 @@ export interface PodOrderItem {
   skuId: string | null;
   skuName: string | null;
   sellerSku: string | null;
+  /**
+   * `line_items[].sku_image` — ảnh của BIẾN THỂ khách đặt (dữ liệu thô TikTok).
+   *
+   * ⚠️ KHÔNG dùng làm thumbnail sản phẩm — dùng `productImage`. Giữ lại vì nó tham gia khoá
+   * gộp dòng: hai biến thể khác nhau của cùng một sản phẩm phải là hai dòng riêng.
+   */
   skuImage: string | null;
+  /** **Ảnh CHÍNH của sản phẩm** — nguồn sự thật cho thumbnail. `null` ⇒ hiện ô trống. */
+  productImage: string | null;
+  /** Ảnh chính cỡ đầy đủ — dùng khi mở bộ xem ảnh. */
+  productImageFull: string | null;
   salePrice: number | null;
   originalPrice: number | null;
   currency: string | null;
@@ -129,7 +139,10 @@ export interface PodOrderPackage {
 
 export interface PodOrderShop {
   id: string;
+  /** Tên gian hàng TikTok trả về. */
   name: string;
+  /** Tên KẾT NỐI do người vận hành đặt — thông tin định danh chính trên giao diện. */
+  connectionName: string;
   tiktokShopId: string;
   region: string;
 }
@@ -190,7 +203,12 @@ export interface PodOrder {
 export interface PodOrderListItem {
   id: string;
   tiktokOrderId: string;
+  /** Tên KẾT NỐI do người vận hành đặt — thông tin định danh chính. */
+  connectionName: string;
+  /** Tên gian hàng TikTok trả về — giữ để đối chiếu với Seller Center. */
   shopName: string | null;
+  /** Kết nối TikTok sở hữu đơn — dùng để mở thẳng trang kết nối. */
+  accountId: string;
   /**
    * Nhà cung cấp fulfillment gán cho kết nối TikTok của đơn.
    * Dùng để mở dialog "Map Product" với nhà cung cấp điền sẵn — không bắt người dùng đoán.

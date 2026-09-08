@@ -4,6 +4,7 @@ import { use, useState, type ReactNode } from 'react';
 import Link from 'next/link';
 import { AlertTriangle, ArrowLeft, Loader2, Package, Palette, ShieldCheck } from 'lucide-react';
 import { Badge } from '@/components/ui/badge';
+import { shopOptionLabel } from '@/features/pod-tiktok/shop-label';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTranslation } from 'react-i18next';
@@ -128,7 +129,11 @@ function DetailView({ id }: { id: string }) {
           </CardHeader>
           <CardContent>
             <InfoRow label={t('orderDetail.connection')}>{order.accountName}</InfoRow>
-            <InfoRow label={t('orderDetail.shop')}>{order.shop.name}</InfoRow>
+            {/* Định danh kết nối là chính; tên gian hàng đứng sau trong ngoặc để đối
+                chiếu Seller Center — bỏ khi hai tên trùng nhau. */}
+            <InfoRow label={t('orderDetail.shop')}>
+              {shopOptionLabel(order.shop)}
+            </InfoRow>
             <InfoRow label={t('orderDetail.orderType')}>{order.orderType ?? 'NORMAL'}</InfoRow>
             <InfoRow label={t('orderDetail.buyer')}>{order.buyerNickname ?? order.buyerEmail ?? '—'}</InfoRow>
             <InfoRow label={t('orderDetail.buyerMessage')}>{order.buyerMessage ?? '—'}</InfoRow>

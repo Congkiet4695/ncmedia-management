@@ -3,6 +3,7 @@
 import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Combobox } from '@/components/ui/combobox';
+import { shopOptionLabel } from '@/features/pod-tiktok/shop-label';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { usePodProductFilters } from '@/features/pod-product/hooks/use-pod-products';
@@ -66,7 +67,7 @@ export function FlashSaleForm({ value, onChange, mode, disabled }: FlashSaleForm
           id="flash-sale-shop"
           value={value.shopId}
           onChange={(shopId) => onChange({ shopId, templateId: '' })}
-          options={shops.map((shop) => ({ value: shop.id, label: shop.name }))}
+          options={shops.map((shop) => ({ value: shop.id, label: shopOptionLabel(shop) }))}
           placeholder={
             shops.length === 0 ? t('flashSale.form.noShop') : t('flashSale.form.pickShop')
           }

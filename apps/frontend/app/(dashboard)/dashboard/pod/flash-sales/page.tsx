@@ -7,6 +7,7 @@ import { Ban, Copy, Eye, Plus, Rocket, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { shopOptionLabel } from '@/features/pod-tiktok/shop-label';
 import { Combobox } from '@/components/ui/combobox';
 import { Input } from '@/components/ui/input';
 import {
@@ -137,7 +138,7 @@ function FlashSaleListView() {
               onChange={setShopId}
               options={[
                 { value: '', label: t('flashSale.allShops') },
-                ...shops.map((shop) => ({ value: shop.id, label: shop.name })),
+                ...shops.map((shop) => ({ value: shop.id, label: shopOptionLabel(shop) })),
               ]}
               className="w-[200px]"
             />

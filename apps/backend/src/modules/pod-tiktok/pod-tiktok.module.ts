@@ -28,6 +28,7 @@ import { PodOrderSyncService } from './services/pod-order-sync.service';
 import { PodAccessScopeService } from './services/pod-access-scope.service';
 import { PodScopeGuard } from './guards/pod-scope.guard';
 import { PodOrderDesignResolver } from './services/pod-order-design-resolver.service';
+import { PodOrderProductImageResolver } from './services/pod-order-product-image.resolver';
 import { PodOrderService } from './services/pod-order.service';
 import { PodPayoutService } from './services/pod-payout.service';
 import { PodPayoutSyncService } from './services/pod-payout-sync.service';
@@ -73,6 +74,7 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     // Đơn hàng chỉ ĐỌC design từ Product Mapping. Không còn service/repository ghi design
     // theo line item — đường ghi duy nhất là `MappingDesignService` của module Fulfillment.
     PodOrderDesignResolver,
+    PodOrderProductImageResolver,
     PodOrderSyncService,
     PodSyncOrchestratorService,
     PodOrderIngestionService,

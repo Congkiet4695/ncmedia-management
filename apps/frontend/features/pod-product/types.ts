@@ -112,7 +112,12 @@ export interface PodProductFilterOptions {
   categories: Array<{ id: string; name: string }>;
   brands: Array<{ id: string; name: string }>;
   statuses: string[];
-  shops: Array<{ id: string; name: string }>;
+  /**
+   * 🔴 `connectionName` là NHÃN hiển thị (tên kết nối do người vận hành đặt), `name` là tên
+   * gian hàng TikTok trả về. Dropdown chọn shop dùng `connectionName`; `id` vẫn là giá trị
+   * gửi lên server. Xem `shopOptionLabel`.
+   */
+  shops: Array<{ id: string; name: string; connectionName: string }>;
 }
 
 export interface PodProductSyncPayload {

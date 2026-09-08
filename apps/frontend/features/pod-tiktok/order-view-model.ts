@@ -66,7 +66,12 @@ export interface OrderProductRow {
   key: string;
   productId: string | null;
   productName: string | null;
+  /** Ảnh BIẾN THỂ — chỉ dùng cho khoá gộp dòng, KHÔNG hiển thị. */
   skuImage: string | null;
+  /** **Ảnh CHÍNH của sản phẩm** — thứ được hiển thị. `null` ⇒ ô trống. */
+  productImage: string | null;
+  /** Ảnh chính cỡ đầy đủ — dùng cho bộ xem ảnh. */
+  productImageFull: string | null;
   sellerSku: string | null;
   skuName: string | null;
   productCategory: string | null;
@@ -126,6 +131,8 @@ export function groupOrderProducts(items: PodOrderItem[]): OrderProductRow[] {
       productId: item.productId,
       productName: item.productName,
       skuImage: item.skuImage,
+      productImage: item.productImage,
+      productImageFull: item.productImageFull,
       sellerSku: item.sellerSku ?? item.skuId,
       skuName: item.skuName,
       productCategory: item.productCategory,
@@ -367,12 +374,14 @@ export interface LightboxRequest {
  * không phải đóng/mở lightbox từng lần — đơn nhiều sản phẩm là chuyện thường.
  */
 export function orderProductImages(rows: OrderProductRow[]): OrderLightboxImage[] {
-  return rows
-    .filter((row) => Boolean(row.skuImage))
-    .map((row) => ({
-      src: row.skuImage as string,
-      label: row.productName ?? row.sellerSku ?? undefined,
-    }));
+  return rows.flatMap((row) => {
+    // Bộ xem ảnh mở cỡ ĐẦY ĐỦ; thumbnail chỉ là bản thu nhỏ của cùng tấm ảnh chính.
+    const src = row.productImageFull ?? row.productImage;
+    // Sản phẩm không có ảnh chính bị loại khỏi bộ xem — xem chú thích ở `openProductImages`
+    // về việc chỉ số phải tính trên danh sách ĐÃ LỌC.
+    if (!src) return [];
+    return [{ src, label: row.productName ?? row.sellerSku ?? undefined }];
+  });
 }
 
 /** Ảnh design (Front/Back) của MỘT dòng sản phẩm, theo đúng thứ tự đang hiển thị. */

@@ -5,6 +5,7 @@ import { History, Loader2, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { shopOptionLabel } from '@/features/pod-tiktok/shop-label';
 import { DataPagination } from '@/components/ui/data-pagination';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
@@ -166,7 +167,8 @@ function PodProductsView() {
                 { value: '', label: t('products.filters.allShops') },
                 ...(filters?.shops ?? []).map((shop) => ({
                   value: shop.id,
-                  label: shop.name,
+                  // Nhãn = Connection Name; `value` vẫn là `shop.id` như cũ.
+                  label: shopOptionLabel(shop),
                 })),
               ]}
               className="w-[190px]"

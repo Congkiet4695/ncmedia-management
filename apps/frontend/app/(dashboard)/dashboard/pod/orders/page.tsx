@@ -174,22 +174,6 @@ function PodOrdersView() {
   useClampedPage(meta, (next) => patchQuery({ page: next }));
   const stats = statsQuery.data;
 
-  /**
-   * `shopName` → id kết nối TikTok.
-   *
-   * 🔴 Endpoint danh sách đơn KHÔNG trả `accountId`, mà §1 yêu cầu bấm được vào tên shop.
-   * Danh sách kết nối đã được tải sẵn cho bộ lọc, nên tra ngược ở phía giao diện là cách
-   * duy nhất có link mà không phải đổi API. Trùng tên shop ⇒ lấy kết nối đầu tiên.
-   */
-  const accountIdByShopName = useMemo(() => {
-    const map = new Map<string, string>();
-    for (const account of accountsQuery.data?.items ?? []) {
-      const name = account.shopName ?? account.accountName;
-      if (name && !map.has(name)) map.set(name, account.id);
-    }
-    return map;
-  }, [accountsQuery.data]);
-
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -356,9 +340,14 @@ function PodOrdersView() {
               onChange={(value) => patchQuery({ accountId: value || undefined, page: 1 })}
               options={[
                 { value: '', label: t('orders.allAccounts') },
+                // 🔴 Nhãn là Connection Name (`accountName` — tên người vận hành tự đặt),
+                // KHÔNG phải tên gian hàng. `value` vẫn là `account.id` như cũ.
                 ...(accountsQuery.data?.items ?? []).map((account) => ({
                   value: account.id,
-                  label: account.shopName ?? account.accountName,
+                  label:
+                    account.shopName && account.shopName !== account.accountName
+                      ? `${account.accountName} (${account.shopName})`
+                      : account.accountName,
                 })),
               ]}
               className="w-[200px]"
@@ -397,7 +386,6 @@ function PodOrdersView() {
               />
               <PodOrderTable
                 orders={items}
-                accountIdByShopName={accountIdByShopName}
                 selectedIds={selectedIds}
                 expandedIds={expandedIds}
                 canViewFulfillment={canViewFulfillment}
@@ -444,7 +432,9 @@ function PodOrdersView() {
                 productName: mapTarget.row.productName,
                 skuName: mapTarget.row.skuName,
                 productCategory: mapTarget.row.productCategory,
-                skuImage: mapTarget.row.skuImage,
+                // Ảnh CHÍNH của sản phẩm — dialog dùng để người dùng nhận ra đang ánh xạ
+                // sản phẩm nào, nên phải là ảnh đại diện chứ không phải ảnh biến thể.
+                skuImage: mapTarget.row.productImage,
                 mapped: false,
               }
             : null

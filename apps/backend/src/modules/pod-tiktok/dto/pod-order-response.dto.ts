@@ -25,8 +25,34 @@ export class PodOrderItemDto {
   @ApiProperty({ nullable: true, type: String, description: 'Biến thể (màu/size)' })
   skuName!: string | null;
   @ApiProperty({ nullable: true, type: String }) sellerSku!: string | null;
-  @ApiProperty({ nullable: true, type: String, description: 'Ảnh sản phẩm' })
+  /**
+   * `line_items[].sku_image` của TikTok — ảnh của **BIẾN THỂ** khách đã đặt (đúng màu/size).
+   *
+   * ⚠️ KHÔNG dùng làm ảnh đại diện sản phẩm trên giao diện — dùng `productImage`. Trường này
+   * giữ lại vì nó là dữ liệu thô TikTok gửi về, và vì hai biến thể khác nhau của cùng một
+   * sản phẩm phải nằm ở hai dòng riêng (khoá gộp dòng ở giao diện dùng tới nó).
+   */
+  @ApiProperty({ nullable: true, type: String, description: 'Ảnh BIẾN THỂ (dữ liệu thô TikTok)' })
   skuImage!: string | null;
+
+  /**
+   * **Ảnh CHÍNH của sản phẩm** — nguồn sự thật để hiển thị thumbnail trong danh sách đơn.
+   *
+   * Lấy từ `pod_product_images` có `variant_id IS NULL` (định nghĩa "ảnh sản phẩm" trong
+   * lược đồ), `sort_order` nhỏ nhất. `null` = sản phẩm chưa được đồng bộ về, hoặc đã đồng bộ
+   * mà không có ảnh chính nào.
+   *
+   * 🔴 KHÔNG rơi về `skuImage` khi thiếu: một ô trống nói đúng sự thật, một ảnh sai thì không.
+   */
+  @ApiProperty({ nullable: true, type: String, description: 'Ảnh CHÍNH của sản phẩm (thumbnail)' })
+  productImage!: string | null;
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'Ảnh CHÍNH cỡ đầy đủ — dùng cho bộ xem ảnh',
+  })
+  productImageFull!: string | null;
   @ApiProperty({
     description:
       'Số lượng của dòng này. TikTok trả 1 line item = 1 ĐƠN VỊ sản phẩm nên giá trị luôn là 1; ' +
@@ -98,7 +124,15 @@ export class PodOrderPackageDto {
 
 export class PodOrderShopDto {
   @ApiProperty() id!: string;
+  /** `shops[].name` — tên gian hàng do TikTok trả về. */
   @ApiProperty() name!: string;
+  /**
+   * Tên KẾT NỐI do người vận hành đặt (`pod_tiktok_accounts.account_name`).
+   *
+   * 🔴 Đây mới là tên người vận hành nhớ và dùng để phân biệt các kết nối của mình — giao
+   * diện định danh shop bằng trường này, `name` đóng vai trò đối chiếu với Seller Center.
+   */
+  @ApiProperty({ description: 'Tên kết nối do người vận hành đặt' }) connectionName!: string;
   @ApiProperty() tiktokShopId!: string;
   @ApiProperty() region!: string;
 }
@@ -186,7 +220,23 @@ export class PodOrderResponseDto {
 export class PodOrderListItemDto {
   @ApiProperty() id!: string;
   @ApiProperty() tiktokOrderId!: string;
+  /**
+   * Tên KẾT NỐI do người vận hành đặt (`pod_tiktok_accounts.account_name`).
+   *
+   * 🔴 Đi kèm `shopName` chứ không thay thế: danh sách đơn cần cả hai — Connection Name để
+   * biết đơn về từ kết nối nào, Shop Name để đối chiếu với Seller Center.
+   */
+  @ApiProperty({ description: 'Tên kết nối do người vận hành đặt' }) connectionName!: string;
   @ApiProperty({ nullable: true, type: String }) shopName!: string | null;
+  /**
+   * Kết nối TikTok sở hữu đơn — để giao diện mở thẳng trang kết nối.
+   *
+   * 🔴 Trước đây trường này KHÔNG được trả về, nên frontend phải tra ngược `shopName` trong
+   * danh sách kết nối đã tải sẵn. Cách đó đi sai kết nối ngay khi hai kết nối trỏ tới hai
+   * gian hàng trùng tên — chuyện hoàn toàn có thật. `account` đã nằm trong include của truy
+   * vấn danh sách nên trả thêm id không tốn thêm truy vấn nào.
+   */
+  @ApiProperty() accountId!: string;
   @ApiProperty({
     nullable: true,
     type: String,
@@ -242,6 +292,7 @@ export class PodSyncLogDto {
   @ApiProperty() id!: string;
   @ApiProperty({ nullable: true, type: String }) shopId!: string | null;
   @ApiProperty({ nullable: true, type: String }) shopName!: string | null;
+  /** Tên KẾT NỐI do người vận hành đặt — nhật ký đã có sẵn trường này từ trước. */
   @ApiProperty({ nullable: true, type: String }) accountName!: string | null;
   @ApiProperty({ example: 'CRON' }) trigger!: string;
   @ApiProperty({ example: 'SUCCESS' }) status!: string;
