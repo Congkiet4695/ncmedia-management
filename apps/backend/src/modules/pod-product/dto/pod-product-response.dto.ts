@@ -1,4 +1,4 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 
 /** Một biến thể (SKU) trong màn hình chi tiết. */
 export class PodProductVariantDto {
@@ -105,6 +105,8 @@ export class PodProductSyncHistoryDto {
   @ApiProperty() productsUpdated!: number;
   @ApiProperty() productsSkipped!: number;
   @ApiProperty() productsFailed!: number;
+  @ApiProperty({ description: 'Số sản phẩm bị đánh dấu ngừng bán trong lượt (chỉ FULL)' })
+  productsDeactivated!: number;
   @ApiProperty() apiCalls!: number;
   @ApiProperty() startedAt!: string;
   @ApiProperty({ nullable: true, type: String }) finishedAt!: string | null;
@@ -120,13 +122,43 @@ export class PaginatedPodProductSyncHistoryDto {
 }
 
 /** Kết quả trả về ngay sau khi bấm "Sync Now". */
+/** Một shop chạy hỏng trong lượt đồng bộ — giữ NGUYÊN VĂN lỗi TikTok trả về. */
+export class PodProductSyncShopErrorDto {
+  @ApiProperty() shopId!: string;
+  @ApiProperty() shopName!: string;
+  @ApiPropertyOptional({ type: String, nullable: true, description: 'Mã lỗi TikTok hoặc mã nội bộ' })
+  errorCode!: string | null;
+  @ApiPropertyOptional({ type: String, nullable: true, description: 'Thông điệp lỗi nguyên văn' })
+  errorMessage!: string | null;
+}
+
 export class PodProductSyncResultDto {
   @ApiProperty({ description: 'Số shop đã chạy trong lượt này' }) shopsProcessed!: number;
-  @ApiProperty() productsFetched!: number;
+  @ApiProperty({ description: 'Số shop chạy HỎNG — xem `errors` để biết lý do' })
+  shopsFailed!: number;
+  @ApiProperty({
+    description:
+      'Số shop bị BỎ QUA vì đang có lượt đồng bộ khác chạy (khoá theo shop). Không phải lỗi, ' +
+      'nhưng cũng không phải thành công — người dùng cần biết để bấm lại sau.',
+  })
+  shopsBusy!: number;
+  @ApiProperty({ description: 'Số sản phẩm ĐANG BÁN (ACTIVATE) TikTok trả về' })
+  productsFetched!: number;
   @ApiProperty() productsCreated!: number;
   @ApiProperty() productsUpdated!: number;
   @ApiProperty() productsSkipped!: number;
   @ApiProperty() productsFailed!: number;
+  @ApiProperty({ description: 'Số sản phẩm bị đánh dấu ngừng bán (chỉ ở lượt quét toàn bộ)' })
+  productsDeactivated!: number;
+
+  /**
+   * 🔴 Danh sách lỗi theo shop. Trước đây trường này KHÔNG tồn tại: một shop hỏng vì token
+   * hết hạn hay TikTok trả 400 vẫn cho ra HTTP 200 kèm "0 sản phẩm", và người dùng thấy
+   * một thông báo THÀNH CÔNG. Lỗi phải đi được tới màn hình thì mới sửa được.
+   */
+  @ApiProperty({ type: [PodProductSyncShopErrorDto] })
+  errors!: PodProductSyncShopErrorDto[];
+
   @ApiProperty({
     type: [String],
     description: 'ID các lượt đồng bộ vừa tạo — mở Sync History để xem chi tiết',

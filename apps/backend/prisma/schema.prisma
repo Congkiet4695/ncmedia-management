@@ -2841,9 +2841,20 @@ model PodProduct {
   /// Mô tả là HTML do seller nhập — có thể rất dài.
   description     String? @db.Text
 
-  /// `status` (ACTIVATE / DRAFT / DEACTIVATED / …) và `audit.status`.
+  /// `status` của TikTok (ACTIVATE / DRAFT / FREEZE / DELETED / …) và `audit.status`.
   status      String? @db.VarChar(40)
   auditStatus String? @map("audit_status") @db.VarChar(40)
+
+  /// Thời điểm hệ thống PHÁT HIỆN sản phẩm không còn ACTIVATE trên TikTok. NULL = đang bán.
+  ///
+  /// 🔴 Vì sao cần cột riêng thay vì sửa `status`: hệ thống chỉ kéo về sản phẩm ACTIVATE
+  /// (xem `POD_PRODUCT_ACTIVE_STATUS`), nên khi một sản phẩm rời khỏi trạng thái đó nó chỉ
+  /// đơn giản BIẾN MẤT khỏi kết quả — ta biết "không còn active" nhưng KHÔNG biết nó chuyển
+  /// sang trạng thái nào. Ghi đè `status` bằng một giá trị đoán mò là bịa dữ liệu của sàn.
+  /// Cột này ghi đúng thứ quan sát được, và `status` vẫn là ảnh chụp cuối cùng TikTok trả về.
+  ///
+  /// KHÔNG xoá cứng: `pod_product_mappings`, Draft Listing và đơn hàng cũ còn tham chiếu.
+  deactivatedAt DateTime? @map("deactivated_at") @db.Timestamptz(6)
 
   /// Thương hiệu — vừa giữ FK nội bộ vừa giữ bản sao id/tên để hiển thị được ngay cả
   /// khi bảng brand chưa kịp đồng bộ (hai luồng đồng bộ độc lập nhau).
@@ -2921,6 +2932,8 @@ model PodProduct {
   @@index([categoryId])
   @@index([brandId])
   @@index([title])
+  // Truy vấn mặc định của màn hình Products: "sản phẩm ĐANG BÁN của tổ chức này".
+  @@index([organizationId, status, deactivatedAt])
   @@map("pod_products")
 }
 
@@ -3210,13 +3223,16 @@ model PodProductSyncHistory {
   watermarkFrom BigInt? @map("watermark_from")
   watermarkTo   BigInt? @map("watermark_to")
 
-  productsFetched Int @default(0) @map("products_fetched")
-  productsCreated Int @default(0) @map("products_created")
-  productsUpdated Int @default(0) @map("products_updated")
-  productsSkipped Int @default(0) @map("products_skipped")
-  productsFailed  Int @default(0) @map("products_failed")
-  pagesFetched    Int @default(0) @map("pages_fetched")
-  apiCalls        Int @default(0) @map("api_calls")
+  /// Số sản phẩm TikTok TRẢ VỀ trong lượt này (đã lọc ACTIVATE ngay tại request).
+  productsFetched     Int @default(0) @map("products_fetched")
+  productsCreated     Int @default(0) @map("products_created")
+  productsUpdated     Int @default(0) @map("products_updated")
+  productsSkipped     Int @default(0) @map("products_skipped")
+  productsFailed      Int @default(0) @map("products_failed")
+  /// Số sản phẩm trong database bị đánh dấu "không còn bán" ở lượt này (chỉ FULL sync).
+  productsDeactivated Int @default(0) @map("products_deactivated")
+  pagesFetched        Int @default(0) @map("pages_fetched")
+  apiCalls            Int @default(0) @map("api_calls")
 
   startedAt  DateTime  @map("started_at") @db.Timestamptz(6)
   finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)

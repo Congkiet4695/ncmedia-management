@@ -1194,12 +1194,13 @@
       "allBrands": "Tất cả thương hiệu"
     },
     "sync": {
-      "now": "Đồng bộ ngay",
+      "busy": "Shop này đang có một lượt đồng bộ chạy. Vui lòng thử lại sau ít phút.",
+      "failed": "Đồng bộ thất bại",
       "full": "Đồng bộ toàn bộ",
       "fullHint": "Quét lại mọi sản phẩm và làm mới danh mục/thương hiệu. Tốn nhiều quota API của TikTok hơn.",
+      "now": "Đồng bộ ngay",
       "success": "Đã đồng bộ xong",
-      "successDetail": "Lấy về {{fetched}} · tạo mới {{created}} · cập nhật {{updated}} · lỗi {{failed}}",
-      "failed": "Đồng bộ thất bại"
+      "successDetail": "Sản phẩm đang bán: {{fetched}} · Tạo mới: {{created}} · Cập nhật: {{updated}} · Lỗi: {{failed}}"
     },
     "resync": {
       "action": "Đồng bộ lại sản phẩm này",
@@ -1208,11 +1209,12 @@
     },
     "syncHistory": {
       "action": "Lịch sử đồng bộ",
-      "title": "Lịch sử đồng bộ sản phẩm",
+      "apiCalls": "{{count}} lượt gọi API",
+      "counters": "Đang bán: {{fetched}} · Tạo mới: {{created}} · Cập nhật: {{updated}} · Bỏ qua: {{skipped}} · Lỗi: {{failed}}",
+      "deactivated": "Đánh dấu ngừng bán: {{count}}",
       "description": "Từng lượt chạy đã lấy về những gì và lỗi ở đâu.",
       "empty": "Chưa có lượt đồng bộ nào.",
-      "counters": "lấy về {{fetched}} · tạo mới {{created}} · cập nhật {{updated}} · bỏ qua {{skipped}} · lỗi {{failed}}",
-      "apiCalls": "{{count}} lượt gọi API"
+      "title": "Lịch sử đồng bộ sản phẩm"
     },
     "detail": {
       "back": "Về danh sách sản phẩm",

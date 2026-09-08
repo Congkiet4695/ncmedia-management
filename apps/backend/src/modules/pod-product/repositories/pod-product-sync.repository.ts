@@ -116,6 +116,7 @@ export class PodProductSyncRepository {
       productsUpdated: number;
       productsSkipped: number;
       productsFailed: number;
+      productsDeactivated?: number;
       pagesFetched: number;
       apiCalls: number;
       startedAt: Date;
@@ -134,6 +135,7 @@ export class PodProductSyncRepository {
         productsUpdated: data.productsUpdated,
         productsSkipped: data.productsSkipped,
         productsFailed: data.productsFailed,
+        productsDeactivated: data.productsDeactivated ?? 0,
         pagesFetched: data.pagesFetched,
         apiCalls: data.apiCalls,
         finishedAt,

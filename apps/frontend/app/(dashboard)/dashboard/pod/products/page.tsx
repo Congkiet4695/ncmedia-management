@@ -76,12 +76,28 @@ function PodProductsView() {
 
   const handleSync = async (full: boolean) => {
     try {
-      const result = await syncMutation.mutateAsync({
-        shopId: query.shopId,
-        full,
-        // Lần quét toàn bộ cũng làm mới danh mục + thương hiệu để bộ lọc đầy đủ ngay.
-        includeCatalog: full,
-      });
+      const result = await syncMutation.mutateAsync({ shopId: query.shopId, full });
+
+      // 🔴 Có shop hỏng thì KHÔNG báo thành công. Trước đây backend nuốt lỗi theo shop nên
+      // một lượt hỏng sạch vì token hết hạn vẫn hiện "Đồng bộ thành công · 0 sản phẩm".
+      if (result.shopsFailed > 0) {
+        const detail = result.errors
+          .map((item) =>
+            [item.shopName, item.errorCode, item.errorMessage].filter(Boolean).join(' · '),
+          )
+          .join(' | ');
+        const notify = result.shopsFailed === result.shopsProcessed ? toast.error : toast.warning;
+        notify(t('products.sync.failed'), { description: detail || undefined });
+        return;
+      }
+
+      // Shop đang bận (đã có lượt khác chạy) không phải lỗi, nhưng cũng không phải thành
+      // công — báo đúng như vậy thay vì hiện "0 sản phẩm" không rõ lý do.
+      if (result.shopsBusy > 0 && result.shopsBusy === result.shopsProcessed) {
+        toast.warning(t('products.sync.busy'));
+        return;
+      }
+
       toast.success(t('products.sync.success'), {
         description: t('products.sync.successDetail', {
           fetched: result.productsFetched,
@@ -156,15 +172,11 @@ function PodProductsView() {
               className="w-[190px]"
             />
 
-            <Combobox
-              value={query.status ?? ''}
-              onChange={(value) => patchQuery({ status: value || undefined })}
-              options={[
-                { value: '', label: t('common:filter.allStatuses') },
-                ...(filters?.statuses ?? []).map((status) => ({ value: status, label: status })),
-              ]}
-              className="w-[170px]"
-            />
+            {/* 🔴 Bộ lọc Trạng thái đã bị GỠ. Hệ thống nay chỉ quản lý sản phẩm ĐANG BÁN
+                (ACTIVATE), nên ô này chỉ còn đúng một giá trị để chọn — một điều khiển
+                không thay đổi được gì thì chỉ làm người dùng mất thời gian thử. Sản phẩm
+                ngừng bán vẫn nằm trong database (phục vụ ánh xạ / đơn cũ) và đọc được qua
+                `GET /pod/products?includeInactive=true`. */}
 
             <Combobox
               value={query.categoryId ?? ''}

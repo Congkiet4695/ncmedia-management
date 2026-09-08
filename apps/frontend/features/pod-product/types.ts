@@ -120,17 +120,30 @@ export interface PodProductSyncPayload {
   accountId?: string;
   /** Quét lại toàn bộ, bỏ qua watermark — tốn quota TikTok. */
   full?: boolean;
-  /** Đồng bộ luôn cây danh mục + thương hiệu. */
-  includeCatalog?: boolean;
+}
+
+/** Một shop chạy hỏng — giữ nguyên văn lỗi TikTok để hiện cho người vận hành. */
+export interface PodProductSyncShopError {
+  shopId: string;
+  shopName: string;
+  errorCode: string | null;
+  errorMessage: string | null;
 }
 
 export interface PodProductSyncResult {
   shopsProcessed: number;
+  shopsFailed: number;
+  /** Số shop bị bỏ qua vì đang có lượt đồng bộ khác chạy. */
+  shopsBusy: number;
+  /** Số sản phẩm ĐANG BÁN (ACTIVATE) TikTok trả về. */
   productsFetched: number;
   productsCreated: number;
   productsUpdated: number;
   productsSkipped: number;
   productsFailed: number;
+  /** Số sản phẩm bị đánh dấu ngừng bán (chỉ ở lượt quét toàn bộ). */
+  productsDeactivated: number;
+  errors: PodProductSyncShopError[];
   historyIds: string[];
 }
 
@@ -146,6 +159,8 @@ export interface PodProductSyncHistoryItem {
   productsUpdated: number;
   productsSkipped: number;
   productsFailed: number;
+  /** Số sản phẩm bị đánh dấu ngừng bán trong lượt (chỉ ở lượt quét toàn bộ). */
+  productsDeactivated: number;
   apiCalls: number;
   startedAt: string;
   finishedAt: string | null;

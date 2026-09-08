@@ -65,6 +65,18 @@ export class PodProductQueryDto {
   @MaxLength(40)
   status?: string;
 
+  /**
+   * Lấy CẢ sản phẩm đã ngừng bán.
+   *
+   * 🔴 Mặc định `false`: hệ thống chỉ quản lý sản phẩm ACTIVATE. Cờ này dành cho đối soát
+   * / tra cứu lịch sử, không phải cho màn hình quản lý hằng ngày.
+   */
+  @ApiPropertyOptional({ default: false, description: 'Lấy cả sản phẩm đã ngừng bán' })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => value === true || value === 'true')
+  @IsBoolean()
+  includeInactive?: boolean;
+
   @ApiPropertyOptional({ description: 'Lọc theo danh mục (ID nội bộ)' })
   @IsOptional()
   @IsUUID()

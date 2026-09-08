@@ -1,12 +1,18 @@
 import { Injectable } from '@nestjs/common';
 import { PodMasterDataProvider, PodProductRawSource, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { POD_PRODUCT_ACTIVE_STATUS } from '../constants/pod-product.constants';
 import type { PodProductSortField } from '../constants/pod-product.constants';
 import type { MappedProduct } from '../mappers/pod-product.mapper';
 import { accountScopeFilter, shopScopeFilter } from '../../pod-tiktok/shared/shop-scope';
 
 /** Bộ lọc danh sách sản phẩm — đúng những gì màn hình Products cần. */
 export interface PodProductFindManyParams {
+  /**
+   * `true` = lấy cả sản phẩm ĐÃ NGỪNG BÁN. Mặc định (`undefined`/`false`) chỉ trả về sản
+   * phẩm đang bán — xem `buildWhere`.
+   */
+  includeInactive?: boolean;
   page: number;
   limit: number;
   /** Tìm theo: tiêu đề · TikTok Product ID · Seller SKU (khớp một trong ba là ra). */
@@ -152,7 +158,9 @@ export class PodProductRepository {
       const product = existing
         ? await tx.podProduct.update({
             where: { id: existing.id },
-            data: { ...data, deletedAt: null, updatedBy: actorUserId },
+            // 🔴 `deactivatedAt: null` — sản phẩm bán lại được thì tự khôi phục. Lượt đồng
+            // bộ chỉ kéo về sản phẩm ACTIVATE, nên có mặt ở đây nghĩa là nó ĐANG bán.
+            data: { ...data, deletedAt: null, deactivatedAt: null, updatedBy: actorUserId },
             select: { id: true },
           })
         : await tx.podProduct.create({
@@ -275,11 +283,84 @@ export class PodProductRepository {
   // Private
   // ---------------------------------------------------------------------------
 
+  /**
+   * Gỡ dấu "ngừng bán" cho những sản phẩm VỪA thấy trong danh sách ACTIVATE của TikTok.
+   *
+   * 🔴 Bắt buộc phải là một bước RIÊNG, không thể dựa vào `upsertAggregate`: đường ghi bỏ
+   * qua sản phẩm có `payloadHash` không đổi (tối ưu để khỏi ghi lại y nguyên dữ liệu cũ),
+   * nên một sản phẩm ngừng bán rồi bán lại mà nội dung KHÔNG đổi sẽ không bao giờ chạm tới
+   * `upsertAggregate` — và mắc kẹt ở trạng thái ngừng bán vĩnh viễn.
+   *
+   * Chạy ở MỌI phạm vi đồng bộ: có mặt trong danh sách ACTIVATE nghĩa là đang bán, bất kể
+   * lượt quét là FULL hay INCREMENTAL. Một câu `updateMany` cho cả lô.
+   */
+  async reactivateSeen(
+    organizationId: string,
+    shopId: string,
+    seenTiktokProductIds: string[],
+  ): Promise<number> {
+    if (seenTiktokProductIds.length === 0) return 0;
+    const result = await this.prisma.podProduct.updateMany({
+      where: {
+        organizationId,
+        shopId,
+        deletedAt: null,
+        deactivatedAt: { not: null },
+        tiktokProductId: { in: seenTiktokProductIds },
+      },
+      data: { deactivatedAt: null },
+    });
+    return result.count;
+  }
+
+  /**
+   * Đánh dấu **ngừng bán** mọi sản phẩm đang active của shop mà lượt đồng bộ vừa rồi KHÔNG
+   * còn thấy trong danh sách ACTIVATE của TikTok.
+   *
+   * 🔴 KHÔNG xoá, kể cả xoá mềm: `pod_product_mappings`, Draft Listing và đơn hàng cũ còn
+   * trỏ vào những bản ghi này. Xoá đi là làm đứt lịch sử có thật để đổi lấy một danh sách
+   * gọn hơn — mà danh sách đã gọn rồi nhờ bộ lọc ở `buildWhere`.
+   *
+   * 🔴 Chỉ đụng tới đúng shop được truyền vào. Sản phẩm của shop khác (kể cả cùng tổ chức)
+   * không nằm trong lượt quét này nên không có cơ sở nào để kết luận chúng ngừng bán.
+   */
+  async deactivateMissing(
+    organizationId: string,
+    shopId: string,
+    seenTiktokProductIds: string[],
+  ): Promise<number> {
+    const result = await this.prisma.podProduct.updateMany({
+      where: {
+        organizationId,
+        shopId,
+        deletedAt: null,
+        deactivatedAt: null,
+        ...(seenTiktokProductIds.length > 0
+          ? { tiktokProductId: { notIn: seenTiktokProductIds } }
+          : {}),
+      },
+      data: { deactivatedAt: new Date() },
+    });
+    return result.count;
+  }
+
   private buildWhere(
     organizationId: string,
     params: PodProductFindManyParams,
   ): Prisma.PodProductWhereInput {
     const where: Prisma.PodProductWhereInput = { organizationId, deletedAt: null };
+
+    // 🔴 Mặc định CHỈ sản phẩm ĐANG BÁN. Hệ thống chỉ quản lý sản phẩm ACTIVATE; những bản
+    // ghi còn lại được giữ để `pod_product_mappings`, Draft Listing và đơn cũ không đứt
+    // tham chiếu — nhưng chúng KHÔNG được lẫn vào màn hình quản lý.
+    //
+    // Lọc theo CẢ HAI: `status` là ảnh chụp cuối cùng TikTok trả về, `deactivatedAt` là thời
+    // điểm hệ thống phát hiện sản phẩm rời khỏi danh sách đang bán. Một bản ghi có thể còn
+    // `status = ACTIVATE` cũ mà thực tế đã ngừng bán (phát hiện qua đối soát ở lượt FULL).
+    if (params.includeInactive !== true) {
+      where.status = POD_PRODUCT_ACTIVE_STATUS;
+      where.deactivatedAt = null;
+    }
 
     // 🔴 GIAO phạm vi được gán với bộ lọc người dùng chọn — không bao giờ gán đè. Gán đè là
     // bug bảo mật: chỉ cần gửi `?shopId=<shop người khác>` là đọc được dữ liệu shop đó.
@@ -288,7 +369,9 @@ export class PodProductRepository {
 
     const accountFilter = accountScopeFilter(params.accountScope, params.accountId);
     if (accountFilter !== undefined) where.accountId = accountFilter;
-    if (params.status) where.status = params.status;
+    // Bộ lọc trạng thái của người dùng chỉ có ý nghĩa khi đã mở rộng phạm vi sang cả sản
+    // phẩm ngừng bán — nếu không nó chỉ có thể thu hẹp `ACTIVATE` thành chính nó.
+    if (params.status && params.includeInactive === true) where.status = params.status;
     if (params.categoryId) where.categoryId = params.categoryId;
     if (params.brandId) where.brandId = params.brandId;
 

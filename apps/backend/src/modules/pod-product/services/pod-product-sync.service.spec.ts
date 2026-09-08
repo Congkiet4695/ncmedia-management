@@ -53,6 +53,8 @@ describe('PodProductSyncService', () => {
     findHashes: jest.Mock;
     upsertAggregate: jest.Mock;
     saveRawData: jest.Mock;
+    deactivateMissing: jest.Mock;
+    reactivateSeen: jest.Mock;
   };
   let syncRepo: {
     findSyncTargets: jest.Mock;
@@ -70,6 +72,8 @@ describe('PodProductSyncService', () => {
       findHashes: jest.fn().mockResolvedValue(new Map()),
       upsertAggregate: jest.fn().mockResolvedValue({ id: 'product-uuid', created: true }),
       saveRawData: jest.fn().mockResolvedValue(undefined),
+      deactivateMissing: jest.fn().mockResolvedValue(0),
+      reactivateSeen: jest.fn().mockResolvedValue(0),
     };
     syncRepo = {
       findSyncTargets: jest.fn().mockResolvedValue([TARGET]),
@@ -132,7 +136,10 @@ describe('PodProductSyncService', () => {
       expect(callArg<{ scope: PodProductSyncScope }>(syncRepo.startHistory, 0, 0).scope).toBe(
         PodProductSyncScope.FULL,
       );
-      expect(callArg<Record<string, unknown>>(productApi.searchAllProducts, 0, 1)).toEqual({});
+      // 🔴 Không còn `{}`: bộ lọc ACTIVATE được áp NGAY TẠI REQUEST ở mọi phạm vi.
+      expect(callArg<Record<string, unknown>>(productApi.searchAllProducts, 0, 1)).toEqual({
+        status: 'ACTIVATE',
+      });
     });
 
     it('chỉ định một sản phẩm → SINGLE, KHÔNG gọi Search Products', async () => {
@@ -143,6 +150,81 @@ describe('PodProductSyncService', () => {
 
       expect(productApi.searchAllProducts).not.toHaveBeenCalled();
       expect(productApi.getProduct).toHaveBeenCalledWith(expect.anything(), 'p9');
+    });
+  });
+
+  describe('chỉ quản lý sản phẩm ĐANG BÁN', () => {
+    it('🔴 lọc ACTIVATE NGAY TẠI REQUEST, không tải hết về rồi mới lọc', async () => {
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      const filter = callArg<{ status?: string }>(productApi.searchAllProducts, 0, 1);
+      expect(filter.status).toBe('ACTIVATE');
+    });
+
+    it('lượt INCREMENTAL vẫn giữ cả `status` lẫn `updateTimeGe`', async () => {
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      const filter = callArg<{ status?: string; updateTimeGe?: number }>(
+        productApi.searchAllProducts,
+        0,
+        1,
+      );
+      expect(filter).toEqual({ status: 'ACTIVATE', updateTimeGe: 1_699_999_700 });
+    });
+
+    it('🔴 lượt FULL: sản phẩm không còn trong danh sách ACTIVATE ⇒ đánh dấu ngừng bán', async () => {
+      productApi.searchAllProducts.mockResolvedValue([detail('p1'), detail('p2')]);
+      repo.deactivateMissing.mockResolvedValue(7);
+
+      const outcome = await service.syncShop(
+        { ...TARGET, productSyncCursor: null },
+        { trigger: PodProductSyncTrigger.MANUAL },
+      );
+
+      // Chỉ đụng đúng shop này, và chỉ những sản phẩm KHÔNG nằm trong lượt quét.
+      expect(repo.deactivateMissing).toHaveBeenCalledWith(ORG, SHOP, ['p1', 'p2']);
+      expect(outcome.deactivated).toBe(7);
+      expect(
+        callArg<{ productsDeactivated?: number }>(syncRepo.finishHistory, 0, 1)
+          .productsDeactivated,
+      ).toBe(7);
+    });
+
+    it('🔴 lượt INCREMENTAL KHÔNG đối soát — "không đổi" không đồng nghĩa "ngừng bán"', async () => {
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(repo.deactivateMissing).not.toHaveBeenCalled();
+    });
+
+    it('🔴 sản phẩm bán lại nhưng nội dung KHÔNG đổi ⇒ vẫn được gỡ dấu ngừng bán', async () => {
+      // Đường ghi bỏ qua sản phẩm có payloadHash không đổi, nên nếu chỉ dựa vào
+      // `upsertAggregate` thì sản phẩm này mắc kẹt ở trạng thái ngừng bán vĩnh viễn.
+      const mapper = new PodProductMapper();
+      const knownHash = mapper.toWriteData(detail('p1'), detail('p1')).product.payloadHash;
+      productApi.searchAllProducts.mockResolvedValue([detail('p1')]);
+      repo.findHashes.mockResolvedValue(new Map([['p1', knownHash]]));
+      repo.reactivateSeen.mockResolvedValue(1);
+
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(repo.reactivateSeen).toHaveBeenCalledWith(ORG, SHOP, ['p1']);
+      expect(repo.upsertAggregate).not.toHaveBeenCalled();
+    });
+
+    it('gỡ dấu ngừng bán chạy ở MỌI phạm vi, kể cả INCREMENTAL', async () => {
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(repo.reactivateSeen).toHaveBeenCalled();
+      expect(repo.deactivateMissing).not.toHaveBeenCalled();
+    });
+
+    it('lượt SINGLE cũng KHÔNG đối soát', async () => {
+      await service.syncShop(TARGET, {
+        trigger: PodProductSyncTrigger.MANUAL,
+        tiktokProductId: 'p9',
+      });
+
+      expect(repo.deactivateMissing).not.toHaveBeenCalled();
     });
   });
 

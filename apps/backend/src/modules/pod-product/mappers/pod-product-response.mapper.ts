@@ -102,6 +102,7 @@ export class PodProductResponseMapper {
       productsCreated: row.productsCreated,
       productsUpdated: row.productsUpdated,
       productsSkipped: row.productsSkipped,
+      productsDeactivated: row.productsDeactivated,
       productsFailed: row.productsFailed,
       apiCalls: row.apiCalls,
       startedAt: row.startedAt.toISOString(),

@@ -1194,12 +1194,13 @@
       "allBrands": "All brands"
     },
     "sync": {
-      "now": "Sync Now",
+      "busy": "A sync is already running for this shop. Please try again shortly.",
+      "failed": "Sync failed",
       "full": "Full sync",
       "fullHint": "Rescans every product and refreshes categories/brands. Uses more TikTok API quota.",
+      "now": "Sync Now",
       "success": "Sync finished",
-      "successDetail": "Fetched {{fetched}} · created {{created}} · updated {{updated}} · failed {{failed}}",
-      "failed": "Sync failed"
+      "successDetail": "Active products: {{fetched}} · Created: {{created}} · Updated: {{updated}} · Failed: {{failed}}"
     },
     "resync": {
       "action": "Re-sync this product",
@@ -1208,11 +1209,12 @@
     },
     "syncHistory": {
       "action": "Sync history",
-      "title": "Product sync history",
+      "apiCalls": "{{count}} API calls",
+      "counters": "Active: {{fetched}} · Created: {{created}} · Updated: {{updated}} · Skipped: {{skipped}} · Failed: {{failed}}",
+      "deactivated": "Marked inactive: {{count}}",
       "description": "Every sync run, what it pulled and what failed.",
       "empty": "No sync has run yet.",
-      "counters": "fetched {{fetched}} · created {{created}} · updated {{updated}} · skipped {{skipped}} · failed {{failed}}",
-      "apiCalls": "{{count}} API calls"
+      "title": "Product sync history"
     },
     "detail": {
       "back": "Back to products",

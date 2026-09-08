@@ -111,6 +111,10 @@ function HistoryRow({
           failed: item.productsFailed,
         })}{' '}
         · {t('products.syncHistory.apiCalls', { count: item.apiCalls })}
+        {/* Chỉ hiện khi thật sự có sản phẩm bị đánh dấu ngừng bán — thêm "· Ngừng bán: 0"
+            vào mọi dòng chỉ làm loãng thông tin. */}
+        {item.productsDeactivated > 0 &&
+          ` · ${t('products.syncHistory.deactivated', { count: item.productsDeactivated })}`}
         {item.durationMs !== null && ` · ${Math.round(item.durationMs / 1000)}s`}
       </p>
 

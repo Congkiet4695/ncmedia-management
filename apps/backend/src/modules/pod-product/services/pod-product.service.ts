@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
-import { PodProductSyncTrigger, Prisma } from '@prisma/client';
+import { PodProductSyncStatus, PodProductSyncTrigger, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { POD_PRODUCT_ACTIVE_STATUS } from '../constants/pod-product.constants';
 import type {
   PaginatedPodProductResponseDto,
   PaginatedPodProductSyncHistoryDto,
@@ -74,6 +75,7 @@ export class PodProductService {
       accountId: query.accountId,
       shopId: query.shopId,
       status: query.status,
+      includeInactive: query.includeInactive,
       categoryId: query.categoryId,
       brandId: query.brandId,
       sortBy: query.sortBy ?? 'createdAt',
@@ -124,13 +126,32 @@ export class PodProductService {
       },
     );
 
+    // 🔴 Shop hỏng KHÔNG được biến mất khỏi kết quả. Trước đây hàm này chỉ cộng các con số
+    // rồi trả về, nên một lượt mà mọi shop đều hỏng vì token hết hạn vẫn ra HTTP 200 với
+    // "0 sản phẩm" — và giao diện báo THÀNH CÔNG. Lỗi giữ nguyên văn để còn sửa được.
+    const failedShops = outcomes.filter(
+      (item) => item.status === PodProductSyncStatus.FAILED,
+    );
+    // `LOCKED` = shop đang có lượt đồng bộ khác chạy (khoá Redis theo shop). Không phải lỗi
+    // — nhưng gộp nó vào "thành công" thì người dùng thấy "0 sản phẩm" mà không hiểu vì sao.
+    const busyShops = outcomes.filter((item) => item.status === 'LOCKED');
+
     return {
       shopsProcessed: outcomes.length,
+      shopsFailed: failedShops.length,
+      shopsBusy: busyShops.length,
       productsFetched: outcomes.reduce((sum, item) => sum + item.fetched, 0),
       productsCreated: outcomes.reduce((sum, item) => sum + item.created, 0),
       productsUpdated: outcomes.reduce((sum, item) => sum + item.updated, 0),
       productsSkipped: outcomes.reduce((sum, item) => sum + item.skipped, 0),
       productsFailed: outcomes.reduce((sum, item) => sum + item.failed, 0),
+      productsDeactivated: outcomes.reduce((sum, item) => sum + (item.deactivated ?? 0), 0),
+      errors: failedShops.map((item) => ({
+        shopId: item.shopId,
+        shopName: item.shopName,
+        errorCode: item.errorCode ?? null,
+        errorMessage: item.errorMessage ?? null,
+      })),
       historyIds: outcomes.map((item) => item.historyId).filter(Boolean),
     };
   }
@@ -181,6 +202,22 @@ export class PodProductService {
     return {
       items: items.map((item) => this.mapper.toSyncHistory(item)),
       meta: { total, page, limit, totalPages: total === 0 ? 0 : Math.ceil(total / limit) },
+    };
+  }
+
+  /**
+   * Điều kiện "sản phẩm ĐANG BÁN của tổ chức này" — dùng chung cho mọi bộ lọc.
+   *
+   * 🔴 Bộ lọc phải soi đúng tập sản phẩm mà màn hình đang hiển thị. Nếu không, dropdown sẽ
+   * chào những danh mục/thương hiệu chỉ còn tồn tại ở các sản phẩm đã ngừng bán — người
+   * dùng chọn vào và nhận về 0 kết quả.
+   */
+  private activeProductsOf(organizationId: string) {
+    return {
+      organizationId,
+      deletedAt: null,
+      status: POD_PRODUCT_ACTIVE_STATUS,
+      deactivatedAt: null,
     };
   }
 
@@ -353,19 +390,19 @@ export class PodProductService {
       // trả về cả danh mục mà tổ chức KHÁC đang bán — vừa lộ thông tin, vừa mời người dùng
       // bấm một bộ lọc chắc chắn ra 0 kết quả.
       this.prisma.podProductCategory.findMany({
-        where: { deletedAt: null, products: { some: { organizationId, deletedAt: null } } },
+        where: { deletedAt: null, products: { some: this.activeProductsOf(organizationId) } },
         select: { id: true, localName: true, path: true },
         orderBy: { path: 'asc' },
         take: 500,
       }),
       this.prisma.podProductBrand.findMany({
-        where: { deletedAt: null, products: { some: { organizationId, deletedAt: null } } },
+        where: { deletedAt: null, products: { some: this.activeProductsOf(organizationId) } },
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
         take: 500,
       }),
       this.prisma.podProduct.findMany({
-        where: { organizationId, deletedAt: null, status: { not: null } },
+        where: this.activeProductsOf(organizationId),
         select: { status: true },
         distinct: ['status'],
         orderBy: { status: 'asc' },

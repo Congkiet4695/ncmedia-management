@@ -16,6 +16,7 @@ import { TiktokProductApiService } from '../../tiktok-sdk/tiktok-product-api.ser
 import type { TiktokProductSummary } from '../../tiktok-sdk/types/tiktok-product.types';
 import type { TiktokShopContext } from '../../tiktok-sdk/types/tiktok-shop-context.type';
 import {
+  POD_PRODUCT_ACTIVE_STATUS,
   POD_PRODUCT_DETAIL_CONCURRENCY,
   POD_PRODUCT_SYNC_LOCK_PREFIX,
   POD_PRODUCT_SYNC_LOCK_TTL_MS,
@@ -48,6 +49,8 @@ export interface ProductSyncOutcome {
   failed: number;
   pagesFetched: number;
   apiCalls: number;
+  /** Số sản phẩm bị đánh dấu ngừng bán ở lượt này (chỉ FULL sync). */
+  deactivated: number;
   errorCode?: string;
   errorMessage?: string;
 }
@@ -70,6 +73,8 @@ interface RunCounters {
   failed: number;
   pages: number;
   apiCalls: number;
+  /** Số sản phẩm bị đánh dấu ngừng bán ở lượt này (chỉ FULL sync). */
+  deactivated: number;
 }
 
 /**
@@ -184,6 +189,7 @@ export class PodProductSyncService {
       failed: 0,
       pages: 0,
       apiCalls: 0,
+      deactivated: 0,
     };
 
     try {
@@ -197,6 +203,11 @@ export class PodProductSyncService {
       counters.fetched = summaries.length;
       await this.ingestSummaries(ctx, target, historyId, summaries, counters);
 
+      // Đối soát hai chiều:
+      //   1. Có mặt trong danh sách ACTIVATE ⇒ đang bán (gỡ dấu ngừng bán nếu có).
+      //   2. Vắng mặt ở lượt FULL ⇒ đánh dấu ngừng bán.
+      await this.reconcileActive(target, scope, summaries, counters);
+
       const status =
         counters.failed > 0 ? PodProductSyncStatus.PARTIAL : PodProductSyncStatus.SUCCESS;
 
@@ -207,6 +218,7 @@ export class PodProductSyncService {
         productsUpdated: counters.updated,
         productsSkipped: counters.skipped,
         productsFailed: counters.failed,
+        productsDeactivated: counters.deactivated,
         pagesFetched: counters.pages,
         apiCalls: counters.apiCalls,
         startedAt,
@@ -238,6 +250,7 @@ export class PodProductSyncService {
         productsUpdated: counters.updated,
         productsSkipped: counters.skipped,
         productsFailed: counters.failed,
+        productsDeactivated: counters.deactivated,
         pagesFetched: counters.pages,
         apiCalls: counters.apiCalls,
         startedAt,
@@ -265,6 +278,63 @@ export class PodProductSyncService {
     }
   }
 
+  /**
+   * Đối soát trạng thái đang bán giữa TikTok và database, hai chiều.
+   *
+   * 🔴 CHỈ chạy với lượt **FULL**, và đây là một giới hạn có chủ đích chứ không phải thiếu
+   * sót. Lượt INCREMENTAL chỉ hỏi TikTok "có gì đổi sau mốc X", nên một sản phẩm không xuất
+   * hiện trong kết quả có thể vì nó **ngừng bán** — hoặc đơn giản vì nó **không đổi gì**.
+   * Không phân biệt được hai điều đó, nên nếu đối soát ở lượt incremental thì mỗi lần chạy
+   * sẽ tắt sạch mọi sản phẩm đang bán bình thường.
+   *
+   * Sau khi lọc ACTIVATE ngay tại request, lượt FULL rẻ hơn hẳn (105 sản phẩm thay vì 733),
+   * nên để việc đối soát cho FULL là đánh đổi đúng.
+   *
+   * Sản phẩm quay lại bán được lượt sau tự khôi phục: `upsertProduct` xoá `deactivatedAt`.
+   */
+  private async reconcileActive(
+    target: ProductSyncTarget,
+    scope: PodProductSyncScope,
+    summaries: TiktokProductSummary[],
+    counters: RunCounters,
+  ): Promise<void> {
+    const seen = summaries.map((summary) => summary.id).filter((id): id is string => Boolean(id));
+
+    // (1) Bán lại được thì khôi phục — chạy ở MỌI phạm vi. Không thể gộp vào đường ghi:
+    // sản phẩm có nội dung không đổi bị bỏ qua trước khi tới `upsertAggregate`.
+    const restored = await this.repo.reactivateSeen(target.organizationId, target.id, seen);
+    if (restored > 0) {
+      this.logger.log({
+        module: 'pod-product',
+        operation: 'sync.reactivate',
+        organizationId: target.organizationId,
+        shopId: target.id,
+        restored,
+        msg: 'Sản phẩm bán lại trên TikTok — đã gỡ dấu ngừng bán',
+      });
+    }
+
+    // (2) Đánh dấu ngừng bán — chỉ ở lượt FULL.
+    if (scope !== PodProductSyncScope.FULL) return;
+
+    counters.deactivated = await this.repo.deactivateMissing(
+      target.organizationId,
+      target.id,
+      seen,
+    );
+
+    if (counters.deactivated > 0) {
+      this.logger.log({
+        module: 'pod-product',
+        operation: 'sync.deactivate',
+        organizationId: target.organizationId,
+        shopId: target.id,
+        deactivated: counters.deactivated,
+        msg: 'Đã đánh dấu ngừng bán các sản phẩm không còn ACTIVATE trên TikTok',
+      });
+    }
+  }
+
   /** Quét danh sách sản phẩm qua Search Products, đi hết mọi trang. */
   private async fetchSummaries(
     ctx: TiktokShopContext,
@@ -274,10 +344,17 @@ export class PodProductSyncService {
   ): Promise<TiktokProductSummary[]> {
     return this.productApi.searchAllProducts(
       ctx,
-      watermarkFrom === null
-        ? {}
-        : // Quét lùi thêm overlap: `update_time` của TikTok có thể vượt khoảng tìm kiếm.
-          { updateTimeGe: Number(watermarkFrom) - POD_PRODUCT_SYNC_OVERLAP_SECONDS },
+      {
+        // 🔴 Lọc NGAY TẠI REQUEST, không tải hết về rồi mới lọc. Trên shop thật hiện có
+        // 733 sản phẩm nhưng chỉ 105 đang bán — 601 đã DELETED. Lọc ở phía TikTok cắt đi
+        // ~85% số trang phải quét VÀ ~85% số lời gọi Get Product (mỗi sản phẩm một call),
+        // tức là phần tốn kém nhất của cả lượt đồng bộ.
+        status: POD_PRODUCT_ACTIVE_STATUS,
+        ...(watermarkFrom === null
+          ? {}
+          : // Quét lùi thêm overlap: `update_time` của TikTok có thể vượt khoảng tìm kiếm.
+            { updateTimeGe: Number(watermarkFrom) - POD_PRODUCT_SYNC_OVERLAP_SECONDS }),
+      },
       async (_page, pageIndex) => {
         counters.pages = pageIndex + 1;
         counters.apiCalls += 1;
@@ -478,6 +555,7 @@ export class PodProductSyncService {
       failed: counters.failed,
       pagesFetched: counters.pages,
       apiCalls: counters.apiCalls,
+      deactivated: counters.deactivated,
     };
   }
 
@@ -495,6 +573,7 @@ export class PodProductSyncService {
       failed: 0,
       pagesFetched: 0,
       apiCalls: 0,
+      deactivated: 0,
     };
   }
 

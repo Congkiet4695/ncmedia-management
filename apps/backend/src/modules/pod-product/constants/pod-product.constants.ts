@@ -44,6 +44,24 @@ export const POD_PRODUCT_SYNC_LOCK_TTL_MS = 10 * 60 * 1000;
 export const POD_PRODUCT_SYNC_FAILURE_THRESHOLD = 5;
 
 // ---------------------------------------------------------------------------
+// Trạng thái sản phẩm
+// ---------------------------------------------------------------------------
+
+/**
+ * Trạng thái **ĐANG BÁN** của một sản phẩm trên TikTok Shop.
+ *
+ * 🔴 `ACTIVATE`, KHÔNG phải `ACTIVE`. Đây là giá trị TikTok dùng, không phải giá trị đoán:
+ * trường `status` của `Product202502SearchProductsRequestBody` (SDK) ghi rõ tập hợp hợp lệ
+ * là `ALL · DRAFT · PENDING · FAILED · ACTIVATE · SELLER_DEACTIVATED · PLATFORM_DEACTIVATED
+ * · FREEZE · DELETED`, và dữ liệu thật trong `pod_products` cũng chỉ xuất hiện `ACTIVATE`,
+ * `DRAFT`, `FREEZE`, `DELETED`.
+ *
+ * Hệ thống CHỈ đồng bộ và quản lý sản phẩm ở trạng thái này — bộ lọc được áp ngay tại
+ * request lên TikTok, không tải về rồi mới lọc.
+ */
+export const POD_PRODUCT_ACTIVE_STATUS = 'ACTIVATE';
+
+// ---------------------------------------------------------------------------
 // "No brand"
 // ---------------------------------------------------------------------------
 
