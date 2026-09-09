@@ -3,6 +3,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { podFlashSaleService } from './service';
 import type {
+  PodFlashSaleProductQuery,
   AddFlashSaleItemPayload,
   ApplyFlashSaleTemplatePayload,
   BatchUpdateFlashSaleItemsPayload,
@@ -73,6 +74,21 @@ export function useFlashSalePublishStatus(id?: string, enabled = true) {
   });
 }
 
+/**
+ * Sản phẩm của đợt sale, phân trang theo SẢN PHẨM.
+ *
+ * `keepPreviousData` để bảng không nháy trắng khi lật trang — người dùng đang sửa giá, một
+ * khoảng trống giữa hai trang khiến họ tưởng mất dữ liệu.
+ */
+export function useFlashSaleProducts(id: string | undefined, query: PodFlashSaleProductQuery = {}) {
+  return useQuery({
+    queryKey: [KEY, 'products', id, query],
+    queryFn: () => podFlashSaleService.products(id as string, query),
+    enabled: Boolean(id),
+    placeholderData: keepPreviousData,
+  });
+}
+
 export function useFlashSaleLogs(id?: string, params: { page?: number; limit?: number } = {}) {
   return useQuery({
     queryKey: [KEY, 'logs', id, params],
@@ -98,6 +114,9 @@ function useWriteMutation<TVars, TData extends { id: string }>(
     onSuccess: (data) => {
       queryClient.setQueryData([KEY, 'detail', data.id], data);
       void queryClient.invalidateQueries({ queryKey: [KEY, 'list'] });
+      // 🔴 Bảng sản phẩm nay là một truy vấn RIÊNG có phân trang — không nằm trong `detail`
+      // nữa. Không làm mới nó ở đây thì thêm/xoá/sửa dòng xong màn hình vẫn hiện dữ liệu cũ.
+      void queryClient.invalidateQueries({ queryKey: [KEY, 'products', data.id] });
     },
   });
 }

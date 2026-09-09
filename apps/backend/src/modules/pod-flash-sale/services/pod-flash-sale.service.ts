@@ -20,6 +20,7 @@ import {
   POD_FLASH_SALE_PROVIDER_TIKTOK,
 } from '../constants/pod-flash-sale.constants';
 import type {
+  PodFlashSaleProductQueryDto,
   CreateFlashSaleDto,
   DuplicateFlashSaleDto,
   PodFlashSaleLogQueryDto,
@@ -27,6 +28,8 @@ import type {
   UpdateFlashSaleDto,
 } from '../dto/pod-flash-sale.dto';
 import type {
+  PodFlashSaleItemDto,
+  PaginatedPodFlashSaleProductDto,
   PodFlashSalePublishStatusDto,
   PaginatedPodFlashSaleDto,
   PaginatedPodFlashSaleLogDto,
@@ -187,9 +190,12 @@ export class PodFlashSaleService {
   /** Dựng response chi tiết từ một bản ghi đã nạp — dùng lại ở mọi endpoint trả về chi tiết. */
   toDetail(row: FlashSaleDetailRow): PodFlashSaleDetailDto {
     const validation = this.validateRow(row);
+    const active = row.items.filter((item) => item.status !== PodFlashSaleItemStatus.REMOVED);
     return {
       ...toFlashSaleListItem(row),
-      items: row.items.map(toFlashSaleItem),
+      // Chỉ id sản phẩm (đã lọc trùng, giữ thứ tự thêm) — không kèm dòng.
+      productIds: [...new Set(active.map((item) => item.productId))],
+      currency: active[0]?.currency ?? null,
       counts: countItems(row.items),
       validation,
       editable: isEditable(row.status),
@@ -505,6 +511,130 @@ export class PodFlashSaleService {
   }
 
   /** Cập nhật `itemCount` sau mỗi lần thêm/xoá dòng — cột danh sách đọc thẳng cột này. */
+  /**
+   * Danh sách SẢN PHẨM của một đợt sale, **phân trang theo SẢN PHẨM**, kèm SKU bên trong.
+   *
+   * ```
+   *   Trang 1              Trang 2
+   *   ▼ Product A          ▼ Product D
+   *       SKU A1               SKU D1
+   *       SKU A2               SKU D2
+   *   ▼ Product B          ▼ Product E
+   *       SKU B1               SKU E1
+   * ```
+   *
+   * 🔴 **Đơn vị phân trang là SẢN PHẨM, không phải SKU.** Phân trang theo SKU sẽ cắt đôi một
+   * sản phẩm giữa hai trang — "Black / S" ở trang 1, "Black / M" ở trang 2 — và người vận
+   * hành mất khả năng nhìn một sản phẩm như một khối để đặt giá cho nó.
+   *
+   * 🔴 **Đúng HAI truy vấn cho mỗi trang, không phụ thuộc số sản phẩm.** Lấy trang id sản
+   * phẩm trước, rồi lấy MỌI dòng của đúng những id đó trong một lượt. Cách sai kinh điển là
+   * lặp qua từng sản phẩm rồi hỏi SKU của nó — 100 sản phẩm thành 101 truy vấn.
+   *
+   * 🔴 Không thay thế `GET /:id`. Endpoint kia vẫn trả về đợt sale đầy đủ cho phần đầu và
+   * phép kiểm tra; endpoint này chỉ phục vụ BẢNG sản phẩm.
+   */
+  async findProductGroups(
+    organizationId: string,
+    id: string,
+    query: PodFlashSaleProductQueryDto,
+    scope: PodAccessScope,
+  ): Promise<PaginatedPodFlashSaleProductDto> {
+    // Đi qua đúng cửa kiểm phạm vi shop như mọi đường khác vào một đợt sale.
+    const flashSale = await this.prisma.podFlashSale.findFirst({
+      where: { id, organizationId, deletedAt: null },
+      select: { id: true, shopId: true },
+    });
+    if (!flashSale) throw new PodFlashSaleNotFoundException();
+    this.accessScope.assertShopAllowed(scope, flashSale.shopId);
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const search = query.search?.trim();
+
+    const where: Prisma.PodFlashSaleItemWhereInput = {
+      flashSaleId: id,
+      // Dòng đã bị gỡ khỏi hoạt động trên sàn không còn là hàng của đợt sale nữa.
+      status: { not: PodFlashSaleItemStatus.REMOVED },
+      ...(search
+        ? {
+            OR: [
+              { product: { title: { contains: search, mode: 'insensitive' } } },
+              { product: { tiktokProductId: { contains: search, mode: 'insensitive' } } },
+              { skuId: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
+
+    // ---- Truy vấn 1: TRANG id sản phẩm + tổng số sản phẩm ---------------------
+    //
+    // 🔴 `groupBy` chứ không phải `findMany` rồi lọc trùng ở bộ nhớ: một đợt 10.000 SKU chỉ
+    // có vài trăm sản phẩm, và kéo cả 10.000 dòng về chỉ để đếm sản phẩm là đúng thứ phân
+    // trang sinh ra để tránh.
+    const groups = await this.prisma.podFlashSaleItem.groupBy({
+      by: ['productId'],
+      where,
+      _min: { sortOrder: true },
+      // Giữ đúng thứ tự người dùng đã thêm sản phẩm.
+      orderBy: { _min: { sortOrder: 'asc' } },
+      skip: (page - 1) * limit,
+      take: limit,
+    });
+
+    const [totalProducts, totalItems] = await Promise.all([
+      this.prisma.podFlashSaleItem
+        .groupBy({ by: ['productId'], where })
+        .then((rows) => rows.length),
+      this.prisma.podFlashSaleItem.count({ where }),
+    ]);
+
+    if (groups.length === 0) {
+      return {
+        items: [],
+        meta: { total: totalProducts, page, limit, totalPages: totalProducts === 0 ? 0 : Math.ceil(totalProducts / limit) },
+        totalItems,
+      };
+    }
+
+    // ---- Truy vấn 2: MỌI dòng của đúng những sản phẩm trên trang này ----------
+    const productIds = groups.map((group) => group.productId);
+    const rows = await this.prisma.podFlashSaleItem.findMany({
+      where: { ...where, productId: { in: productIds } },
+      include: FLASH_SALE_DETAIL_INCLUDE.items.include,
+      orderBy: [{ sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+
+    // Gom về từng sản phẩm, GIỮ thứ tự của trang (thứ tự `groups`, không phải thứ tự `rows`).
+    const byProduct = new Map<string, PodFlashSaleItemDto[]>(
+      productIds.map((productId) => [productId, []]),
+    );
+    for (const row of rows) byProduct.get(row.productId)?.push(toFlashSaleItem(row));
+
+    return {
+      items: productIds.map((productId) => {
+        const items = byProduct.get(productId) ?? [];
+        const first = items[0];
+        return {
+          productId,
+          // Tên/ảnh/id sàn giống nhau ở mọi dòng của cùng một sản phẩm ⇒ lấy dòng đầu.
+          productTitle: first?.productTitle ?? null,
+          providerProductId: first?.providerProductId ?? null,
+          imageUrl: first?.imageUrl ?? null,
+          items,
+          itemCount: items.length,
+        };
+      }),
+      meta: {
+        total: totalProducts,
+        page,
+        limit,
+        totalPages: totalProducts === 0 ? 0 : Math.ceil(totalProducts / limit),
+      },
+      totalItems,
+    };
+  }
+
   /**
    * Tiến độ lượt publish — truy vấn NHẸ dành riêng cho polling.
    *

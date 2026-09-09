@@ -507,3 +507,33 @@ export class PodFlashSaleLogQueryDto {
   @Max(100)
   limit?: number;
 }
+
+/**
+ * Lọc danh sách SẢN PHẨM đã thêm vào một đợt sale.
+ *
+ * Cỡ trang dùng `FLASH_SALE_PAGE_SIZE_MAX` (100) như mọi danh sách khác — KHÔNG dùng trần số
+ * dòng của đợt sale, hai khái niệm không liên quan gì nhau.
+ */
+export class PodFlashSaleProductQueryDto {
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({ default: 20, maximum: FLASH_SALE_PAGE_SIZE_MAX })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(FLASH_SALE_PAGE_SIZE_MAX)
+  limit?: number;
+
+  @ApiPropertyOptional({ description: 'Tìm theo Tên sản phẩm · TikTok Product ID · Seller SKU' })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(255)
+  search?: string;
+}

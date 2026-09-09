@@ -151,7 +151,13 @@ export interface PodFlashSaleItemCounts {
 }
 
 export interface PodFlashSaleDetail extends PodFlashSaleListItem {
-  items: PodFlashSaleItem[];
+  /**
+   * 🔴 Chỉ ID sản phẩm, KHÔNG kèm dòng. Bảng sản phẩm đọc từ endpoint phân trang riêng
+   * (`useFlashSaleProducts`); trả cả 10.000 dòng ở đây là vài MB cho mỗi lần tải màn hình
+   * và cho mỗi lần ghi.
+   */
+  productIds: string[];
+  currency: string | null;
   counts: PodFlashSaleItemCounts;
   validation: PodFlashSaleValidation;
   editable: boolean;
@@ -328,4 +334,35 @@ export interface PodFlashSalePublishStatus {
   errorRequestId: string | null;
   startedAt: string | null;
   finishedAt: string | null;
+}
+
+/**
+ * MỘT sản phẩm trong đợt sale, kèm các dòng SKU của nó.
+ *
+ * 🔴 Đây là ĐƠN VỊ PHÂN TRANG của bảng sản phẩm. Sản phẩm là thứ người vận hành thêm vào và
+ * gỡ ra; SKU chỉ là chi tiết bên trong. Phân trang theo SKU sẽ cắt đôi một sản phẩm giữa hai
+ * trang — "Black / S" ở trang 1, "Black / M" ở trang 2.
+ */
+export interface PodFlashSaleProductGroup {
+  productId: string;
+  productTitle: string | null;
+  providerProductId: string | null;
+  imageUrl: string | null;
+  /** Mức VARIATION: mọi SKU. Mức PRODUCT: đúng MỘT dòng (`variantId = null`). */
+  items: PodFlashSaleItem[];
+  itemCount: number;
+}
+
+export interface PodFlashSaleProductQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+}
+
+export interface PodFlashSaleProductResult {
+  items: PodFlashSaleProductGroup[];
+  /** 🔴 `total` là số SẢN PHẨM, không phải số SKU. */
+  meta: { total: number; page: number; limit: number; totalPages: number };
+  /** Tổng số dòng SKU của cả đợt sale (mọi trang). */
+  totalItems: number;
 }

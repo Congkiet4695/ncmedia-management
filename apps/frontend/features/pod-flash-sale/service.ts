@@ -2,6 +2,8 @@ import { apiClient } from '@/services/api-client';
 import { FLASH_SALE_MAX_ADD_PER_CALL } from './types';
 import type { ApiResponse } from '@/types/api';
 import type {
+  PodFlashSaleProductResult,
+  PodFlashSaleProductQuery,
   PodFlashSalePublishStatus,
   AddFlashSaleItemPayload,
   ApplyFlashSaleTemplatePayload,
@@ -132,6 +134,20 @@ export const podFlashSaleService = {
     }
     if (!detail) throw new Error('Danh sách sản phẩm rỗng');
     return detail;
+  },
+
+  /**
+   * Sản phẩm của đợt sale — phân trang theo SẢN PHẨM, kèm SKU bên trong.
+   *
+   * 🔴 Dùng thay cho `detail.items`: endpoint chi tiết trả về TOÀN BỘ dòng, và với một đợt
+   * 10.000 SKU đó là vài MB cho mỗi lần tải màn hình.
+   */
+  async products(id: string, query: PodFlashSaleProductQuery = {}): Promise<PodFlashSaleProductResult> {
+    const res = await apiClient.get<ApiResponse<PodFlashSaleProductResult>>(
+      `${BASE}/${id}/products`,
+      { params: clean(query) },
+    );
+    return res.data.data;
   },
 
   /** Tiến độ lượt publish — payload nhẹ, dùng cho polling khi đợt sale đang PUBLISHING. */

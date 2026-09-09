@@ -23,7 +23,6 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import {
   usePodProductFilters,
-  usePodProductVariants,
   usePodProducts,
 } from '@/features/pod-product/hooks/use-pod-products';
 import {
@@ -33,7 +32,7 @@ import {
   toPayload,
   type SelectionState,
 } from '../selection';
-import type { AddFlashSaleItemPayload, PodFlashSaleProductLevel } from '../types';
+import type { AddFlashSaleItemPayload } from '../types';
 
 /** Cỡ trang MẶC ĐỊNH — người dùng đổi được trong dialog. */
 const PAGE_SIZE = 10;
@@ -43,18 +42,8 @@ interface ProductSelectorDialogProps {
   onClose: () => void;
   /** Shop của đợt sale — bộ chọn KHÔNG bao giờ hiển thị sản phẩm của shop khác. */
   shopId: string;
-  /**
-   * Mức áp dụng của đợt sale, quyết định ĐƠN VỊ được chọn.
-   *
-   * 🔴 `VARIATION` chọn theo SKU chứ không theo sản phẩm: mỗi SKU mang giá deal riêng, nên
-   * người vận hành cần thấy và chọn đúng từng SKU. `PRODUCT` giữ nguyên cách chọn theo sản
-   * phẩm vì ở mức đó TikTok chỉ nhận MỘT giá cho cả sản phẩm.
-   */
-  productLevel: PodFlashSaleProductLevel;
   /** Sản phẩm đã có trong đợt sale — hiển thị "đã thêm" và không cho chọn lại. */
   existingProductIds: string[];
-  /** Biến thể đã có trong đợt sale (chế độ VARIATION). */
-  existingVariantIds?: string[];
   submitting?: boolean;
   onSubmit: (items: AddFlashSaleItemPayload[]) => void;
 }
@@ -81,9 +70,7 @@ export function ProductSelectorDialog({
   open,
   onClose,
   shopId,
-  productLevel,
   existingProductIds,
-  existingVariantIds = [],
   submitting,
   onSubmit,
 }: ProductSelectorDialogProps) {
@@ -97,7 +84,7 @@ export function ProductSelectorDialog({
   /**
    * 🔴 Lựa chọn sống NGOÀI trang hiện tại, và là MỘT cấu trúc duy nhất.
    *
-   * Khoá = id đang chọn (productId hoặc variantId tuỳ chế độ), giá trị = payload sẽ gửi đi.
+   * Khoá = `productId` đang chọn, giá trị = payload sẽ gửi đi.
    * Giữ song song một `Set` id và một `Map` payload là tự tạo ra hai nguồn sự thật phải đồng
    * bộ tay — lệch nhau một nhịp là số trên nút bấm nói một đằng, dữ liệu gửi đi một nẻo.
    *
@@ -121,71 +108,44 @@ export function ProductSelectorDialog({
   // quả chỉ có 2 trang và thấy bảng trống.
   useEffect(() => setPage(1), [search, status]);
 
-  const bySku = productLevel === 'VARIATION';
-
   const filters = usePodProductFilters();
-  const products = usePodProducts(
-    { page, limit, shopId, search: search || undefined, status: status || undefined },
-    // Hai truy vấn loại trừ nhau: chỉ hỏi cái đang dùng.
-  );
-  const variants = usePodProductVariants(
-    { page, limit, shopId, search: search || undefined },
-    bySku,
-  );
-
-  const query = bySku ? variants : products;
+  const query = usePodProducts({
+    page,
+    limit,
+    shopId,
+    search: search || undefined,
+    status: status || undefined,
+  });
   const meta = query.data?.meta;
 
+  const existing = useMemo(() => new Set(existingProductIds), [existingProductIds]);
+
   /**
-   * Id đã có sẵn trong đợt sale — theo ĐÚNG đơn vị đang chọn.
+   * Dòng của trang hiện tại — LUÔN là SẢN PHẨM.
    *
-   * Ở chế độ SKU phải so theo `variantId`: một sản phẩm đã có SKU "Black / S" trong đợt sale
-   * vẫn còn "Black / M" chưa thêm, nên khoá cả sản phẩm là chặn nhầm.
+   * 🔴 Bộ chọn này chọn SẢN PHẨM ở CẢ HAI mức áp dụng. Ở mức `VARIATION`, backend tự bung
+   * sản phẩm ra thành mọi SKU đang bán của nó (`PodFlashSaleItemService`) — người vận hành
+   * chọn "áo Bella Canvas 3001", không phải tick 60 dòng "Black / S", "Black / M"…
+   *
+   * Chọn theo SKU ngay từ bộ chọn là bắt người dùng làm thay việc của hệ thống, và với một
+   * shop vài chục nghìn SKU thì gần như không thao tác nổi.
    */
-  const existing = useMemo(
-    () => new Set(bySku ? existingVariantIds : existingProductIds),
-    [bySku, existingVariantIds, existingProductIds],
+  const rows = useMemo(
+    () =>
+      (query.data?.items ?? []).map((product) => ({
+        key: product.id,
+        productId: product.id,
+        title: product.title ?? '—',
+        identifier: product.tiktokProductId,
+        price: product.minPrice,
+        currency: product.currency,
+        imageUrl: product.thumbnailUrl,
+        status: product.status,
+        skuCount: product.skuCount,
+      })),
+    [query.data],
   );
 
-  /** Các dòng của trang hiện tại, quy về một hình dạng chung cho cả hai chế độ. */
-  const rows = useMemo(() => {
-    if (bySku) {
-      return (variants.data?.items ?? []).map((variant) => ({
-        /** Khoá lựa chọn = `variantId` ở chế độ SKU. */
-        key: variant.id,
-        productId: variant.productId,
-        variantId: variant.id as string | undefined,
-        title: variant.productTitle ?? '—',
-        subtitle: variant.variantName ?? variant.sellerSku ?? variant.tiktokSkuId,
-        identifier: variant.sellerSku ?? variant.tiktokSkuId,
-        price: variant.originalPrice,
-        currency: variant.currency,
-        imageUrl: variant.imageUrl,
-        status: variant.status,
-        skuCount: null as number | null,
-      }));
-    }
-    return (products.data?.items ?? []).map((product) => ({
-      key: product.id,
-      productId: product.id,
-      variantId: undefined,
-      title: product.title ?? '—',
-      subtitle: null as string | null,
-      identifier: product.tiktokProductId,
-      price: product.minPrice,
-      currency: product.currency,
-      imageUrl: product.thumbnailUrl,
-      status: product.status,
-      skuCount: product.skuCount as number | null,
-    }));
-  }, [bySku, products.data, variants.data]);
-
-  /**
-   * 🔴 Lựa chọn sống ngoài trang hiện tại.
-   *
-   * Cách làm ngây thơ (lưu trạng thái theo mảng dòng đang render) sẽ âm thầm đánh rơi lựa
-   * chọn ngay khi dữ liệu trang mới về. Xem chú thích ở khai báo `selected`.
-   */
   const selectableOnPage = rows.filter((row) => !existing.has(row.key));
   const allOnPageSelected = isPageFullySelected(selected, selectableOnPage);
 
@@ -215,7 +175,7 @@ export function ProductSelectorDialog({
     <Modal
       open={open}
       onClose={onClose}
-      title={bySku ? t('flashSale.selector.titleSku') : t('flashSale.selector.title')}
+      title={t('flashSale.selector.title')}
       description={t('flashSale.selector.subtitle')}
       className="max-w-4xl"
       footer={
@@ -242,27 +202,19 @@ export function ProductSelectorDialog({
             <Input
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
-              placeholder={
-                bySku
-                  ? t('flashSale.selector.searchSkuPlaceholder')
-                  : t('flashSale.selector.searchPlaceholder')
-              }
+              placeholder={t('flashSale.selector.searchPlaceholder')}
               className="pl-9"
             />
           </div>
-          {/* Bộ lọc trạng thái chỉ có ở chế độ sản phẩm: danh sách SKU đã chỉ gồm SKU của
-              sản phẩm ACTIVE, nên một ô lọc không đổi được gì chỉ làm người dùng phân vân. */}
-          {!bySku && (
-            <Combobox
-              value={status}
-              onChange={setStatus}
-              options={[
-                { value: '', label: t('flashSale.selector.allStatuses') },
-                ...(filters.data?.statuses ?? []).map((value) => ({ value, label: value })),
-              ]}
-              className="w-[180px]"
-            />
-          )}
+          <Combobox
+            value={status}
+            onChange={setStatus}
+            options={[
+              { value: '', label: t('flashSale.selector.allStatuses') },
+              ...(filters.data?.statuses ?? []).map((value) => ({ value, label: value })),
+            ]}
+            className="w-[180px]"
+          />
         </div>
 
         {query.isLoading ? (
@@ -288,15 +240,9 @@ export function ProductSelectorDialog({
                     />
                   </TableHead>
                   <TableHead className="w-14" />
-                  <TableHead>
-                    {bySku ? t('flashSale.selector.skuColumn') : t('flashSale.selector.product')}
-                  </TableHead>
-                  <TableHead>
-                    {bySku ? t('flashSale.selector.sku') : t('flashSale.selector.productId')}
-                  </TableHead>
-                  {!bySku && (
-                    <TableHead className="text-right">{t('flashSale.selector.sku')}</TableHead>
-                  )}
+                  <TableHead>{t('flashSale.selector.product')}</TableHead>
+                  <TableHead>{t('flashSale.selector.productId')}</TableHead>
+                  <TableHead className="text-right">{t('flashSale.selector.sku')}</TableHead>
                   <TableHead className="text-right">{t('flashSale.selector.price')}</TableHead>
                   <TableHead>{t('flashSale.selector.status')}</TableHead>
                 </TableRow>
@@ -311,7 +257,7 @@ export function ProductSelectorDialog({
                           checked={already || selected.has(row.key)}
                           disabled={already}
                           onChange={() => toggle(row)}
-                          aria-label={row.subtitle ?? row.title}
+                          aria-label={row.title}
                         />
                       </TableCell>
                       <TableCell>
@@ -330,10 +276,6 @@ export function ProductSelectorDialog({
                       </TableCell>
                       <TableCell className="max-w-[280px]">
                         <p className="truncate text-sm font-medium">{row.title}</p>
-                        {/* Chế độ SKU: tên biến thể là thứ phân biệt hai dòng cùng sản phẩm. */}
-                        {row.subtitle && (
-                          <p className="truncate text-xs text-muted-foreground">{row.subtitle}</p>
-                        )}
                         {already && (
                           <p className="text-xs text-muted-foreground">
                             {t('flashSale.selector.alreadyAdded')}
@@ -341,9 +283,7 @@ export function ProductSelectorDialog({
                         )}
                       </TableCell>
                       <TableCell className="font-mono text-xs">{row.identifier}</TableCell>
-                      {!bySku && (
-                        <TableCell className="text-right tabular-nums">{row.skuCount}</TableCell>
-                      )}
+                      <TableCell className="text-right tabular-nums">{row.skuCount}</TableCell>
                       <TableCell className="text-right tabular-nums">
                         {formatCurrency(row.price, row.currency)}
                       </TableCell>

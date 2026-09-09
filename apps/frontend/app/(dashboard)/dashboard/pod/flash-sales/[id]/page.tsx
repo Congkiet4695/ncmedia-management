@@ -13,6 +13,7 @@ import {
   Rocket,
   Save,
   Trash2,
+  Search,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -31,16 +32,17 @@ import {
   type FlashSaleFormValue,
 } from '@/features/pod-flash-sale/components/flash-sale-form';
 import { FlashSaleItemTable } from '@/features/pod-flash-sale/components/flash-sale-item-table';
+import { DataPagination } from '@/components/ui/data-pagination';
+import { Input } from '@/components/ui/input';
+import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { FlashSaleLogPanel } from '@/features/pod-flash-sale/components/flash-sale-log-panel';
 import { PublishProgressCard } from '@/features/pod-flash-sale/components/publish-progress-card';
-import {
-  groupIssues,
-  type GroupedIssue,
-} from '@/features/pod-flash-sale/issue-grouping';
+import { groupIssues, type GroupedIssue } from '@/features/pod-flash-sale/issue-grouping';
 import { FLASH_SALE_MAX_ITEMS } from '@/features/pod-flash-sale/types';
 import { ProductSelectorDialog } from '@/features/pod-flash-sale/components/product-selector-dialog';
 import { SaveTemplateDialog } from '@/features/pod-flash-sale/components/save-template-dialog';
 import {
+  useFlashSaleProducts,
   useAddFlashSaleItems,
   useBatchUpdateFlashSaleItems,
   useCancelFlashSale,
@@ -113,6 +115,35 @@ function FlashSaleDetailView() {
 
   const [form, setForm] = useState<FlashSaleFormValue | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+
+  // ---------------------------------------------------------------- Bảng sản phẩm
+  //
+  // 🔴 Bảng đọc từ endpoint RIÊNG có phân trang theo SẢN PHẨM, không đọc `data.items`.
+  // `GET /:id` trả về TOÀN BỘ dòng — với một đợt 10.000 SKU đó là vài MB mỗi lần tải màn hình.
+  const [productPage, setProductPage] = useState(1);
+  const [productLimit, setProductLimit] = useState(20);
+  const [productSearchInput, setProductSearchInput] = useState('');
+  const productSearch = useDebouncedValue(productSearchInput, 350);
+
+  /**
+   * Sản phẩm đang ĐÓNG.
+   *
+   * 🔴 Lưu tập ĐÓNG chứ không phải tập MỞ. Sản phẩm vừa thêm phải mở sẵn (yêu cầu sprint);
+   * với một tập "đang mở", mọi sản phẩm mới sẽ mặc định đóng cho tới khi có ai đó nhớ thêm
+   * nó vào — tức là mặc định sai theo đúng nghĩa đen.
+   *
+   * Sống ngoài component bảng nên đóng/mở KHÔNG mất khi lật trang.
+   */
+  const [collapsedProductIds, setCollapsedProductIds] = useState<string[]>([]);
+
+  // Đổi từ khoá ⇒ về trang 1, nếu không người dùng đứng ở trang 7 của một kết quả 2 trang.
+  useEffect(() => setProductPage(1), [productSearch]);
+
+  const productGroups = useFlashSaleProducts(id, {
+    page: productPage,
+    limit: productLimit,
+    search: productSearch || undefined,
+  });
   const [selectorOpen, setSelectorOpen] = useState(false);
   const [batchOpen, setBatchOpen] = useState(false);
   const [templateOpen, setTemplateOpen] = useState(false);
@@ -138,13 +169,33 @@ function FlashSaleDetailView() {
     setFormLoadedFor(data.id);
   }, [data, formLoadedFor]);
 
-  // Dòng đã bị xoá không được nằm lại trong danh sách chọn — thanh Batch sẽ báo "3 dòng"
-  // trong khi bảng chỉ còn 2.
+  /**
+   * Dòng đã bị xoá không được nằm lại trong danh sách chọn — thanh Batch sẽ báo "3 dòng"
+   * trong khi bảng chỉ còn 2.
+   *
+   * 🔴 Chỉ dọn trong phạm vi những SẢN PHẨM của TRANG HIỆN TẠI. Lựa chọn được phép trải qua
+   * nhiều trang, nên dọn theo "mọi id không thấy trên trang này" sẽ xoá sạch những gì người
+   * dùng đã tick ở trang khác. Với sản phẩm có trên trang này thì ta biết chắc dòng nào còn
+   * tồn tại; với sản phẩm ở trang khác thì không biết, nên không đụng tới.
+   */
   useEffect(() => {
-    if (!data) return;
-    const alive = new Set(data.items.map((item) => item.id));
-    setSelectedIds((current) => current.filter((itemId) => alive.has(itemId)));
-  }, [data]);
+    const groups = productGroups.data?.items;
+    if (!groups) return;
+    const productsOnPage = new Set(groups.map((group) => group.productId));
+    const aliveOnPage = new Set(groups.flatMap((group) => group.items.map((item) => item.id)));
+    const productOfItem = new Map(
+      groups.flatMap((group) => group.items.map((item) => [item.id, group.productId] as const)),
+    );
+
+    setSelectedIds((current) =>
+      current.filter((itemId) => {
+        const owner = productOfItem.get(itemId);
+        // Không rõ dòng này thuộc sản phẩm nào ⇒ nó ở trang khác ⇒ để nguyên.
+        if (owner === undefined) return true;
+        return productsOnPage.has(owner) && aliveOnPage.has(itemId);
+      }),
+    );
+  }, [productGroups.data]);
 
   const errors = useMemo(
     () => data?.validation.issues.filter((issue) => issue.level === 'ERROR') ?? [],
@@ -205,10 +256,7 @@ function FlashSaleDetailView() {
           </Button>
           <div className="flex flex-wrap items-center gap-2">
             <h1 className="text-2xl font-bold tracking-tight">{data.name}</h1>
-            <ListingStatusBadge
-              status={data.status}
-              label={t(`flashSale.status.${data.status}`)}
-            />
+            <ListingStatusBadge status={data.status} label={t(`flashSale.status.${data.status}`)} />
           </div>
           <p className="text-sm text-muted-foreground">
             {data.shop.name} · {formatDateTime(data.startAt)} → {formatDateTime(data.endAt)} ·{' '}
@@ -457,24 +505,86 @@ function FlashSaleDetailView() {
           )}
         </CardHeader>
         <CardContent>
-          <FlashSaleItemTable
-            items={data.items}
-            editable={editable}
-            selectedIds={selectedIds}
-            onSelectionChange={setSelectedIds}
-            savingItemId={updateItem.isPending ? updateItem.variables?.itemId : null}
-            onSaveItem={(itemId, payload) => {
-              void updateItem
-                .mutateAsync({ id, itemId, payload })
-                .then(() => toast.success(t('flashSale.toast.itemSaved')))
-                .catch(onError);
-            }}
-            onDeleteItem={(itemId) => {
-              if (!window.confirm(t('flashSale.confirm.deleteItems', { count: 1 }))) return;
-              void deleteItems
-                .mutateAsync({ id, itemIds: [itemId] })
-                .then(() => toast.success(t('flashSale.toast.itemsDeleted')))
-                .catch(onError);
+          {/* Tìm sản phẩm trong đợt sale — server-side, cùng nhịp debounce với bộ chọn. */}
+          <div className="relative mb-3 max-w-sm">
+            <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              value={productSearchInput}
+              onChange={(event) => setProductSearchInput(event.target.value)}
+              placeholder={t('flashSale.items.searchPlaceholder')}
+              className="pl-9"
+            />
+          </div>
+
+          {productGroups.isLoading ? (
+            <div className="flex items-center justify-center py-10 text-muted-foreground">
+              <Loader2 className="size-5 animate-spin" />
+            </div>
+          ) : (
+            <FlashSaleItemTable
+              groups={productGroups.data?.items ?? []}
+              productLevel={data.productLevel}
+              editable={editable}
+              selectedIds={selectedIds}
+              onSelectionChange={setSelectedIds}
+              collapsedProductIds={collapsedProductIds}
+              onToggleProduct={(productId) =>
+                setCollapsedProductIds((current) =>
+                  current.includes(productId)
+                    ? current.filter((value) => value !== productId)
+                    : [...current, productId],
+                )
+              }
+              savingItemId={updateItem.isPending ? updateItem.variables?.itemId : null}
+              onSaveItem={(itemId, payload) => {
+                void updateItem
+                  .mutateAsync({ id, itemId, payload })
+                  .then(() => toast.success(t('flashSale.toast.itemSaved')))
+                  .catch(onError);
+              }}
+              onDeleteItem={(itemId) => {
+                if (!window.confirm(t('flashSale.confirm.deleteItems', { count: 1 }))) return;
+                void deleteItems
+                  .mutateAsync({ id, itemIds: [itemId] })
+                  .then(() => toast.success(t('flashSale.toast.itemsDeleted')))
+                  .catch(onError);
+              }}
+              onDeleteProduct={(productId) => {
+                // 🔴 Gỡ CẢ sản phẩm = gỡ mọi dòng SKU của nó trong một lượt. Gỡ từng dòng
+                // sẽ để lại dòng mồ côi nếu có dòng nào hỏng giữa chừng.
+                const group = productGroups.data?.items.find(
+                  (item) => item.productId === productId,
+                );
+                if (!group) return;
+                if (
+                  !window.confirm(t('flashSale.confirm.deleteItems', { count: group.items.length }))
+                ) {
+                  return;
+                }
+                const itemIds = group.items.map((item) => item.id);
+                void deleteItems
+                  .mutateAsync({ id, itemIds })
+                  .then(() => {
+                    // Bỏ luôn khỏi lựa chọn và khỏi tập đóng — không giữ id đã biến mất.
+                    setSelectedIds((current) =>
+                      current.filter((value) => !itemIds.includes(value)),
+                    );
+                    setCollapsedProductIds((current) =>
+                      current.filter((value) => value !== productId),
+                    );
+                    toast.success(t('flashSale.toast.itemsDeleted'));
+                  })
+                  .catch(onError);
+              }}
+            />
+          )}
+
+          <DataPagination
+            meta={productGroups.data?.meta}
+            onPageChange={setProductPage}
+            onPageSizeChange={(next) => {
+              setProductLimit(next);
+              setProductPage(1);
             }}
           />
         </CardContent>
@@ -496,14 +606,9 @@ function FlashSaleDetailView() {
         open={selectorOpen}
         onClose={() => setSelectorOpen(false)}
         shopId={data.shop.id}
-        // Mức áp dụng quyết định ĐƠN VỊ được chọn: sản phẩm hay từng SKU.
-        productLevel={data.productLevel}
-        existingProductIds={data.items.map((item) => item.productId)}
-        // 🔴 Ở chế độ SKU phải so theo `variantId`: một sản phẩm đã có "Black / S" trong đợt
-        // sale vẫn còn "Black / M" chưa thêm — khoá cả sản phẩm là chặn nhầm.
-        existingVariantIds={data.items
-          .map((item) => item.variantId)
-          .filter((variantId): variantId is string => Boolean(variantId))}
+        // 🔴 Sản phẩm đã có trong đợt sale (ở CẢ hai mức áp dụng): bộ chọn đánh dấu "đã
+        // thêm" và khoá dòng lại, nên không tạo được bản ghi trùng.
+        existingProductIds={data.productIds}
         submitting={addItems.isPending}
         onSubmit={(items) => {
           void addItems
@@ -520,7 +625,7 @@ function FlashSaleDetailView() {
         open={batchOpen}
         onClose={() => setBatchOpen(false)}
         count={selectedIds.length}
-        currency={data.items[0]?.currency ?? null}
+        currency={data.currency}
         submitting={batchUpdate.isPending}
         onSubmit={(payload) => {
           void batchUpdate

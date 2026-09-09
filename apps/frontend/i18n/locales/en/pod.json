@@ -238,7 +238,12 @@
       "totalLimit": "Total limit",
       "customerLimit": "Per buyer",
       "status": "Status",
-      "unlimitedShort": "∞"
+      "unlimitedShort": "∞",
+      "expand": "Expand",
+      "collapse": "Collapse",
+      "skuCount": "{{count}} SKU",
+      "removeProduct": "Remove product",
+      "searchPlaceholder": "Search product or SKU…"
     },
     "priceIssue": {
       "invalid": "Invalid price",
@@ -260,10 +265,7 @@
       "sku": "SKUs",
       "price": "Price",
       "status": "Status",
-      "alreadyAdded": "Already in this sale",
-      "titleSku": "Add SKUs",
-      "searchSkuPlaceholder": "Search product, variant or SKU…",
-      "skuColumn": "Product / Variant"
+      "alreadyAdded": "Already in this sale"
     },
     "batch": {
       "title": "Batch edit {{count}} rows",

@@ -147,7 +147,29 @@ export class PodFlashSaleLogDto {
 
 /** Chi tiết một đợt sale (danh sách + dòng sản phẩm + kiểm tra + số đếm). */
 export class PodFlashSaleDetailDto extends PodFlashSaleListItemDto {
-  @ApiProperty({ type: [PodFlashSaleItemDto] }) items!: PodFlashSaleItemDto[];
+  /**
+   * 🔴 **KHÔNG còn trả về toàn bộ dòng sản phẩm.** Một đợt sale được phép chứa 10.000 SKU;
+   * gửi kèm chúng ở đây nghĩa là mỗi lần tải màn hình — và mỗi lần ghi, vì mọi endpoint ghi
+   * đều trả về bản chi tiết — đẩy đi vài MB mà giao diện chỉ hiển thị 20 dòng.
+   *
+   * Bảng sản phẩm đọc từ `GET /pod/flash-sales/:id/products` (phân trang theo SẢN PHẨM).
+   * Ở đây chỉ còn hai thứ mà phần đầu màn hình thực sự cần.
+   */
+  @ApiProperty({
+    type: [String],
+    description:
+      'Id các sản phẩm đã có trong đợt sale — bộ chọn dùng để đánh dấu "đã thêm" và chặn ' +
+      'thêm trùng. Chỉ id, không kèm dòng: vài trăm chuỗi thay vì hàng nghìn bản ghi.',
+  })
+  productIds!: string[];
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'Tiền tệ của đợt sale (mọi dòng cùng một shop nên cùng một loại tiền).',
+  })
+  currency!: string | null;
+
   @ApiProperty({ type: PodFlashSaleItemCountsDto }) counts!: PodFlashSaleItemCountsDto;
   @ApiProperty({ type: PodFlashSaleValidationDto }) validation!: PodFlashSaleValidationDto;
   @ApiProperty({ description: 'Còn được sửa tên / giờ / sản phẩm không' }) editable!: boolean;
@@ -270,4 +292,41 @@ export class PodFlashSalePublishStatusDto {
 
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) startedAt!: string | null;
   @ApiProperty({ nullable: true, type: String, format: 'date-time' }) finishedAt!: string | null;
+}
+
+/**
+ * MỘT sản phẩm trong đợt sale, kèm các dòng SKU của nó.
+ *
+ * 🔴 Đây là ĐƠN VỊ PHÂN TRANG của màn hình Create/Edit Flash Sale. Sản phẩm là thứ người
+ * vận hành thêm vào và gỡ ra; SKU chỉ là chi tiết nằm bên trong. Phân trang theo SKU sẽ cắt
+ * đôi một sản phẩm giữa hai trang — "Black / S" ở trang 1 còn "Black / M" ở trang 2 — và
+ * người dùng mất luôn khả năng nhìn một sản phẩm như một khối.
+ */
+export class PodFlashSaleProductGroupDto {
+  @ApiProperty({ description: '`pod_products.id` — khoá của nhóm' })
+  productId!: string;
+  @ApiProperty({ nullable: true, type: String }) productTitle!: string | null;
+  @ApiProperty({ nullable: true, type: String }) providerProductId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) imageUrl!: string | null;
+
+  @ApiProperty({
+    type: [PodFlashSaleItemDto],
+    description:
+      'Mức VARIATION: mọi SKU của sản phẩm. Mức PRODUCT: đúng MỘT dòng (`variantId = null`).',
+  })
+  items!: PodFlashSaleItemDto[];
+
+  @ApiProperty({ description: 'Số dòng của nhóm — giao diện hiển thị mà không phải đếm lại' })
+  itemCount!: number;
+}
+
+export class PaginatedPodFlashSaleProductDto {
+  @ApiProperty({ type: [PodFlashSaleProductGroupDto] })
+  items!: PodFlashSaleProductGroupDto[];
+  @ApiProperty({
+    description: 'Phân trang theo SẢN PHẨM. `total` là số sản phẩm, KHÔNG phải số SKU.',
+  })
+  meta!: { total: number; page: number; limit: number; totalPages: number };
+  @ApiProperty({ description: 'Tổng số dòng SKU của cả đợt sale (mọi trang)' })
+  totalItems!: number;
 }

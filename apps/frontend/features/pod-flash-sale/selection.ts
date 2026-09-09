@@ -16,12 +16,17 @@ import type { AddFlashSaleItemPayload } from './types';
  * một đằng, dữ liệu gửi đi một nẻo.
  */
 
-/** Một dòng bất kỳ trong bộ chọn, đã quy về hình dạng chung cho cả hai chế độ. */
+/**
+ * Một dòng trong bộ chọn — LUÔN là một SẢN PHẨM.
+ *
+ * 🔴 Bộ chọn chọn sản phẩm ở CẢ HAI mức áp dụng. Ở mức `VARIATION`, backend tự bung sản phẩm
+ * thành mọi SKU đang bán của nó; người vận hành chọn "áo Bella Canvas 3001", không phải tick
+ * 60 dòng "Black / S", "Black / M"…
+ */
 export interface SelectableRow {
-  /** Khoá lựa chọn: `productId` ở chế độ PRODUCT, `variantId` ở chế độ VARIATION. */
+  /** Khoá lựa chọn = `productId`. */
   key: string;
   productId: string;
-  variantId?: string;
 }
 
 export type SelectionState = Map<string, AddFlashSaleItemPayload>;
@@ -30,7 +35,7 @@ export type SelectionState = Map<string, AddFlashSaleItemPayload>;
 export function toggleRow(state: SelectionState, row: SelectableRow): SelectionState {
   const next = new Map(state);
   if (next.has(row.key)) next.delete(row.key);
-  else next.set(row.key, { productId: row.productId, variantId: row.variantId });
+  else next.set(row.key, { productId: row.productId });
   return next;
 }
 
@@ -47,7 +52,7 @@ export function togglePage(
 ): SelectionState {
   const next = new Map(state);
   for (const row of rows) {
-    if (turningOn) next.set(row.key, { productId: row.productId, variantId: row.variantId });
+    if (turningOn) next.set(row.key, { productId: row.productId });
     else next.delete(row.key);
   }
   return next;

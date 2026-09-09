@@ -238,7 +238,12 @@
       "totalLimit": "Tổng suất",
       "customerLimit": "Mỗi khách",
       "status": "Trạng thái",
-      "unlimitedShort": "∞"
+      "unlimitedShort": "∞",
+      "expand": "Mở rộng",
+      "collapse": "Thu gọn",
+      "skuCount": "{{count}} SKU",
+      "removeProduct": "Gỡ sản phẩm",
+      "searchPlaceholder": "Tìm sản phẩm hoặc SKU…"
     },
     "priceIssue": {
       "invalid": "Giá không hợp lệ",
@@ -260,10 +265,7 @@
       "sku": "SKU",
       "price": "Giá",
       "status": "Trạng thái",
-      "alreadyAdded": "Đã có trong đợt sale",
-      "titleSku": "Thêm SKU",
-      "searchSkuPlaceholder": "Tìm sản phẩm, biến thể hoặc SKU…",
-      "skuColumn": "Sản phẩm / Biến thể"
+      "alreadyAdded": "Đã có trong đợt sale"
     },
     "batch": {
       "title": "Sửa hàng loạt {{count}} dòng",

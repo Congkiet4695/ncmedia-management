@@ -33,6 +33,7 @@ import { PodScopeGuard } from '../pod-tiktok/guards/pod-scope.guard';
 import type { PodAccessScope } from '../pod-tiktok/services/pod-access-scope.service';
 import { FLASH_SALE_PERMISSIONS } from './constants/pod-flash-sale.constants';
 import {
+  PodFlashSaleProductQueryDto,
   AddFlashSaleItemsDto,
   BatchUpdateFlashSaleItemsDto,
   CreateFlashSaleDto,
@@ -46,6 +47,7 @@ import {
   UpdateFlashSaleItemDto,
 } from './dto/pod-flash-sale.dto';
 import {
+  PaginatedPodFlashSaleProductDto,
   PodFlashSalePublishStatusDto,
   PaginatedPodFlashSaleDto,
   PaginatedPodFlashSaleLogDto,
@@ -137,6 +139,26 @@ export class PodFlashSaleController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<PodFlashSaleValidationDto> {
     return this.service.validate(user.organizationId, id, scope);
+  }
+
+  @Get(':id/products')
+  @RequirePermissions(FLASH_SALE_PERMISSIONS.READ)
+  @ApiOperation({
+    summary: 'Sản phẩm của đợt sale — phân trang theo SẢN PHẨM, kèm SKU bên trong',
+    description:
+      'Nguồn của BẢNG sản phẩm ở màn hình Create/Edit Flash Sale. Đơn vị phân trang là SẢN ' +
+      'PHẨM: `limit = 20` trả về 20 sản phẩm kèm toàn bộ SKU của chúng, không phải 20 SKU. ' +
+      'Ở mức PRODUCT mỗi nhóm có đúng một dòng; ở mức VARIATION nhóm chứa mọi SKU. ' +
+      'Dùng endpoint này thay vì `GET /:id` để bảng không phải tải cả 10.000 dòng một lượt.',
+  })
+  @ApiOkResponse({ type: PaginatedPodFlashSaleProductDto })
+  findProducts(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: PodFlashSaleProductQueryDto,
+  ): Promise<PaginatedPodFlashSaleProductDto> {
+    return this.service.findProductGroups(user.organizationId, id, query, scope);
   }
 
   @Get(':id/publish-status')

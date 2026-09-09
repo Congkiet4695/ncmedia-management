@@ -93,69 +93,6 @@ export class PodProductRepository {
     return { items, total };
   }
 
-  /**
-   * Danh sách **BIẾN THỂ (SKU)** có phân trang — bộ chọn SKU của Flash Sale.
-   *
-   * 🔴 Phân trang trên chính bảng biến thể, không phải trên sản phẩm rồi cắt ở bộ nhớ: một
-   * sản phẩm có thể có 1 hay 60 SKU, nên "20 sản phẩm" là một con số không đoán được ở phía
-   * giao diện. Ở đây `limit = 20` luôn là đúng 20 dòng SKU.
-   *
-   * 🔴 Chỉ SKU của sản phẩm ACTIVE (`deactivatedAt: null`) — cùng luật với màn hình Products
-   * sau sprint "chỉ quản lý ACTIVE products". Đưa SKU của sản phẩm đã gỡ vào một đợt sale là
-   * cách chắc chắn để TikTok từ chối cả lô lúc publish.
-   *
-   * Sắp xếp ổn định (`productId` rồi `id`) để hai lần hỏi cùng một trang cho cùng kết quả —
-   * không có nó, người dùng lật trang qua lại sẽ thấy SKU nhảy chỗ.
-   */
-  async findVariants(
-    organizationId: string,
-    params: {
-      page: number;
-      limit: number;
-      search?: string;
-      shopId?: string;
-      productId?: string;
-      /** Phạm vi shop của người dùng (`undefined` = không giới hạn). */
-      shopScope?: string[];
-    },
-  ): Promise<{ items: PodProductVariantRow[]; total: number }> {
-    const search = params.search?.trim();
-    const where: Prisma.PodProductVariantWhereInput = {
-      organizationId,
-      deletedAt: null,
-      product: {
-        deletedAt: null,
-        deactivatedAt: null,
-        ...(params.shopId ? { shopId: params.shopId } : {}),
-        ...(params.shopScope ? { shopId: { in: params.shopScope } } : {}),
-      },
-      ...(params.productId ? { productId: params.productId } : {}),
-      ...(search
-        ? {
-            OR: [
-              { variantName: { contains: search, mode: 'insensitive' } },
-              { sellerSku: { contains: search, mode: 'insensitive' } },
-              { tiktokSkuId: { contains: search, mode: 'insensitive' } },
-              { product: { title: { contains: search, mode: 'insensitive' } } },
-            ],
-          }
-        : {}),
-    };
-
-    const [items, total] = await this.prisma.$transaction([
-      this.prisma.podProductVariant.findMany({
-        where,
-        select: POD_PRODUCT_VARIANT_OPTION_SELECT,
-        orderBy: [{ productId: 'asc' }, { id: 'asc' }],
-        skip: (params.page - 1) * params.limit,
-        take: params.limit,
-      }),
-      this.prisma.podProductVariant.count({ where }),
-    ]);
-
-    return { items, total };
-  }
-
   findById(organizationId: string, id: string): Promise<PodProductDetailRow | null> {
     return this.prisma.podProduct.findFirst({
       where: { id, organizationId, deletedAt: null },
@@ -495,25 +432,3 @@ export class PodProductRepository {
     });
   }
 }
-
-/**
- * Cột của MỘT dòng SKU trong bộ chọn. Giữ hẹp có chủ đích: mỗi cột thừa nhân với hàng nghìn
- * dòng là băng thông và bộ nhớ thật.
- */
-export const POD_PRODUCT_VARIANT_OPTION_SELECT = {
-  id: true,
-  productId: true,
-  variantName: true,
-  sellerSku: true,
-  tiktokSkuId: true,
-  salePrice: true,
-  listPrice: true,
-  currency: true,
-  imageUrl: true,
-  status: true,
-  product: { select: { title: true } },
-} satisfies Prisma.PodProductVariantSelect;
-
-export type PodProductVariantRow = Prisma.PodProductVariantGetPayload<{
-  select: typeof POD_PRODUCT_VARIANT_OPTION_SELECT;
-}>;
