@@ -17,6 +17,7 @@ import {
   PodProductSyncRepository,
   type ProductSyncTarget,
 } from '../repositories/pod-product-sync.repository';
+import { PodProductSyncQueue } from './pod-product-sync.queue';
 import { PodProductSyncService } from './pod-product-sync.service';
 
 const ORG = '11111111-1111-1111-1111-111111111111';
@@ -66,6 +67,8 @@ describe('PodProductSyncService', () => {
   };
   let productApi: { searchAllProducts: jest.Mock; getProduct: jest.Mock };
   let lock: { acquire: jest.Mock; release: jest.Mock };
+  /** Hàng đợi hoãn theo shop — kiểm chứng "publish shop nào thì hẹn đúng shop đó". */
+  let queue: { schedule: jest.Mock; claimDue: jest.Mock; requeue: jest.Mock };
 
   beforeEach(() => {
     repo = {
@@ -89,6 +92,11 @@ describe('PodProductSyncService', () => {
         Promise.resolve({ data: detail(id), requestId: `req-${id}` }),
       ),
     };
+    queue = {
+      schedule: jest.fn().mockResolvedValue(new Date()),
+      claimDue: jest.fn().mockResolvedValue([]),
+      requeue: jest.fn().mockResolvedValue(undefined),
+    };
     lock = {
       acquire: jest.fn().mockResolvedValue({ key: 'k', fenceToken: 'f' }),
       release: jest.fn().mockResolvedValue(undefined),
@@ -109,6 +117,7 @@ describe('PodProductSyncService', () => {
       tokenService,
       encryption,
       lock as unknown as DistributedLockService,
+      queue as unknown as PodProductSyncQueue,
     );
     jest.spyOn(service['logger'], 'log').mockImplementation(() => undefined);
     jest.spyOn(service['logger'], 'warn').mockImplementation(() => undefined);
@@ -339,6 +348,66 @@ describe('PodProductSyncService', () => {
       await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
 
       expect(lock.release).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  describe('hàng đợi hoãn theo shop (sau publish listing)', () => {
+    it('scheduleShopSync ⇒ hẹn ĐÚNG shop đó, 5 phút, có trần chờ', async () => {
+      await service.scheduleShopSync(SHOP);
+
+      expect(queue.schedule).toHaveBeenCalledWith(SHOP, 5 * 60 * 1000, 15 * 60 * 1000);
+    });
+
+    it('🔴 Redis hỏng KHÔNG ném ra ngoài — publish đã thành công rồi', async () => {
+      queue.schedule.mockRejectedValue(new Error('Redis down'));
+
+      await expect(service.scheduleShopSync(SHOP)).resolves.toBeNull();
+    });
+
+    it('🔴 đến hạn ⇒ syncShops({ shopId }) — ĐÚNG shop đó, KHÔNG phải toàn cục', async () => {
+      queue.claimDue.mockResolvedValue([SHOP]);
+
+      await service.runDueShopSyncs();
+
+      // Phạm vi phải là ĐÚNG một shop. `{}` ở đây nghĩa là quét mọi shop của mọi tổ chức —
+      // đúng thứ yêu cầu cấm.
+      const filter = callArg<{ shopId?: string; organizationId?: string }>(
+        syncRepo.findSyncTargets,
+        0,
+        0,
+      );
+      expect(filter).toEqual({ shopId: SHOP });
+    });
+
+    it('🔴 nhiều shop đến hạn ⇒ mỗi shop MỘT lượt riêng, không gom chung', async () => {
+      queue.claimDue.mockResolvedValue(['shop-a', 'shop-b']);
+
+      const result = await service.runDueShopSyncs();
+
+      expect(result.shops).toBe(2);
+      expect(syncRepo.findSyncTargets).toHaveBeenCalledTimes(2);
+      expect(callArg(syncRepo.findSyncTargets, 0, 0)).toEqual({ shopId: 'shop-a' });
+      expect(callArg(syncRepo.findSyncTargets, 1, 0)).toEqual({ shopId: 'shop-b' });
+    });
+
+    it('hàng đợi rỗng ⇒ không gọi TikTok, không tạo lịch sử đồng bộ nào', async () => {
+      queue.claimDue.mockResolvedValue([]);
+
+      const result = await service.runDueShopSyncs();
+
+      expect(result).toEqual({ shops: 0, failed: 0 });
+      expect(syncRepo.findSyncTargets).not.toHaveBeenCalled();
+    });
+
+    it('lượt đồng bộ FAILED ⇒ hẹn lại shop đó, các shop khác không bị ảnh hưởng', async () => {
+      queue.claimDue.mockResolvedValue([SHOP]);
+      // Token hỏng ⇒ `syncShop` trả outcome FAILED (không ném).
+      productApi.searchAllProducts.mockRejectedValue(new Error('token hỏng'));
+
+      const result = await service.runDueShopSyncs();
+
+      expect(result.failed).toBe(1);
+      expect(queue.requeue).toHaveBeenCalledWith(SHOP, 5 * 60 * 1000);
     });
   });
 

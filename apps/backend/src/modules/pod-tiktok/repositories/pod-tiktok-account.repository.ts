@@ -38,6 +38,14 @@ export interface PodTiktokAccountWriteData {
   refreshTokenExpiresAt: Date;
   grantedScopes: string[];
   status: PodTiktokAccountStatus;
+  /**
+   * Employee phụ trách kết nối. Chỉ dùng khi TẠO MỚI.
+   *
+   * 🔴 Seller tự liên kết gian hàng của mình thì kết nối phải thuộc về chính họ ngay lúc
+   * tạo — `PodAccessScopeService` lọc theo `seller_id`, nên để trống nghĩa là người vừa
+   * liên kết xong không nhìn thấy chính thứ mình vừa liên kết.
+   */
+  sellerId?: string | null;
 }
 
 /** Dữ liệu ghi cho một shop (shopCipherEnc đã mã hoá ở tầng service). */
@@ -147,12 +155,38 @@ export class PodTiktokAccountRepository {
       data: {
         organizationId,
         ...data,
+        sellerId: data.sellerId ?? null,
         grantedScopes: data.grantedScopes,
         authorizedBy: actorUserId,
         createdBy: actorUserId,
       },
       select: { id: true },
     });
+  }
+
+  /**
+   * Employee (Seller) ứng với một User — dùng để gán kết nối cho chính người vừa liên kết.
+   *
+   * Cùng bộ điều kiện với `isEligibleSeller` (ACTIVE, chưa xoá, role Seller) để một người
+   * không thể trở thành chủ kết nối qua đường liên kết mà lại không hợp lệ ở đường phân công
+   * thủ công. Trả `null` cho Admin — họ không có hồ sơ Employee mang role Seller, và kết nối
+   * của họ vẫn để Admin phân công như trước.
+   */
+  async findSellerEmployeeIdByUser(
+    organizationId: string,
+    userId: string,
+  ): Promise<string | null> {
+    const employee = await this.prisma.employee.findFirst({
+      where: {
+        organizationId,
+        userId,
+        deletedAt: null,
+        status: EmployeeStatus.ACTIVE,
+        user: { deletedAt: null, role: { code: SELLER_ROLE_CODE } },
+      },
+      select: { id: true },
+    });
+    return employee?.id ?? null;
   }
 
   /**

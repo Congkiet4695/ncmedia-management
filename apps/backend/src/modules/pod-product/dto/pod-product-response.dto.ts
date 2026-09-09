@@ -165,3 +165,33 @@ export class PodProductSyncResultDto {
   })
   historyIds!: string[];
 }
+
+/**
+ * Một dòng SKU trong bộ chọn — **chỉ những cột bộ chọn thực sự hiển thị**.
+ *
+ * Không trả kèm `inventory`, `salesAttributes` hay kích thước: bộ chọn không dùng tới, và
+ * mỗi cột thừa nhân với 10.000 dòng là băng thông thật.
+ */
+export class PodProductVariantOptionDto {
+  @ApiProperty({ description: '`pod_product_variants.id` — gửi lại làm `variantId`' })
+  id!: string;
+  @ApiProperty() productId!: string;
+  @ApiProperty({ nullable: true, type: String }) productTitle!: string | null;
+  @ApiProperty({ nullable: true, type: String }) variantName!: string | null;
+  @ApiProperty({ nullable: true, type: String }) sellerSku!: string | null;
+  @ApiProperty() tiktokSkuId!: string;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description: 'Giá gốc dùng để tính giá deal: `salePrice`, lùi về `listPrice`.',
+  })
+  originalPrice!: number | null;
+  @ApiProperty({ nullable: true, type: String }) currency!: string | null;
+  @ApiProperty({ nullable: true, type: String }) imageUrl!: string | null;
+  @ApiProperty({ nullable: true, type: String }) status!: string | null;
+}
+
+export class PaginatedPodProductVariantDto {
+  @ApiProperty({ type: [PodProductVariantOptionDto] }) items!: PodProductVariantOptionDto[];
+  @ApiProperty() meta!: { total: number; page: number; limit: number; totalPages: number };
+}

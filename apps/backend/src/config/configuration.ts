@@ -289,7 +289,16 @@ export default () => ({
      * đốt quota TikTok (cấp phát động theo App × Shop, dùng chung cho mọi Organization).
      */
     productSync: {
-      enabled: (process.env.TIKTOK_PRODUCT_SYNC_ENABLED ?? 'false') === 'true',
+      /**
+       * 🔴 Mặc định BẬT. Đây là cơ chế duy nhất phát hiện sản phẩm Seller vừa tạo trên
+       * TikTok Shop: lượt đồng bộ tăng dần lọc `update_time >= watermark`, nên một listing
+       * mới (hoặc vừa chuyển sang ACTIVATE sau kiểm duyệt) sẽ lọt vào lượt kế tiếp.
+       *
+       * Tắt nó nghĩa là sản phẩm mới CHỈ về hệ thống khi có người bấm tay — đúng vấn đề
+       * sprint này sinh ra để giải quyết. Vẫn để tắt được qua ENV cho môi trường dev không
+       * muốn gọi TikTok.
+       */
+      enabled: (process.env.TIKTOK_PRODUCT_SYNC_ENABLED ?? 'true') === 'true',
       cron: process.env.TIKTOK_PRODUCT_SYNC_CRON ?? '0 */6 * * *',
       // 🔴 `includeCatalog` đã bị GỠ BỎ: cây danh mục + thương hiệu là dữ liệu master TOÀN
       // CỤC, chỉ Super Admin đồng bộ (`POST /pod/master-data/sync`). Để lại một cờ ENV cho

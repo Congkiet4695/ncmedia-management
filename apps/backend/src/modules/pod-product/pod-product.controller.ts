@@ -25,11 +25,13 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import {
+  PodProductVariantQueryDto,
   PodProductQueryDto,
   PodProductSyncHistoryQueryDto,
   TriggerProductSyncDto,
 } from './dto/pod-product-query.dto';
 import {
+  PaginatedPodProductVariantDto,
   PaginatedPodProductResponseDto,
   PaginatedPodProductSyncHistoryDto,
   PodProductDetailDto,
@@ -113,9 +115,28 @@ export class PodProductController {
   @ApiOkResponse({ type: PodProductSyncResultDto })
   triggerSync(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Body() dto: TriggerProductSyncDto,
   ): Promise<PodProductSyncResultDto> {
-    return this.service.triggerSync(user.organizationId, user.userId, dto);
+    return this.service.triggerSync(user.organizationId, user.userId, dto, scope);
+  }
+
+  @Get('variants')
+  @RequirePermissions('pod.product.read')
+  @ApiOperation({
+    summary: 'Danh sách SKU (biến thể) có phân trang',
+    description:
+      'Nguồn của bộ chọn SKU ở Flash Sale chế độ Per Variant. Đơn vị phân trang là SKU chứ ' +
+      'không phải sản phẩm, nên `limit = 20` luôn trả đúng 20 dòng SKU. Chỉ SKU của sản phẩm ' +
+      'đang ACTIVE. Tìm theo Tên sản phẩm · Tên biến thể · Seller SKU · TikTok SKU ID.',
+  })
+  @ApiOkResponse({ type: PaginatedPodProductVariantDto })
+  findVariants(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Query() query: PodProductVariantQueryDto,
+  ): Promise<PaginatedPodProductVariantDto> {
+    return this.service.findVariants(user.organizationId, query, scope);
   }
 
   @Get('categories')

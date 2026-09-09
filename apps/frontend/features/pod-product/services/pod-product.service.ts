@@ -1,6 +1,8 @@
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse } from '@/types/api';
 import type {
+  PodProductVariantListResult,
+  PodProductVariantQuery,
   PodProductDetail,
   PodProductFilterOptions,
   PodProductListResult,
@@ -29,6 +31,20 @@ export const podProductService = {
     const res = await apiClient.get<ApiResponse<PodProductListResult>>(BASE_PATH, {
       params: clean(query as Record<string, unknown>),
     });
+    return res.data.data;
+  },
+
+  /**
+   * Danh sách SKU có phân trang — nguồn của bộ chọn SKU ở Flash Sale.
+   *
+   * 🔴 Phân trang ở SERVER. Không có endpoint này thì bộ chọn buộc phải tải sản phẩm kèm
+   * toàn bộ biến thể rồi tự cắt — tức là vẫn kéo cả kho về trình duyệt.
+   */
+  async listVariants(query: PodProductVariantQuery): Promise<PodProductVariantListResult> {
+    const res = await apiClient.get<ApiResponse<PodProductVariantListResult>>(
+      `${BASE_PATH}/variants`,
+      { params: query },
+    );
     return res.data.data;
   },
 

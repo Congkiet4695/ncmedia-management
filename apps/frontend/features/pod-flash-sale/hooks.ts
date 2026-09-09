@@ -27,6 +27,16 @@ const TEMPLATE_KEY = 'pod-flash-sale-template';
  */
 const LIVE_POLL_MS = 30_000;
 
+/**
+ * Nhịp hỏi tiến độ khi một lượt publish đang chạy.
+ *
+ * 🔴 Dày hơn `LIVE_POLL_MS` rất nhiều vì đây là con số người dùng đang NGỒI NHÌN: một đợt
+ * 10.000 SKU chạy vài phút, ba mươi giây một nhịp thì thanh tiến độ đứng hình. An toàn vì
+ * endpoint `publish-status` KHÔNG kèm danh sách dòng và KHÔNG chạm tới TikTok — nó đọc mấy
+ * cột đếm cộng hai câu `count` có index.
+ */
+const PUBLISH_POLL_MS = 3_000;
+
 export function useFlashSales(query: PodFlashSaleQuery = {}) {
   return useQuery({
     queryKey: [KEY, 'list', query],
@@ -45,6 +55,21 @@ export function useFlashSale(id?: string) {
     queryFn: () => podFlashSaleService.get(id as string),
     enabled: Boolean(id),
     refetchInterval: (result) => (result.state.data?.live ? LIVE_POLL_MS : false),
+  });
+}
+
+/**
+ * Tiến độ lượt publish. Chỉ hỏi khi đợt sale đang chạy, tự dừng khi xong.
+ *
+ * 🔴 Hiển thị SỐ THẬT của backend. Không nội suy, không đếm giả cho "mượt" — một thanh tiến
+ * trình tự chạy trong khi lô 12 đang kẹt là nói dối người vận hành.
+ */
+export function useFlashSalePublishStatus(id?: string, enabled = true) {
+  return useQuery({
+    queryKey: [KEY, 'publish-status', id],
+    queryFn: () => podFlashSaleService.publishStatus(id as string),
+    enabled: Boolean(id) && enabled,
+    refetchInterval: (result) => (result.state.data?.live ? PUBLISH_POLL_MS : false),
   });
 }
 
@@ -104,9 +129,15 @@ export function useDeleteFlashSale() {
   });
 }
 
+/**
+ * Thêm sản phẩm vào đợt sale.
+ *
+ * Dùng `addItemsInChunks`: danh sách dài được chia thành nhiều request thay vì bị chặn ở ô
+ * chọn. Trần một request là chuyện của tầng vận chuyển, không phải giới hạn nghiệp vụ.
+ */
 export function useAddFlashSaleItems() {
   return useWriteMutation(({ id, items }: { id: string; items: AddFlashSaleItemPayload[] }) =>
-    podFlashSaleService.addItems(id, items),
+    podFlashSaleService.addItemsInChunks(id, items),
   );
 }
 

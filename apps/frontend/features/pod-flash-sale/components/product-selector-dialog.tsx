@@ -23,9 +23,17 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import {
   usePodProductFilters,
+  usePodProductVariants,
   usePodProducts,
 } from '@/features/pod-product/hooks/use-pod-products';
-import type { AddFlashSaleItemPayload } from '../types';
+import {
+  isPageFullySelected,
+  togglePage,
+  toggleRow,
+  toPayload,
+  type SelectionState,
+} from '../selection';
+import type { AddFlashSaleItemPayload, PodFlashSaleProductLevel } from '../types';
 
 /** Cỡ trang MẶC ĐỊNH — người dùng đổi được trong dialog. */
 const PAGE_SIZE = 10;
@@ -35,8 +43,18 @@ interface ProductSelectorDialogProps {
   onClose: () => void;
   /** Shop của đợt sale — bộ chọn KHÔNG bao giờ hiển thị sản phẩm của shop khác. */
   shopId: string;
+  /**
+   * Mức áp dụng của đợt sale, quyết định ĐƠN VỊ được chọn.
+   *
+   * 🔴 `VARIATION` chọn theo SKU chứ không theo sản phẩm: mỗi SKU mang giá deal riêng, nên
+   * người vận hành cần thấy và chọn đúng từng SKU. `PRODUCT` giữ nguyên cách chọn theo sản
+   * phẩm vì ở mức đó TikTok chỉ nhận MỘT giá cho cả sản phẩm.
+   */
+  productLevel: PodFlashSaleProductLevel;
   /** Sản phẩm đã có trong đợt sale — hiển thị "đã thêm" và không cho chọn lại. */
   existingProductIds: string[];
+  /** Biến thể đã có trong đợt sale (chế độ VARIATION). */
+  existingVariantIds?: string[];
   submitting?: boolean;
   onSubmit: (items: AddFlashSaleItemPayload[]) => void;
 }
@@ -63,7 +81,9 @@ export function ProductSelectorDialog({
   open,
   onClose,
   shopId,
+  productLevel,
   existingProductIds,
+  existingVariantIds = [],
   submitting,
   onSubmit,
 }: ProductSelectorDialogProps) {
@@ -74,14 +94,24 @@ export function ProductSelectorDialog({
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [searchInput, setSearchInput] = useState('');
   const [status, setStatus] = useState('');
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  /**
+   * 🔴 Lựa chọn sống NGOÀI trang hiện tại, và là MỘT cấu trúc duy nhất.
+   *
+   * Khoá = id đang chọn (productId hoặc variantId tuỳ chế độ), giá trị = payload sẽ gửi đi.
+   * Giữ song song một `Set` id và một `Map` payload là tự tạo ra hai nguồn sự thật phải đồng
+   * bộ tay — lệch nhau một nhịp là số trên nút bấm nói một đằng, dữ liệu gửi đi một nẻo.
+   *
+   * Vì là `Map` id ⇒ payload (không phải cờ gắn trên dòng đang render), tick ở trang 1, lật
+   * sang trang 2, đổi từ khoá rồi quay lại — những gì đã tick vẫn còn nguyên.
+   */
+  const [selected, setSelected] = useState<SelectionState>(new Map());
   const search = useDebouncedValue(searchInput, 350);
 
   // Mở lại dialog là một phiên chọn MỚI — giữ lại lựa chọn cũ sẽ khiến người dùng vô tình
   // thêm những sản phẩm họ đã bỏ ý định từ lần trước.
   useEffect(() => {
     if (!open) return;
-    setSelected(new Set());
+    setSelected(new Map());
     setPage(1);
     setSearchInput('');
     setStatus('');
@@ -91,53 +121,101 @@ export function ProductSelectorDialog({
   // quả chỉ có 2 trang và thấy bảng trống.
   useEffect(() => setPage(1), [search, status]);
 
+  const bySku = productLevel === 'VARIATION';
+
   const filters = usePodProductFilters();
-  const products = usePodProducts({
-    page,
-    limit,
-    shopId,
-    search: search || undefined,
-    status: status || undefined,
-  });
+  const products = usePodProducts(
+    { page, limit, shopId, search: search || undefined, status: status || undefined },
+    // Hai truy vấn loại trừ nhau: chỉ hỏi cái đang dùng.
+  );
+  const variants = usePodProductVariants(
+    { page, limit, shopId, search: search || undefined },
+    bySku,
+  );
 
-  const existing = useMemo(() => new Set(existingProductIds), [existingProductIds]);
-  const items = products.data?.items ?? [];
-  const meta = products.data?.meta;
+  const query = bySku ? variants : products;
+  const meta = query.data?.meta;
 
-  /** Sản phẩm trên trang hiện tại còn chọn được (chưa nằm trong đợt sale). */
-  const selectableOnPage = items.filter((product) => !existing.has(product.id));
-  const allOnPageSelected =
-    selectableOnPage.length > 0 && selectableOnPage.every((product) => selected.has(product.id));
+  /**
+   * Id đã có sẵn trong đợt sale — theo ĐÚNG đơn vị đang chọn.
+   *
+   * Ở chế độ SKU phải so theo `variantId`: một sản phẩm đã có SKU "Black / S" trong đợt sale
+   * vẫn còn "Black / M" chưa thêm, nên khoá cả sản phẩm là chặn nhầm.
+   */
+  const existing = useMemo(
+    () => new Set(bySku ? existingVariantIds : existingProductIds),
+    [bySku, existingVariantIds, existingProductIds],
+  );
 
-  const toggle = (productId: string): void => {
-    setSelected((previous) => {
-      const next = new Set(previous);
-      if (next.has(productId)) next.delete(productId);
-      else next.add(productId);
-      return next;
-    });
+  /** Các dòng của trang hiện tại, quy về một hình dạng chung cho cả hai chế độ. */
+  const rows = useMemo(() => {
+    if (bySku) {
+      return (variants.data?.items ?? []).map((variant) => ({
+        /** Khoá lựa chọn = `variantId` ở chế độ SKU. */
+        key: variant.id,
+        productId: variant.productId,
+        variantId: variant.id as string | undefined,
+        title: variant.productTitle ?? '—',
+        subtitle: variant.variantName ?? variant.sellerSku ?? variant.tiktokSkuId,
+        identifier: variant.sellerSku ?? variant.tiktokSkuId,
+        price: variant.originalPrice,
+        currency: variant.currency,
+        imageUrl: variant.imageUrl,
+        status: variant.status,
+        skuCount: null as number | null,
+      }));
+    }
+    return (products.data?.items ?? []).map((product) => ({
+      key: product.id,
+      productId: product.id,
+      variantId: undefined,
+      title: product.title ?? '—',
+      subtitle: null as string | null,
+      identifier: product.tiktokProductId,
+      price: product.minPrice,
+      currency: product.currency,
+      imageUrl: product.thumbnailUrl,
+      status: product.status,
+      skuCount: product.skuCount as number | null,
+    }));
+  }, [bySku, products.data, variants.data]);
+
+  /**
+   * 🔴 Lựa chọn sống ngoài trang hiện tại.
+   *
+   * Cách làm ngây thơ (lưu trạng thái theo mảng dòng đang render) sẽ âm thầm đánh rơi lựa
+   * chọn ngay khi dữ liệu trang mới về. Xem chú thích ở khai báo `selected`.
+   */
+  const selectableOnPage = rows.filter((row) => !existing.has(row.key));
+  const allOnPageSelected = isPageFullySelected(selected, selectableOnPage);
+
+  const toggle = (row: (typeof rows)[number]): void => {
+    setSelected((previous) => toggleRow(previous, row));
   };
 
+  /**
+   * "Chọn tất cả" = tất cả trên TRANG HIỆN TẠI.
+   *
+   * 🔴 Cố ý không có nút "chọn toàn bộ kết quả": với 100.000 SKU, việc đó nghĩa là tải hết
+   * id về trình duyệt — đúng thứ mà phân trang phía server sinh ra để tránh. Người dùng chọn
+   * theo trang, và lựa chọn cộng dồn qua các trang.
+   */
   const toggleAllOnPage = (): void => {
-    setSelected((previous) => {
-      const next = new Set(previous);
-      for (const product of selectableOnPage) {
-        if (allOnPageSelected) next.delete(product.id);
-        else next.add(product.id);
-      }
-      return next;
-    });
+    const turningOn = !allOnPageSelected;
+    setSelected((previous) => togglePage(previous, selectableOnPage, turningOn));
   };
 
   const submit = (): void => {
-    onSubmit([...selected].map((productId) => ({ productId })));
+    // 🔴 Lấy từ `selected` chứ không từ `rows`: những dòng đã tick ở trang trước KHÔNG còn
+    // nằm trong `rows`, nên dựng payload từ trang hiện tại là cách đánh rơi đúng chúng.
+    onSubmit(toPayload(selected));
   };
 
   return (
     <Modal
       open={open}
       onClose={onClose}
-      title={t('flashSale.selector.title')}
+      title={bySku ? t('flashSale.selector.titleSku') : t('flashSale.selector.title')}
       description={t('flashSale.selector.subtitle')}
       className="max-w-4xl"
       footer={
@@ -164,26 +242,34 @@ export function ProductSelectorDialog({
             <Input
               value={searchInput}
               onChange={(event) => setSearchInput(event.target.value)}
-              placeholder={t('flashSale.selector.searchPlaceholder')}
+              placeholder={
+                bySku
+                  ? t('flashSale.selector.searchSkuPlaceholder')
+                  : t('flashSale.selector.searchPlaceholder')
+              }
               className="pl-9"
             />
           </div>
-          <Combobox
-            value={status}
-            onChange={setStatus}
-            options={[
-              { value: '', label: t('flashSale.selector.allStatuses') },
-              ...(filters.data?.statuses ?? []).map((value) => ({ value, label: value })),
-            ]}
-            className="w-[180px]"
-          />
+          {/* Bộ lọc trạng thái chỉ có ở chế độ sản phẩm: danh sách SKU đã chỉ gồm SKU của
+              sản phẩm ACTIVE, nên một ô lọc không đổi được gì chỉ làm người dùng phân vân. */}
+          {!bySku && (
+            <Combobox
+              value={status}
+              onChange={setStatus}
+              options={[
+                { value: '', label: t('flashSale.selector.allStatuses') },
+                ...(filters.data?.statuses ?? []).map((value) => ({ value, label: value })),
+              ]}
+              className="w-[180px]"
+            />
+          )}
         </div>
 
-        {products.isLoading ? (
+        {query.isLoading ? (
           <div className="flex items-center justify-center py-10 text-muted-foreground">
             <Loader2 className="size-5 animate-spin" />
           </div>
-        ) : items.length === 0 ? (
+        ) : rows.length === 0 ? (
           <p className="py-10 text-center text-sm text-muted-foreground">
             {t('flashSale.selector.empty')}
           </p>
@@ -202,30 +288,36 @@ export function ProductSelectorDialog({
                     />
                   </TableHead>
                   <TableHead className="w-14" />
-                  <TableHead>{t('flashSale.selector.product')}</TableHead>
-                  <TableHead>{t('flashSale.selector.productId')}</TableHead>
-                  <TableHead className="text-right">{t('flashSale.selector.sku')}</TableHead>
+                  <TableHead>
+                    {bySku ? t('flashSale.selector.skuColumn') : t('flashSale.selector.product')}
+                  </TableHead>
+                  <TableHead>
+                    {bySku ? t('flashSale.selector.sku') : t('flashSale.selector.productId')}
+                  </TableHead>
+                  {!bySku && (
+                    <TableHead className="text-right">{t('flashSale.selector.sku')}</TableHead>
+                  )}
                   <TableHead className="text-right">{t('flashSale.selector.price')}</TableHead>
                   <TableHead>{t('flashSale.selector.status')}</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {items.map((product) => {
-                  const already = existing.has(product.id);
+                {rows.map((row) => {
+                  const already = existing.has(row.key);
                   return (
-                    <TableRow key={product.id} className={already ? 'opacity-60' : undefined}>
+                    <TableRow key={row.key} className={already ? 'opacity-60' : undefined}>
                       <TableCell>
                         <Checkbox
-                          checked={already || selected.has(product.id)}
+                          checked={already || selected.has(row.key)}
                           disabled={already}
-                          onChange={() => toggle(product.id)}
-                          aria-label={product.title ?? product.tiktokProductId}
+                          onChange={() => toggle(row)}
+                          aria-label={row.subtitle ?? row.title}
                         />
                       </TableCell>
                       <TableCell>
-                        {product.thumbnailUrl ? (
+                        {row.imageUrl ? (
                           <Image
-                            src={product.thumbnailUrl}
+                            src={row.imageUrl}
                             alt=""
                             width={40}
                             height={40}
@@ -237,21 +329,27 @@ export function ProductSelectorDialog({
                         )}
                       </TableCell>
                       <TableCell className="max-w-[280px]">
-                        <p className="truncate text-sm font-medium">{product.title ?? '—'}</p>
+                        <p className="truncate text-sm font-medium">{row.title}</p>
+                        {/* Chế độ SKU: tên biến thể là thứ phân biệt hai dòng cùng sản phẩm. */}
+                        {row.subtitle && (
+                          <p className="truncate text-xs text-muted-foreground">{row.subtitle}</p>
+                        )}
                         {already && (
                           <p className="text-xs text-muted-foreground">
                             {t('flashSale.selector.alreadyAdded')}
                           </p>
                         )}
                       </TableCell>
-                      <TableCell className="font-mono text-xs">{product.tiktokProductId}</TableCell>
-                      <TableCell className="text-right tabular-nums">{product.skuCount}</TableCell>
+                      <TableCell className="font-mono text-xs">{row.identifier}</TableCell>
+                      {!bySku && (
+                        <TableCell className="text-right tabular-nums">{row.skuCount}</TableCell>
+                      )}
                       <TableCell className="text-right tabular-nums">
-                        {formatCurrency(product.minPrice, product.currency)}
+                        {formatCurrency(row.price, row.currency)}
                       </TableCell>
                       <TableCell>
-                        <Badge variant={product.status === 'ACTIVATE' ? 'success' : 'muted'}>
-                          {product.status ?? '—'}
+                        <Badge variant={row.status === 'ACTIVATE' ? 'success' : 'muted'}>
+                          {row.status ?? '—'}
                         </Badge>
                       </TableCell>
                     </TableRow>

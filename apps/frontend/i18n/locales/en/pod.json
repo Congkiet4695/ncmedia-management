@@ -175,7 +175,8 @@
       "itemsDeleted": "Selected rows removed",
       "itemSaved": "Row saved",
       "batchApplied": "Applied to {{count}} rows",
-      "templateSaved": "Template saved"
+      "templateSaved": "Template saved",
+      "publishStarted": "Publishing started — sending {{count}} batch(es) to TikTok in the background."
     },
     "form": {
       "shop": "Shop",
@@ -221,7 +222,10 @@
       "warningsTitle": "{{count}} warnings",
       "lastErrorTitle": "Last publish failed (code {{code}}, attempt {{attempt}})",
       "publishBlocked": "Unresolved issues — see the list above.",
-      "syncHint": "Re-read the status from TikTok. This is the ONLY button on this screen that calls the platform."
+      "syncHint": "Re-read the status from TikTok. This is the ONLY button on this screen that calls the platform.",
+      "itemQuota": "Selected SKUs: {{total, number}} / {{max, number}}",
+      "issueAffected": "— {{count}} SKU",
+      "issueSamples": "Show examples"
     },
     "items": {
       "empty": "No products yet. Use Add products to start.",
@@ -256,7 +260,10 @@
       "sku": "SKUs",
       "price": "Price",
       "status": "Status",
-      "alreadyAdded": "Already in this sale"
+      "alreadyAdded": "Already in this sale",
+      "titleSku": "Add SKUs",
+      "searchSkuPlaceholder": "Search product, variant or SKU…",
+      "skuColumn": "Product / Variant"
     },
     "batch": {
       "title": "Batch edit {{count}} rows",
@@ -302,6 +309,17 @@
       "DEACTIVATE": "Deactivate on TikTok",
       "SYNC_STATUS": "Sync status",
       "VALIDATE": "Validate data"
+    },
+    "publish": {
+      "running": "Publishing to TikTok…",
+      "completed": "Published to TikTok",
+      "failed": "Publishing failed",
+      "batchProgress": "{{done}} / {{total}} batches",
+      "itemsDone": "{{count}} SKU accepted",
+      "itemsPending": "{{count}} SKU remaining",
+      "activityId": "Promotion {{id}}",
+      "failedAtBatch": "Stopped at batch {{batch}}/{{total}}. {{message}} Retry resumes on the same promotion — no second promotion is created.",
+      "asyncHint": "Products are sent to TikTok in batches of up to 300 SKUs. You can leave this page; publishing continues in the background."
     }
   },
   "link": {
@@ -912,18 +930,19 @@
     },
     "publish": {
       "all": "Publish All",
-      "selected": "Publish Selected ({{count}})",
-      "one": "Publish",
-      "retryOne": "Retry publish",
-      "retryFailed": "Retry failed",
-      "selectAll": "Select every publishable draft",
+      "backgroundHint": "You can close this screen — the job keeps running in the background.",
       "confirmAll": "Publish every eligible draft matching the current filter? They go to TikTok for review.",
       "confirmSelected": "Publish {{count}} draft(s)? They go to TikTok for review.",
-      "started": "{{count}} listing(s) queued for publish",
-      "skipped": "{{count}} skipped — e.g. {{reason}}",
+      "one": "Publish",
       "progressTitle": "Publishing… {{done}} / {{total}}",
+      "retryFailed": "Retry failed",
+      "retryOne": "Retry publish",
+      "selectAll": "Select every publishable draft",
+      "selected": "Publish Selected ({{count}})",
+      "skipped": "{{count}} skipped — e.g. {{reason}}",
+      "started": "{{count}} listing(s) queued for publish",
       "successFailed": "Success: {{success}} · Failed: {{failed}}",
-      "backgroundHint": "You can close this screen — the job keeps running in the background."
+      "syncScheduledHint": "Products from the published shop(s) will be synced in about 5 minutes."
     }
   },
   "orderDetail": {

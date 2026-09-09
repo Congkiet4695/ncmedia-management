@@ -44,6 +44,43 @@ export const POD_PRODUCT_SYNC_LOCK_TTL_MS = 10 * 60 * 1000;
 export const POD_PRODUCT_SYNC_FAILURE_THRESHOLD = 5;
 
 // ---------------------------------------------------------------------------
+// Hàng đợi đồng bộ HOÃN theo shop (sau khi publish listing)
+// ---------------------------------------------------------------------------
+
+/**
+ * Chờ bao lâu sau khi publish listing thành công rồi mới đồng bộ sản phẩm (ms).
+ *
+ * 🔴 5 phút là để TikTok kịp hiển thị listing vừa gửi. Publish trả về `product_id` ngay,
+ * nhưng sản phẩm chưa xuất hiện trong `Search Products` cho tới khi sàn xử lý xong — đồng
+ * bộ ngay lập tức thường chỉ nhận về đúng dữ liệu cũ.
+ */
+export const POD_PRODUCT_SYNC_PUBLISH_DELAY_MS = 5 * 60 * 1000;
+
+/**
+ * Trần chờ tuyệt đối kể từ lần publish ĐẦU TIÊN của một lượt (ms).
+ *
+ * 🔴 Không có trần thì một shop publish liên tục (Publish All 500 draft) sẽ đẩy lịch đi mãi
+ * và KHÔNG BAO GIỜ được đồng bộ — chống trùng biến thành bỏ đói. 15 phút: lượt đồng bộ vẫn
+ * chạy giữa chừng, phần còn lại rơi vào lượt kế tiếp.
+ */
+export const POD_PRODUCT_SYNC_PUBLISH_MAX_WAIT_MS = 15 * 60 * 1000;
+
+/**
+ * Nhịp worker quét hàng đợi hoãn.
+ *
+ * Mỗi phút: lịch hẹn 5 phút lệch tối đa 1 phút, còn tick rỗng chỉ tốn đúng một lệnh Redis.
+ * KHÔNG lấy từ ENV — đây là nhịp nội bộ của hàng đợi, không phải tham số vận hành; để nó
+ * đổi được chỉ tạo ra cấu hình lệch giữa các môi trường mà không ai chỉnh tới.
+ */
+export const POD_PRODUCT_SYNC_DUE_CRON = '* * * * *';
+
+/** Số shop tối đa lấy ra trong MỘT tick worker — chặn một tick ôm hết deadline. */
+export const POD_PRODUCT_SYNC_DUE_BATCH = 10;
+
+/** Hẹn lại sau bao lâu khi lượt đồng bộ hỏng vì lý do tạm thời (ms). */
+export const POD_PRODUCT_SYNC_REQUEUE_DELAY_MS = 5 * 60 * 1000;
+
+// ---------------------------------------------------------------------------
 // Trạng thái sản phẩm
 // ---------------------------------------------------------------------------
 

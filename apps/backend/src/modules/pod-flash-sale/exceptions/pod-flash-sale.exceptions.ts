@@ -91,7 +91,9 @@ export class PodFlashSaleTooManyItemsException extends BadRequestException {
   constructor(max: number) {
     super({
       code: 'POD_FLASH_SALE_TOO_MANY_ITEMS',
-      message: `Một Flash Sale chỉ chứa tối đa ${max} dòng sản phẩm (giới hạn của TikTok).`,
+      // 🔴 KHÔNG nói "giới hạn của TikTok": TikTok giới hạn 300 mục cho mỗi REQUEST, không
+      // giới hạn tổng số SKU của một khuyến mãi. Đây là trần của hệ thống.
+      message: `Một Flash Sale chỉ chứa tối đa ${max} dòng sản phẩm.`,
     });
   }
 }

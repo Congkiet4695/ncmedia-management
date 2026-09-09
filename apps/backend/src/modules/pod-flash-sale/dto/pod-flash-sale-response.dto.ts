@@ -209,10 +209,65 @@ export class PaginatedPodFlashSaleTemplateDto {
 /** Kết quả một lần bấm Publish / Retry. */
 export class PodFlashSalePublishResultDto {
   @ApiProperty() flashSaleId!: string;
-  @ApiProperty({ enum: PodFlashSaleStatus }) status!: PodFlashSaleStatus;
-  @ApiProperty({ nullable: true, type: String }) providerFlashSaleId!: string | null;
-  @ApiProperty({ description: 'Số dòng TikTok đã nhận' }) publishedItems!: number;
+  @ApiProperty({
+    enum: PodFlashSaleStatus,
+    description:
+      'PUBLISHING = hoạt động đã tạo, các lô sản phẩm đang được gửi nền. Theo dõi tiến độ ' +
+      'qua GET /pod/flash-sales/:id/publish-status.',
+  })
+  status!: PodFlashSaleStatus;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      '`activity_id` của TikTok. Có NGAY trong response này; MỌI lô sản phẩm đều được gắn ' +
+      'vào đúng id này — không bao giờ tạo hoạt động thứ hai.',
+  })
+  providerFlashSaleId!: string | null;
+  @ApiProperty({ description: 'Số dòng TikTok đã nhận tại thời điểm trả về' }) publishedItems!: number;
   @ApiProperty({ description: 'Số dòng bị bỏ qua vì không hợp lệ' }) skippedItems!: number;
   @ApiProperty({ nullable: true, type: String }) errorCode!: string | null;
   @ApiProperty({ nullable: true, type: String }) errorMessage!: string | null;
+
+  @ApiProperty({ description: 'Tổng số dòng lượt này phải gửi (đã trừ dòng đã lên sàn)' })
+  totalItems!: number;
+  @ApiProperty({ description: 'Tổng số lô — mỗi lô là MỘT request tới TikTok, tối đa 300 SKU' })
+  totalBatches!: number;
+  @ApiProperty({ description: 'Số lô đã gửi xong tại thời điểm trả về' })
+  doneBatches!: number;
+}
+
+/**
+ * Tiến độ của lượt publish — payload NHẸ, dành riêng cho polling.
+ *
+ * 🔴 Vì sao không dùng lại `GET /pod/flash-sales/:id`: endpoint đó trả về TOÀN BỘ danh sách
+ * dòng. Với một đợt 10.000 SKU đó là vài MB cho mỗi lần hỏi — hỏi vài giây một lần trong
+ * suốt lượt publish là tự tạo ra một vấn đề lớn hơn vấn đề đang giải.
+ */
+export class PodFlashSalePublishStatusDto {
+  @ApiProperty() flashSaleId!: string;
+  @ApiProperty({ enum: PodFlashSaleStatus }) status!: PodFlashSaleStatus;
+  @ApiProperty({ nullable: true, type: String }) providerFlashSaleId!: string | null;
+  @ApiProperty({ description: 'Còn đang chạy ⇒ giao diện tiếp tục hỏi lại' }) live!: boolean;
+
+  @ApiProperty({ nullable: true, type: Number }) totalItems!: number | null;
+  @ApiProperty({ nullable: true, type: Number }) totalBatches!: number | null;
+  @ApiProperty({ nullable: true, type: Number }) doneBatches!: number | null;
+  @ApiProperty({ nullable: true, type: Number }) currentBatch!: number | null;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description: 'Lô đã thất bại. Khác null ⇒ đợt sale KHÔNG hoàn tất, còn lô chưa gửi.',
+  })
+  failedBatch!: number | null;
+
+  @ApiProperty({ description: 'Số dòng TikTok đã xác nhận' }) publishedItems!: number;
+  @ApiProperty({ description: 'Số dòng còn lại chưa lên sàn' }) pendingItems!: number;
+
+  @ApiProperty({ nullable: true, type: String }) errorCode!: string | null;
+  @ApiProperty({ nullable: true, type: String }) errorMessage!: string | null;
+  @ApiProperty({ nullable: true, type: String }) errorRequestId!: string | null;
+
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) startedAt!: string | null;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) finishedAt!: string | null;
 }

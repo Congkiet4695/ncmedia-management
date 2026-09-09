@@ -10,6 +10,7 @@ import { PodProductSyncRepository } from './repositories/pod-product-sync.reposi
 import { PodProductSyncJob } from './schedulers/pod-product-sync.job';
 import { PodProductCatalogService } from './services/pod-product-catalog.service';
 import { PodProductService } from './services/pod-product.service';
+import { PodProductSyncQueue } from './services/pod-product-sync.queue';
 import { PodProductSyncService } from './services/pod-product-sync.service';
 
 /**
@@ -31,6 +32,7 @@ import { PodProductSyncService } from './services/pod-product-sync.service';
   providers: [
     PodProductService,
     PodProductSyncService,
+    PodProductSyncQueue,
     PodProductCatalogService,
     PodProductRepository,
     PodProductSyncRepository,
@@ -45,6 +47,9 @@ import { PodProductSyncService } from './services/pod-product-sync.service';
     // PodWarehouseService (module pod-listing) dùng lại đúng cách chọn shop hợp lệ để
     // gọi TikTok — không nhân bản logic lọc shop/token sang module khác.
     PodProductSyncRepository,
+    // `PodProductSyncBridgeModule` gắn service này vào token `PRODUCT_SYNC_TRIGGER` để
+    // luồng liên kết TikTok kích hoạt được đồng bộ mà không tạo vòng phụ thuộc module.
+    PodProductSyncService,
     // Màn hình Resources gọi từng lệnh đồng bộ danh mục / thương hiệu / thuộc tính riêng lẻ.
     PodProductCatalogService,
   ],

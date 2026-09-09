@@ -3,6 +3,7 @@ import { PodFlashSaleItemStatus, PodFlashSaleProductLevel, Prisma } from '@prism
 import { PrismaService } from '../../../database/prisma.service';
 import type { PodAccessScope } from '../../pod-tiktok/services/pod-access-scope.service';
 import {
+  FLASH_SALE_DEFAULT_DISCOUNT_PERCENT,
   FLASH_SALE_MAX_ITEMS,
   FLASH_SALE_UNLIMITED,
 } from '../constants/pod-flash-sale.constants';
@@ -138,15 +139,22 @@ export class PodFlashSaleItemService {
           continue;
         }
 
+        // 🔴 Không nhập giá lẫn % ⇒ áp % giảm MẶC ĐỊNH, KHÔNG phải 0%.
+        //
+        // Mặc định 0% cũ tạo ra một dòng hợp lệ với database nhưng không publish được, nên
+        // thêm 600 SKU là sinh 600 lỗi giống hệt nhau và người dùng phải sửa tay từng dòng.
+        //
+        // 🔴 Tính từ `originalPrice` của CHÍNH dòng này — biến `originalPrice` nằm trong
+        // vòng lặp theo từng biến thể, nên mỗi SKU nhận giá deal riêng. Không có chuyện lấy
+        // giá của SKU rẻ nhất áp cho cả sản phẩm.
         const pricing =
           computeFlashSalePricing({
             originalPrice,
             flashSalePrice: dto.flashSalePrice ?? null,
-            discountPercent: dto.discountPercent ?? null,
+            discountPercent: dto.discountPercent ?? FLASH_SALE_DEFAULT_DISCOUNT_PERCENT,
           }) ??
-          // Không nhập giá lẫn % ⇒ dòng được thêm ở trạng thái "chưa đặt giá": giá deal
-          // bằng giá gốc, giảm 0%. Đây là dữ liệu HỢP LỆ với database nhưng KHÔNG hợp lệ để
-          // publish, nên nó nằm ở `PENDING` cho tới khi người dùng nhập giá.
+          // Chỉ tới được đây khi giá gốc không dùng được để tính (≤ 0) — dòng vẫn được thêm
+          // nhưng nằm ở `PENDING` cho tới khi người dùng nhập giá.
           ({ originalPrice, flashSalePrice: originalPrice, discountPercent: toDecimal(0)! } satisfies FlashSalePricing);
 
         const totalPurchaseLimit = dto.totalPurchaseLimit ?? FLASH_SALE_UNLIMITED;

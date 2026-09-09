@@ -77,6 +77,8 @@ interface AuditArg {
 describe('PodTiktokAccountService', () => {
   let service: PodTiktokAccountService;
   let prisma: { $transaction: jest.Mock };
+  /** Cổng kích hoạt đồng bộ sản phẩm (`PRODUCT_SYNC_TRIGGER`). */
+  let productSync: { syncShops: jest.Mock };
   let repo: jest.Mocked<Partial<PodTiktokAccountRepository>>;
   let encryption: { encrypt: jest.Mock };
   let authClient: { getAccessToken: jest.Mock };
@@ -87,10 +89,13 @@ describe('PodTiktokAccountService', () => {
     prisma = {
       $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb({})),
     };
+    productSync = { syncShops: jest.fn().mockResolvedValue([]) };
     repo = {
       findByOpenIdIncludingDeleted: jest.fn().mockResolvedValue(null),
       findConflictingShops: jest.fn().mockResolvedValue([]),
       createAccount: jest.fn().mockResolvedValue({ id: ACCOUNT_ID }),
+      // Mặc định: người liên kết KHÔNG phải Seller (Admin) ⇒ không tự gán người phụ trách.
+      findSellerEmployeeIdByUser: jest.fn().mockResolvedValue(null),
       updateAccountTokens: jest.fn().mockResolvedValue(undefined),
       upsertShop: jest.fn().mockResolvedValue(undefined),
       softDeleteShopsNotIn: jest.fn().mockResolvedValue(undefined),
@@ -117,6 +122,7 @@ describe('PodTiktokAccountService', () => {
       encryption as unknown as TiktokEncryptionService,
       authClient as unknown as TiktokAuthClient,
       apiClient as unknown as TiktokApiClient,
+      productSync,
     );
   });
 
@@ -157,6 +163,72 @@ describe('PodTiktokAccountService', () => {
 
   describe('completeAuthorization — luồng thành công', () => {
     beforeEach(() => mockFindByIdResult());
+
+    it('🔴 Seller tự liên kết ⇒ kết nối được gán cho CHÍNH họ ngay lúc tạo', async () => {
+      // `PodAccessScopeService` lọc theo `seller_id`. Không gán ở đây thì Seller liên kết
+      // xong sẽ không thấy gian hàng, sản phẩm hay đơn của chính mình.
+      (repo.findSellerEmployeeIdByUser as jest.Mock).mockResolvedValue('employee-1');
+
+      await service.completeAuthorization(ORG_ID, USER_ID, 'auth-code');
+
+      expect(repo.findSellerEmployeeIdByUser as jest.Mock).toHaveBeenCalledWith(ORG_ID, USER_ID);
+      const written = callArg<{ sellerId?: string | null }>(repo.createAccount as jest.Mock, 0, 3);
+      expect(written.sellerId).toBe('employee-1');
+    });
+
+    it('Admin liên kết ⇒ KHÔNG tự gán người phụ trách (Admin phân công sau như cũ)', async () => {
+      (repo.findSellerEmployeeIdByUser as jest.Mock).mockResolvedValue(null);
+
+      await service.completeAuthorization(ORG_ID, USER_ID, 'auth-code');
+
+      const written = callArg<{ sellerId?: string | null }>(repo.createAccount as jest.Mock, 0, 3);
+      expect(written.sellerId).toBeNull();
+    });
+
+    it('🔴 uỷ quyền lại KHÔNG đổi người phụ trách — Admin đã phân công thì giữ nguyên', async () => {
+      (repo.findByOpenIdIncludingDeleted as jest.Mock).mockResolvedValue({
+        id: ACCOUNT_ID,
+        deletedAt: null,
+        accountName: 'Kết nối cũ',
+      });
+
+      await service.completeAuthorization(ORG_ID, USER_ID, 'auth-code');
+
+      expect(repo.createAccount as jest.Mock).not.toHaveBeenCalled();
+      expect(repo.findSellerEmployeeIdByUser as jest.Mock).not.toHaveBeenCalled();
+    });
+
+    it('🔴 liên kết xong TỰ kích hoạt đồng bộ sản phẩm cho ĐÚNG kết nối vừa tạo', async () => {
+      await service.completeAuthorization(ORG_ID, USER_ID, 'auth-code');
+
+      expect(productSync.syncShops).toHaveBeenCalledWith(
+        { organizationId: ORG_ID, accountId: ACCOUNT_ID },
+        { trigger: 'MANUAL' },
+      );
+    });
+
+    it('🔴 đồng bộ hỏng KHÔNG làm hỏng việc liên kết (token đã lưu, shop đã ghi)', async () => {
+      productSync.syncShops.mockRejectedValue(new Error('TikTok 429'));
+
+      await expect(
+        service.completeAuthorization(ORG_ID, USER_ID, 'auth-code'),
+      ).resolves.toBeDefined();
+    });
+
+    it('🔴 KHÔNG chờ đồng bộ xong mới trả về — callback OAuth đang chờ response', async () => {
+      let settle: () => void = () => {};
+      productSync.syncShops.mockReturnValue(
+        new Promise<void>((resolve) => {
+          settle = resolve;
+        }),
+      );
+
+      // Nếu `completeAuthorization` await lượt đồng bộ thì promise này không bao giờ xong.
+      await expect(
+        service.completeAuthorization(ORG_ID, USER_ID, 'auth-code'),
+      ).resolves.toBeDefined();
+      settle();
+    });
 
     it('thực hiện đúng thứ tự: đổi code → Get Authorized Shops → lưu DB', async () => {
       const result = await service.completeAuthorization(
@@ -244,7 +316,7 @@ describe('PodTiktokAccountService', () => {
 
       await service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME);
 
-      expect(repo.createAccount).not.toHaveBeenCalled();
+      expect(repo.createAccount as jest.Mock).not.toHaveBeenCalled();
       expect(repo.updateAccountTokens).toHaveBeenCalled();
       const audit = callArg<AuditArg>(repo.insertTokenAudit as jest.Mock, 0, 1);
       expect(audit.action).toBe(PodTiktokTokenAction.REAUTHORIZE);
@@ -352,7 +424,7 @@ describe('PodTiktokAccountService', () => {
       await expect(
         service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME),
       ).rejects.toBeInstanceOf(PodTiktokNoShopException);
-      expect(repo.createAccount).not.toHaveBeenCalled();
+      expect(repo.createAccount as jest.Mock).not.toHaveBeenCalled();
     });
 
     it('Shop đã được kết nối khác trong cùng Organization → POD_TIKTOK_SHOP_ALREADY_LINKED', async () => {
@@ -363,7 +435,7 @@ describe('PodTiktokAccountService', () => {
       await expect(
         service.completeAuthorization(ORG_ID, USER_ID, 'code', ACCOUNT_NAME),
       ).rejects.toBeInstanceOf(PodTiktokShopAlreadyLinkedException);
-      expect(repo.createAccount).not.toHaveBeenCalled();
+      expect(repo.createAccount as jest.Mock).not.toHaveBeenCalled();
       expect(repo.upsertShop).not.toHaveBeenCalled();
     });
 

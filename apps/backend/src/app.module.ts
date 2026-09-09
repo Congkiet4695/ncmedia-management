@@ -24,6 +24,7 @@ import { OrderModule } from './modules/order/order.module';
 import { ReportModule } from './modules/report/report.module';
 import { PodTiktokModule } from './modules/pod-tiktok/pod-tiktok.module';
 import { PodProductModule } from './modules/pod-product/pod-product.module';
+import { PodProductSyncBridgeModule } from './modules/pod-product/pod-product-sync-bridge.module';
 import { PodListingSessionModule } from './modules/pod-listing-session/pod-listing-session.module';
 import { PodListingModule } from './modules/pod-listing/pod-listing.module';
 import { PodFlashSaleModule } from './modules/pod-flash-sale/pod-flash-sale.module';
@@ -132,6 +133,7 @@ import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
     PodTiktokModule,
     // Module POD — Product Synchronization (chi doc tu TikTok)
     PodProductModule,
+    PodProductSyncBridgeModule,
     // Module POD — Listing Template Management (Sprint 3: template + draft, KHONG publish)
     PodListingModule,
     PodListingSessionModule,

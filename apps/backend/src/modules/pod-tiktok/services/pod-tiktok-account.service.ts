@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PodTiktokAccountStatus, PodTiktokTokenAction, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { TIKTOK_SELLER_USER_TYPES, TIKTOK_SELLER_TYPES } from '../constants/tiktok.constants';
@@ -32,6 +32,10 @@ import {
   PodTiktokShopAlreadyLinkedException,
   TiktokClientError,
 } from '../exceptions/pod-tiktok.exceptions';
+import {
+  PRODUCT_SYNC_TRIGGER,
+  type ProductSyncTrigger,
+} from '../shared/product-sync-trigger';
 import { PodTiktokAccountMapper } from '../mappers/pod-tiktok-account.mapper';
 import {
   PodTiktokAccountRepository,
@@ -70,6 +74,16 @@ export class PodTiktokAccountService {
     private readonly encryption: TiktokEncryptionService,
     private readonly authClient: TiktokAuthClient,
     private readonly apiClient: TiktokApiClient,
+    /**
+     * Cổng kích hoạt đồng bộ sản phẩm — do `PodProductSyncBridgeModule` (@Global) cung cấp.
+     *
+     * `@Optional()` để module này vẫn khởi tạo được khi cầu nối vắng mặt (test dựng module
+     * tối giản): thiếu nó thì mất tính năng tự đồng bộ, KHÔNG làm hỏng việc liên kết.
+     * Đặt cuối danh sách để mọi nơi khởi tạo bằng vị trí chỉ phải thêm vào cuối.
+     */
+    @Optional()
+    @Inject(PRODUCT_SYNC_TRIGGER)
+    private readonly productSync: ProductSyncTrigger | null = null,
   ) {}
 
   /**
@@ -121,6 +135,8 @@ export class PodTiktokAccountService {
       shopCount: shops.length,
       msg: 'Đã liên kết TikTok Shop account',
     });
+
+    this.startInitialProductSync(organizationId, accountId);
 
     return this.findOne(organizationId, accountId);
   }
@@ -404,6 +420,46 @@ export class PodTiktokAccountService {
     return (candidate || `TikTok Shop ${token.open_id}`).slice(0, 255);
   }
 
+  /**
+   * Đồng bộ sản phẩm lần đầu ngay sau khi liên kết — **chạy nền, không chờ**.
+   *
+   * 🔴 KHÔNG `await`. Lời gọi này nằm trên đường OAuth callback: TikTok chuyển hướng trình
+   * duyệt về đây và đang chờ một response. Một shop 100 sản phẩm là hơn 100 lời gọi TikTok —
+   * đủ để callback hết giờ và người dùng thấy trang lỗi trong khi liên kết ĐÃ thành công.
+   * Kết quả nằm ở `pod_product_sync_histories`, màn hình Sync History đọc từ đó.
+   *
+   * 🔴 Lỗi ở đây KHÔNG được làm hỏng việc liên kết. Token đã lưu, shop đã ghi — đó mới là
+   * thứ người dùng vừa làm. Sản phẩm chưa về được thì lượt theo lịch sẽ lấy tiếp.
+   *
+   * Dùng ĐÚNG `PodProductSyncService` mà scheduler và nút Sync thủ công đang dùng (qua token
+   * `PRODUCT_SYNC_TRIGGER`) — không có logic đồng bộ thứ hai.
+   */
+  private startInitialProductSync(organizationId: string, accountId: string): void {
+    // Không có cầu nối (vd test dựng module tối giản) ⇒ bỏ qua, liên kết vẫn thành công.
+    if (!this.productSync) return;
+
+    void this.productSync
+      .syncShops({ organizationId, accountId }, { trigger: 'MANUAL' })
+      .then(() => {
+        this.logger.log({
+          module: 'pod-tiktok',
+          operation: 'account.link.initial-sync',
+          organizationId,
+          accountId,
+          msg: 'Đã chạy đồng bộ sản phẩm lần đầu sau khi liên kết',
+        });
+      })
+      .catch((error: unknown) => {
+        this.logger.error({
+          module: 'pod-tiktok',
+          operation: 'account.link.initial-sync.fail',
+          organizationId,
+          accountId,
+          msg: error instanceof Error ? error.message : 'Lỗi không xác định',
+        });
+      });
+  }
+
   /** Bước 3 — ghi DB nguyên tử: kết nối + shop + audit. */
   private async persistLink(
     organizationId: string,
@@ -463,7 +519,17 @@ export class PodTiktokAccountService {
             accountName: userProvidedName?.trim() ? writeData.accountName : existing.accountName,
           });
         } else {
-          const created = await this.repo.createAccount(tx, organizationId, actorUserId, writeData);
+          // 🔴 Kết nối MỚI do chính Seller liên kết ⇒ gán luôn cho họ. `PodAccessScopeService`
+          // lọc theo `seller_id`, nên bỏ bước này thì Seller liên kết xong sẽ KHÔNG thấy gian
+          // hàng, sản phẩm hay đơn của chính mình — chức năng coi như không dùng được.
+          //
+          // Chỉ áp dụng khi TẠO MỚI. Uỷ quyền lại (nhánh trên) giữ nguyên người phụ trách:
+          // Admin đã phân công cho ai thì một lần re-authorize không được âm thầm đổi chủ.
+          const sellerId = await this.repo.findSellerEmployeeIdByUser(organizationId, actorUserId);
+          const created = await this.repo.createAccount(tx, organizationId, actorUserId, {
+            ...writeData,
+            sellerId,
+          });
           accountId = created.id;
           action = PodTiktokTokenAction.ISSUE;
         }

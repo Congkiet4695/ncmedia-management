@@ -85,6 +85,13 @@ export function PublishProgressCard({
         {running && (
           <p className="text-xs text-muted-foreground">{t('listing.publish.backgroundHint')}</p>
         )}
+
+        {/* 🔴 Publish xong KHÔNG có nghĩa sản phẩm đã về hệ thống: đồng bộ được hẹn sau 5
+            phút để TikTok kịp hiển thị listing. Nói rõ ra, nếu không người dùng mở màn hình
+            Products thấy y nguyên và tưởng publish hỏng. */}
+        {!running && job.successItems > 0 && (
+          <p className="text-xs text-muted-foreground">{t('listing.publish.syncScheduledHint')}</p>
+        )}
         {job.lastError && <p className="text-sm text-destructive">{job.lastError}</p>}
       </CardContent>
     </Card>

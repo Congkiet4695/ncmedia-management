@@ -1,6 +1,8 @@
 import { apiClient } from '@/services/api-client';
+import { FLASH_SALE_MAX_ADD_PER_CALL } from './types';
 import type { ApiResponse } from '@/types/api';
 import type {
+  PodFlashSalePublishStatus,
   AddFlashSaleItemPayload,
   ApplyFlashSaleTemplatePayload,
   BatchUpdateFlashSaleItemsPayload,
@@ -104,6 +106,39 @@ export const podFlashSaleService = {
     const res = await apiClient.post<ApiResponse<PodFlashSaleDetail>>(`${BASE}/${id}/items`, {
       items,
     });
+    return res.data.data;
+  },
+
+  /**
+   * Thêm sản phẩm, tự chia thành nhiều request khi danh sách dài.
+   *
+   * 🔴 `FLASH_SALE_MAX_ADD_PER_CALL` là trần KÍCH THƯỚC MỘT REQUEST, không phải trần số
+   * sản phẩm được chọn. Người dùng chọn 3.000 sản phẩm thì đây chia thành 3 lượt gọi —
+   * chặn ở ô chọn là nhầm lẫn đúng loại đã khiến hệ thống dừng ở 300 SKU.
+   *
+   * Tuần tự chứ không song song: mỗi lượt ghi vào cùng một đợt sale và trả về bản chi tiết
+   * MỚI NHẤT — bắn song song thì bản trả về cuối cùng là bản nào là chuyện may rủi.
+   */
+  async addItemsInChunks(
+    id: string,
+    items: AddFlashSaleItemPayload[],
+  ): Promise<PodFlashSaleDetail> {
+    let detail: PodFlashSaleDetail | null = null;
+    for (let index = 0; index < items.length; index += FLASH_SALE_MAX_ADD_PER_CALL) {
+      detail = await podFlashSaleService.addItems(
+        id,
+        items.slice(index, index + FLASH_SALE_MAX_ADD_PER_CALL),
+      );
+    }
+    if (!detail) throw new Error('Danh sách sản phẩm rỗng');
+    return detail;
+  },
+
+  /** Tiến độ lượt publish — payload nhẹ, dùng cho polling khi đợt sale đang PUBLISHING. */
+  async publishStatus(id: string): Promise<PodFlashSalePublishStatus> {
+    const res = await apiClient.get<ApiResponse<PodFlashSalePublishStatus>>(
+      `${BASE}/${id}/publish-status`,
+    );
     return res.data.data;
   },
 

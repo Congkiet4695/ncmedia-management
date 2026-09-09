@@ -2,7 +2,11 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { podProductService } from '../services/pod-product.service';
-import type { PodProductQuery, PodProductSyncPayload } from '../types';
+import type {
+  PodProductQuery,
+  PodProductSyncPayload,
+  PodProductVariantQuery,
+} from '../types';
 
 const POD_PRODUCT_KEY = 'pod-products';
 
@@ -11,6 +15,23 @@ export function usePodProducts(query: PodProductQuery) {
     queryKey: [POD_PRODUCT_KEY, 'list', query],
     queryFn: () => podProductService.list(query),
     placeholderData: keepPreviousData,
+  });
+}
+
+/**
+ * Danh sách SKU có phân trang.
+ *
+ * `keepPreviousData` để bảng không nháy trắng khi lật trang — người dùng đang tick chọn,
+ * một khoảng trống giữa hai trang khiến họ tưởng mất lựa chọn.
+ *
+ * `enabled` để bộ chọn ở chế độ Per Product không gọi endpoint này một cách vô ích.
+ */
+export function usePodProductVariants(query: PodProductVariantQuery, enabled = true) {
+  return useQuery({
+    queryKey: [POD_PRODUCT_KEY, 'variants', query],
+    queryFn: () => podProductService.listVariants(query),
+    placeholderData: keepPreviousData,
+    enabled,
   });
 }
 

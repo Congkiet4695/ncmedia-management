@@ -16,12 +16,17 @@ import { TiktokProductApiService } from '../../tiktok-sdk/tiktok-product-api.ser
 import type { TiktokProductSummary } from '../../tiktok-sdk/types/tiktok-product.types';
 import type { TiktokShopContext } from '../../tiktok-sdk/types/tiktok-shop-context.type';
 import {
+  POD_PRODUCT_SYNC_REQUEUE_DELAY_MS,
+  POD_PRODUCT_SYNC_PUBLISH_MAX_WAIT_MS,
+  POD_PRODUCT_SYNC_PUBLISH_DELAY_MS,
+  POD_PRODUCT_SYNC_DUE_BATCH,
   POD_PRODUCT_ACTIVE_STATUS,
   POD_PRODUCT_DETAIL_CONCURRENCY,
   POD_PRODUCT_SYNC_LOCK_PREFIX,
   POD_PRODUCT_SYNC_LOCK_TTL_MS,
   POD_PRODUCT_SYNC_OVERLAP_SECONDS,
 } from '../constants/pod-product.constants';
+import { PodProductSyncQueue } from './pod-product-sync.queue';
 import { PodProductMapper } from '../mappers/pod-product.mapper';
 import { PodProductRepository } from '../repositories/pod-product.repository';
 import {
@@ -113,6 +118,8 @@ export class PodProductSyncService {
     private readonly tokenService: PodTiktokTokenService,
     private readonly encryption: TiktokEncryptionService,
     private readonly lock: DistributedLockService,
+    /** Hàng đợi hoãn theo shop — đặt cuối để mọi nơi khởi tạo bằng vị trí chỉ thêm vào cuối. */
+    private readonly queue: PodProductSyncQueue,
   ) {}
 
   /**
@@ -120,8 +127,92 @@ export class PodProductSyncService {
    * Chạy TUẦN TỰ theo shop: quota TikTok tính theo App × Shop và dùng chung cho mọi
    * tenant — bung song song là tự làm nghẽn chính mình.
    */
+  /**
+   * Hẹn đồng bộ sản phẩm cho MỘT shop sau `POD_PRODUCT_SYNC_PUBLISH_DELAY_MS`.
+   *
+   * 🔴 Đây là cửa DUY NHẤT để đặt lịch đồng bộ hoãn. Nó không chạy gì cả — chỉ ghi một dòng
+   * vào hàng đợi Redis; `PodProductSyncJob` mới là nơi lấy ra và gọi `syncShops`. Nhờ vậy
+   * luồng publish trả về ngay, không giữ request nào sống 5 phút.
+   *
+   * 🔴 Phạm vi đúng MỘT shop: nơi gọi truyền `shopId` của chính listing vừa publish, và
+   * tick sau cũng chỉ gọi `syncShops({ shopId })` — không có đường nào dẫn tới toàn cục.
+   *
+   * Lỗi Redis KHÔNG ném ra ngoài: publish đã thành công, mất một lần hẹn không được phép
+   * biến thành publish thất bại. Lượt theo lịch vẫn quét tới sau đó.
+   */
+  async scheduleShopSync(shopId: string): Promise<Date | null> {
+    try {
+      const dueAt = await this.queue.schedule(
+        shopId,
+        POD_PRODUCT_SYNC_PUBLISH_DELAY_MS,
+        POD_PRODUCT_SYNC_PUBLISH_MAX_WAIT_MS,
+      );
+      this.logger.log({
+        module: 'pod-product',
+        operation: 'sync.schedule',
+        shopId,
+        dueAt: dueAt.toISOString(),
+        msg: 'Đã hẹn đồng bộ sản phẩm cho shop sau khi publish listing',
+      });
+      return dueAt;
+    } catch (error) {
+      this.logger.error({
+        module: 'pod-product',
+        operation: 'sync.schedule.fail',
+        shopId,
+        msg: error instanceof Error ? error.message : 'Lỗi không xác định',
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Chạy các lượt đồng bộ ĐẾN HẠN trong hàng đợi hoãn. Gọi bởi `PodProductSyncJob`.
+   *
+   * 🔴 Mỗi shop MỘT lượt `syncShops({ shopId })` riêng. Không gom chung: một shop hỏng
+   * (token chết) không được kéo theo các shop còn lại, và mỗi shop cần dòng lịch sử riêng.
+   */
+  async runDueShopSyncs(): Promise<{ shops: number; failed: number }> {
+    const shopIds = await this.queue.claimDue(POD_PRODUCT_SYNC_DUE_BATCH);
+    if (shopIds.length === 0) return { shops: 0, failed: 0 };
+
+    let failed = 0;
+    for (const shopId of shopIds) {
+      try {
+        // 🔴 `{ shopId }` — đúng một shop. KHÔNG truyền `organizationId`: tenant lấy từ chính
+        // bản ghi shop trong `findSyncTargets` (nguyên tắc P5 của tiến trình nền), nên không
+        // có đường nào chạm sang tổ chức khác.
+        const outcomes = await this.syncShops(
+          { shopId },
+          { trigger: PodProductSyncTrigger.SCHEDULER },
+        );
+        if (outcomes.some((outcome) => outcome.status === PodProductSyncStatus.FAILED)) {
+          failed += 1;
+          await this.queue.requeue(shopId, POD_PRODUCT_SYNC_REQUEUE_DELAY_MS);
+        }
+      } catch (error) {
+        failed += 1;
+        await this.queue.requeue(shopId, POD_PRODUCT_SYNC_REQUEUE_DELAY_MS);
+        this.logger.error({
+          module: 'pod-product',
+          operation: 'sync.due.fail',
+          shopId,
+          msg: error instanceof Error ? error.message : 'Lỗi không xác định',
+        });
+      }
+    }
+
+    return { shops: shopIds.length, failed };
+  }
+
   async syncShops(
-    filter: { organizationId?: string; accountId?: string; shopId?: string },
+    filter: {
+      organizationId?: string;
+      accountId?: string;
+      shopId?: string;
+      /** Hàng rào phạm vi shop của người dùng — xem `findSyncTargets`. */
+      shopIds?: string[];
+    },
     options: SyncOptions,
   ): Promise<ProductSyncOutcome[]> {
     const targets = await this.syncRepo.findSyncTargets(filter);

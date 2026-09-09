@@ -175,7 +175,8 @@
       "itemsDeleted": "Đã xoá dòng đã chọn",
       "itemSaved": "Đã lưu dòng sản phẩm",
       "batchApplied": "Đã áp thay đổi cho {{count}} dòng",
-      "templateSaved": "Đã lưu Template"
+      "templateSaved": "Đã lưu Template",
+      "publishStarted": "Đã bắt đầu đẩy lên TikTok — {{count}} lô đang được gửi nền."
     },
     "form": {
       "shop": "Shop",
@@ -221,7 +222,10 @@
       "warningsTitle": "{{count}} cảnh báo",
       "lastErrorTitle": "Lần Publish gần nhất thất bại (mã {{code}}, lần thử {{attempt}})",
       "publishBlocked": "Còn lỗi chưa xử lý — xem danh sách phía trên.",
-      "syncHint": "Đọc lại trạng thái từ TikTok. Đây là nút DUY NHẤT trên màn hình gọi tới sàn."
+      "syncHint": "Đọc lại trạng thái từ TikTok. Đây là nút DUY NHẤT trên màn hình gọi tới sàn.",
+      "itemQuota": "SKU đã chọn: {{total, number}} / {{max, number}}",
+      "issueAffected": "— {{count}} SKU",
+      "issueSamples": "Xem ví dụ"
     },
     "items": {
       "empty": "Chưa có sản phẩm nào. Bấm Thêm sản phẩm để bắt đầu.",
@@ -256,7 +260,10 @@
       "sku": "SKU",
       "price": "Giá",
       "status": "Trạng thái",
-      "alreadyAdded": "Đã có trong đợt sale"
+      "alreadyAdded": "Đã có trong đợt sale",
+      "titleSku": "Thêm SKU",
+      "searchSkuPlaceholder": "Tìm sản phẩm, biến thể hoặc SKU…",
+      "skuColumn": "Sản phẩm / Biến thể"
     },
     "batch": {
       "title": "Sửa hàng loạt {{count}} dòng",
@@ -302,6 +309,17 @@
       "DEACTIVATE": "Huỷ trên TikTok",
       "SYNC_STATUS": "Đồng bộ trạng thái",
       "VALIDATE": "Kiểm tra dữ liệu"
+    },
+    "publish": {
+      "running": "Đang đẩy lên TikTok…",
+      "completed": "Đã đẩy lên TikTok",
+      "failed": "Đẩy lên TikTok thất bại",
+      "batchProgress": "{{done}} / {{total}} lô",
+      "itemsDone": "{{count}} SKU đã được nhận",
+      "itemsPending": "{{count}} SKU còn lại",
+      "activityId": "Khuyến mãi {{id}}",
+      "failedAtBatch": "Dừng ở lô {{batch}}/{{total}}. {{message}} Bấm Retry sẽ gửi tiếp trên CÙNG khuyến mãi — không tạo khuyến mãi thứ hai.",
+      "asyncHint": "Sản phẩm được gửi lên TikTok theo từng lô tối đa 300 SKU. Bạn có thể rời khỏi trang, quá trình vẫn chạy nền."
     }
   },
   "link": {
@@ -912,18 +930,19 @@
     },
     "publish": {
       "all": "Publish All",
-      "selected": "Publish Selected ({{count}})",
-      "one": "Publish",
-      "retryOne": "Publish lại",
-      "retryFailed": "Chạy lại phần lỗi",
-      "selectAll": "Chọn mọi draft đủ điều kiện publish",
+      "backgroundHint": "Đóng màn hình được — lượt chạy vẫn tiếp tục ở nền.",
       "confirmAll": "Publish mọi Draft đủ điều kiện theo bộ lọc hiện tại? Hàng sẽ được gửi lên TikTok chờ duyệt.",
       "confirmSelected": "Publish {{count}} Draft? Hàng sẽ được gửi lên TikTok chờ duyệt.",
-      "started": "Đã đưa {{count}} listing vào hàng đợi publish",
-      "skipped": "Bỏ qua {{count}} — ví dụ: {{reason}}",
+      "one": "Publish",
       "progressTitle": "Đang publish… {{done}} / {{total}}",
+      "retryFailed": "Chạy lại phần lỗi",
+      "retryOne": "Publish lại",
+      "selectAll": "Chọn mọi draft đủ điều kiện publish",
+      "selected": "Publish Selected ({{count}})",
+      "skipped": "Bỏ qua {{count}} — ví dụ: {{reason}}",
+      "started": "Đã đưa {{count}} listing vào hàng đợi publish",
       "successFailed": "Thành công: {{success}} · Thất bại: {{failed}}",
-      "backgroundHint": "Đóng màn hình được — lượt chạy vẫn tiếp tục ở nền."
+      "syncScheduledHint": "Sản phẩm của shop vừa publish sẽ được đồng bộ sau khoảng 5 phút."
     }
   },
   "orderDetail": {

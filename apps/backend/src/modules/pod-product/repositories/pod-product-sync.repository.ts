@@ -73,6 +73,17 @@ export class PodProductSyncRepository {
     organizationId?: string;
     accountId?: string;
     shopId?: string;
+    /**
+     * 🔴 Giới hạn theo phạm vi shop của NGƯỜI DÙNG (`PodAccessScopeService`).
+     *
+     * Khác hẳn `shopId`: `shopId` là bộ lọc do người dùng CHỌN, còn đây là hàng rào người
+     * dùng KHÔNG chọn được. Không có nó, một Seller bấm "Sync Now" mà bỏ trống bộ lọc sẽ
+     * quét toàn bộ shop của tổ chức — kể cả những shop chưa từng được gán cho họ.
+     *
+     * `undefined` = không giới hạn (Admin, hoặc tiến trình nền). Mảng RỖNG là hợp lệ và có
+     * nghĩa "không được phép chạm shop nào" — không phải "không lọc".
+     */
+    shopIds?: string[];
   }): Promise<ProductSyncTarget[]> {
     return this.prisma.podTiktokShop.findMany({
       where: {
@@ -81,6 +92,7 @@ export class PodProductSyncRepository {
         ...(params.organizationId ? { organizationId: params.organizationId } : {}),
         ...(params.accountId ? { accountId: params.accountId } : {}),
         ...(params.shopId ? { id: params.shopId } : {}),
+        ...(params.shopIds ? { id: { in: params.shopIds } } : {}),
         account: { deletedAt: null, status: PodTiktokAccountStatus.ACTIVE },
       },
       select: SYNC_TARGET_SELECT,

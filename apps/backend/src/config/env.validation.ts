@@ -133,9 +133,11 @@ export const envValidationSchema = Joi.object({
   TIKTOK_TOKEN_REFRESH_BEFORE_SECONDS: Joi.number().integer().min(60).max(604800).default(86400),
 
   // --- Đồng bộ sản phẩm (Sprint Product) ---
-  TIKTOK_PRODUCT_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  // 🔴 Mặc định BẬT: đây là cơ chế duy nhất phát hiện sản phẩm Seller vừa tạo trên TikTok.
+  // Joi chạy TRƯỚC `configuration()` và ghi giá trị mặc định vào env, nên default phải sửa ở
+  // ĐÂY mới có tác dụng — đặt ở `configuration()` thôi là không bao giờ chạm tới.
+  TIKTOK_PRODUCT_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   TIKTOK_PRODUCT_SYNC_CRON: Joi.string().default('0 */6 * * *'),
-  TIKTOK_PRODUCT_SYNC_INCLUDE_CATALOG: Joi.boolean().truthy('true').falsy('false').default(false),
 
   // --- Trạng thái duyệt listing (Sprint Publish) ---
   TIKTOK_LISTING_REVIEW_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),

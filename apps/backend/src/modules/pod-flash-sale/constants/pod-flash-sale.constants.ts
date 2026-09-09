@@ -53,6 +53,21 @@ export const FLASH_SALE_MIN_PRICE = 0.01;
 export const FLASH_SALE_MIN_DISCOUNT_PERCENT = 0;
 export const FLASH_SALE_MAX_DISCOUNT_PERCENT = 100;
 
+/**
+ * % giảm MẶC ĐỊNH của một dòng vừa được thêm vào đợt sale.
+ *
+ * 🔴 Trước đây dòng mới mặc định **0%** — hợp lệ với database nhưng KHÔNG hợp lệ để publish
+ * (0% không phải khuyến mãi, xem BR-04). Hệ quả: thêm 600 SKU là sinh ra đúng 600 lỗi
+ * "% giảm phải nằm trong khoảng (0, 100)", và người dùng phải sửa tay từng dòng trước khi
+ * publish được. Một giá trị mặc định HỢP LỆ khiến đợt sale sẵn sàng ngay sau khi chọn hàng.
+ *
+ * 🔴 Áp ĐỘC LẬP cho từng SKU, tính từ giá gốc RIÊNG của SKU đó — không phải một giá deal
+ * chung lấy theo SKU rẻ nhất. $10 và $20 cùng giảm 10% ra $9.00 và $18.00.
+ *
+ * Người dùng đổi được từng dòng sau đó (Edit / Batch Update).
+ */
+export const FLASH_SALE_DEFAULT_DISCOUNT_PERCENT = 10;
+
 /** Số chữ số thập phân của giá tiền gửi lên sàn. */
 export const FLASH_SALE_PRICE_SCALE = 2;
 /** Số chữ số thập phân của % giảm (khớp `Decimal(7,4)` trong schema). */
@@ -78,12 +93,108 @@ export const FLASH_SALE_MIN_DURATION_MINUTES = 15;
 // Kích thước
 // ---------------------------------------------------------------------------
 
-/** Số dòng tối đa của MỘT đợt Flash Sale (bằng trần một lần gọi của TikTok). */
-export const FLASH_SALE_MAX_ITEMS = 300;
-/** Số sản phẩm tối đa được thêm trong MỘT lần bấm "Add Products". */
-export const FLASH_SALE_MAX_ADD_PER_CALL = 100;
-/** Số dòng tối đa của một lần Batch Update / Batch Delete. */
-export const FLASH_SALE_MAX_BATCH_ITEMS = 300;
+/**
+ * Số dòng tối đa của MỘT đợt Flash Sale.
+ *
+ * 🔴 **Đây KHÔNG phải trần của TikTok.** Hai con số hoàn toàn khác nhau, trước đây bị nhập
+ * làm một và đó chính là lý do hệ thống dừng ở 300:
+ *
+ * ```
+ *   FLASH_SALE_MAX_ITEMS                  = 10.000  ← trần LỰA CHỌN của hệ thống (số này)
+ *   TIKTOK_ACTIVITY_MAX_SKUS_PER_CALL     =    300  ← trần MỘT LƯỢT GỌI của TikTok
+ * ```
+ *
+ * TikTok giới hạn 300 mục **cho mỗi request** Update Activity Products, không giới hạn tổng
+ * số SKU của một hoạt động khuyến mãi. Nên 10.000 SKU vẫn nằm trong ĐÚNG MỘT hoạt động, chỉ
+ * là được gửi lên qua 34 lượt gọi (xem `chunkActivityProducts`). Đặt trần chọn bằng trần gọi
+ * là tự bắt người vận hành tạo 34 đợt sale rời rạc cho một chiến dịch duy nhất.
+ *
+ * Đổi con số này KHÔNG được đổi trần một lượt gọi, và ngược lại.
+ */
+export const FLASH_SALE_MAX_ITEMS = 10_000;
+/** Số dòng tối thiểu để một đợt sale có nghĩa. */
+export const FLASH_SALE_MIN_ITEMS = 1;
+/**
+ * Số dòng tối đa của MỘT request "Add Products".
+ *
+ * Trần của **kích thước một request HTTP**, không phải trần của đợt sale: chọn 10.000 SKU
+ * thì giao diện tự chia thành nhiều lượt gọi. Giữ ở mức vừa phải để một request không phình
+ * tới hàng chục MB (mỗi dòng mang giá, giới hạn mua và ba định danh phía sàn).
+ */
+export const FLASH_SALE_MAX_ADD_PER_CALL = 1_000;
+/** Số dòng tối đa của một lần Batch Update / Batch Delete — cùng lý do như trên. */
+export const FLASH_SALE_MAX_BATCH_ITEMS = 1_000;
+
+/**
+ * Cỡ trang tối đa khi ĐỌC danh sách (dòng sản phẩm, nhật ký).
+ *
+ * 🔴 Tách khỏi `FLASH_SALE_MAX_ITEMS`. Trước đây cỡ trang dùng chung hằng số với trần số
+ * dòng — hai khái niệm không liên quan gì nhau, và khi trần số dòng lên 10.000 thì cỡ trang
+ * cũng lên theo, cho phép một request kéo về 10.000 bản ghi. Trần 100 khớp quy ước phân
+ * trang của toàn hệ thống (ADR-023, `PAGE_SIZE_OPTIONS` phía frontend).
+ */
+export const FLASH_SALE_PAGE_SIZE_MAX = 100;
+
+// ---------------------------------------------------------------------------
+// Lượt publish chạy nền
+// ---------------------------------------------------------------------------
+
+/**
+ * Khoá phân tán cho MỘT lượt publish.
+ *
+ * 🔴 `@nestjs/schedule` chạy trên mọi instance API và người dùng có thể bấm Publish hai lần.
+ * Khoá này là thứ bảo đảm đúng MỘT tiến trình đang đẩy sản phẩm của một đợt sale — không
+ * có nó, hai tiến trình cùng gửi cùng một lô lên cùng một hoạt động.
+ */
+export const FLASH_SALE_PUBLISH_LOCK_PREFIX = 'pod:flash-sale:publish:lock:';
+
+/**
+ * TTL của khoá publish, và nhịp gia hạn.
+ *
+ * TTL ngắn hơn tổng thời gian chạy là cố ý: tiến trình chết thì khoá tự hết hạn sau 2 phút
+ * và lượt quét nhặt lại được. Tiến trình còn sống thì watchdog gia hạn mỗi 30 giây, nên lượt
+ * chạy dài bao lâu cũng không bị mất khoá giữa chừng.
+ */
+export const FLASH_SALE_PUBLISH_LOCK_TTL_MS = 120_000;
+export const FLASH_SALE_PUBLISH_LOCK_RENEW_MS = 30_000;
+
+/**
+ * Sau bao lâu một đợt kẹt ở `PUBLISHING` được coi là mồ côi và cho phép chạy lại.
+ *
+ * Dài hơn TTL khoá rất nhiều: khoá hết hạn chỉ nói "không ai đang giữ", còn mốc này nói
+ * "chắc chắn không còn ai chạy". Đặt sát nhau là tự cướp việc của một lượt đang chạy chậm.
+ */
+export const FLASH_SALE_PUBLISH_STALE_MS = 15 * 60 * 1000;
+
+/** Số đợt publish mồ côi được nhặt lại trong MỘT lượt quét. */
+export const FLASH_SALE_PUBLISH_SWEEP_BATCH = 5;
+
+/**
+ * Số lần thử lại MỘT lô khi gặp lỗi TẠM THỜI (mạng chập, TikTok 5xx), và nhịp lùi.
+ *
+ * 🔴 Chỉ áp cho lỗi tạm thời. Lỗi vĩnh viễn (SKU sai, hết hạn uỷ quyền, tham số không hợp lệ)
+ * thử lại bao nhiêu lần cũng hỏng — thử lại chỉ làm chậm việc báo lỗi cho người vận hành và
+ * đốt thêm quota.
+ */
+export const FLASH_SALE_BATCH_MAX_RETRIES = 3;
+export const FLASH_SALE_BATCH_RETRY_BASE_MS = 1_000;
+export const FLASH_SALE_BATCH_RETRY_MAX_MS = 15_000;
+
+/**
+ * Thời gian chờ tối đa cho MỘT lượt Update Activity Products.
+ *
+ * 🔴 SDK của TikTok (thư mục `vendor/`) không đặt timeout cho từng request, và `fetch` của
+ * Node cũng không có mặc định. Một lượt gọi treo sẽ giữ khoá publish, chặn cả lượt quét, và
+ * đợt sale kẹt ở `PUBLISHING` cho tới khi có người để ý.
+ *
+ * 🔴 Đây là timeout của MỘT lượt gọi, KHÔNG phải cách chữa timeout của cả lượt publish.
+ * Vấn đề đó đã được giải bằng kiến trúc (request HTTP trả về ngay, các lô chạy nền) — nới
+ * một con số timeout thật to chỉ đẩy sự cố đi chỗ khác. 60 giây là rộng rãi cho một request
+ * mang 300 SKU và vẫn đủ chặt để phát hiện treo.
+ *
+ * Quá hạn được xếp vào lỗi TẠM THỜI ⇒ đi vào nhánh thử lại có lùi.
+ */
+export const FLASH_SALE_BATCH_TIMEOUT_MS = 60_000;
 
 // ---------------------------------------------------------------------------
 // Sắp xếp

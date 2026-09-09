@@ -38,8 +38,26 @@ export const FLASH_SALE_MIN_QUANTITY = 1;
 export const FLASH_SALE_MAX_QUANTITY = 99;
 /** TikTok giới hạn `title` 50 ký tự và yêu cầu duy nhất trong shop. */
 export const FLASH_SALE_MAX_NAME_LENGTH = 50;
-/** Số dòng tối đa của một đợt (trần một lần gọi của TikTok). */
-export const FLASH_SALE_MAX_ITEMS = 300;
+/**
+ * Số dòng tối đa của MỘT đợt Flash Sale — trần LỰA CHỌN của hệ thống.
+ *
+ * 🔴 **Không phải trần của TikTok.** TikTok giới hạn 300 mục cho mỗi *request* Update
+ * Activity Products, không giới hạn tổng số SKU của một hoạt động khuyến mãi. Backend chia
+ * 10.000 SKU thành 34 lượt gọi và gắn tất cả vào CÙNG MỘT hoạt động — nên giao diện không
+ * được chặn ở 300. Con số 300 không xuất hiện ở frontend, và không nên xuất hiện.
+ *
+ * Giữ khớp với `FLASH_SALE_MAX_ITEMS` phía backend (nơi kiểm tra có thẩm quyền).
+ */
+export const FLASH_SALE_MAX_ITEMS = 10_000;
+/** Số dòng tối thiểu để bấm Publish. */
+export const FLASH_SALE_MIN_ITEMS = 1;
+/**
+ * Số dòng tối đa gửi trong MỘT request "Add Products".
+ *
+ * Trần kích thước request, không phải trần lựa chọn: chọn nhiều hơn thì giao diện tự chia
+ * thành nhiều lượt gọi (xem `addItemsInChunks`).
+ */
+export const FLASH_SALE_MAX_ADD_PER_CALL = 1_000;
 
 export interface PodFlashSaleShopRef {
   id: string;
@@ -184,12 +202,18 @@ export interface PodFlashSaleTemplate {
 
 export interface PodFlashSalePublishResult {
   flashSaleId: string;
+  /** `PUBLISHING` = hoạt động đã tạo, các lô đang được gửi nền. Theo dõi qua publish-status. */
   status: PodFlashSaleStatus;
+  /** `activity_id` — có NGAY, mọi lô đều gắn vào đúng id này. */
   providerFlashSaleId: string | null;
   publishedItems: number;
   skippedItems: number;
   errorCode: string | null;
   errorMessage: string | null;
+  totalItems: number;
+  /** Mỗi lô là MỘT request tới TikTok, tối đa 300 SKU. */
+  totalBatches: number;
+  doneBatches: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,3 +302,30 @@ export interface PodFlashSaleTemplateQuery extends PaginationParams {
 export type PodFlashSaleListResult = Paginated<PodFlashSaleListItem>;
 export type PodFlashSaleLogResult = Paginated<PodFlashSaleLog>;
 export type PodFlashSaleTemplateResult = Paginated<PodFlashSaleTemplate>;
+
+/**
+ * Tiến độ lượt publish — trả bởi `GET /pod/flash-sales/:id/publish-status`.
+ *
+ * 🔴 Đây là SỰ THẬT của backend, không phải thanh tiến trình tự chạy ở trình duyệt.
+ * `doneBatches/totalBatches` là số lô đã thực sự được TikTok nhận.
+ */
+export interface PodFlashSalePublishStatus {
+  flashSaleId: string;
+  status: PodFlashSaleStatus;
+  providerFlashSaleId: string | null;
+  /** Còn đang chạy ⇒ tiếp tục hỏi lại. */
+  live: boolean;
+  totalItems: number | null;
+  totalBatches: number | null;
+  doneBatches: number | null;
+  currentBatch: number | null;
+  /** Khác null ⇒ đợt sale KHÔNG hoàn tất, còn lô chưa gửi. */
+  failedBatch: number | null;
+  publishedItems: number;
+  pendingItems: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+  errorRequestId: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+}

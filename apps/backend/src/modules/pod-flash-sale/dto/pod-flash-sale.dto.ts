@@ -20,9 +20,9 @@ import {
 } from 'class-validator';
 import { PodFlashSaleProductLevel, PodFlashSaleStatus } from '@prisma/client';
 import {
+  FLASH_SALE_PAGE_SIZE_MAX,
   FLASH_SALE_MAX_ADD_PER_CALL,
   FLASH_SALE_MAX_BATCH_ITEMS,
-  FLASH_SALE_MAX_ITEMS,
   FLASH_SALE_MAX_QUANTITY,
   FLASH_SALE_SORT_FIELDS,
   FLASH_SALE_TEMPLATE_SORT_FIELDS,
@@ -369,12 +369,12 @@ export class PodFlashSaleItemQueryDto {
   @Min(1)
   page?: number;
 
-  @ApiPropertyOptional({ default: 50, maximum: FLASH_SALE_MAX_ITEMS })
+  @ApiPropertyOptional({ default: 50, maximum: FLASH_SALE_PAGE_SIZE_MAX })
   @IsOptional()
   @Type(() => Number)
   @IsInt()
   @Min(1)
-  @Max(FLASH_SALE_MAX_ITEMS)
+  @Max(FLASH_SALE_PAGE_SIZE_MAX)
   limit?: number;
 
   @ApiPropertyOptional({ description: 'Tìm theo tên sản phẩm · SKU · TikTok Product ID.' })

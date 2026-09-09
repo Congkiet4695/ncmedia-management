@@ -5295,6 +5295,40 @@ model PodFlashSale {
   /// Số lần ĐÃ THỬ LẠI publish (không tính lần đầu).
   retryCount         Int     @default(0) @map("retry_count")
 
+  // -------------------------------------------------------------------------
+  // Tiến độ của lượt publish chạy NỀN
+  //
+  // 🔴 Vì sao cần: một đợt 10.000 SKU được gửi lên TikTok qua 34 lượt gọi. Request HTTP của
+  // người bấm nút trả về ngay sau khi hoạt động được tạo, nên đây là NƠI DUY NHẤT giao diện
+  // đọc được lượt chạy đang tới đâu. Không có mấy cột này thì "đang chạy" và "đã treo" nhìn
+  // giống hệt nhau.
+  //
+  // 🔴 KHÔNG có bảng batch riêng. Việc "lô nào đã xong" đã nằm ở `status` của từng dòng
+  // trong `pod_flash_sale_items` (`PUBLISHED` = TikTok đã nhận). Mấy cột dưới đây chỉ để
+  // HIỂN THỊ tiến độ; phần chạy lại đọc trạng thái dòng, không đọc số thứ tự lô — thành phần
+  // của một lô đổi khi người dùng sửa danh sách, còn trạng thái dòng thì không.
+  // -------------------------------------------------------------------------
+
+  /// Token của lượt publish hiện tại/gần nhất. Đổi mỗi lần bắt đầu một lượt mới — dùng để
+  /// một response cũ không ghi đè kết quả của lượt mới, và để log truy được về đúng lượt.
+  publishRunId String? @map("publish_run_id") @db.Uuid
+
+  /// Tổng số dòng và tổng số lô mà lượt hiện tại phải gửi. NULL = chưa từng publish.
+  publishTotalItems   Int? @map("publish_total_items")
+  publishTotalBatches Int? @map("publish_total_batches")
+  /// Số lô ĐÃ gửi thành công trong lượt hiện tại. Cùng `publishTotalBatches` tạo ra "12/34".
+  publishDoneBatches  Int? @map("publish_done_batches")
+  /// Số thứ tự lô đang gửi (1-based) — để giao diện nói được "đang xử lý lô 13".
+  publishCurrentBatch Int? @map("publish_current_batch")
+  /// Số thứ tự lô đã THẤT BẠI. NULL khi lượt chạy chưa hỏng lô nào.
+  publishFailedBatch  Int? @map("publish_failed_batch")
+
+  publishStartedAt   DateTime? @map("publish_started_at") @db.Timestamptz(6)
+  publishFinishedAt  DateTime? @map("publish_finished_at") @db.Timestamptz(6)
+  /// Nhịp tim của tiến trình đang chạy. Quá `FLASH_SALE_PUBLISH_STALE_MS` mà không nhích
+  /// nghĩa là tiến trình đã chết giữa chừng ⇒ lượt quét được phép nhặt lại.
+  publishHeartbeatAt DateTime? @map("publish_heartbeat_at") @db.Timestamptz(6)
+
   /// Template đã sinh ra đợt này (Duplicate/Apply Template). NULL = tạo tay.
   sourceTemplateId String? @map("source_template_id") @db.Uuid
 
@@ -5320,6 +5354,8 @@ model PodFlashSale {
   @@index([shopId, status])
   @@index([accountId])
   @@index([status, endAt])
+  /// Lượt quét tìm đợt kẹt ở PUBLISHING — lọc theo `status` rồi sắp theo nhịp tim.
+  @@index([status, publishHeartbeatAt])
   @@map("pod_flash_sales")
 }
 

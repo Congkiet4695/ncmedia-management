@@ -141,6 +141,14 @@ export class PodFlashSaleValidatorService {
     return issues;
   }
 
+  /**
+   * Trần số dòng của MỘT đợt sale.
+   *
+   * 🔴 Đây là trần của HỆ THỐNG (`FLASH_SALE_MAX_ITEMS`), **không phải** trần 300 mục cho
+   * mỗi lượt gọi của TikTok. Vượt 300 là hoàn toàn bình thường — bộ dựng payload chia thành
+   * nhiều lượt gọi và gắn tất cả vào cùng một hoạt động. Thông điệp ở đây từng nói "của
+   * TikTok" và chính câu đó là thứ khiến người đọc tin rằng 300 là giới hạn của sàn.
+   */
   private validateItemCount(flashSale: ValidatableFlashSale): PodFlashSaleIssueDto[] {
     const active = flashSale.items.filter((item) => item.status !== PodFlashSaleItemStatus.REMOVED);
     if (active.length <= FLASH_SALE_MAX_ITEMS) return [];
@@ -149,7 +157,7 @@ export class PodFlashSaleValidatorService {
         level: 'ERROR',
         code: FLASH_SALE_ISSUE_CODES.ITEM_LIMIT_EXCEEDED,
         field: 'items',
-        message: `Flash Sale có ${active.length} dòng, vượt trần ${FLASH_SALE_MAX_ITEMS} của TikTok.`,
+        message: `Flash Sale có ${active.length} dòng, vượt trần ${FLASH_SALE_MAX_ITEMS} dòng của một đợt.`,
       },
     ];
   }

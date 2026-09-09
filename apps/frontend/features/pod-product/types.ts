@@ -175,3 +175,36 @@ export interface PodProductSyncHistoryItem {
 }
 
 export type PodProductSyncHistoryResult = Paginated<PodProductSyncHistoryItem>;
+
+/**
+ * Một dòng SKU trong bộ chọn Flash Sale (`GET /pod/products/variants`).
+ *
+ * 🔴 Hẹp có chủ đích: bộ chọn có thể hiển thị hàng nghìn dòng, mỗi cột thừa là băng thông
+ * thật. Không mang `inventory`, `salesAttributes` hay kích thước.
+ */
+export interface PodProductVariantOption {
+  id: string;
+  productId: string;
+  productTitle: string | null;
+  variantName: string | null;
+  sellerSku: string | null;
+  tiktokSkuId: string;
+  /** Giá gốc backend sẽ dùng để tính giá deal: `salePrice`, lùi về `listPrice`. */
+  originalPrice: number | null;
+  currency: string | null;
+  imageUrl: string | null;
+  status: string | null;
+}
+
+export interface PodProductVariantQuery {
+  page?: number;
+  limit?: number;
+  search?: string;
+  shopId?: string;
+  productId?: string;
+}
+
+export interface PodProductVariantListResult {
+  items: PodProductVariantOption[];
+  meta: { total: number; page: number; limit: number; totalPages: number };
+}

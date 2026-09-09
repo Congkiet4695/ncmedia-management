@@ -14,6 +14,7 @@ import {
 } from '../../pod-tiktok/services/pod-access-scope.service';
 import { TIKTOK_ACTIVITY_MAX_TITLE_LENGTH } from '../../tiktok-sdk/tiktok-sdk.constants';
 import {
+  FLASH_SALE_LIVE_STATUSES,
   FLASH_SALE_EDITABLE_STATUSES,
   FLASH_SALE_MAX_ITEMS,
   POD_FLASH_SALE_PROVIDER_TIKTOK,
@@ -26,6 +27,7 @@ import type {
   UpdateFlashSaleDto,
 } from '../dto/pod-flash-sale.dto';
 import type {
+  PodFlashSalePublishStatusDto,
   PaginatedPodFlashSaleDto,
   PaginatedPodFlashSaleLogDto,
   PodFlashSaleDetailDto,
@@ -503,6 +505,74 @@ export class PodFlashSaleService {
   }
 
   /** Cập nhật `itemCount` sau mỗi lần thêm/xoá dòng — cột danh sách đọc thẳng cột này. */
+  /**
+   * Tiến độ lượt publish — truy vấn NHẸ dành riêng cho polling.
+   *
+   * 🔴 Không nạp danh sách dòng. Một đợt 10.000 SKU thì `getDetail` trả về vài MB; hỏi lại
+   * vài giây một lần trong suốt lượt publish là tự tạo ra một vấn đề lớn hơn vấn đề đang
+   * giải. Ở đây chỉ đọc mấy cột đếm cộng hai câu `count` có index.
+   *
+   * Vẫn đi qua kiểm tra phạm vi shop như mọi đường khác — nhẹ không có nghĩa là không canh.
+   */
+  async getPublishStatus(
+    organizationId: string,
+    id: string,
+    scope: PodAccessScope,
+  ): Promise<PodFlashSalePublishStatusDto> {
+    const row = await this.prisma.podFlashSale.findFirst({
+      where: { id, organizationId, deletedAt: null },
+      select: {
+        id: true,
+        shopId: true,
+        status: true,
+        providerFlashSaleId: true,
+        publishTotalItems: true,
+        publishTotalBatches: true,
+        publishDoneBatches: true,
+        publishCurrentBatch: true,
+        publishFailedBatch: true,
+        publishStartedAt: true,
+        publishFinishedAt: true,
+        lastErrorCode: true,
+        lastErrorMessage: true,
+        lastErrorRequestId: true,
+      },
+    });
+    if (!row) throw new PodFlashSaleNotFoundException();
+    this.accessScope.assertShopAllowed(scope, row.shopId);
+
+    const [publishedItems, pendingItems] = await Promise.all([
+      this.prisma.podFlashSaleItem.count({
+        where: { flashSaleId: id, status: PodFlashSaleItemStatus.PUBLISHED },
+      }),
+      this.prisma.podFlashSaleItem.count({
+        where: {
+          flashSaleId: id,
+          status: { notIn: [PodFlashSaleItemStatus.PUBLISHED, PodFlashSaleItemStatus.REMOVED] },
+        },
+      }),
+    ]);
+
+    return {
+      flashSaleId: row.id,
+      status: row.status,
+      providerFlashSaleId: row.providerFlashSaleId,
+      live: FLASH_SALE_LIVE_STATUSES.includes(row.status),
+      totalItems: row.publishTotalItems,
+      totalBatches: row.publishTotalBatches,
+      doneBatches: row.publishDoneBatches,
+      currentBatch: row.publishCurrentBatch,
+      failedBatch: row.publishFailedBatch,
+      publishedItems,
+      pendingItems,
+      errorCode: row.lastErrorCode,
+      errorMessage: row.lastErrorMessage,
+      errorRequestId: row.lastErrorRequestId,
+      startedAt: row.publishStartedAt?.toISOString() ?? null,
+      finishedAt: row.publishFinishedAt?.toISOString() ?? null,
+    };
+  }
+
   async refreshItemCount(
     flashSaleId: string,
     tx: Prisma.TransactionClient | PrismaService = this.prisma,

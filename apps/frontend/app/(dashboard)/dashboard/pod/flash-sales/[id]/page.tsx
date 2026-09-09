@@ -32,6 +32,12 @@ import {
 } from '@/features/pod-flash-sale/components/flash-sale-form';
 import { FlashSaleItemTable } from '@/features/pod-flash-sale/components/flash-sale-item-table';
 import { FlashSaleLogPanel } from '@/features/pod-flash-sale/components/flash-sale-log-panel';
+import { PublishProgressCard } from '@/features/pod-flash-sale/components/publish-progress-card';
+import {
+  groupIssues,
+  type GroupedIssue,
+} from '@/features/pod-flash-sale/issue-grouping';
+import { FLASH_SALE_MAX_ITEMS } from '@/features/pod-flash-sale/types';
 import { ProductSelectorDialog } from '@/features/pod-flash-sale/components/product-selector-dialog';
 import { SaveTemplateDialog } from '@/features/pod-flash-sale/components/save-template-dialog';
 import {
@@ -41,6 +47,7 @@ import {
   useDeleteFlashSaleItems,
   useDuplicateFlashSale,
   useFlashSale,
+  useFlashSalePublishStatus,
   usePublishFlashSale,
   useRetryFlashSale,
   useSaveFlashSaleTemplate,
@@ -93,6 +100,11 @@ function FlashSaleDetailView() {
   const batchUpdate = useBatchUpdateFlashSaleItems();
   const deleteItems = useDeleteFlashSaleItems();
   const publish = usePublishFlashSale();
+  // Chỉ hỏi tiến độ khi đợt sale đã từng chạy — DRAFT/READY thì không có gì để hỏi.
+  const publishStatus = useFlashSalePublishStatus(
+    id,
+    data?.status === 'PUBLISHING' || data?.status === 'FAILED' || data?.status === 'RUNNING',
+  );
   const retry = useRetryFlashSale();
   const cancel = useCancelFlashSale();
   const sync = useSyncFlashSale();
@@ -142,6 +154,10 @@ function FlashSaleDetailView() {
     () => data?.validation.issues.filter((issue) => issue.level === 'WARNING') ?? [],
     [data],
   );
+  // 🔴 Gom để HIỂN THỊ. `errors`/`warnings` ở trên vẫn giữ đủ từng bản ghi — bảng sản phẩm
+  // và các phép đếm khác đọc chúng, không đọc bản đã gom.
+  const errorGroups = useMemo(() => groupIssues(errors), [errors]);
+  const warningGroups = useMemo(() => groupIssues(warnings), [warnings]);
 
   const onError = (error: unknown): void => {
     toast.error(translateApiError(error));
@@ -263,9 +279,13 @@ function FlashSaleDetailView() {
               onClick={() => {
                 void retry
                   .mutateAsync({ id })
-                  .then((result) =>
-                    toast.success(t('flashSale.toast.published', { count: result.publishedItems })),
-                  )
+                  .then((result) => {
+                    // Retry gửi tiếp phần chưa lên sàn trên CÙNG hoạt động khuyến mãi.
+                    toast.success(
+                      t('flashSale.toast.publishStarted', { count: result.totalBatches }),
+                    );
+                    void publishStatus.refetch();
+                  })
                   .catch(onError);
               }}
             >
@@ -286,9 +306,14 @@ function FlashSaleDetailView() {
                 if (!window.confirm(t('flashSale.confirm.publish', { name: data.name }))) return;
                 void publish
                   .mutateAsync({ id })
-                  .then((result) =>
-                    toast.success(t('flashSale.toast.published', { count: result.publishedItems })),
-                  )
+                  .then((result) => {
+                    // 🔴 Publish trả về khi hoạt động khuyến mãi đã tạo, các lô còn đang gửi
+                    // nền. Báo "đã publish N dòng" ở đây là nói một kết quả chưa xảy ra.
+                    toast.success(
+                      t('flashSale.toast.publishStarted', { count: result.totalBatches }),
+                    );
+                    void publishStatus.refetch();
+                  })
                   .catch(onError);
               }}
             >
@@ -303,21 +328,26 @@ function FlashSaleDetailView() {
         </div>
       </div>
 
+      {/* --------------------------------------------------------------- Tiến độ Publish */}
+      {publishStatus.data && <PublishProgressCard status={publishStatus.data} />}
+
       {/* ------------------------------------------------------------------ Lỗi & cảnh báo */}
       {(errors.length > 0 || warnings.length > 0) && (
         <div className="space-y-2">
-          {errors.length > 0 && (
-            <IssueBox
+          {errorGroups.length > 0 && (
+            <GroupedIssueBox
               tone="error"
-              title={t('flashSale.detail.errorsTitle', { count: errors.length })}
-              issues={errors.map((issue) => issue.message)}
+              // 🔴 Đếm NHÓM, không đếm bản ghi: "3 vấn đề" là số thao tác sửa thật sự, còn
+              // "602 vấn đề" khiến người vận hành tưởng có 602 việc phải làm.
+              title={t('flashSale.detail.errorsTitle', { count: errorGroups.length })}
+              groups={errorGroups}
             />
           )}
-          {warnings.length > 0 && (
-            <IssueBox
+          {warningGroups.length > 0 && (
+            <GroupedIssueBox
               tone="warning"
-              title={t('flashSale.detail.warningsTitle', { count: warnings.length })}
-              issues={warnings.map((issue) => issue.message)}
+              title={t('flashSale.detail.warningsTitle', { count: warningGroups.length })}
+              groups={warningGroups}
             />
           )}
         </div>
@@ -361,6 +391,15 @@ function FlashSaleDetailView() {
           <div className="flex flex-wrap items-center justify-between gap-2">
             <div>
               <h2 className="font-semibold">{t('flashSale.detail.itemsSection')}</h2>
+              <p className="text-xs text-muted-foreground">
+                {/* 🔴 Trần hiển thị là trần LỰA CHỌN của hệ thống (10.000), KHÔNG phải trần
+                    300 mục của một lượt gọi TikTok. Việc chia lô là chuyện của backend và
+                    người vận hành không cần biết tới nó khi đang chọn hàng. */}
+                {t('flashSale.detail.itemQuota', {
+                  total: data.counts.TOTAL,
+                  max: FLASH_SALE_MAX_ITEMS,
+                })}
+              </p>
               <p className="text-xs text-muted-foreground">
                 {t('flashSale.detail.itemCounts', {
                   total: data.counts.TOTAL,
@@ -457,7 +496,14 @@ function FlashSaleDetailView() {
         open={selectorOpen}
         onClose={() => setSelectorOpen(false)}
         shopId={data.shop.id}
+        // Mức áp dụng quyết định ĐƠN VỊ được chọn: sản phẩm hay từng SKU.
+        productLevel={data.productLevel}
         existingProductIds={data.items.map((item) => item.productId)}
+        // 🔴 Ở chế độ SKU phải so theo `variantId`: một sản phẩm đã có "Black / S" trong đợt
+        // sale vẫn còn "Black / M" chưa thêm — khoá cả sản phẩm là chặn nhầm.
+        existingVariantIds={data.items
+          .map((item) => item.variantId)
+          .filter((variantId): variantId is string => Boolean(variantId))}
         submitting={addItems.isPending}
         onSubmit={(items) => {
           void addItems
@@ -556,6 +602,79 @@ function IssueBox({
       <ul className="mt-1 list-inside list-disc space-y-0.5 text-xs text-muted-foreground">
         {issues.map((message, index) => (
           <li key={`${index}-${message}`}>{message}</li>
+        ))}
+      </ul>
+    </div>
+  );
+}
+
+/**
+ * Khối lỗi đã GOM NHÓM.
+ *
+ * 🔴 600 dòng "% giảm phải nằm trong khoảng (0, 100)" trở thành MỘT dòng kèm "600 SKU".
+ * Danh sách 600 dòng giống hệt không nói thêm được điều gì, mà lại che mất hai lỗi thật sự
+ * khác nằm lẫn bên trong.
+ *
+ * 🔴 Chỉ TẦNG HIỂN THỊ gom lại — `data.validation.issues` vẫn giữ đủ từng bản ghi kèm
+ * `itemId`, nên bảng sản phẩm bên dưới vẫn chỉ ra chính xác dòng nào hỏng. Nhóm có nhiều
+ * câu chữ khác nhau thì mở ra xem được vài ví dụ.
+ */
+function GroupedIssueBox({
+  tone,
+  title,
+  groups,
+}: {
+  tone: 'error' | 'warning';
+  title: string;
+  groups: GroupedIssue[];
+}) {
+  const { t } = useTranslation('pod');
+  const isError = tone === 'error';
+
+  return (
+    <div
+      className={
+        isError
+          ? 'rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2'
+          : 'rounded-md border border-amber-500/40 bg-amber-500/5 px-3 py-2'
+      }
+    >
+      <p
+        className={
+          isError
+            ? 'flex items-center gap-2 text-sm font-medium text-destructive'
+            : 'flex items-center gap-2 text-sm font-medium text-amber-600 dark:text-amber-400'
+        }
+      >
+        <AlertTriangle className="size-4" />
+        {title}
+      </p>
+      <ul className="mt-1 space-y-1 text-xs text-muted-foreground">
+        {groups.map((group) => (
+          <li key={group.key}>
+            <div className="flex flex-wrap items-baseline gap-x-2">
+              <span>• {group.message}</span>
+              {/* Số dòng bị ảnh hưởng — thứ mà một danh sách lặp 600 lần không nói rõ được. */}
+              {group.affectedItems > 0 && (
+                <span className="tabular-nums opacity-70">
+                  {t('flashSale.detail.issueAffected', { count: group.affectedItems })}
+                </span>
+              )}
+            </div>
+            {/* Nhiều câu chữ khác nhau trong cùng một mã ⇒ cho xem vài ví dụ cụ thể. */}
+            {group.samples.length > 1 && (
+              <details className="ml-3 mt-0.5">
+                <summary className="cursor-pointer opacity-70">
+                  {t('flashSale.detail.issueSamples')}
+                </summary>
+                <ul className="ml-3 list-inside list-disc space-y-0.5 pt-0.5">
+                  {group.samples.map((sample, index) => (
+                    <li key={`${group.key}-${index}`}>{sample}</li>
+                  ))}
+                </ul>
+              </details>
+            )}
+          </li>
         ))}
       </ul>
     </div>

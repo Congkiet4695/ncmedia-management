@@ -15,7 +15,9 @@
     "format": "prettier --write \"**/*.{ts,tsx,css,md}\"",
     "typecheck": "tsc --noEmit",
     "test:pagination": "node --experimental-strip-types scripts/verify-pagination.ts",
-    "check:i18n": "node scripts/check-i18n.mjs"
+    "check:i18n": "node scripts/check-i18n.mjs",
+    "test:issues": "node --experimental-strip-types scripts/verify-issue-grouping.ts",
+    "test:selection": "node --experimental-strip-types scripts/verify-selection.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

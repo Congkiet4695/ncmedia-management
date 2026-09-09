@@ -7,12 +7,14 @@ import {
 } from '../../pod-tiktok/shared/shop-identity';
 import { POD_PRODUCT_ACTIVE_STATUS } from '../constants/pod-product.constants';
 import type {
+  PaginatedPodProductVariantDto,
   PaginatedPodProductResponseDto,
   PaginatedPodProductSyncHistoryDto,
   PodProductDetailDto,
   PodProductSyncResultDto,
 } from '../dto/pod-product-response.dto';
 import type {
+  PodProductVariantQueryDto,
   PodProductQueryDto,
   PodProductSyncHistoryQueryDto,
   TriggerProductSyncDto,
@@ -92,6 +94,56 @@ export class PodProductService {
     };
   }
 
+  /**
+   * Danh sách SKU có phân trang — nguồn của bộ chọn SKU ở Flash Sale (`Per Variant`).
+   *
+   * 🔴 Phạm vi shop được áp ở HAI chỗ, cố ý: `assertShopAllowed` cho bộ lọc người dùng gửi
+   * lên (403 rõ ràng thay vì danh sách rỗng khó hiểu), và `shopScope` cho trường hợp không
+   * gửi bộ lọc nào.
+   */
+  async findVariants(
+    organizationId: string,
+    query: PodProductVariantQueryDto,
+    scope: PodAccessScope,
+  ): Promise<PaginatedPodProductVariantDto> {
+    this.accessScope.assertShopAllowed(scope, query.shopId);
+
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+
+    const { items, total } = await this.repo.findVariants(organizationId, {
+      page,
+      limit,
+      search: query.search,
+      shopId: query.shopId,
+      productId: query.productId,
+      shopScope: scope.allShops ? undefined : scope.shopIds,
+    });
+
+    return {
+      items: items.map((row) => ({
+        id: row.id,
+        productId: row.productId,
+        productTitle: row.product.title,
+        variantName: row.variantName,
+        sellerSku: row.sellerSku,
+        tiktokSkuId: row.tiktokSkuId,
+        // 🔴 Cùng luật chọn giá gốc với `PodFlashSaleItemService`: `salePrice` (giá ĐANG bán)
+        // trước, lùi về `listPrice`. Bộ chọn phải hiện ĐÚNG con số mà backend sẽ dùng để
+        // tính giá deal, nếu không người dùng thấy một giá và hệ thống tính theo giá khác.
+        originalPrice: row.salePrice
+          ? Number(row.salePrice)
+          : row.listPrice
+            ? Number(row.listPrice)
+            : null,
+        currency: row.currency,
+        imageUrl: row.imageUrl,
+        status: row.status,
+      })),
+      meta: { total, page, limit, totalPages: total === 0 ? 0 : Math.ceil(total / limit) },
+    };
+  }
+
   async findOne(
     organizationId: string,
     id: string,
@@ -112,17 +164,40 @@ export class PodProductService {
    * ngay. Với shop rất lớn, lượt chạy vẫn an toàn nhờ khoá theo shop + trần số trang;
    * khi quy mô tăng, chỉ cần chuyển lời gọi này sang hàng đợi mà KHÔNG đổi nghiệp vụ.
    */
+  /**
+   * "Sync Now" — đồng bộ thủ công.
+   *
+   * 🔴 **Bị chặn theo phạm vi shop của người bấm.** Trước đây hàm này nhận thẳng
+   * `accountId`/`shopId` từ request và không đi qua `PodAccessScopeService`, nên bỏ trống bộ
+   * lọc là quét MỌI shop của tổ chức. Đó là lý do quyền `pod.product.sync` từng phải giữ
+   * riêng cho Admin — không phải vì Seller không cần đồng bộ, mà vì đường này chưa an toàn
+   * để trao. Vá đúng chỗ đó rồi thì quyền mới trao được.
+   *
+   * Hai lớp, không gộp:
+   *  1. `assertShopAllowed` / `assertAccountAllowed` — bộ lọc người dùng GỬI LÊN phải nằm
+   *     trong phạm vi, nếu không trả 403 rõ ràng thay vì một kết quả rỗng khó hiểu.
+   *  2. `shopIds` — hàng rào cho trường hợp KHÔNG gửi bộ lọc nào.
+   */
   async triggerSync(
     organizationId: string,
     userId: string,
     dto: TriggerProductSyncDto,
+    scope: PodAccessScope,
   ): Promise<PodProductSyncResultDto> {
+    this.accessScope.assertAccountAllowed(scope, dto.accountId);
+    this.accessScope.assertShopAllowed(scope, dto.shopId);
     // 🔴 Cờ `includeCatalog` đã bị GỠ: nó cho phép bất kỳ Admin tổ chức nào ghi vào cây
     // danh mục / thương hiệu — dữ liệu nay dùng chung cho MỌI tổ chức. Đồng bộ master data
     // là việc của Super Admin (`POST /pod/master-data/sync`).
 
     const outcomes = await this.syncService.syncShops(
-      { organizationId, accountId: dto.accountId, shopId: dto.shopId },
+      {
+        organizationId,
+        accountId: dto.accountId,
+        shopId: dto.shopId,
+        // Admin (`allShops`) ⇒ không giới hạn. Seller ⇒ đúng những shop đã được gán.
+        shopIds: scope.allShops ? undefined : scope.shopIds,
+      },
       {
         trigger: PodProductSyncTrigger.MANUAL,
         triggeredBy: userId,

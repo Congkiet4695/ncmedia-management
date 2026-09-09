@@ -153,3 +153,47 @@ export class TriggerProductSyncDto {
   full?: boolean;
 
 }
+
+/**
+ * Lọc danh sách **BIẾN THỂ (SKU)** — dùng cho bộ chọn SKU của Flash Sale.
+ *
+ * 🔴 Vì sao cần một endpoint riêng thay vì lấy `variants` kèm trong danh sách sản phẩm: một
+ * shop POD có hàng chục nghìn SKU. Trả sản phẩm kèm toàn bộ biến thể rồi để giao diện tự cắt
+ * là kéo cả kho về trình duyệt — đúng thứ mà phân trang sinh ra để tránh. Ở đây ĐƠN VỊ phân
+ * trang chính là SKU, nên "20 dòng" luôn là 20 SKU, không phụ thuộc sản phẩm có mấy biến thể.
+ */
+export class PodProductVariantQueryDto {
+  @ApiPropertyOptional({ default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number;
+
+  @ApiPropertyOptional({ default: 20, maximum: 100 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number;
+
+  @ApiPropertyOptional({
+    description: 'Tìm theo Tên sản phẩm · Tên biến thể · Seller SKU · TikTok SKU ID',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(255)
+  search?: string;
+
+  @ApiPropertyOptional({ description: 'Giới hạn trong MỘT shop — bộ chọn Flash Sale luôn gửi.' })
+  @IsOptional()
+  @IsUUID()
+  shopId?: string;
+
+  @ApiPropertyOptional({ description: 'Chỉ biến thể của một sản phẩm.' })
+  @IsOptional()
+  @IsUUID()
+  productId?: string;
+}

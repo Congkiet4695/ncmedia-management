@@ -46,6 +46,7 @@ import {
   UpdateFlashSaleItemDto,
 } from './dto/pod-flash-sale.dto';
 import {
+  PodFlashSalePublishStatusDto,
   PaginatedPodFlashSaleDto,
   PaginatedPodFlashSaleLogDto,
   PodFlashSaleDetailDto,
@@ -136,6 +137,24 @@ export class PodFlashSaleController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<PodFlashSaleValidationDto> {
     return this.service.validate(user.organizationId, id, scope);
+  }
+
+  @Get(':id/publish-status')
+  @RequirePermissions(FLASH_SALE_PERMISSIONS.READ)
+  @ApiOperation({
+    summary: 'Tiến độ lượt publish (dùng cho polling)',
+    description:
+      'Payload NHẸ — không kèm danh sách dòng. Publish trả về ngay sau khi tạo hoạt động ' +
+      'khuyến mãi, các lô sản phẩm được gửi nền; đây là chỗ giao diện đọc "đang ở lô 12/34". ' +
+      'Hỏi lại khi `live = true`, dừng khi `live = false`.',
+  })
+  @ApiOkResponse({ type: PodFlashSalePublishStatusDto })
+  publishStatus(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<PodFlashSalePublishStatusDto> {
+    return this.service.getPublishStatus(user.organizationId, id, scope);
   }
 
   @Get(':id/logs')

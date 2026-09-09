@@ -67,6 +67,7 @@ import {
   PodWarehouseResolutionException,
   type ListingLogger,
 } from './pod-listing-publisher.service';
+import { PodProductSyncService } from '../../pod-product/services/pod-product-sync.service';
 import { PodListingValidatorService } from './pod-listing-validator.service';
 import { computeRetryDelayMs, runWithConcurrency } from './pod-listing.queue';
 
@@ -142,6 +143,12 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
   private stopping = false;
 
   constructor(
+    /**
+     * Đồng bộ sản phẩm — dùng ĐÚNG service hiện có (`PodProductSyncService`), không có
+     * bản sao nào. `PodListingModule` vốn đã import `PodProductModule` nên không phát
+     * sinh vòng phụ thuộc.
+     */
+    private readonly productSync: PodProductSyncService,
     private readonly prisma: PrismaService,
     private readonly listingTemplates: PodListingTemplateService,
     private readonly payloads: PodListingPayloadService,
@@ -878,6 +885,14 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
         errorCode: null,
         durationMs: Date.now() - startedAt,
       });
+
+      // 🔴 ĐÂY là ranh giới nghiệp vụ "publish thành công": TikTok đã nhận, payload đã
+      // chuyển sang PUBLISHED, item đã settle SUCCESS. Chỉ tới đây mới hẹn đồng bộ.
+      //
+      // Hẹn theo `item.shopId` — shop của CHÍNH listing vừa publish. Publish 50 listing của
+      // cùng một shop vẫn chỉ ra một lịch hẹn (khoá hàng đợi là shopId), và shop khác không
+      // bị đụng tới. Nhánh `catch` bên dưới KHÔNG hẹn gì: publish hỏng thì không đồng bộ.
+      await this.productSync.scheduleShopSync(item.shopId);
     } catch (error) {
       await this.handleItemFailure({
         organizationId,

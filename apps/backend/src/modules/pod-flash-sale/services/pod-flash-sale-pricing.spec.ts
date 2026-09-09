@@ -9,6 +9,7 @@ import {
   validateQuantityLimit,
 } from './pod-flash-sale-pricing';
 import {
+  FLASH_SALE_DEFAULT_DISCOUNT_PERCENT,
   FLASH_SALE_ISSUE_CODES,
   FLASH_SALE_MAX_QUANTITY,
   FLASH_SALE_UNLIMITED,
@@ -170,5 +171,66 @@ describe('formatPriceForProvider', () => {
     expect(formatPriceForProvider(D('20'))).toBe('20.00');
     expect(formatPriceForProvider(D('20.9'))).toBe('20.90');
     expect(formatPriceForProvider(D('20.994'))).toBe('20.99');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// % giảm MẶC ĐỊNH — mỗi SKU một giá deal riêng
+// ---------------------------------------------------------------------------
+
+describe('% giảm mặc định 10% — áp ĐỘC LẬP cho từng SKU', () => {
+  it('🔴 ví dụ của yêu cầu: $10/$12/$15/$20 giảm 10% ⇒ 9.00 / 10.80 / 13.50 / 18.00', () => {
+    // Bốn SKU khác giá ⇒ BỐN giá deal khác nhau. Lấy giá của SKU rẻ nhất áp cho cả nhóm là
+    // đúng thứ mà chế độ Per Variant sinh ra để tránh.
+    const deals = ['10.00', '12.00', '15.00', '20.00'].map(
+      (retail) =>
+        computeFlashSalePricing({
+          originalPrice: retail,
+          discountPercent: FLASH_SALE_DEFAULT_DISCOUNT_PERCENT,
+        })!.flashSalePrice.toFixed(2),
+    );
+
+    expect(deals).toEqual(['9.00', '10.80', '13.50', '18.00']);
+  });
+
+  it('mặc định là 10, không phải 0 — 0% không publish được', () => {
+    // Mặc định 0% cũ khiến MỌI dòng vừa thêm đều hỏng, sinh ra hàng trăm lỗi giống hệt nhau.
+    expect(FLASH_SALE_DEFAULT_DISCOUNT_PERCENT).toBe(10);
+    expect(validatePricing(
+      computeFlashSalePricing({
+        originalPrice: '20.00',
+        discountPercent: FLASH_SALE_DEFAULT_DISCOUNT_PERCENT,
+      })!,
+    )).toEqual([]);
+  });
+
+  it('người dùng đổi được từng dòng — 5% / 15% / 20% cho ba SKU cùng giá', () => {
+    const deals = [5, 15, 20].map(
+      (percent) =>
+        computeFlashSalePricing({ originalPrice: '20.00', discountPercent: percent })!
+          .flashSalePrice.toFixed(2),
+    );
+
+    expect(deals).toEqual(['19.00', '17.00', '16.00']);
+  });
+
+  it('làm tròn theo luật của dự án, không phải số dấu phẩy động', () => {
+    // 19.99 × 0.9 trong JS cho 17.991000000000003.
+    const pricing = computeFlashSalePricing({
+      originalPrice: '19.99',
+      discountPercent: FLASH_SALE_DEFAULT_DISCOUNT_PERCENT,
+    })!;
+
+    expect(pricing.flashSalePrice.toFixed(2)).toBe('17.99');
+  });
+
+  it('giá rất nhỏ vẫn ra số hợp lệ, không âm và không bằng 0', () => {
+    const pricing = computeFlashSalePricing({
+      originalPrice: '0.10',
+      discountPercent: FLASH_SALE_DEFAULT_DISCOUNT_PERCENT,
+    })!;
+
+    expect(pricing.flashSalePrice.toFixed(2)).toBe('0.09');
+    expect(validatePricing(pricing)).toEqual([]);
   });
 });

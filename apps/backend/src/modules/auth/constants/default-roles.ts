@@ -60,9 +60,27 @@ export const SUPER_ADMIN_PERMISSIONS = [
  * 🔴 **KHÔNG có `fulfillment.*`.** Gửi đơn sang xưởng in là hành động tiêu tiền và không thể
  * hoàn tác; Seller chuẩn bị dữ liệu (design, ánh xạ), Admin mới là người bấm gửi.
  *
- * 🔴 **KHÔNG có `*.sync`** (`pod.tiktok.order.sync`, `pod.product.sync`,
- * `pod.tiktok.payout.sync`, `pod.tiktok.account.*`): đồng bộ và liên kết tài khoản là thao
- * tác cấp tổ chức, chạm vào hạn mức API của cả tổ chức chứ không riêng shop của một người.
+ * 🔴 **CÓ `pod.product.sync`**, nhưng chỉ sau khi đường đồng bộ đã được vá.
+ *
+ * Trước đây quyền này bị giữ lại vì `PodProductService.triggerSync` nhận thẳng
+ * `accountId`/`shopId` từ request và KHÔNG đi qua `PodAccessScopeService`: bỏ trống bộ lọc
+ * là quét MỌI shop của tổ chức. Lý do loại trừ nằm ở **lỗ hổng của đường đó**, không phải ở
+ * chỗ Seller không được phép đồng bộ shop của mình.
+ *
+ * `triggerSync` nay nhận `PodAccessScope`, chặn `accountId`/`shopId` ngoài phạm vi bằng 403,
+ * và giới hạn tập shop bằng `shopIds` cho trường hợp không gửi bộ lọc. Seller bấm "Sync Now"
+ * chỉ chạm đúng những shop Admin đã gán — cùng mức tin cậy đã trao ở `pod.listing.publish`
+ * và `pod.flashsale.publish`. Hạn mức API vẫn được bảo vệ bởi khoá Redis theo từng shop.
+ *
+ * 🔴 **VẪN KHÔNG có `pod.tiktok.order.sync` / `pod.tiktok.payout.sync`**: hai đường đó chưa
+ * được vá tương tự, và chưa có yêu cầu nghiệp vụ nào cần tới. Đừng thêm vào đây trước khi
+ * kiểm tra chúng có nhận `PodAccessScope` hay không.
+ *
+ * 🔴 **CÓ `pod.tiktok.account.create`** (liên kết TikTok Shop) nhưng KHÔNG có `update` /
+ * `delete`. Seller tự mang gian hàng của mình vào hệ thống — đó là việc của họ, và kết nối
+ * vừa tạo được gán thẳng cho chính họ (xem `resolveOwningSeller`). Nhưng gỡ liên kết, đổi
+ * người phụ trách hay đổi kho mặc định thì vẫn là quyết định của Admin: chúng ảnh hưởng tới
+ * dữ liệu người khác đang dùng.
  */
 export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   'account.read',
@@ -76,10 +94,13 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   'profile.update',
 
   // --- POD: chỉ trên shop được Admin gán (xem PodAccessScopeService) ---
-  // TikTok Accounts: CHỈ xem, không link/unlink/sửa/sync.
+  // TikTok Accounts: xem + TỰ LIÊN KẾT gian hàng của mình. Không unlink, không sửa.
   'pod.tiktok.account.read',
-  // Products: chỉ xem + tìm kiếm; không sync, không sửa, không xoá.
+  'pod.tiktok.account.create',
+  // Products: xem + tìm kiếm + ĐỒNG BỘ shop được gán. Không sửa, không xoá.
+  // 🔴 `pod.product.sync` chỉ an toàn vì `triggerSync` đã đi qua `PodAccessScopeService`.
   'pod.product.read',
+  'pod.product.sync',
   // Template: thuộc Organization, KHÔNG theo shop ⇒ toàn quyền.
   'pod.template.read',
   'pod.template.write',

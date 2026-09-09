@@ -97,12 +97,17 @@ function buildService(flashSale: FlashSaleDetailRow = buildFlashSale()) {
   };
 
   const tx = {
-    podFlashSale: { update: jest.fn() },
+    podFlashSale: { update: jest.fn(), updateMany: jest.fn().mockResolvedValue({ count: 1 }) },
     podFlashSaleItem: { updateMany: jest.fn(), update: jest.fn() },
   };
 
   const prisma = {
-    podFlashSale: { update: jest.fn() },
+    podFlashSale: {
+      update: jest.fn(),
+      // 🔴 `updateMany` là phép GIÀNH LƯỢT nguyên tử (so sánh trạng thái + đổi trong một
+      // câu). `count: 1` = giành được. Test chống trùng đổi nó thành `0`.
+      updateMany: jest.fn().mockResolvedValue({ count: 1 }),
+    },
     podFlashSaleItem: { updateMany: jest.fn(), update: jest.fn(), findMany: jest.fn().mockResolvedValue([]) },
     // `$transaction` dạng callback — chạy thẳng callback với client giả.
     $transaction: jest.fn(async (callback: (client: unknown) => Promise<unknown>) => callback(tx)),
@@ -129,11 +134,20 @@ function buildService(flashSale: FlashSaleDetailRow = buildFlashSale()) {
     }),
   };
 
+  // Khoá phân tán: luôn giành được, gia hạn/giải phóng không làm gì. Test ở đây kiểm
+  // NGHIỆP VỤ publish; hành vi của chính khoá đã có test riêng ở `pod-tiktok`.
+  const locks = {
+    acquire: jest.fn().mockResolvedValue({ key: 'lock', fenceToken: 'token' }),
+    release: jest.fn().mockResolvedValue(undefined),
+    renew: jest.fn().mockResolvedValue(true),
+  };
+
   const service = new PodFlashSalePublisherService(
     prisma as never,
     flashSales as never,
     promotionApi as never,
     shopContext as never,
+    locks as never,
   );
 
   // `jest.fn()` trả `any` cho `mock.calls`. Ép kiểu MỘT chỗ ở đây thay vì rải `as` khắp
@@ -147,20 +161,60 @@ function buildService(flashSale: FlashSaleDetailRow = buildFlashSale()) {
   const updateActivityId = (index = 0): string =>
     (promotionApi.updateActivity.mock.calls[index] as unknown as [unknown, string, unknown])[1];
 
-  /** Mọi `data` đã ghi vào `podFlashSale.update` trong suốt bài test. */
-  const flashSaleWrites = (): Array<Record<string, unknown>> =>
-    (prisma.podFlashSale.update.mock.calls as unknown as Array<[{ data: Record<string, unknown> }]>).map(
+  /**
+   * Mọi `data` đã ghi vào đợt sale — gồm CẢ `update` lẫn `updateMany`.
+   *
+   * Lượt publish ghi tiến độ bằng `updateMany` (kèm điều kiện `publishRunId`) chứ không phải
+   * `update`, nên chỉ đọc `update` sẽ bỏ sót đúng những lần ghi cần kiểm.
+   */
+  const flashSaleWrites = (): Array<Record<string, unknown>> => [
+    ...(prisma.podFlashSale.update.mock.calls as unknown as Array<[{ data: Record<string, unknown> }]>).map(
       (call) => call[0].data,
-    );
+    ),
+    ...(prisma.podFlashSale.updateMany.mock.calls as unknown as Array<[{ data: Record<string, unknown> }]>).map(
+      (call) => call[0].data,
+    ),
+    ...(tx.podFlashSale.updateMany.mock.calls as unknown as Array<[{ data: Record<string, unknown> }]>).map(
+      (call) => call[0].data,
+    ),
+  ];
 
-  return { service, prisma, promotionApi, flashSales, tx, productsArg, createArgs, updateActivityId, flashSaleWrites };
+  /**
+   * Bấm Publish rồi CHỜ lượt gửi lô chạy nền kết thúc.
+   *
+   * 🔴 `publish()` cố ý trả về sớm — ngay sau khi hoạt động khuyến mãi được tạo — nên khẳng
+   * định về các lô ngay sau lời gọi đó là kiểm một việc chưa xảy ra. `whenPublishIdle` là
+   * cùng cái móc mà `onModuleDestroy` dùng để không cắt ngang lượt gửi lúc deploy.
+   */
+  const publishAndSettle = async (options: { skipInvalidItems?: boolean } = {}) => {
+    const result = await service.publish('org-1', 'user-1', 'fs-1', options, SCOPE);
+    await service.whenPublishIdle();
+    return result;
+  };
+
+  return {
+    service,
+    prisma,
+    promotionApi,
+    flashSales,
+    locks,
+    tx,
+    productsArg,
+    createArgs,
+    updateActivityId,
+    flashSaleWrites,
+    publishAndSettle,
+  };
 }
+
+/** Phạm vi "toàn quyền" — phép kiểm phạm vi shop có test riêng ở `pod-flash-sale.service`. */
+const SCOPE = { allShops: true, accountIds: [], shopIds: [] };
 
 describe('PodFlashSalePublisherService.publish', () => {
   it('đợt sale chưa lên sàn ⇒ Create Activity rồi Update Activity Products', async () => {
-    const { service, promotionApi, createArgs } = buildService();
+    const { promotionApi, createArgs, flashSaleWrites, publishAndSettle } = buildService();
 
-    const result = await service.publish('org-1', 'user-1', 'fs-1', {}, { allShops: true, accountIds: [], shopIds: [] });
+    const result = await publishAndSettle();
 
     expect(promotionApi.createActivity).toHaveBeenCalledTimes(1);
     expect(createArgs()).toMatchObject({
@@ -171,17 +225,25 @@ describe('PodFlashSalePublisherService.publish', () => {
       endTime: 1788246000,
     });
     expect(promotionApi.updateActivityProducts).toHaveBeenCalledTimes(1);
-    expect(result.status).toBe(PodFlashSaleStatus.RUNNING);
+
+    // 🔴 Hợp đồng MỚI: response trả về khi các lô còn đang gửi ⇒ `PUBLISHING`, chưa phải
+    // `RUNNING`. Nói `RUNNING` ở đây là báo cáo một kết quả chưa xảy ra.
+    expect(result.status).toBe(PodFlashSaleStatus.PUBLISHING);
+    // 🔴 …nhưng `activity_id` thì CÓ NGAY: màn hình cần id thật để theo dõi.
     expect(result.providerFlashSaleId).toBe('TT-ACT-1');
-    expect(result.publishedItems).toBe(1);
+    expect(result.totalItems).toBe(1);
+    expect(result.totalBatches).toBe(1);
+
+    // Sau khi lượt nền xong, đợt sale mới thực sự là RUNNING.
+    expect(flashSaleWrites().some((data) => data.status === PodFlashSaleStatus.RUNNING)).toBe(true);
   });
 
   it('🔴 đợt sale ĐÃ có activity_id ⇒ Update Activity, TUYỆT ĐỐI không Create lần hai', async () => {
-    const { service, promotionApi, updateActivityId } = buildService(
+    const { promotionApi, updateActivityId, publishAndSettle } = buildService(
       buildFlashSale({ providerFlashSaleId: 'TT-ACT-EXISTING', status: PodFlashSaleStatus.FAILED }),
     );
 
-    await service.publish('org-1', 'user-1', 'fs-1', {}, { allShops: true, accountIds: [], shopIds: [] });
+    await publishAndSettle();
 
     expect(promotionApi.createActivity).not.toHaveBeenCalled();
     expect(promotionApi.updateActivity).toHaveBeenCalledTimes(1);
@@ -189,23 +251,27 @@ describe('PodFlashSalePublisherService.publish', () => {
   });
 
   it('activity_id được ghi NGAY sau Create, trước khi gắn sản phẩm', async () => {
-    const { service, promotionApi, flashSaleWrites } = buildService();
-    promotionApi.updateActivityProducts.mockRejectedValueOnce(new Error('mạng chập'));
+    const { promotionApi, flashSaleWrites, publishAndSettle } = buildService();
+    promotionApi.updateActivityProducts.mockRejectedValue(new Error('mạng chập'));
 
-    await expect(
-      service.publish('org-1', 'user-1', 'fs-1', {}, { allShops: true, accountIds: [], shopIds: [] }),
-    ).rejects.toThrow();
+    // 🔴 Lô hỏng KHÔNG còn làm `publish` ném lỗi: request đã trả về từ lâu, lô chạy nền.
+    // Thất bại được ghi vào database và giao diện đọc qua publish-status.
+    const result = await publishAndSettle();
+    expect(result.status).toBe(PodFlashSaleStatus.PUBLISHING);
 
     // Lượt Retry sau đó phải tìm lại được hoạt động đã tạo — nếu không ghi ở đây thì
     // Retry sẽ tạo hoạt động thứ hai trên shop thật.
     expect(flashSaleWrites().some((data) => data.providerFlashSaleId === 'TT-ACT-1')).toBe(true);
+    // Và đợt sale phải dừng ở FAILED, tuyệt đối không phải RUNNING.
+    expect(flashSaleWrites().some((data) => data.status === PodFlashSaleStatus.FAILED)).toBe(true);
+    expect(flashSaleWrites().some((data) => data.status === PodFlashSaleStatus.RUNNING)).toBe(false);
   });
 
   describe('payload', () => {
     it('mức VARIATION: giá + giới hạn ở từng SKU, mức sản phẩm BẮT BUỘC là -1', async () => {
-      const { service, productsArg } = buildService();
+      const { productsArg, publishAndSettle } = buildService();
 
-      await service.publish('org-1', 'user-1', 'fs-1', {}, { allShops: true, accountIds: [], shopIds: [] });
+      await publishAndSettle();
 
       const [product] = productsArg();
       expect(product.quantityLimit).toBe(-1);
@@ -217,14 +283,14 @@ describe('PodFlashSalePublisherService.publish', () => {
     });
 
     it('mức PRODUCT: giá + giới hạn ở SPU, `skus` bắt buộc là mảng rỗng', async () => {
-      const { service, productsArg } = buildService(
+      const { productsArg, publishAndSettle } = buildService(
         buildFlashSale({
           productLevel: PodFlashSaleProductLevel.PRODUCT,
           items: [buildItem({ variantId: null, providerVariantId: null })],
         }),
       );
 
-      await service.publish('org-1', 'user-1', 'fs-1', {}, { allShops: true, accountIds: [], shopIds: [] });
+      await publishAndSettle();
 
       expect(productsArg()).toEqual([
         {
@@ -238,7 +304,7 @@ describe('PodFlashSalePublisherService.publish', () => {
     });
 
     it('nhiều SKU của cùng một sản phẩm được gộp về MỘT mục `product_id`', async () => {
-      const { service, productsArg } = buildService(
+      const { productsArg, publishAndSettle } = buildService(
         buildFlashSale({
           items: [
             buildItem(),
@@ -247,7 +313,7 @@ describe('PodFlashSalePublisherService.publish', () => {
         }),
       );
 
-      await service.publish('org-1', 'user-1', 'fs-1', {}, { allShops: true, accountIds: [], shopIds: [] });
+      await publishAndSettle();
 
       const products = productsArg();
       expect(products).toHaveLength(1);
@@ -270,9 +336,9 @@ describe('PodFlashSalePublisherService.publish', () => {
           }),
         ),
       );
-      const { service, promotionApi, productsArg } = buildService(buildFlashSale({ items }));
+      const { promotionApi, productsArg, publishAndSettle } = buildService(buildFlashSale({ items }));
 
-      await service.publish('org-1', 'user-1', 'fs-1', {}, { allShops: true, accountIds: [], shopIds: [] });
+      await publishAndSettle();
 
       expect(promotionApi.updateActivityProducts).toHaveBeenCalledTimes(2);
       for (let call = 0; call < 2; call++) {
@@ -342,7 +408,7 @@ describe('PodFlashSalePublisherService.publish', () => {
     });
 
     it('`skipInvalidItems` bỏ qua ĐÚNG dòng hỏng và vẫn gửi phần còn lại', async () => {
-      const { service, flashSales, productsArg } = buildService(
+      const { flashSales, productsArg, publishAndSettle } = buildService(
         buildFlashSale({
           items: [
             buildItem(),
@@ -359,16 +425,11 @@ describe('PodFlashSalePublisherService.publish', () => {
         readyItems: 1,
       });
 
-      const result = await service.publish(
-        'org-1',
-        'user-1',
-        'fs-1',
-        { skipInvalidItems: true },
-        { allShops: true, accountIds: [], shopIds: [] },
-      );
+      const result = await publishAndSettle({ skipInvalidItems: true });
 
       expect(productsArg()[0].skus.map((sku) => sku.id)).toEqual(['TT-SKU-1']);
-      expect(result.publishedItems).toBe(1);
+      // `totalItems` = số dòng lượt này thực sự gửi (đã trừ dòng hỏng lẫn dòng đã lên sàn).
+      expect(result.totalItems).toBe(1);
       expect(result.skippedItems).toBe(1);
     });
   });
