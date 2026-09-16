@@ -134,3 +134,116 @@ describe('PodProductCatalogService — đồng bộ Brand toàn cục', () => {
     expect(rows.filter((row) => row.tiktokBrandId === '111')).toHaveLength(1);
   });
 });
+
+/**
+ * Vòng quét THUỘC TÍNH danh mục.
+ *
+ * 🔴 Vì sao bộ test này tồn tại: vòng quét từng xếp thứ tự theo `syncedAt` — đúng cột mà
+ * `syncGlobalCategories` ghi đè cho CẢ 11.892 bản ghi trong vài giây. Mỗi lượt đồng bộ cây
+ * danh mục vì thế xoá sạch con trỏ tiến độ, vòng quét không bao giờ đi hết 9.873 danh mục lá
+ * và màn hình Category Template báo "danh mục này chưa có thuộc tính" cho một danh mục mà
+ * TikTok có 47 thuộc tính.
+ *
+ * Hai khẳng định dưới đây là thứ duy nhất giữ cho lỗi đó không quay lại.
+ */
+function buildAttributeService(attributesByCategory: Record<string, Array<{ id: string }>>) {
+  const savedRows: Array<{ categoryId: string; tiktokAttributeId: string }> = [];
+  const stamped: Array<{ id: string; attributesSyncedAt: unknown; syncedAt?: unknown }> = [];
+  let lastFindManyArgs: Record<string, unknown> = {};
+
+  const prisma = {
+    podProductCategory: {
+      findMany: jest.fn((args: never) => {
+        lastFindManyArgs = args as unknown as Record<string, unknown>;
+        return Promise.resolve(
+          Object.keys(attributesByCategory).map((tiktokCategoryId) => ({
+            id: `uuid-${tiktokCategoryId}`,
+            tiktokCategoryId,
+          })),
+        );
+      }),
+      update: jest.fn(({ where, data }: never) => {
+        stamped.push({
+          id: (where as { id: string }).id,
+          ...(data as Record<string, unknown>),
+        } as never);
+        return Promise.resolve({});
+      }),
+    },
+    podCategoryAttribute: {
+      upsert: jest.fn(({ where }: never) => {
+        savedRows.push(
+          (where as { categoryId_tiktokAttributeId: { categoryId: string; tiktokAttributeId: string } })
+            .categoryId_tiktokAttributeId,
+        );
+        return Promise.resolve({});
+      }),
+    },
+  };
+
+  const productApi = {
+    getCategoryAttributes: jest.fn((_ctx: unknown, categoryId: string) =>
+      Promise.resolve({ data: attributesByCategory[categoryId] ?? [] }),
+    ),
+  };
+
+  // Mapper thật: nó là ACL của TikTok, thay bằng mock thì bài test không còn kiểm được
+  // rằng thuộc tính đi qua mapper mà không bị rơi.
+  const mapper = {
+    toCategoryAttributeRow: (attribute: { id?: string }) =>
+      attribute.id ? { tiktokAttributeId: attribute.id, values: undefined } : null,
+  };
+
+  const service = new PodProductCatalogService(
+    prisma as never,
+    mapper as never,
+    productApi as never,
+    {} as never,
+    {} as never,
+  );
+
+  return { service, savedRows, stamped, productApi, findManyArgs: () => lastFindManyArgs };
+}
+
+describe('PodProductCatalogService — vòng quét thuộc tính danh mục', () => {
+  it('🔴 xếp thứ tự theo `attributesSyncedAt` (NULL trước), KHÔNG theo `syncedAt`', async () => {
+    const { service, findManyArgs } = buildAttributeService({ '1167376': [{ id: 'a1' }] });
+
+    await service.syncGlobalCategoryAttributes(CTX);
+
+    // `syncedAt` bị lượt đồng bộ cây danh mục ghi đè hàng loạt ⇒ dùng nó là mất con trỏ.
+    expect(findManyArgs().orderBy).toEqual({
+      attributesSyncedAt: { sort: 'asc', nulls: 'first' },
+    });
+  });
+
+  it('🔴 đóng dấu `attributesSyncedAt`, không đụng vào `syncedAt` của danh mục', async () => {
+    const { service, stamped } = buildAttributeService({ '1167376': [{ id: 'a1' }] });
+
+    await service.syncGlobalCategoryAttributes(CTX);
+
+    expect(stamped).toHaveLength(1);
+    expect(stamped[0].attributesSyncedAt).toBeInstanceOf(Date);
+    expect(stamped[0]).not.toHaveProperty('syncedAt');
+  });
+
+  it('TikTok trả về RỖNG vẫn phải đóng dấu — nếu không danh mục rỗng chiếm suất quét mãi mãi', async () => {
+    const { service, stamped, savedRows } = buildAttributeService({ '999': [] });
+
+    await service.syncGlobalCategoryAttributes(CTX);
+
+    expect(savedRows).toHaveLength(0);
+    expect(stamped).toHaveLength(1);
+  });
+
+  it('ghi đủ MỌI thuộc tính TikTok trả về, không cắt bớt', async () => {
+    const attributes = Array.from({ length: 47 }, (_, index) => ({ id: `attr-${index}` }));
+    const { service, savedRows } = buildAttributeService({ '1167376': attributes });
+
+    const count = await service.syncGlobalCategoryAttributes(CTX);
+
+    expect(count).toBe(47);
+    expect(savedRows).toHaveLength(47);
+    expect(new Set(savedRows.map((row) => row.tiktokAttributeId)).size).toBe(47);
+  });
+});

@@ -40,6 +40,10 @@ function buildService(outcomes: unknown[] = []) {
     {} as never,
     syncService as never,
     accessScope as never,
+    // `catalog` + `lock` chỉ phục vụ đường nạp thuộc tính danh mục theo yêu cầu, không nằm
+    // trên đường đi của `triggerSync` — để trống đúng với những phụ thuộc khác ở đây.
+    {} as never,
+    {} as never,
   );
 
   /** Bộ lọc đã thực sự chuyển xuống tầng đồng bộ. */
@@ -134,6 +138,14 @@ describe('Quyền mặc định của Role EMPLOYEE', () => {
     // lỗ hổng vừa sửa.
     expect(EMPLOYEE_DEFAULT_PERMISSIONS).not.toContain('pod.tiktok.order.sync');
     expect(EMPLOYEE_DEFAULT_PERMISSIONS).not.toContain('pod.tiktok.payout.sync');
+  });
+
+  it('🔴 CÓ `pod.listing.run` — Start Listing chỉ tạo Draft, nhẹ hơn quyền publish đã trao', () => {
+    // Thiếu quyền này từng là một mâu thuẫn: Seller được `pod.listing.publish` (đưa hàng lên
+    // sàn thật) nhưng không được tạo Draft. Hàng rào đó không chặn được gì — nó chỉ buộc
+    // Seller đi nhờ Admin bấm hộ một nút.
+    expect(EMPLOYEE_DEFAULT_PERMISSIONS).toContain('pod.listing.run');
+    expect(EMPLOYEE_DEFAULT_PERMISSIONS).toContain('pod.listing.publish');
   });
 
   it('KHÔNG có quyền sửa/xoá sản phẩm', () => {

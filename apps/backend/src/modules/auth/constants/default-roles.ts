@@ -110,8 +110,23 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   'pod.session.import',
   'pod.draft.read',
   'pod.draft.generate',
-  // Publish History (read) + đẩy hàng lên sàn.
+  // Publish History (read) + chạy Bulk Listing (tạo Draft) + đẩy hàng lên sàn.
   'pod.listing.read',
+  // 🔴 `pod.listing.run` — nút **Start Listing** ở màn hình Auto Listing, cùng với retry /
+  // cancel / xoá lượt chạy.
+  //
+  // Việc thiếu quyền này là một LỖ HỔNG LOGIC chứ không phải một quyết định: Seller đã có
+  // `pod.listing.publish` — quyền ĐƯA HÀNG LÊN SÀN THẬT — nhưng lại không được tạo Draft,
+  // vốn là thao tác nhẹ hơn hẳn (`save_mode = AS_DRAFT`, không xuất hiện trước người mua,
+  // sửa/xoá được trên Seller Center). Cấp cái nặng mà giữ lại cái nhẹ thì hàng rào không
+  // chặn được gì, chỉ chặn đúng quy trình làm việc: Seller dựng xong lượt đăng rồi phải đi
+  // nhờ Admin bấm hộ một nút.
+  //
+  // An toàn vì MỌI endpoint dùng quyền này đều đi qua `PodAccessScopeService`:
+  // `PodListingSessionService.get()` kiểm TỪNG shop của lượt đăng, `PodListingJobService`
+  // kiểm qua `assertJobInScope` / `assertShopAllowed`. Seller chỉ chạy được lượt đăng mà
+  // MỌI shop trong đó đã được Admin gán cho họ — đây KHÔNG phải quyền xuyên shop.
+  'pod.listing.run',
   'pod.listing.publish',
   // POD Orders + Design (công việc của Designer).
   'pod.tiktok.order.read',

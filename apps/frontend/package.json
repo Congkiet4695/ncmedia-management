@@ -17,7 +17,9 @@
     "test:pagination": "node --experimental-strip-types scripts/verify-pagination.ts",
     "check:i18n": "node scripts/check-i18n.mjs",
     "test:issues": "node --experimental-strip-types scripts/verify-issue-grouping.ts",
-    "test:selection": "node --experimental-strip-types scripts/verify-selection.ts"
+    "test:selection": "node --experimental-strip-types scripts/verify-selection.ts",
+    "test:editor": "node --experimental-strip-types scripts/verify-description-editor.ts",
+    "test:images": "node --experimental-strip-types scripts/verify-product-images.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

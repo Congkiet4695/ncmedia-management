@@ -521,11 +521,26 @@ export function CategoryTemplateDialog({ open, template, onClose }: CategoryTemp
             <p className="text-sm text-muted-foreground">
               {t('listing.categoryTemplates.selectCategoryFirst')}
             </p>
+          ) : attributesQuery.isPending || attributesQuery.isFetching ? (
+            // 🔴 Trạng thái ĐANG NẠP phải đứng TRƯỚC nhánh "không có thuộc tính". Danh mục
+            // chưa có trong kho thì backend đi hỏi TikTok ngay trong lời gọi này (mất vài
+            // giây), và nhánh cũ xếp sau `attributes.length === 0` nên trong lúc chờ màn
+            // hình khẳng định "danh mục này không có thuộc tính" — một câu sai, cho đúng cái
+            // danh mục sắp hiện ra 47 thuộc tính.
+            <p className="text-sm text-muted-foreground">
+              {t('listing.categoryTemplates.loadingAttributes')}
+            </p>
+          ) : attributesQuery.isError ? (
+            // Nạp hỏng KHÔNG được hiện thành "danh mục không có thuộc tính": hai chuyện khác
+            // hẳn nhau, và chỉ một trong hai là thứ người dùng thử lại được.
+            <p className="text-sm text-destructive">
+              {t('listing.categoryTemplates.attributesError')}
+            </p>
           ) : attributes.length === 0 ? (
             // 🔴 Không còn nút Sync ở đây. Thuộc tính danh mục là dữ liệu master TOÀN CỤC:
             // một Seller bấm Sync từ form nghĩa là ghi vào dữ liệu dùng chung của mọi tổ
-            // chức. Danh mục chưa có thuộc tính là việc của Super Admin — nói rõ điều đó
-            // thay vì đưa ra một nút mà backend sẽ trả 403.
+            // chức. Backend nay tự nạp khi kho rỗng, nên tới được nhánh này nghĩa là TikTok
+            // thực sự không cấp thuộc tính nào cho danh mục — nói đúng như vậy.
             <p className="text-sm text-muted-foreground">
               {t('listing.categoryTemplates.noAttributes')}
             </p>

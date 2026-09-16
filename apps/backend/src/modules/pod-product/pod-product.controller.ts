@@ -151,10 +151,17 @@ export class PodProductController {
       'Category Template render form từ đây — bắt buộc/tuỳ chọn, kiểu, danh sách giá trị hợp lệ. ' +
       'KHÔNG hardcode thuộc tính nào ở frontend. ' +
       '🔴 `categoryId` nhận CẢ HAI: UUID nội bộ hoặc `category_id` của TikTok — template lưu ' +
-      'mã TikTok, nên mở ra sửa là nạp được thuộc tính ngay mà không cần tra ngược.',
+      'mã TikTok, nên mở ra sửa là nạp được thuộc tính ngay mà không cần tra ngược. ' +
+      '🔴 Danh mục chưa có thuộc tính trong kho ⇒ server TỰ hỏi TikTok ngay trong lời gọi này ' +
+      'rồi lưu lại (dữ liệu master toàn cục). Người dùng không cần quyền đồng bộ master data.',
   })
-  findCategoryAttributes(@Param('categoryId') categoryId: string) {
-    return this.service.findCategoryAttributes(categoryId);
+  findCategoryAttributes(
+    @Param('categoryId') categoryId: string,
+    @CurrentUser() user: AuthenticatedUser,
+  ) {
+    // `organizationId` chỉ dùng để chọn shop MƯỢN TOKEN khi phải hỏi TikTok — bảng thuộc
+    // tính vẫn là dữ liệu toàn cục, không lọc theo tổ chức.
+    return this.service.findCategoryAttributes(categoryId, user.organizationId);
   }
 
   @Get('brands')

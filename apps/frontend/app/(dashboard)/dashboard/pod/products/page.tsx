@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { History, Loader2, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -15,6 +15,7 @@ import { useApiError } from '@/hooks/use-api-error';
 import { useClampedPage } from '@/hooks/use-clamped-page';
 import { useAuth } from '@/hooks/use-auth';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
+import { ImageLightbox } from '@/features/pod-tiktok/components/image-lightbox';
 import { ProductSyncHistoryDialog } from '@/features/pod-product/components/product-sync-history-dialog';
 import { ProductTable } from '@/features/pod-product/components/product-table';
 import {
@@ -22,6 +23,7 @@ import {
   usePodProducts,
   useSyncPodProducts,
 } from '@/features/pod-product/hooks/use-pod-products';
+import type { ProductGalleryImage } from '@/features/pod-product/product-images';
 import type { PodProductQuery } from '@/features/pod-product/types';
 
 export default function PodProductsPage() {
@@ -55,6 +57,36 @@ function PodProductsView() {
   const [searchInput, setSearchInput] = useState('');
   const debouncedSearch = useDebouncedValue(searchInput, 350);
   const [historyOpen, setHistoryOpen] = useState(false);
+  /**
+   * Các dòng đang được tick ở bảng.
+   *
+   * 🔴 Đặt ở TRANG chứ không trong `ProductTable`: lựa chọn phải sống sót qua mỗi lần bảng
+   * render lại (lật trang, đổi bộ lọc trả về cùng một sản phẩm), nhưng phải bị xoá khi điều
+   * kiện truy vấn đổi — xem `useEffect` bên dưới. State nằm trong bảng thì không làm được
+   * cả hai, và mọi hành động hàng loạt sau này cũng cần đọc nó từ đây.
+   */
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  /**
+   * Bộ ảnh đang xem — MỘT lightbox dùng chung cho cả bảng.
+   *
+   * 🔴 Đặt ở trang, không đặt trong từng ô ảnh: 20 dòng × 4 thumbnail mà mỗi cái một modal là
+   * 80 modal nằm sẵn trong DOM. Ở đây chỉ có đúng một, và nó chỉ render khi `open`.
+   *
+   * 🔴 State này KHÔNG đụng tới `query`, nên mở/đóng bộ xem không hề ảnh hưởng trang hiện
+   * tại, từ khoá tìm kiếm hay bộ lọc — react-query cũng không phải tải lại gì.
+   */
+  const [lightbox, setLightbox] = useState<{
+    images: ProductGalleryImage[];
+    index: number;
+    alt: string;
+  } | null>(null);
+
+  // `useCallback` để `ProductTable` không nhận một hàm mới ở mỗi lần render của trang.
+  const openLightbox = useCallback(
+    (images: ProductGalleryImage[], index: number, alt: string) =>
+      setLightbox({ images, index, alt }),
+    [],
+  );
 
   const productsQuery = usePodProducts(query);
   const filtersQuery = usePodProductFilters();
@@ -67,6 +99,13 @@ function PodProductsView() {
     const next = debouncedSearch || undefined;
     setQuery((prev) => (prev.search === next ? prev : { ...prev, search: next, page: 1 }));
   }, [debouncedSearch]);
+
+  // Đổi trang/bộ lọc ⇒ bỏ chọn. Giữ lại các ID không còn hiển thị là một con số "đã chọn N"
+  // mà người dùng không có cách nào nhìn thấy N cái đó là gì.
+  useEffect(() => {
+    // Giữ nguyên mảng cũ khi đã rỗng — tránh một lượt render thừa ở lần mount đầu tiên.
+    setSelectedIds((prev) => (prev.length === 0 ? prev : []));
+  }, [query]);
 
   const items = productsQuery.data?.items ?? [];
   const meta = productsQuery.data?.meta;
@@ -214,7 +253,23 @@ function PodProductsView() {
               {translateApiError(productsQuery.error)}
             </p>
           ) : (
-            <ProductTable products={items} loading={productsQuery.isLoading} />
+            <>
+              {selectedIds.length > 0 && (
+                <div className="flex items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                  <span>{t('products.selection.count', { count: selectedIds.length })}</span>
+                  <Button variant="ghost" size="sm" onClick={() => setSelectedIds([])}>
+                    {t('products.selection.clear')}
+                  </Button>
+                </div>
+              )}
+              <ProductTable
+                products={items}
+                loading={productsQuery.isLoading}
+                selectedIds={selectedIds}
+                onSelectionChange={setSelectedIds}
+                onOpenImages={openLightbox}
+              />
+            </>
           )}
 
           <DataPagination
@@ -226,6 +281,16 @@ function PodProductsView() {
       </Card>
 
       <ProductSyncHistoryDialog open={historyOpen} onClose={() => setHistoryOpen(false)} />
+
+      {/* 🔴 `src` của lightbox là URL ẢNH GỐC (`…-origin-jpeg`), không phải bản thu nhỏ
+          300×300 mà bảng đang hiển thị — xem `buildProductGallery`. */}
+      <ImageLightbox
+        open={Boolean(lightbox)}
+        images={lightbox?.images.map((image) => ({ src: image.src, label: lightbox.alt }))}
+        startIndex={lightbox?.index ?? 0}
+        alt={lightbox?.alt}
+        onClose={() => setLightbox(null)}
+      />
     </div>
   );
 }

@@ -9,7 +9,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Modal } from '@/components/ui/modal';
 import { Combobox } from '@/components/ui/combobox';
+import {
+  RichTextEditor,
+  type RichTextEditorHandle,
+} from '@/components/ui/rich-text-editor';
 import { useApiError } from '@/hooks/use-api-error';
+import { cn } from '@/lib/utils';
 import {
   usePreviewDescription,
   useSavePodTemplate,
@@ -29,6 +34,14 @@ import {
 // ===========================================================================
 
 /**
+ * Trần độ dài `description` của TikTok (Create Product — "Max length: 10,000 characters").
+ *
+ * Chỉ dùng để CẢNH BÁO tại chỗ soạn. Không chặn lưu: template có thể chứa token dài mà khi
+ * thay giá trị thật lại ngắn đi, nên chặn cứng ở đây sẽ chặn nhầm những mô tả hợp lệ.
+ */
+const TIKTOK_DESCRIPTION_MAX_LENGTH = 10_000;
+
+/**
  * Form Description Template.
  *
  * Nội dung là **HTML** kèm token. Hai loại token, và đó là điểm cốt lõi của "Token Engine
@@ -38,10 +51,15 @@ import {
  * - **Token tự đặt** (`{{MATERIAL}}`, `{{CARE}}`…) — người dùng khai báo ngay dưới đây,
  *   lưu vào database. Thêm token mới KHÔNG cần sửa mã.
  *
+ * **Soạn thảo** dùng `RichTextEditor` (WYSIWYG, tự dựng — xem ghi chú trong chính component
+ * đó về lý do không lắp thư viện ngoài). Nút `</>` chuyển sang sửa HTML thô: template cũ
+ * được soạn tay bằng HTML + token, và bỏ mất đường đó là lấy đi công cụ của người đang dùng.
+ *
  * **Preview** gọi thẳng backend để thay token bằng đúng bộ quy tắc sẽ chạy khi làm listing
  * — xem trước một đằng, chạy thật một nẻo là lỗi khó chịu nhất của loại màn hình này.
  * HTML được render trong `iframe sandbox`, KHÔNG chèn vào DOM của trang quản trị: nội dung
- * do người dùng nhập, chèn thẳng là mở đường cho XSS.
+ * do người dùng nhập, chèn thẳng là mở đường cho XSS. Vùng soạn thảo thì buộc phải nằm
+ * trong DOM thật, nên nó tự lọc nội dung — xem `sanitizeHtml`.
  */
 export function DescriptionTemplateDialog({
   open,
@@ -57,7 +75,7 @@ export function DescriptionTemplateDialog({
   const save = useSavePodTemplate('descriptions');
   const preview = usePreviewDescription();
   const systemTokens = useSystemTokens();
-  const editorRef = useRef<HTMLTextAreaElement>(null);
+  const editorRef = useRef<RichTextEditorHandle>(null);
 
   const [name, setName] = useState('');
   const [contentHtml, setContentHtml] = useState('');
@@ -80,7 +98,14 @@ export function DescriptionTemplateDialog({
     setUnknownTokens([]);
   }, [open, template]);
 
-  /** Chèn token vào đúng vị trí con trỏ thay vì bắt người dùng gõ tay. */
+  /**
+   * Chèn token vào đúng vị trí con trỏ thay vì bắt người dùng gõ tay.
+   *
+   * Việc chèn do chính trình soạn thảo làm (`insertText`): nó biết con trỏ đang ở đâu trong
+   * cây DOM, và nó chèn dưới dạng VĂN BẢN THUẦN nên `{{PRODUCT.TITLE}}` không bị trình duyệt
+   * hiểu thành thẻ. Ghép chuỗi từ ngoài vào `contentHtml` là cách chắc chắn chèn sai chỗ khi
+   * nội dung đã có thẻ lồng nhau.
+   */
   const insertToken = (code: string) => {
     const editor = editorRef.current;
     const snippet = `{{${code}}}`;
@@ -88,13 +113,7 @@ export function DescriptionTemplateDialog({
       setContentHtml((prev) => prev + snippet);
       return;
     }
-    const start = editor.selectionStart;
-    const end = editor.selectionEnd;
-    setContentHtml((prev) => prev.slice(0, start) + snippet + prev.slice(end));
-    requestAnimationFrame(() => {
-      editor.focus();
-      editor.setSelectionRange(start + snippet.length, start + snippet.length);
-    });
+    editor.insertText(snippet);
   };
 
   const handlePreview = async () => {
@@ -217,14 +236,63 @@ export function DescriptionTemplateDialog({
               ))}
           </div>
 
-          <textarea
+          <RichTextEditor
             ref={editorRef}
             value={contentHtml}
-            onChange={(event) => setContentHtml(event.target.value)}
-            rows={10}
-            className="w-full rounded-md border bg-background p-3 font-mono text-xs"
-            placeholder="<h3>{{PRODUCT.TITLE}}</h3><p>{{MATERIAL}}</p>"
+            onChange={setContentHtml}
+            minHeight="240px"
+            placeholder={t('listing.descriptionTemplates.editorPlaceholder')}
+            labels={{
+              paragraph: t('listing.editor.paragraph'),
+              heading1: t('listing.editor.heading1'),
+              heading2: t('listing.editor.heading2'),
+              heading3: t('listing.editor.heading3'),
+              font: t('listing.editor.font'),
+              fontSize: t('listing.editor.fontSize'),
+              bold: t('listing.editor.bold'),
+              italic: t('listing.editor.italic'),
+              underline: t('listing.editor.underline'),
+              strikethrough: t('listing.editor.strikethrough'),
+              textColor: t('listing.editor.textColor'),
+              backgroundColor: t('listing.editor.backgroundColor'),
+              link: t('listing.editor.link'),
+              unlink: t('listing.editor.unlink'),
+              blockquote: t('listing.editor.blockquote'),
+              alignLeft: t('listing.editor.alignLeft'),
+              alignCenter: t('listing.editor.alignCenter'),
+              alignRight: t('listing.editor.alignRight'),
+              alignJustify: t('listing.editor.alignJustify'),
+              bulletList: t('listing.editor.bulletList'),
+              numberedList: t('listing.editor.numberedList'),
+              outdent: t('listing.editor.outdent'),
+              indent: t('listing.editor.indent'),
+              undo: t('listing.editor.undo'),
+              redo: t('listing.editor.redo'),
+              clearFormatting: t('listing.editor.clearFormatting'),
+              sourceMode: t('listing.editor.sourceMode'),
+              linkUrl: t('listing.editor.linkUrl'),
+              linkApply: t('listing.editor.linkApply'),
+              linkCancel: t('listing.editor.linkCancel'),
+            }}
           />
+
+          {/* 🔴 Đếm ký tự, không phải để làm đẹp: TikTok chặn `description` ở 10.000 ký tự
+              (tài liệu Create Product). HTML do trình soạn thảo sinh ra dài hơn HTML gõ tay
+              rất nhiều vì mỗi định dạng là một `style=""` inline, nên trần đó gần hơn người
+              dùng tưởng — và nếu vượt thì lỗi chỉ lộ ra lúc đăng, không phải lúc lưu. */}
+          <p
+            className={cn(
+              'text-right text-xs',
+              contentHtml.length > TIKTOK_DESCRIPTION_MAX_LENGTH
+                ? 'font-medium text-destructive'
+                : 'text-muted-foreground',
+            )}
+          >
+            {t('listing.descriptionTemplates.charCount', {
+              count: contentHtml.length,
+              max: TIKTOK_DESCRIPTION_MAX_LENGTH,
+            })}
+          </p>
         </div>
 
         {/* --- Token tự đặt: dữ liệu, không phải hằng số trong mã --- */}

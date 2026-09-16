@@ -74,3 +74,55 @@
     @apply bg-background text-foreground;
   }
 }
+
+/* ---------------------------------------------------------------------------
+   Vùng soạn thảo của `RichTextEditor`.
+ 
+   🔴 Cần CSS riêng vì reset của Tailwind (preflight) làm phẳng h1/h2/h3, ul/ol và
+   blockquote về cùng một kiểu. Trong một trang quản trị bình thường đó là điều mong muốn —
+   nhưng trong trình soạn thảo thì người dùng bấm "Heading 1" mà chữ không to lên, bấm
+   "danh sách" mà không thấy dấu chấm đầu dòng, và kết luận là nút hỏng.
+ 
+   Chỉ là kiểu HIỂN THỊ LÚC SOẠN. HTML lưu xuống mang style inline do `styleWithCSS` sinh ra,
+   nên hiển thị trên TikTok không phụ thuộc mảnh CSS này.
+   --------------------------------------------------------------------------- */
+@layer components {
+  .prose-editor h1 {
+    @apply mb-2 mt-3 text-2xl font-bold;
+  }
+  .prose-editor h2 {
+    @apply mb-2 mt-3 text-xl font-bold;
+  }
+  .prose-editor h3 {
+    @apply mb-1.5 mt-2 text-lg font-semibold;
+  }
+  .prose-editor p {
+    @apply my-1.5;
+  }
+  .prose-editor ul {
+    @apply my-1.5 list-disc pl-6;
+  }
+  .prose-editor ol {
+    @apply my-1.5 list-decimal pl-6;
+  }
+  .prose-editor li {
+    @apply my-0.5;
+  }
+  .prose-editor blockquote {
+    @apply my-2 border-l-2 border-border pl-3 italic text-muted-foreground;
+  }
+  .prose-editor a {
+    @apply text-primary underline;
+  }
+  .prose-editor img {
+    @apply max-w-full;
+  }
+
+  /* Placeholder: `contentEditable` không có thuộc tính `placeholder`. `:empty` không đủ —
+     trình duyệt để lại một <br> trong ô rỗng, nên phải bắt thêm trường hợp đó. */
+  .prose-editor:empty::before,
+  .prose-editor:has(> br:only-child)::before {
+    content: attr(data-placeholder);
+    @apply pointer-events-none text-muted-foreground;
+  }
+}

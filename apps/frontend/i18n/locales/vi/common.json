@@ -84,7 +84,9 @@
     "viewLarge": "Xem ảnh",
     "zoomIn": "Phóng to",
     "zoomOut": "Thu nhỏ",
-    "download": "Tải ảnh về"
+    "download": "Tải ảnh về",
+    "loading": "Đang tải ảnh…",
+    "loadFailed": "Không tải được ảnh. Link có thể đã hết hạn hoặc bị TikTok gỡ."
   },
   "importExport": {
     "column": "Cột",

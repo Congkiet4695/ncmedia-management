@@ -385,6 +385,7 @@
       "addItem": "Thêm",
       "attributes": "Thuộc tính danh mục",
       "attributesCount": "Số thuộc tính",
+      "attributesError": "Không nạp được thuộc tính của danh mục. Kiểm tra kết nối TikTok của shop rồi thử lại.",
       "brand": "Thương hiệu",
       "category": "Danh mục TikTok",
       "categoryCount": "Đang hiện {{count}} danh mục — gõ để tìm trong toàn bộ cây",
@@ -401,9 +402,10 @@
       "enterCustomValue": "Nhập giá trị khác…",
       "height": "Cao",
       "length": "Dài",
+      "loadingAttributes": "Đang nạp thuộc tính của danh mục từ TikTok…",
       "missingRequired": "Cần nhập tên và chọn danh mục.",
       "multiSelect": "nhiều lựa chọn",
-      "noAttributes": "Danh mục này chưa có thuộc tính nào được đồng bộ.",
+      "noAttributes": "TikTok không cấp thuộc tính nào cho danh mục này.",
       "noBrand": "Không có thương hiệu (No brand)",
       "noBrandHint": "Đăng không kèm thương hiệu — TikTok không nhận brand_id",
       "noValueAvailable": "TikTok không cấp danh sách giá trị cho thuộc tính này.",
@@ -456,24 +458,26 @@
       "salePrice": "Giá bán"
     },
     "descriptionTemplates": {
-      "title": "Description Template",
-      "subtitle": "Mẫu mô tả HTML dùng lại, hỗ trợ token.",
-      "create": "Tạo Description Template",
-      "edit": "Sửa Description Template",
-      "empty": "Chưa có Description Template nào.",
-      "dialogHint": "Soạn HTML; token được thay khi sinh draft.",
-      "content": "Nội dung HTML",
-      "preview": "Xem trước",
-      "hidePreview": "Ẩn xem trước",
-      "excerpt": "Trích đoạn",
-      "tokenHint": "Token hệ thống lấy từ sản phẩm và shop. Token khai báo ở đây ({{MATERIAL}}, {{CARE}}…) được lưu cùng template — thêm token mới không cần sửa mã.",
-      "missingRequired": "Cần nhập tên và nội dung.",
-      "customTokens": "Token tự đặt",
       "addToken": "Thêm token",
-      "tokenCode": "Token",
-      "tokenValue": "Giá trị",
-      "tokenCount": "Token",
+      "charCount": "{{count}} / {{max}} ký tự",
+      "content": "Nội dung HTML",
+      "create": "Tạo Description Template",
+      "customTokens": "Token tự đặt",
+      "dialogHint": "Soạn HTML; token được thay khi sinh draft.",
+      "edit": "Sửa Description Template",
+      "editorPlaceholder": "Soạn nội dung mô tả — bấm token ở trên để chèn vào vị trí con trỏ.",
+      "empty": "Chưa có Description Template nào.",
+      "excerpt": "Trích đoạn",
+      "hidePreview": "Ẩn xem trước",
+      "missingRequired": "Cần nhập tên và nội dung.",
+      "preview": "Xem trước",
       "previewFailed": "Không xem trước được",
+      "subtitle": "Mẫu mô tả HTML dùng lại, hỗ trợ token.",
+      "title": "Description Template",
+      "tokenCode": "Token",
+      "tokenCount": "Token",
+      "tokenHint": "Token hệ thống lấy từ sản phẩm và shop. Token khai báo ở đây ({{MATERIAL}}, {{CARE}}…) được lưu cùng template — thêm token mới không cần sửa mã.",
+      "tokenValue": "Giá trị",
       "unknownTokens": "Token không nhận ra: {{tokens}}"
     },
     "filters": {
@@ -945,6 +949,38 @@
       "started": "Đã đưa {{count}} listing vào hàng đợi publish",
       "successFailed": "Thành công: {{success}} · Thất bại: {{failed}}",
       "syncScheduledHint": "Sản phẩm của shop vừa publish sẽ được đồng bộ sau khoảng 5 phút."
+    },
+    "editor": {
+      "paragraph": "Đoạn văn",
+      "heading1": "Tiêu đề 1",
+      "heading2": "Tiêu đề 2",
+      "heading3": "Tiêu đề 3",
+      "font": "Font chữ",
+      "fontSize": "Cỡ chữ",
+      "bold": "In đậm",
+      "italic": "In nghiêng",
+      "underline": "Gạch chân",
+      "strikethrough": "Gạch ngang",
+      "textColor": "Màu chữ",
+      "backgroundColor": "Màu nền chữ",
+      "link": "Chèn link",
+      "unlink": "Gỡ link",
+      "blockquote": "Trích dẫn",
+      "alignLeft": "Căn trái",
+      "alignCenter": "Căn giữa",
+      "alignRight": "Căn phải",
+      "alignJustify": "Căn đều",
+      "bulletList": "Danh sách dấu chấm",
+      "numberedList": "Danh sách đánh số",
+      "outdent": "Giảm thụt lề",
+      "indent": "Tăng thụt lề",
+      "undo": "Hoàn tác",
+      "redo": "Làm lại",
+      "clearFormatting": "Xoá định dạng",
+      "sourceMode": "Sửa HTML thô",
+      "linkUrl": "https://…",
+      "linkApply": "Chèn",
+      "linkCancel": "Huỷ"
     }
   },
   "orderDetail": {
@@ -1117,6 +1153,14 @@
       "timelineEmpty": "Chưa có sự kiện fulfillment nào.",
       "logs": "Log từ xưởng in",
       "logsEmpty": "Chưa có lỗi nào từ nhà cung cấp."
+    },
+    "filters": {
+      "hasDesign": "Đã có design",
+      "noDesign": "Chưa có design",
+      "notPushed": "Chưa đẩy Fulfill",
+      "allSellers": "Tất cả nhân viên",
+      "searchSeller": "Tìm nhân viên theo tên hoặc email…",
+      "clear": "Xoá {{count}} bộ lọc"
     }
   },
   "payout": {
@@ -1200,14 +1244,18 @@
     "empty": "Chưa có sản phẩm nào. Bấm \"Đồng bộ ngay\" để kéo sản phẩm từ TikTok Shop.",
     "searchPlaceholder": "Tìm theo tên sản phẩm, TikTok Product ID hoặc Seller SKU",
     "columns": {
-      "product": "Sản phẩm",
+      "product": "Thông tin sản phẩm",
       "status": "Trạng thái",
       "category": "Danh mục",
       "skus": "Số SKU",
-      "price": "Giá",
+      "price": "Giá bán",
       "inventory": "Tồn kho",
       "shop": "Shop",
-      "lastSynced": "Đồng bộ lần cuối"
+      "lastSynced": "Đồng bộ lần cuối",
+      "selectAll": "Chọn tất cả sản phẩm trong trang",
+      "images": "Ảnh sản phẩm",
+      "listingQuality": "Listing Quality",
+      "createdAt": "Ngày thêm"
     },
     "filters": {
       "allShops": "Tất cả shop",
@@ -1253,6 +1301,28 @@
       "openVideo": "Mở video sản phẩm",
       "attributes": "Thuộc tính",
       "description": "Mô tả"
+    },
+    "skuInventory": "{{skus}} SKU · Tồn {{inventory}}",
+    "lastSyncedShort": "Đồng bộ: {{value}}",
+    "meta": {
+      "id": "ID",
+      "sku": "SKU",
+      "moreSkus": "(+{{count}} SKU)",
+      "shop": "Shop",
+      "profile": "Kết nối",
+      "category": "Danh mục",
+      "brand": "Thương hiệu"
+    },
+    "listingQuality": {
+      "unavailableHint": "TikTok chỉ chấm chất lượng listing cho thị trường US."
+    },
+    "selection": {
+      "count": "Đã chọn {{count}} sản phẩm",
+      "clear": "Bỏ chọn"
+    },
+    "images": {
+      "viewImage": "Xem ảnh {{index}}/{{total}} của {{name}}",
+      "moreHint": "Còn {{count}} ảnh nữa — mở trang chi tiết sản phẩm để xem đầy đủ"
     }
   },
   "resources": {

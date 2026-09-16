@@ -3108,7 +3108,17 @@ model PodProductCategory {
   level            Int     @default(0)
   path             String? @db.VarChar(1024)
 
-  syncedAt  DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+  /// Lần cuối bản ghi DANH MỤC này được cây danh mục cập nhật.
+  syncedAt           DateTime  @default(now()) @map("synced_at") @db.Timestamptz(6)
+  /// Lần cuối lấy được THUỘC TÍNH của danh mục này. NULL = chưa bao giờ.
+  ///
+  /// 🔴 Phải là cột RIÊNG, không dùng chung `syncedAt`. Đồng bộ cây danh mục ghi đè
+  /// `syncedAt` cho cả 11.892 bản ghi trong một lượt, nên khi vòng lấy thuộc tính xếp thứ
+  /// tự theo `syncedAt` thì mỗi lần đồng bộ danh mục lại XOÁ SẠCH con trỏ tiến độ: mọi
+  /// danh mục bằng điểm nhau, lượt sau lấy lại một nhóm ngẫu nhiên và phần còn lại của cây
+  /// không bao giờ tới lượt. Đó là lý do 9.873 danh mục lá chỉ có 3 danh mục có thuộc tính.
+  attributesSyncedAt DateTime? @map("attributes_synced_at") @db.Timestamptz(6)
+
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
@@ -3119,6 +3129,8 @@ model PodProductCategory {
   @@unique([provider, tiktokCategoryId])
   @@index([provider, isLeaf])
   @@index([parentTiktokId])
+  /// Vòng lấy thuộc tính quét theo đúng thứ tự này (NULL trước = chưa từng lấy).
+  @@index([isLeaf, attributesSyncedAt])
   @@map("pod_product_categories")
 }
 

@@ -194,45 +194,66 @@ export class PodProductCatalogService {
       where,
       select: { id: true, tiktokCategoryId: true },
       take: CATEGORY_ATTRIBUTE_BATCH,
-      orderBy: { syncedAt: 'asc' },
+      // 🔴 `attributesSyncedAt`, KHÔNG phải `syncedAt`. `syncedAt` bị lượt đồng bộ CÂY DANH
+      // MỤC ghi đè cho cả 11.892 bản ghi trong vài giây, nên xếp theo nó là xoá sạch con trỏ
+      // tiến độ ở mỗi lần đồng bộ danh mục — vòng quét dậm chân và 9.873 danh mục lá không
+      // bao giờ được phủ hết. `nulls: 'first'` để danh mục CHƯA TỪNG có thuộc tính đi trước.
+      orderBy: { attributesSyncedAt: { sort: 'asc', nulls: 'first' } },
     });
 
     let count = 0;
     for (const category of categories) {
-      const { data: attributes } = await this.productApi.getCategoryAttributes(
-        ctx,
-        category.tiktokCategoryId,
-      );
-
-      for (const attribute of attributes) {
-        const row = this.mapper.toCategoryAttributeRow(attribute);
-        if (!row) continue;
-
-        await this.prisma.podCategoryAttribute.upsert({
-          where: {
-            categoryId_tiktokAttributeId: {
-              categoryId: category.id,
-              tiktokAttributeId: row.tiktokAttributeId,
-            },
-          },
-          create: {
-            categoryId: category.id,
-            ...row,
-            values: row.values ?? Prisma.JsonNull,
-          },
-          update: { ...row, values: row.values ?? Prisma.JsonNull, syncedAt: new Date() },
-        });
-        count += 1;
-      }
-
-      // Đánh dấu danh mục vừa lấy xong thuộc tính để lượt sau nhường chỗ cho danh mục khác
-      // (`orderBy: syncedAt asc`). Không có bước này thì mọi lượt đều lấy đúng 200 danh mục
-      // đầu tiên và phần còn lại của cây không bao giờ tới lượt.
-      await this.prisma.podProductCategory.update({
-        where: { id: category.id },
-        data: { syncedAt: new Date() },
-      });
+      count += await this.pullCategoryAttributes(ctx, category);
     }
+
+    return count;
+  }
+
+  /**
+   * Lấy và ghi thuộc tính của ĐÚNG MỘT danh mục. Trả về số thuộc tính đã ghi.
+   *
+   * 🔴 Endpoint `GET /product/202309/categories/{id}/attributes` KHÔNG phân trang (SDK
+   * không có tham số page_token/page_size) — TikTok trả trọn bộ trong một lần. Nên ở đây
+   * không có vòng lặp cursor nào để bỏ sót.
+   */
+  async pullCategoryAttributes(
+    ctx: TiktokShopContext,
+    category: { id: string; tiktokCategoryId: string },
+  ): Promise<number> {
+    const { data: attributes } = await this.productApi.getCategoryAttributes(
+      ctx,
+      category.tiktokCategoryId,
+    );
+
+    let count = 0;
+    for (const attribute of attributes) {
+      const row = this.mapper.toCategoryAttributeRow(attribute);
+      if (!row) continue;
+
+      await this.prisma.podCategoryAttribute.upsert({
+        where: {
+          categoryId_tiktokAttributeId: {
+            categoryId: category.id,
+            tiktokAttributeId: row.tiktokAttributeId,
+          },
+        },
+        create: {
+          categoryId: category.id,
+          ...row,
+          values: row.values ?? Prisma.JsonNull,
+        },
+        update: { ...row, values: row.values ?? Prisma.JsonNull, syncedAt: new Date() },
+      });
+      count += 1;
+    }
+
+    // Đóng dấu con trỏ để lượt sau nhường chỗ cho danh mục khác. Ghi cả khi TikTok trả về
+    // RỖNG: "đã hỏi, danh mục này không có thuộc tính" cũng là một câu trả lời, và không
+    // ghi thì danh mục rỗng sẽ chiếm suất quét mãi mãi.
+    await this.prisma.podProductCategory.update({
+      where: { id: category.id },
+      data: { attributesSyncedAt: new Date() },
+    });
 
     return count;
   }

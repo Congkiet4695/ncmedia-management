@@ -41,6 +41,17 @@ export class PodProductAttributeDto {
   values!: string[];
 }
 
+/**
+ * Một ảnh trong dải thumbnail của màn hình DANH SÁCH.
+ *
+ * Hẹp có chủ đích (không dùng `PodProductImageDto`): dòng danh sách chỉ cần link hiển thị,
+ * mang thêm `uri`/`variantId`/`sortOrder` cho 20 dòng × 5 ảnh là băng thông thật.
+ */
+export class PodProductListImageDto {
+  @ApiProperty({ nullable: true, type: String }) url!: string | null;
+  @ApiProperty({ nullable: true, type: String }) thumbUrl!: string | null;
+}
+
 /** Hàng trong danh sách sản phẩm. */
 export class PodProductListItemDto {
   @ApiProperty() id!: string;
@@ -49,6 +60,19 @@ export class PodProductListItemDto {
   @ApiProperty({ nullable: true, type: String, example: 'ACTIVATE' }) status!: string | null;
   @ApiProperty({ nullable: true, type: String }) auditStatus!: string | null;
   @ApiProperty({ nullable: true, type: String }) thumbnailUrl!: string | null;
+
+  /**
+   * Vài ảnh CHÍNH đầu tiên để dựng dải thumbnail (tối đa `POD_PRODUCT_LIST_IMAGE_TAKE`).
+   *
+   * 🔴 Tên khác `images` của `PodProductDetailDto` một cách CÓ CHỦ Ý: chi tiết trả về mọi
+   * ảnh (kể cả ảnh biến thể) với đầy đủ trường, còn đây là danh sách RÚT GỌN và đã CẮT.
+   * Trùng tên thì một trong hai hợp đồng sẽ âm thầm nói dối về nội dung của mình.
+   * `imageCount` là TỔNG số ảnh chính — giao diện hiện `+N` cho phần không tải về.
+   */
+  @ApiProperty({ type: PodProductListImageDto, isArray: true })
+  mainImages!: PodProductListImageDto[];
+  @ApiProperty({ description: 'Tổng số ảnh CHÍNH của sản phẩm' }) imageCount!: number;
+
   @ApiProperty({ nullable: true, type: String }) categoryName!: string | null;
   @ApiProperty({ nullable: true, type: String }) brandName!: string | null;
   @ApiProperty() skuCount!: number;
@@ -56,8 +80,29 @@ export class PodProductListItemDto {
   @ApiProperty({ nullable: true, type: String }) minPrice!: string | null;
   @ApiProperty({ nullable: true, type: String }) maxPrice!: string | null;
   @ApiProperty({ nullable: true, type: String }) currency!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'Seller SKU của biến thể đầu tiên — mã đại diện để đối soát nhanh',
+  })
+  sellerSku!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'GOOD',
+    description: 'Hạng chất lượng listing của TikTok (POOR | FAIR | GOOD). Chỉ có ở thị trường US.',
+  })
+  listingQualityTier!: string | null;
+
   @ApiProperty({ nullable: true, type: String }) shopName!: string | null;
-  @ApiProperty({ nullable: true, type: String }) accountName!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'Mã shop hiển thị ở Seller Center',
+  })
+  shopCode!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'Tên kết nối do người vận hành đặt' })
+  accountName!: string | null;
   @ApiProperty({ nullable: true, type: String }) tiktokUpdatedAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) lastSyncedAt!: string | null;
   @ApiProperty() createdAt!: string;

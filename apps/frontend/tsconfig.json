@@ -28,6 +28,8 @@
     "node_modules",
     "scripts/verify-pagination.ts",
     "scripts/verify-issue-grouping.ts",
-    "scripts/verify-selection.ts"
+    "scripts/verify-selection.ts",
+    "scripts/verify-description-editor.ts",
+    "scripts/verify-product-images.ts"
   ]
 }

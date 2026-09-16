@@ -1,7 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Download, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ChevronLeft,
+  ChevronRight,
+  Download,
+  ImageOff,
+  Loader2,
+  X,
+  ZoomIn,
+  ZoomOut,
+} from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 
 /** Một ảnh trong bộ xem — `label` hiện ở thanh dưới để biết đang xem cái gì. */
@@ -58,6 +67,15 @@ export function ImageLightbox({
 
   const [index, setIndex] = useState(startIndex);
   const [zoom, setZoom] = useState(0);
+  /**
+   * Tình trạng tải của ẢNH ĐANG XEM.
+   *
+   * 🔴 Không có nó thì một URL hỏng (hoặc link CDN hết hạn) cho ra đúng cái biểu tượng "ảnh
+   * vỡ" của trình duyệt, chiếm trọn khung lightbox và không nói được gì. Người dùng không
+   * phân biệt được "đang tải" với "tải hỏng".
+   */
+  const [status, setStatus] = useState<'loading' | 'loaded' | 'error'>('loading');
+  const imgRef = useRef<HTMLImageElement>(null);
 
   // Mở lại (hoặc bấm sang ảnh khác từ ngoài) ⇒ về đúng ảnh được yêu cầu và bỏ phóng to.
   useEffect(() => {
@@ -92,6 +110,21 @@ export function ImageLightbox({
       document.body.style.overflow = prevOverflow;
     };
   }, [open, onClose, go]);
+
+  // 🔴 Theo dõi theo `src` chứ không theo `index`: hai ảnh có thể trùng URL, và quan trọng hơn
+  // là `onError` chỉ bắn lại khi trình duyệt tải lại đúng URL đó. Đặt trạng thái theo URL nên
+  // không có vòng lặp thử lại — `src` không bị gán lại khi lỗi.
+  const currentSrc = count > 0 ? items[Math.min(index, count - 1)].src : undefined;
+  useEffect(() => {
+    setStatus('loading');
+
+    // 🔴 Ảnh lấy từ CACHE có thể tải xong TRƯỚC khi React kịp gắn `onLoad` — sự kiện đó sẽ
+    // không bao giờ bắn, và ảnh bị ẩn vĩnh viễn sau lớp "đang tải". Đây là cái bẫy kinh điển
+    // của `<img>` trong React, và nó chỉ lộ ra ở lần mở THỨ HAI trở đi nên rất dễ lọt.
+    // `complete` + `naturalWidth > 0` là cách duy nhất hỏi thẳng trình duyệt "xong chưa".
+    const node = imgRef.current;
+    if (node?.complete && node.naturalWidth > 0) setStatus('loaded');
+  }, [currentSrc]);
 
   if (!open || count === 0) return null;
 
@@ -176,20 +209,46 @@ export function ImageLightbox({
 
       {/* Ảnh — bấm để phóng to/thu nhỏ. Bọc trong khối cuộn để ảnh đã phóng vẫn xem hết được. */}
       <div
-        className="relative z-[1] flex max-h-[88vh] max-w-[92vw] overflow-auto"
+        className="relative z-[1] flex max-h-[88vh] max-w-[92vw] items-center justify-center overflow-auto"
         // Chặn sự kiện lan ra nền, nếu không bấm vào ảnh sẽ đóng luôn lightbox.
         onClick={(event) => event.stopPropagation()}
         role="presentation"
       >
+        {status === 'loading' && (
+          <div className="flex items-center gap-2 px-10 py-16 text-white/80">
+            <Loader2 className="size-6 animate-spin" />
+            <span className="text-sm">{t('image.loading')}</span>
+          </div>
+        )}
+
+        {/* 🔴 Ảnh hỏng KHÔNG được để nguyên thẻ `img`: biểu tượng "ảnh vỡ" của trình duyệt
+            chiếm trọn khung và không giải thích gì. Thay bằng một bảng nói rõ lý do, KÈM URL
+            để người vận hành đối chiếu trên Seller Center. Nút đóng/điều hướng nằm ngoài khối
+            này nên vẫn bấm được. */}
+        {status === 'error' && (
+          <div className="flex max-w-md flex-col items-center gap-3 rounded-lg bg-black/60 px-8 py-12 text-center text-white">
+            <ImageOff className="size-10 opacity-80" />
+            <p className="text-sm font-medium">{t('image.loadFailed')}</p>
+            <p className="break-all text-xs text-white/60">{current.src}</p>
+          </div>
+        )}
+
+        {/* Thẻ `img` LUÔN được render (kể cả lúc đang tải) — gỡ nó ra rồi gắn lại là bắt
+            trình duyệt tải lại từ đầu. Lúc chưa xong thì ẩn đi bằng lớp, không bằng unmount. */}
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
+          ref={imgRef}
           src={current.src}
           alt={current.label ?? alt ?? 'Image'}
+          onLoad={() => setStatus('loaded')}
+          // KHÔNG đụng vào `src` ở đây: gán lại URL trong `onError` là công thức tạo vòng lặp
+          // tải — hỏng → gán lại → hỏng → gán lại, vô hạn.
+          onError={() => setStatus('error')}
           onClick={() => setZoom((z) => (z + 1) % ZOOM_LEVELS.length)}
           style={{ transform: `scale(${scale})`, transformOrigin: 'center center' }}
           className={`max-h-[88vh] max-w-[92vw] rounded-lg object-contain shadow-2xl transition-transform ${
             zoomedIn ? 'cursor-zoom-out' : 'cursor-zoom-in'
-          }`}
+          } ${status === 'loaded' ? '' : 'hidden'}`}
         />
       </div>
 

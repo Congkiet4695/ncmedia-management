@@ -84,7 +84,9 @@
     "viewLarge": "View image",
     "zoomIn": "Zoom in",
     "zoomOut": "Zoom out",
-    "download": "Download image"
+    "download": "Download image",
+    "loading": "Loading image…",
+    "loadFailed": "Unable to load image. The link may have expired or been removed by TikTok."
   },
   "importExport": {
     "column": "Column",

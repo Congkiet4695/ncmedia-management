@@ -34,26 +34,45 @@ export interface PodProductFindManyParams {
   accountScope?: string[];
 }
 
+/**
+ * Số ảnh chính kéo về cho MỘT dòng danh sách.
+ *
+ * 🔴 Có trần vì đây là dải thumbnail, không phải thư viện ảnh: một sản phẩm POD thường có
+ * 5—9 ảnh chính, kéo hết về cho 20 dòng là ~180 chuỗi URL dài 2KB mỗi trang. Phần dư được
+ * biểu thị bằng chỉ báo `+N` dựng từ `imageCount` — xem `PodProductResponseMapper.toListItem`.
+ */
+export const POD_PRODUCT_LIST_IMAGE_TAKE = 5;
+
+/** Đếm ảnh CHÍNH (bỏ ảnh biến thể) — nguồn của chỉ báo `+N`. */
+const MAIN_IMAGE_COUNT = { select: { images: { where: { variantId: null } } } } as const;
+
 /** Include dùng cho màn hình DANH SÁCH — chỉ lấy đủ để hiển thị một dòng. */
 export const POD_PRODUCT_LIST_INCLUDE = {
-  shop: { select: { id: true, name: true, region: true } },
+  // `shopCode` = mã shop hiển thị ở Seller Center — người vận hành đối soát bằng mã này.
+  shop: { select: { id: true, name: true, region: true, shopCode: true } },
   account: { select: { id: true, accountName: true } },
   images: {
     where: { variantId: null },
     orderBy: { sortOrder: 'asc' },
-    take: 1,
+    take: POD_PRODUCT_LIST_IMAGE_TAKE,
     select: { url: true, thumbUrl: true },
   },
+  // 🔴 Chỉ MỘT biến thể, chỉ MỘT cột: dòng danh sách cần một Seller SKU đại diện để đối
+  // soát nhanh, không cần cả bảng SKU. `skuCount` đã cho biết còn bao nhiêu cái nữa.
+  variants: { orderBy: { createdAt: 'asc' }, take: 1, select: { sellerSku: true } },
+  _count: MAIN_IMAGE_COUNT,
 } satisfies Prisma.PodProductInclude;
 
 /** Include cho màn hình CHI TIẾT — đầy đủ biến thể, ảnh, video, thuộc tính. */
 export const POD_PRODUCT_DETAIL_INCLUDE = {
-  shop: { select: { id: true, name: true, region: true } },
+  shop: { select: { id: true, name: true, region: true, shopCode: true } },
   account: { select: { id: true, accountName: true } },
   variants: { orderBy: { createdAt: 'asc' } },
   images: { orderBy: [{ variantId: 'asc' }, { sortOrder: 'asc' }] },
   videos: true,
   attributes: { orderBy: { name: 'asc' } },
+  // Chi tiết dùng lại `toListItem` để dựng phần đầu DTO ⇒ phải có đủ những gì nó đọc.
+  _count: MAIN_IMAGE_COUNT,
 } satisfies Prisma.PodProductInclude;
 
 export type PodProductListRow = Prisma.PodProductGetPayload<{

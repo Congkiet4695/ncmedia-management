@@ -16,7 +16,11 @@ import {
   PodTiktokSyncInProgressException,
 } from '../exceptions/pod-tiktok.exceptions';
 import { PodOrderResponseMapper } from '../mappers/pod-order-response.mapper';
-import { PodAccessScopeService, type PodAccessScope } from './pod-access-scope.service';
+import {
+  PodAccessScopeService,
+  PodShopForbiddenException,
+  type PodAccessScope,
+} from './pod-access-scope.service';
 import { PodOrderDesignResolver } from './pod-order-design-resolver.service';
 import { PodOrderProductImageResolver } from './pod-order-product-image.resolver';
 import { PodOrderRepository } from '../repositories/pod-order.repository';
@@ -53,6 +57,7 @@ export class PodOrderService {
     // Chọn shop ngoài phạm vi ⇒ 403 ngay, thay vì danh sách rỗng khó hiểu.
     this.accessScope.assertShopAllowed(scope, query.shopId);
     this.accessScope.assertAccountAllowed(scope, query.accountId);
+    this.assertSellerFilterAllowed(scope, query.sellerId);
 
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
@@ -76,6 +81,9 @@ export class PodOrderService {
       accountId: query.accountId,
       orderType: query.orderType,
       hasPodItem: query.hasPodItem,
+      hasDesign: query.hasDesign,
+      pushedToFulfillment: query.pushedToFulfillment,
+      sellerId: query.sellerId,
       orderedFrom: range.from,
       orderedTo: range.to,
       sortBy: query.sortBy ?? 'orderedAt',
@@ -126,6 +134,7 @@ export class PodOrderService {
   ): Promise<PodOrderStatsDto> {
     this.accessScope.assertShopAllowed(scope, query.shopId);
     this.accessScope.assertAccountAllowed(scope, query.accountId);
+    this.assertSellerFilterAllowed(scope, query.sellerId);
 
     const range = resolveDateRange(
       query.datePreset,
@@ -143,6 +152,9 @@ export class PodOrderService {
       accountId: query.accountId,
       orderType: query.orderType,
       hasPodItem: query.hasPodItem,
+      hasDesign: query.hasDesign,
+      pushedToFulfillment: query.pushedToFulfillment,
+      sellerId: query.sellerId,
       orderedFrom: range.from,
       orderedTo: range.to,
     });
@@ -152,6 +164,26 @@ export class PodOrderService {
     }, {});
     const total = rows.reduce((sum, row) => sum + row._count._all, 0);
     return { total, byStatus };
+  }
+
+  /**
+   * Chặn bộ lọc "theo nhân viên" với người KHÔNG có quyền xem mọi shop.
+   *
+   * 🔴 Không dựa vào việc frontend ẩn ô chọn — ẩn giao diện không phải phân quyền. Một Seller
+   * gọi thẳng `?sellerId=<người khác>` phải nhận 403.
+   *
+   * 🔴 Vì sao 403 chứ không âm thầm bỏ qua bộ lọc: phạm vi của Seller vốn đã giới hạn ở đúng
+   * shop được gán, nên bỏ qua sẽ trả về ĐƠN CỦA CHÍNH HỌ dưới nhãn "đơn của người khác" — sai
+   * lệch âm thầm còn tệ hơn một lỗi rõ ràng. Cùng khuôn với `assertShopAllowed`.
+   *
+   * Dùng PERMISSION (`pod.shop.all`) chứ không so mã role — ADR-009, role là động.
+   */
+  private assertSellerFilterAllowed(
+    scope: PodAccessScope,
+    sellerId: string | null | undefined,
+  ): void {
+    if (!sellerId || scope.allShops) return;
+    throw new PodShopForbiddenException();
   }
 
   async findSyncLogs(

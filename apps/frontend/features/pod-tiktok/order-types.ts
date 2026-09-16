@@ -244,6 +244,21 @@ export interface PodOrderQuery extends PaginationParams {
   accountId?: string;
   orderType?: string;
   hasPodItem?: boolean;
+  /**
+   * `true` = MỌI sản phẩm trong đơn đã có file in; `false` = còn ít nhất một sản phẩm thiếu.
+   *
+   * 🔴 Đúng quy tắc mà backend dùng để quyết định đơn có gửi sản xuất được không — không
+   * phải "có ít nhất một sản phẩm đã có design". Một đơn 3 sản phẩm mới upload 1 file vẫn là
+   * "chưa có design", vì bấm Fulfill sẽ bị từ chối với `DESIGN_MISSING`.
+   */
+  hasDesign?: boolean;
+  /** `false` = chưa đẩy sang xưởng in (chưa có bản ghi, hoặc còn ở DRAFT/FAILED). */
+  pushedToFulfillment?: boolean;
+  /**
+   * ID **Employee** phụ trách. Chỉ người có `pod.shop.all` dùng được — backend trả 403 cho
+   * người khác, không phụ thuộc việc giao diện có ẩn ô chọn hay không.
+   */
+  sellerId?: string;
   orderedFrom?: string;
   orderedTo?: string;
   sortBy?: 'orderedAt' | 'tiktokUpdatedAt' | 'totalAmount' | 'status' | 'lastSyncedAt';

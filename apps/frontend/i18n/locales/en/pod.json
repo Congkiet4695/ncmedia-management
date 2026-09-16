@@ -385,6 +385,7 @@
       "addItem": "Add item",
       "attributes": "Category attributes",
       "attributesCount": "Attributes",
+      "attributesError": "Could not load category attributes. Check the shop TikTok connection and try again.",
       "brand": "Brand",
       "category": "TikTok category",
       "categoryCount": "{{count}} category(ies) shown — type to search the full tree",
@@ -401,9 +402,10 @@
       "enterCustomValue": "Enter a custom value…",
       "height": "Height",
       "length": "Length",
+      "loadingAttributes": "Loading category attributes from TikTok…",
       "missingRequired": "Name and category are required.",
       "multiSelect": "multi",
-      "noAttributes": "This category has no synced attributes yet.",
+      "noAttributes": "TikTok provides no attributes for this category.",
       "noBrand": "No brand",
       "noBrandHint": "Publish without a brand — TikTok receives no brand_id",
       "noValueAvailable": "TikTok gives no value list for this attribute.",
@@ -456,24 +458,26 @@
       "salePrice": "Sale price"
     },
     "descriptionTemplates": {
-      "title": "Description Templates",
-      "subtitle": "Reusable HTML descriptions with tokens.",
-      "create": "New description template",
-      "edit": "Edit description template",
-      "empty": "No description template yet.",
-      "dialogHint": "Write HTML; tokens are replaced when the draft is generated.",
-      "content": "HTML content",
-      "preview": "Preview",
-      "hidePreview": "Hide preview",
-      "excerpt": "Excerpt",
-      "tokenHint": "System tokens come from the product and shop. Tokens you define here ({{MATERIAL}}, {{CARE}}…) are stored with the template — adding one needs no code change.",
-      "missingRequired": "Name and content are required.",
-      "customTokens": "Custom tokens",
       "addToken": "Add token",
-      "tokenCode": "Token",
-      "tokenValue": "Value",
-      "tokenCount": "Tokens",
+      "charCount": "{{count}} / {{max}} characters",
+      "content": "HTML content",
+      "create": "New description template",
+      "customTokens": "Custom tokens",
+      "dialogHint": "Write HTML; tokens are replaced when the draft is generated.",
+      "edit": "Edit description template",
+      "editorPlaceholder": "Write the description — click a token above to insert it at the cursor.",
+      "empty": "No description template yet.",
+      "excerpt": "Excerpt",
+      "hidePreview": "Hide preview",
+      "missingRequired": "Name and content are required.",
+      "preview": "Preview",
       "previewFailed": "Preview failed",
+      "subtitle": "Reusable HTML descriptions with tokens.",
+      "title": "Description Templates",
+      "tokenCode": "Token",
+      "tokenCount": "Tokens",
+      "tokenHint": "System tokens come from the product and shop. Tokens you define here ({{MATERIAL}}, {{CARE}}…) are stored with the template — adding one needs no code change.",
+      "tokenValue": "Value",
       "unknownTokens": "Unknown tokens: {{tokens}}"
     },
     "filters": {
@@ -945,6 +949,38 @@
       "started": "{{count}} listing(s) queued for publish",
       "successFailed": "Success: {{success}} · Failed: {{failed}}",
       "syncScheduledHint": "Products from the published shop(s) will be synced in about 5 minutes."
+    },
+    "editor": {
+      "paragraph": "Paragraph",
+      "heading1": "Heading 1",
+      "heading2": "Heading 2",
+      "heading3": "Heading 3",
+      "font": "Font",
+      "fontSize": "Size",
+      "bold": "Bold",
+      "italic": "Italic",
+      "underline": "Underline",
+      "strikethrough": "Strikethrough",
+      "textColor": "Text color",
+      "backgroundColor": "Highlight color",
+      "link": "Insert link",
+      "unlink": "Remove link",
+      "blockquote": "Blockquote",
+      "alignLeft": "Align left",
+      "alignCenter": "Align center",
+      "alignRight": "Align right",
+      "alignJustify": "Justify",
+      "bulletList": "Bullet list",
+      "numberedList": "Numbered list",
+      "outdent": "Decrease indent",
+      "indent": "Increase indent",
+      "undo": "Undo",
+      "redo": "Redo",
+      "clearFormatting": "Clear formatting",
+      "sourceMode": "Edit HTML source",
+      "linkUrl": "https://…",
+      "linkApply": "Insert",
+      "linkCancel": "Cancel"
     }
   },
   "orderDetail": {
@@ -1117,6 +1153,14 @@
       "timelineEmpty": "No fulfillment event recorded yet.",
       "logs": "Provider logs",
       "logsEmpty": "No provider error logged."
+    },
+    "filters": {
+      "hasDesign": "Has design",
+      "noDesign": "No design",
+      "notPushed": "Not sent to Fulfillment",
+      "allSellers": "All employees",
+      "searchSeller": "Search employee by name or email…",
+      "clear": "Clear {{count}} filters"
     }
   },
   "payout": {
@@ -1200,14 +1244,18 @@
     "empty": "No products yet. Run \"Sync Now\" to pull products from TikTok Shop.",
     "searchPlaceholder": "Search by product name, TikTok Product ID or Seller SKU",
     "columns": {
-      "product": "Product",
+      "product": "Product information",
       "status": "Status",
       "category": "Category",
       "skus": "SKUs",
       "price": "Price",
       "inventory": "Inventory",
       "shop": "Shop",
-      "lastSynced": "Last synced"
+      "lastSynced": "Last synced",
+      "selectAll": "Select every product on this page",
+      "images": "Images",
+      "listingQuality": "Listing Quality",
+      "createdAt": "Added on"
     },
     "filters": {
       "allShops": "All shops",
@@ -1253,6 +1301,28 @@
       "openVideo": "Open product video",
       "attributes": "Attributes",
       "description": "Description"
+    },
+    "skuInventory": "{{skus}} SKUs · Stock {{inventory}}",
+    "lastSyncedShort": "Synced: {{value}}",
+    "meta": {
+      "id": "ID",
+      "sku": "SKU",
+      "moreSkus": "(+{{count}} SKUs)",
+      "shop": "Shop",
+      "profile": "Connection",
+      "category": "Category",
+      "brand": "Brand"
+    },
+    "listingQuality": {
+      "unavailableHint": "TikTok only scores listing quality for the US market."
+    },
+    "selection": {
+      "count": "Selected {{count}} products",
+      "clear": "Clear selection"
+    },
+    "images": {
+      "viewImage": "View image {{index}} of {{total}} for {{name}}",
+      "moreHint": "{{count}} more images — open the product detail page to see them all"
     }
   },
   "resources": {

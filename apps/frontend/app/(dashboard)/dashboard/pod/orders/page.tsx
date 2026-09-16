@@ -2,11 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
+  Check,
   DownloadCloud,
   History,
   Loader2,
   RefreshCw,
   Search,
+  X,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -16,6 +18,7 @@ import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Input } from '@/components/ui/input';
 import { Combobox } from '@/components/ui/combobox';
 import { RequirePermission } from '@/components/require-permission';
+import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useClampedPage } from '@/hooks/use-clamped-page';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
@@ -42,7 +45,10 @@ import {
   type PodOrderStatus,
 } from '@/features/pod-tiktok/order-types';
 import type { LightboxRequest, OrderProductRow } from '@/features/pod-tiktok/order-view-model';
-import { usePodTiktokAccounts } from '@/features/pod-tiktok/hooks/use-pod-tiktok';
+import {
+  usePodSellerOptions,
+  usePodTiktokAccounts,
+} from '@/features/pod-tiktok/hooks/use-pod-tiktok';
 import { useQueryClient } from '@tanstack/react-query';
 
 export default function PodOrdersPage() {
@@ -96,6 +102,19 @@ function PodOrdersView() {
   const canViewFulfillment = hasPermission('fulfillment.read');
   const canFulfill = hasPermission('fulfillment.create');
   const canCancelFulfillment = hasPermission('fulfillment.cancel');
+  /**
+   * Bộ lọc theo NHÂN VIÊN chỉ dành cho người xem được mọi shop.
+   *
+   * 🔴 Gác bằng PERMISSION `pod.shop.all`, KHÔNG so mã role: role là động (ADR-009), tổ chức
+   * có thể tạo thêm "Trưởng nhóm" cũng cần lọc theo nhân viên. Đây đúng là quyền mà backend
+   * kiểm ở `assertSellerFilterAllowed` — hai bên gác cùng một điều kiện.
+   *
+   * 🔴 Cần THÊM `pod.tiktok.account.update` vì danh sách nhân viên lấy từ endpoint phân công
+   * seller (`GET /pod/tiktok-accounts/sellers`, đã có sẵn — không tạo API mới). Thiếu quyền
+   * đó thì dropdown sẽ 403 và rỗng, nên thà không hiện còn hơn hiện một ô không dùng được.
+   */
+  const canFilterBySeller =
+    hasPermission('pod.shop.all') && hasPermission('pod.tiktok.account.update');
 
   const ordersQuery = usePodOrders(query);
   /**
@@ -108,6 +127,28 @@ function PodOrdersView() {
   const statsQuery = usePodOrderStats(query);
   // Danh sách shop để lọc — lấy từ các kết nối đã link (Sprint 1).
   const accountsQuery = usePodTiktokAccounts({ page: 1, limit: 100 });
+  // Nhân viên cho bộ lọc — CHỈ gọi khi người dùng thực sự dùng được (tránh một request 403).
+  const sellerOptionsQuery = usePodSellerOptions(canFilterBySeller);
+
+  /**
+   * Số bộ lọc NHANH đang bật (chip + nhân viên).
+   *
+   * Cố ý KHÔNG đếm search/ngày/trạng thái/kết nối: bốn thứ đó đã có ô riêng nhìn thấy được
+   * giá trị, còn chip thì dễ bật rồi quên. Nút xoá cũng chỉ xoá đúng nhóm này — xoá luôn cả
+   * khoảng ngày người dùng vừa chọn kỹ là một bất ngờ khó chịu.
+   */
+  const activeFilterCount =
+    (query.hasDesign === undefined ? 0 : 1) +
+    (query.pushedToFulfillment === undefined ? 0 : 1) +
+    (query.sellerId ? 1 : 0);
+
+  const handleClearFilters = () =>
+    patchQuery({
+      hasDesign: undefined,
+      pushedToFulfillment: undefined,
+      sellerId: undefined,
+      page: 1,
+    });
   const syncMutation = useTriggerPodSync();
 
   const patchQuery = (patch: Partial<PodOrderQuery>) => setQuery((prev) => ({ ...prev, ...patch }));
@@ -364,6 +405,53 @@ function PodOrdersView() {
               ]}
               className="w-[170px]"
             />
+
+            {/* 🔴 Chỉ hiện với người xem được mọi shop. Ẩn ô này KHÔNG phải là phân quyền —
+                backend vẫn trả 403 nếu ai đó gọi thẳng `?sellerId=` (xem
+                `assertSellerFilterAllowed`). Đây chỉ là không bày ra thứ họ không dùng được. */}
+            {canFilterBySeller && (
+              <Combobox
+                value={query.sellerId ?? ''}
+                onChange={(value) => patchQuery({ sellerId: value || undefined, page: 1 })}
+                options={[
+                  { value: '', label: t('orders.filters.allSellers') },
+                  ...(sellerOptionsQuery.data ?? []).map((seller) => ({
+                    value: seller.id,
+                    // Kèm email để phân biệt hai nhân viên trùng họ tên — chuyện có thật.
+                    label: `${seller.fullName} (${seller.email})`,
+                  })),
+                ]}
+                searchPlaceholder={t('orders.filters.searchSeller')}
+                className="w-[230px]"
+              />
+            )}
+          </div>
+
+          {/* --- Bộ lọc nhanh dạng chip --- */}
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <FilterChip
+              label={t('orders.filters.hasDesign')}
+              active={query.hasDesign === true}
+              onToggle={(next) => patchQuery({ hasDesign: next ? true : undefined, page: 1 })}
+            />
+            <FilterChip
+              label={t('orders.filters.noDesign')}
+              active={query.hasDesign === false}
+              onToggle={(next) => patchQuery({ hasDesign: next ? false : undefined, page: 1 })}
+            />
+            <FilterChip
+              label={t('orders.filters.notPushed')}
+              active={query.pushedToFulfillment === false}
+              onToggle={(next) =>
+                patchQuery({ pushedToFulfillment: next ? false : undefined, page: 1 })
+              }
+            />
+            {activeFilterCount > 0 && (
+              <Button variant="ghost" size="sm" onClick={handleClearFilters}>
+                <X className="size-4" />
+                {t('orders.filters.clear', { count: activeFilterCount })}
+              </Button>
+            )}
           </div>
         </CardHeader>
         <CardContent className="space-y-4">
@@ -456,5 +544,40 @@ function PodOrdersView() {
 
       <SyncHistoryDialog open={historyOpen} onClose={() => setHistoryOpen(false)} />
     </div>
+  );
+}
+
+/**
+ * Chip bật/tắt một bộ lọc nhanh.
+ *
+ * 🔴 `aria-pressed` chứ không phải một `<button>` trơn: đây là công tắc hai trạng thái, và
+ * người dùng bàn phím/đọc màn hình cần biết nó đang BẬT hay TẮT — màu nền không nói được
+ * điều đó với họ.
+ */
+function FilterChip({
+  label,
+  active,
+  onToggle,
+}: {
+  label: string;
+  active: boolean;
+  onToggle: (next: boolean) => void;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={active}
+      onClick={() => onToggle(!active)}
+      className={cn(
+        'inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium transition-colors',
+        'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-1',
+        active
+          ? 'border-primary bg-primary/10 text-primary'
+          : 'border-border text-muted-foreground hover:bg-muted',
+      )}
+    >
+      {active && <Check className="size-3" />}
+      {label}
+    </button>
   );
 }

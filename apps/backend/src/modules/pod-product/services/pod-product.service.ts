@@ -1,6 +1,7 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PodProductSyncStatus, PodProductSyncTrigger, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { DistributedLockService } from '../../pod-tiktok/infra/distributed-lock.service';
 import {
   SHOP_CONNECTION_SELECT,
   connectionNameOf,
@@ -24,6 +25,7 @@ import {
 import { PodProductResponseMapper } from '../mappers/pod-product-response.mapper';
 import { PodProductRepository } from '../repositories/pod-product.repository';
 import { PodProductSyncRepository } from '../repositories/pod-product-sync.repository';
+import { PodProductCatalogService } from './pod-product-catalog.service';
 import { PodProductSyncService } from './pod-product-sync.service';
 
 /**
@@ -33,6 +35,13 @@ import { PodProductSyncService } from './pod-product-sync.service';
  * endpoint nhận được cả hai mà không cần thêm tham số "kiểu mã".
  */
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/**
+ * Trần thời gian giữ khoá khi nạp thuộc tính theo yêu cầu. Một lời gọi
+ * `GetCategoryAttributes` + ghi ~50 dòng mất vài giây; 30s là dư và đủ ngắn để một tiến
+ * trình chết không khoá màn hình quá lâu.
+ */
+const CATEGORY_ATTRIBUTE_FETCH_LOCK_MS = 30_000;
 
 /** Không tìm thấy sản phẩm trong Organization (hoặc đã bị xoá). */
 export class PodProductNotFoundException extends NotFoundException {
@@ -56,7 +65,11 @@ export class PodProductService {
     private readonly mapper: PodProductResponseMapper,
     private readonly syncService: PodProductSyncService,
     private readonly accessScope: PodAccessScopeService,
+    private readonly catalog: PodProductCatalogService,
+    private readonly lock: DistributedLockService,
   ) {}
+
+  private readonly logger = new Logger(PodProductService.name);
 
   async findAll(
     organizationId: string,
@@ -306,10 +319,32 @@ export class PodProductService {
    * `distinct` giữ nguyên dù dữ liệu nay là toàn cục: TikTok vẫn trả về cùng một
    * `tiktok_attribute_id` ở nhiều bản ghi, và form không được hiện thuộc tính lặp lại.
    */
-  async findCategoryAttributes(categoryRef: string) {
-    const categoryIds = await this.resolveCategoryIds(categoryRef);
-    if (categoryIds.length === 0) return [];
+  async findCategoryAttributes(categoryRef: string, organizationId?: string) {
+    const categories = await this.resolveCategories(categoryRef);
+    if (categories.length === 0) return [];
 
+    const categoryIds = categories.map((category) => category.id);
+    const attributes = await this.readCategoryAttributes(categoryIds);
+    if (attributes.length > 0) return attributes;
+
+    // 🔴 Chưa có trong kho ⇒ HỎI TIKTOK NGAY, không trả về rỗng.
+    //
+    // Vòng quét nền chỉ phủ `CATEGORY_ATTRIBUTE_BATCH` danh mục mỗi lượt trong khi cây có
+    // ~9.900 danh mục lá, nên xác suất danh mục người dùng vừa chọn đã được quét là gần
+    // bằng không — và màn hình Category Template hiện "danh mục này chưa có thuộc tính"
+    // cho một danh mục mà TikTok có tới 47 thuộc tính. Người dùng KHÔNG tự sửa được:
+    // đồng bộ master data là quyền `platform.masterdata.sync` của Super Admin.
+    //
+    // Nạp ở đây là đúng chỗ vì chính SERVER đi lấy (không phải trao quyền ghi dữ liệu dùng
+    // chung cho seller), và dữ liệu ghi ra vẫn là dữ liệu toàn cục mọi tổ chức cùng hưởng.
+    if (!organizationId) return attributes;
+    await this.fetchCategoryAttributesOnDemand(categories, organizationId);
+    return this.readCategoryAttributes(categoryIds);
+  }
+
+  // ---------------------------------------------------------------------------
+
+  private readCategoryAttributes(categoryIds: string[]) {
     return this.prisma.podCategoryAttribute.findMany({
       where: { categoryId: { in: categoryIds } },
       distinct: ['tiktokAttributeId'],
@@ -318,19 +353,73 @@ export class PodProductService {
   }
 
   /**
+   * Nạp thuộc tính của danh mục từ TikTok ngay trong luồng đọc.
+   *
+   * Ba ràng buộc, không bỏ cái nào:
+   *  - **Khoá theo danh mục.** Hai người cùng mở một danh mục (hoặc một người bấm lại) không
+   *    được biến thành hai lời gọi TikTok. Người thua khoá đọc lại DB — người thắng ghi xong
+   *    thì dữ liệu đã ở đó.
+   *  - **Mượn token của shop thuộc CHÍNH tổ chức đang gọi.** Dữ liệu ghi ra là toàn cục,
+   *    nhưng đường vào TikTok thì không được mượn token của tổ chức khác.
+   *  - **Fail-soft.** TikTok hỏng/không có shop nào ⇒ ghi log rồi trả về những gì đang có.
+   *    Một màn hình tạo template không được sập vì một danh mục chưa nạp được thuộc tính.
+   */
+  private async fetchCategoryAttributesOnDemand(
+    categories: Array<{ id: string; tiktokCategoryId: string }>,
+    organizationId: string,
+  ): Promise<void> {
+    const [target] = await this.syncRepo.findSyncTargets({ organizationId });
+    if (!target) {
+      this.logger.warn({
+        module: 'pod-product',
+        operation: 'category-attributes.fetch.skip',
+        organizationId,
+        msg: 'Tổ chức chưa có shop TikTok nào đang hoạt động để mượn token',
+      });
+      return;
+    }
+
+    try {
+      const ctx = await this.catalog.buildContext(target);
+      for (const category of categories) {
+        await this.lock.withLock(
+          `pod:category-attributes:${category.id}`,
+          CATEGORY_ATTRIBUTE_FETCH_LOCK_MS,
+          () => this.catalog.pullCategoryAttributes(ctx, category),
+        );
+      }
+    } catch (error) {
+      this.logger.error({
+        module: 'pod-product',
+        operation: 'category-attributes.fetch.fail',
+        organizationId,
+        categoryIds: categories.map((category) => category.tiktokCategoryId),
+        msg: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  /**
    * Danh mục nội bộ ứng với một mã bất kỳ.
    *
    * UUID ⇒ chính nó. Mã TikTok ⇒ đúng MỘT bản ghi toàn cục (khoá `provider` +
    * `tiktokCategoryId`). Trả mảng để giữ nguyên hợp đồng với `findCategoryAttributes`.
+   *
+   * 🔴 Trả về CẢ `tiktokCategoryId`, không chỉ UUID: nạp thuộc tính theo yêu cầu cần mã
+   * phía TikTok để gọi API, và tra ngược lần hai chỉ để lấy nó là thừa một truy vấn.
    */
-  private async resolveCategoryIds(categoryRef: string): Promise<string[]> {
-    if (UUID_PATTERN.test(categoryRef)) return [categoryRef];
-
-    const rows = await this.prisma.podProductCategory.findMany({
-      where: { tiktokCategoryId: categoryRef, deletedAt: null },
-      select: { id: true },
+  private async resolveCategories(
+    categoryRef: string,
+  ): Promise<Array<{ id: string; tiktokCategoryId: string }>> {
+    return this.prisma.podProductCategory.findMany({
+      where: {
+        deletedAt: null,
+        ...(UUID_PATTERN.test(categoryRef)
+          ? { id: categoryRef }
+          : { tiktokCategoryId: categoryRef }),
+      },
+      select: { id: true, tiktokCategoryId: true },
     });
-    return rows.map((row) => row.id);
   }
 
   /**

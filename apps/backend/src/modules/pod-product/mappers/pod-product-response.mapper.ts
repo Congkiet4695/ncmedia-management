@@ -35,6 +35,10 @@ export class PodProductResponseMapper {
       status: row.status,
       auditStatus: row.auditStatus,
       thumbnailUrl: row.images[0]?.thumbUrl ?? row.images[0]?.url ?? null,
+      // Dải thumbnail của dòng danh sách. `imageCount` là TỔNG số ảnh chính (đếm ở DB), còn
+      // `mainImages` chỉ là phần đầu — chênh lệch giữa hai số là chỉ báo `+N` trên giao diện.
+      mainImages: row.images.map((image) => ({ url: image.url, thumbUrl: image.thumbUrl })),
+      imageCount: row._count.images,
       categoryName: row.categoryName,
       brandName: row.brandName,
       skuCount: row.skuCount,
@@ -42,7 +46,10 @@ export class PodProductResponseMapper {
       minPrice: row.minPrice?.toString() ?? null,
       maxPrice: row.maxPrice?.toString() ?? null,
       currency: row.currency,
+      sellerSku: row.variants[0]?.sellerSku ?? null,
+      listingQualityTier: row.listingQualityTier,
       shopName: row.shop?.name ?? null,
+      shopCode: row.shop?.shopCode ?? null,
       accountName: row.account?.accountName ?? null,
       tiktokUpdatedAt: row.tiktokUpdatedAt?.toISOString() ?? null,
       lastSyncedAt: row.lastSyncedAt?.toISOString() ?? null,
@@ -52,6 +59,8 @@ export class PodProductResponseMapper {
 
   toDetail(row: PodProductDetailRow): PodProductDetailDto {
     return {
+      // Lọc ảnh biến thể ra khi dựng phần dùng chung: `thumbnailUrl`/`mainImages` chỉ nói về
+      // ảnh CHÍNH. Trường `images` bên dưới vẫn trả về đầy đủ cả ảnh biến thể.
       ...this.toListItem({ ...row, images: row.images.filter((image) => !image.variantId) }),
       description: row.description,
       categoryPath: row.categoryPath,

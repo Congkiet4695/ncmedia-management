@@ -9,6 +9,12 @@ import type { Paginated, PaginationParams } from '@/types/api';
  */
 export type PodProductStatus = string;
 
+/** Một ảnh trong dải thumbnail của dòng danh sách (bản rút gọn của `PodProductImage`). */
+export interface PodProductListImage {
+  url: string | null;
+  thumbUrl: string | null;
+}
+
 export interface PodProductListItem {
   id: string;
   tiktokProductId: string;
@@ -16,6 +22,12 @@ export interface PodProductListItem {
   status: PodProductStatus | null;
   auditStatus: string | null;
   thumbnailUrl: string | null;
+  /**
+   * Vài ảnh CHÍNH đầu tiên (backend đã cắt). Số ảnh thật nằm ở `imageCount` — phần chênh
+   * lệch được hiển thị bằng chỉ báo `+N`, KHÔNG gọi thêm API để lấy nốt.
+   */
+  mainImages: PodProductListImage[];
+  imageCount: number;
   categoryName: string | null;
   brandName: string | null;
   skuCount: number;
@@ -23,7 +35,18 @@ export interface PodProductListItem {
   minPrice: string | null;
   maxPrice: string | null;
   currency: string | null;
+  /** Seller SKU của biến thể đầu tiên — mã đại diện, `skuCount` cho biết còn bao nhiêu nữa. */
+  sellerSku: string | null;
+  /**
+   * Hạng chất lượng listing do TikTok chấm: `POOR` | `FAIR` | `GOOD`.
+   *
+   * 🔴 Để dạng chuỗi tự do và KHÔNG tính lại ở frontend — đây là số liệu của sàn, chỉ có ở
+   * thị trường US. `null` = TikTok không trả về (thị trường khác, hoặc chưa đồng bộ lại).
+   */
+  listingQualityTier: string | null;
   shopName: string | null;
+  /** Mã shop hiển thị ở Seller Center — người vận hành đối soát bằng mã này. */
+  shopCode: string | null;
   accountName: string | null;
   tiktokUpdatedAt: string | null;
   lastSyncedAt: string | null;

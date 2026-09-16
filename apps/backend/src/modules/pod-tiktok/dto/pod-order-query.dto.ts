@@ -93,6 +93,46 @@ export class PodOrderQueryDto {
   hasPodItem?: boolean;
 
   @ApiPropertyOptional({
+    description:
+      'Lọc theo tình trạng DESIGN của đơn. `true` = MỌI sản phẩm trong đơn đều đã có file in; ' +
+      '`false` = còn ít nhất một sản phẩm chưa có. ' +
+      '🔴 Đây đúng là quy tắc mà `FulfillmentReadinessService` dùng để quyết định đơn có gửi ' +
+      'sản xuất được không (`DESIGN_MISSING` bật khi CÒN MỘT sản phẩm thiếu design) — hai chỗ ' +
+      'không được trả lời khác nhau về cùng một đơn. Design tra theo (Product ID + Seller SKU) ' +
+      'trong `fulfillment_product_designs`, KHÔNG phải một cột trên đơn.',
+  })
+  @IsOptional()
+  @Transform(toBool)
+  @IsBoolean()
+  hasDesign?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Lọc theo việc đơn đã được đẩy sang xưởng in hay chưa. `false` = CHƯA đẩy, `true` = ĐÃ đẩy. ' +
+      '🔴 "Chưa đẩy" = chưa có bản ghi `fulfillment_orders` nào, HOẶC bản ghi đang ở trạng thái ' +
+      'còn gửi lại được (DRAFT | FAILED) — đúng điều kiện `RESUBMITTABLE_STATUSES` mà ' +
+      '`MangoFulfillmentService.fulfill()` dùng để chặn gửi trùng. Đơn đã SUBMITTED / ' +
+      'IN_PRODUCTION / SHIPPED / DELIVERED / REJECTED / CANCELLED đều tính là ĐÃ đẩy.',
+  })
+  @IsOptional()
+  @Transform(toBool)
+  @IsBoolean()
+  pushedToFulfillment?: boolean;
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Lọc theo NHÂN VIÊN phụ trách (Seller). Giá trị là ID **Employee** — cùng không gian id ' +
+      'với `PATCH /pod/tiktok-accounts/:id/seller`, KHÔNG phải `userId`. ' +
+      '🔴 Chỉ người có quyền `pod.shop.all` được dùng; người khác gửi lên sẽ nhận 403 thay vì ' +
+      'một danh sách rỗng — phạm vi của họ vốn đã bị giới hạn ở đúng shop được gán. ' +
+      'Đơn KHÔNG mang `seller_id`; quan hệ là Order → PodTiktokAccount → Employee.',
+  })
+  @IsOptional()
+  @IsUUID()
+  sellerId?: string;
+
+  @ApiPropertyOptional({
     enum: POD_DATE_PRESETS,
     description:
       'Bộ lọc nhanh theo Ngày đặt đơn. Backend tự quy đổi theo múi giờ vận hành ' +
