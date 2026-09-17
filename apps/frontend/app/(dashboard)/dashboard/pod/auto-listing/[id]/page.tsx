@@ -12,6 +12,7 @@ import {
   ImageOff,
   Loader2,
   Pencil,
+  Plus,
   Rocket,
   Trash2,
 } from 'lucide-react';
@@ -36,6 +37,7 @@ import { useApiError } from '@/hooks/use-api-error';
 import { useAuth } from '@/hooks/use-auth';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { JobProgressBar } from '@/features/pod-listing/components/job-progress-bar';
+import { ManualProductDialog } from '@/features/pod-listing-session/components/manual-product-dialog';
 import { ListingStatusBadge } from '@/features/pod-listing/components/listing-status-badge';
 import {
   SessionConfigForm,
@@ -93,6 +95,11 @@ function SessionDetailView({ sessionId }: { sessionId: string }) {
   const canWrite = hasPermission('pod.session.write');
   const canImport = hasPermission('pod.session.import');
   const canRun = hasPermission('pod.listing.run');
+  /**
+   * Sản phẩm đang mở ở form nhập tay. `undefined` = form đóng; `null` = thêm mới;
+   * có giá trị = sửa nháp đó. Ba trạng thái trong MỘT biến để không thể mở nhầm chế độ.
+   */
+  const [manualTarget, setManualTarget] = useState<PodSessionProduct | null | undefined>(undefined);
 
   const session = useListingSession(sessionId);
   const running = session.data?.status === 'LISTING';
@@ -310,6 +317,12 @@ function SessionDetailView({ sessionId }: { sessionId: string }) {
                   setSearch(event.target.value);
                 }}
               />
+              {canWrite && (
+                <Button variant="outline" size="sm" onClick={() => setManualTarget(null)}>
+                  <Plus className="size-4" />
+                  {t('listing.manual.addProduct')}
+                </Button>
+              )}
               {canWrite && selected.length > 0 && (
                 <Button
                   variant="outline"
@@ -496,6 +509,17 @@ function SessionDetailView({ sessionId }: { sessionId: string }) {
         onClose={() => setEditing(null)}
       />
       <SessionPreviewDialog preview={preview} onClose={() => setPreview(null)} />
+
+      {/* 🔴 MỘT form dùng chung cho cả thêm mới lẫn sửa nháp, render ở cấp TRANG. Mở theo
+          từng dòng sản phẩm sẽ tạo N modal nằm sẵn trong DOM. */}
+      {manualTarget !== undefined && data && (
+        <ManualProductDialog
+          open
+          session={data}
+          product={manualTarget}
+          onClose={() => setManualTarget(undefined)}
+        />
+      )}
     </div>
   );
 }

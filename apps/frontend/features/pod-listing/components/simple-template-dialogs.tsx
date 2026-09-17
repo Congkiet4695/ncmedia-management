@@ -14,6 +14,7 @@ import {
   type RichTextEditorHandle,
 } from '@/components/ui/rich-text-editor';
 import { useApiError } from '@/hooks/use-api-error';
+import { podListingService } from '../services/pod-listing.service';
 import { cn } from '@/lib/utils';
 import {
   usePreviewDescription,
@@ -273,6 +274,24 @@ export function DescriptionTemplateDialog({
               linkUrl: t('listing.editor.linkUrl'),
               linkApply: t('listing.editor.linkApply'),
               linkCancel: t('listing.editor.linkCancel'),
+              image: t('listing.editor.image'),
+              imageUploading: t('listing.editor.imageUploading'),
+              imageBadFormat: t('listing.editor.imageBadFormat'),
+              imageTooLarge: t('listing.editor.imageTooLarge'),
+              imageUploadFailed: t('listing.editor.imageUploadFailed'),
+            }}
+            /**
+             * 🔴 Dùng LẠI đúng đường tải lên đang có: `podListingService.uploadAsset` →
+             * `POST /storage/upload` (Storage Module, R2) — cùng endpoint mà ảnh sản phẩm và
+             * bộ ảnh mẫu vẫn dùng. Không dựng endpoint upload thứ hai, và tuyệt đối không
+             * nhúng base64 vào `content_html`: một tấm ảnh 2 MB thành ~2,7 MB chuỗi nằm
+             * trong cột HTML, đi kèm mọi lần đọc template và vượt luôn trần 10.000 ký tự của
+             * `description` phía TikTok.
+             */
+            onUploadImage={async (file) => {
+              const asset = await podListingService.uploadAsset(file);
+              if (!asset.publicUrl) throw new Error('storage: thiếu publicUrl');
+              return { url: asset.publicUrl, alt: asset.originalName };
             }}
           />
 

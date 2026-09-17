@@ -21,6 +21,8 @@ import type {
   TiktokProductDetail,
   TiktokProductSearchFilter,
   TiktokProductSummary,
+  TiktokPartialEditProductRequest,
+  TiktokUploadedFile,
   TiktokUploadedImage,
 } from './types/tiktok-product.types';
 import type {
@@ -185,6 +187,64 @@ export class TiktokProductApiService {
             options: { filename: image.fileName, contentType: image.contentType },
           },
           useCase,
+        ),
+    });
+  }
+
+  /**
+   * **Partial Edit Product** — sửa MỘT PHẦN sản phẩm đã có trên shop.
+   *
+   * 🔴 Dùng endpoint `partial_edit`, KHÔNG dùng `PUT /products/{id}` (tức `publishProduct`):
+   * PUT thay toàn bộ sản phẩm, nên sửa mỗi tiêu đề bằng PUT là xoá sạch mô tả / ảnh / bảng
+   * giá của sản phẩm đang bán. Đây là khác biệt tốn tiền thật nếu nhầm.
+   *
+   * 🔴 KHÔNG truyền `saveMode`: sản phẩm đang LIVE phải ở nguyên trạng thái LIVE sau khi sửa.
+   * Truyền `AS_DRAFT` ở đây là gỡ hàng đang bán xuống.
+   */
+  async partialEditProduct(
+    ctx: TiktokShopContext,
+    tiktokProductId: string,
+    body: TiktokPartialEditProductRequest,
+  ): Promise<TiktokSdkResult<{ productId?: string; skus?: Array<{ id?: string }> }>> {
+    return this.sdk.execute({
+      endpoint: 'PRODUCT_PARTIAL_EDIT',
+      invoke: () =>
+        this.sdk.api.ProductV202309Api.ProductsProductIdPartialEditPost(
+          tiktokProductId,
+          ctx.accessToken,
+          TIKTOK_SDK_CONTENT_TYPE,
+          ctx.shopCipher,
+          body as never,
+        ),
+    });
+  }
+
+  /**
+   * Upload FILE (video / PDF) lên TikTok — `POST /product/202309/files/upload`.
+   *
+   * 🔴 Khác `uploadImage` ở chỗ TikTok trả về **ID**, không phải `uri`: Create Product nhận
+   * video bằng `video: { id }`. Nhầm hai thứ này là gửi một chuỗi TikTok không nhận ra.
+   *
+   * Giới hạn của TikTok (tài liệu UploadProductFile):
+   *   - Định dạng video: MP4 · MOV · MKV · WMV · WEBM · AVI · 3GP · FLV · MPEG
+   *   - Kích thước tối đa: 100 MB (PDF 20 MB)
+   *   - Tỉ lệ khung hình: 9:16 → 16:9
+   *
+   * 🔴 `name` phải kèm đuôi file và KHÔNG chứa dấu cách hay dấu chấm thừa — TikTok từ chối
+   * thẳng. Chuẩn hoá ở đây thay vì tin vào tên người dùng đặt.
+   */
+  async uploadFile(
+    ctx: TiktokShopContext,
+    file: { buffer: Buffer; fileName: string },
+  ): Promise<TiktokSdkResult<TiktokUploadedFile>> {
+    return this.sdk.execute<TiktokUploadedFile>({
+      endpoint: 'PRODUCT_FILE_UPLOAD',
+      invoke: () =>
+        this.sdk.api.ProductV202309Api.FilesUploadPost(
+          ctx.accessToken,
+          TIKTOK_SDK_CONTENT_TYPE,
+          { value: file.buffer, options: { filename: sanitizeUploadName(file.fileName) } },
+          sanitizeUploadName(file.fileName),
         ),
     });
   }
@@ -393,4 +453,25 @@ export class TiktokProductApiService {
     });
     return all;
   }
+}
+
+/**
+ * Tên file hợp lệ với TikTok: không dấu cách, không dấu chấm thừa, giữ đúng một đuôi.
+ *
+ * `bảng size (1).mp4` ⇒ `bang-size-1.mp4`. Không chuẩn hoá thì TikTok từ chối file và lỗi
+ * hiện ra ở tận bước gửi sản phẩm, rất khó lần ngược.
+ */
+export function sanitizeUploadName(fileName: string): string {
+  const lastDot = fileName.lastIndexOf('.');
+  const base = lastDot > 0 ? fileName.slice(0, lastDot) : fileName;
+  const extension = lastDot > 0 ? fileName.slice(lastDot + 1) : '';
+  const safeBase =
+    base
+      .normalize('NFD')
+      .replace(/[̀-ͯ]/g, '')
+      .replace(/[^a-zA-Z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '')
+      .slice(0, 80) || 'file';
+  const safeExtension = extension.replace(/[^a-zA-Z0-9]/g, '').toLowerCase();
+  return safeExtension ? `${safeBase}.${safeExtension}` : safeBase;
 }

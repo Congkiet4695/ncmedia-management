@@ -125,6 +125,9 @@ const PERMISSIONS: Array<{
   // Sprint Payout Report: thong ke chi tra tu TikTok Finance API
   { code: 'pod.product.read',          module: 'POD_TIKTOK', resource: 'pod.product',       action: 'read',   description: 'Xem san pham TikTok da dong bo' },
   { code: 'pod.product.sync',          module: 'POD_TIKTOK', resource: 'pod.product',       action: 'sync',   description: 'Dong bo san pham tu TikTok Shop' },
+  // Sua san pham DANG BAN tren shop that (Partial Edit Product). Tach khoi `sync` vi day la
+  // quyen GHI len san, khong phai quyen doc ve.
+  { code: 'pod.product.update',        module: 'POD_TIKTOK', resource: 'pod.product',       action: 'update', description: 'Sua san pham tren TikTok Shop (tieu de, mo ta, gia, ton kho...)' },
 
   { code: 'pod.template.read',         module: 'POD_TIKTOK', resource: 'pod.template',      action: 'read',   description: 'Xem Listing Template va cac template thanh phan' },
   { code: 'pod.template.write',        module: 'POD_TIKTOK', resource: 'pod.template',      action: 'write',  description: 'Tao/sua/xoa Listing Template va cac template thanh phan' },

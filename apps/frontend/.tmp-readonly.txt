@@ -1,0 +1,21 @@
+/** Một trường CHỈ ĐỌC kèm lý do — thà nói rõ còn hơn dựng ô nhập rồi bỏ qua giá trị. */
+function ReadonlyNote({
+  label,
+  value,
+  reason,
+}: {
+  label: string;
+  value: string;
+  reason: string;
+}) {
+  return (
+    <div className="space-y-1">
+      <Label className="flex items-center gap-1.5">
+        <Lock className="size-3.5 text-muted-foreground" />
+        {label}
+      </Label>
+      <p className="rounded-md border bg-muted/40 px-3 py-2 text-sm">{value}</p>
+      <p className="text-xs text-muted-foreground">{reason}</p>
+    </div>
+  );
+}

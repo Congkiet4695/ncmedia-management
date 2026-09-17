@@ -64,11 +64,25 @@ export class PodProductResponseMapper {
       ...this.toListItem({ ...row, images: row.images.filter((image) => !image.variantId) }),
       description: row.description,
       categoryPath: row.categoryPath,
+      tiktokCategoryId: row.tiktokCategoryId,
+      tiktokBrandId: row.tiktokBrandId,
       packageWeight: row.packageWeight,
       weightUnit: row.weightUnit,
       packageDimensions: this.formatDimensions(row),
       productTags: this.toStringArray(row.productTags),
       salesRegions: this.toStringArray(row.salesRegions),
+      searchTerms: this.toStringArray(row.searchTerms),
+      highlights: this.toStringArray(row.keyProductFeatures),
+      // Không có cả ba mảnh thì trả `null` chứ không trả object rỗng — giao diện phân biệt
+      // "chưa có bảng size" với "có bảng size nhưng thiếu link xem".
+      sizeChart:
+        row.sizeChartUri || row.sizeChartUrl || row.sizeChartTemplateId
+          ? {
+              uri: row.sizeChartUri,
+              url: row.sizeChartUrl,
+              templateId: row.sizeChartTemplateId,
+            }
+          : null,
       variants: row.variants.map((variant) => ({
         id: variant.id,
         tiktokSkuId: variant.tiktokSkuId,

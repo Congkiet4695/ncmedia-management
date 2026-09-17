@@ -109,15 +109,40 @@ export class PodProductListItemDto {
 }
 
 /** Chi tiết sản phẩm. */
+/**
+ * Bảng size của sản phẩm.
+ *
+ * 🔴 `uri` mới là thứ gửi lại được cho TikTok; `url` là link xem có hạn dùng. Một sản phẩm
+ * dùng bảng size MẪU của TikTok thì chỉ có `templateId`, không có ảnh.
+ */
+export class PodProductSizeChartDto {
+  @ApiProperty({ nullable: true, type: String }) uri!: string | null;
+  @ApiProperty({ nullable: true, type: String }) url!: string | null;
+  @ApiProperty({ nullable: true, type: String }) templateId!: string | null;
+}
+
 export class PodProductDetailDto extends PodProductListItemDto {
   @ApiProperty({ nullable: true, type: String }) description!: string | null;
   @ApiProperty({ nullable: true, type: String }) categoryPath!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: '`category_id` phía TikTok' })
+  tiktokCategoryId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) tiktokBrandId!: string | null;
   @ApiProperty({ nullable: true, type: String }) packageWeight!: string | null;
   @ApiProperty({ nullable: true, type: String }) weightUnit!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'D x R x C (kèm đơn vị)' })
   packageDimensions!: string | null;
   @ApiProperty({ type: [String] }) productTags!: string[];
   @ApiProperty({ type: [String] }) salesRegions!: string[];
+  @ApiProperty({ type: [String], description: 'Từ khoá tìm kiếm (ST words)' })
+  searchTerms!: string[];
+  @ApiProperty({ type: [String], description: 'Product Highlights' })
+  highlights!: string[];
+  @ApiProperty({
+    type: PodProductSizeChartDto,
+    nullable: true,
+    description: 'Bảng size hiện tại — ảnh tải lên hoặc bảng size mẫu của TikTok.',
+  })
+  sizeChart!: PodProductSizeChartDto | null;
   @ApiProperty({ type: PodProductVariantDto, isArray: true }) variants!: PodProductVariantDto[];
   @ApiProperty({ type: PodProductImageDto, isArray: true }) images!: PodProductImageDto[];
   @ApiProperty({ type: PodProductVideoDto, isArray: true }) videos!: PodProductVideoDto[];

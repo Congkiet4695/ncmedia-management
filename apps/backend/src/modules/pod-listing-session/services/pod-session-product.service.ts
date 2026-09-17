@@ -12,6 +12,8 @@ import { POD_SESSION_VALIDATION_CODES } from '../constants/pod-listing-session.c
 import type {
   PodSessionProductQueryDto,
   PreviewSessionProductDto,
+  CreateCustomListingDto,
+  CreateSessionProductDto,
   UpdateSessionProductDto,
 } from '../dto/pod-listing-session.dto';
 import { PodListingSessionService } from './pod-listing-session.service';
@@ -128,6 +130,113 @@ export class PodSessionProductService {
    * `images` gửi lên là **thay trọn bộ** — merge từng phần tử sẽ để lại rác của lần nhập
    * trước mà người dùng tưởng đã xoá.
    */
+  /**
+   * **Add Custom Listing** — lượt đăng một sản phẩm nhập tay, tạo trong MỘT lời gọi.
+   *
+   * ```
+   *   form  →  session (market + N shop + template tuỳ chọn)
+   *              └─ 1 Draft Product (+ manualData)
+   *                     ↓ Start Listing (endpoint sẵn có)
+   *                 fan-out 1 sản phẩm × N shop → Bulk Listing Engine
+   * ```
+   *
+   * 🔴 Dùng lại `create()` chứ không viết đường tạo session thứ hai: mọi phép kiểm ở đó
+   * (shop thuộc tổ chức, shop trong phạm vi của người dùng, template hợp lệ) là thứ Custom
+   * Listing cần y hệt. Một bản sao là một bản sẽ quên cập nhật.
+   *
+   * 🔴 KHÔNG tự chạy listing: hàm này chỉ dựng dữ liệu. "Lưu nháp" dừng ở đây, "Đăng sản
+   * phẩm" gọi tiếp `startListing`. Gộp hai việc lại là lấy mất nút Lưu nháp.
+   */
+  async createCustom(
+    organizationId: string,
+    userId: string,
+    dto: CreateCustomListingDto,
+    scope: PodAccessScope,
+  ) {
+    const session = await this.sessions.create(
+      organizationId,
+      userId,
+      {
+        // Lượt đăng một sản phẩm thì tên lượt = tên sản phẩm là thứ dễ tìm lại nhất.
+        name: dto.name?.trim() || dto.product.title,
+        market: dto.market,
+        shopIds: dto.shopIds,
+        templates: dto.templates,
+      },
+      scope,
+    );
+
+    await this.create(organizationId, userId, session.id, dto.product, scope);
+    return this.sessions.getDetail(organizationId, session.id, scope);
+  }
+
+  /**
+   * Tạo MỘT Draft Product nhập tay.
+   *
+   * 🔴 Vì sao không dùng lại đường Import: import đọc file nhiều dòng và ghi theo lô, còn
+   * đây là một sản phẩm người dùng vừa gõ xong trên form. Điểm chung duy nhất là bảng đích,
+   * và cả hai đều đi qua `PodListingSessionService.get()` nên phạm vi shop được kiểm y hệt.
+   *
+   * `importOrder` nối tiếp số lớn nhất đang có — sản phẩm nhập tay đứng cuối danh sách, đúng
+   * thứ tự người dùng thêm vào, và không giẫm lên số thứ tự của các lô import trước.
+   */
+  async create(
+    organizationId: string,
+    userId: string,
+    sessionId: string,
+    dto: CreateSessionProductDto,
+    scope: PodAccessScope,
+  ): Promise<SessionProductFull> {
+    const session = await this.sessions.get(organizationId, sessionId, scope);
+    // Lượt đang chạy thì không được thêm hàng vào giữa chừng.
+    this.assertEditable(session.status, PodListingSessionProductStatus.DRAFT);
+
+    const last = await this.prisma.podListingSessionProduct.findFirst({
+      where: { sessionId, deletedAt: null },
+      orderBy: { importOrder: 'desc' },
+      select: { importOrder: true },
+    });
+
+    const created = await this.prisma.$transaction(async (tx) => {
+      const product = await tx.podListingSessionProduct.create({
+        data: {
+          organizationId,
+          sessionId,
+          title: dto.title,
+          importOrder: (last?.importOrder ?? -1) + 1,
+          ...(dto.manualData
+            ? { manualData: dto.manualData as unknown as Prisma.InputJsonValue }
+            : {}),
+          createdBy: userId,
+        },
+        select: { id: true },
+      });
+
+      if (dto.images?.length) {
+        await tx.podListingSessionProductImage.createMany({
+          data: dto.images.map((image, index) => ({
+            organizationId,
+            sessionProductId: product.id,
+            imageUrl: image.imageUrl,
+            ...(image.imageType ? { imageType: image.imageType } : {}),
+            fileId: image.fileId ?? null,
+            sortOrder: image.sortOrder ?? index,
+          })),
+        });
+      }
+
+      // Thêm hàng vào lượt ⇒ kết quả validate của cả lượt hết giá trị.
+      await tx.podListingSession.updateMany({
+        where: { id: sessionId, status: { not: PodListingSessionStatus.LISTING } },
+        data: { status: PodListingSessionStatus.DRAFT },
+      });
+
+      return product;
+    });
+
+    return this.get(organizationId, sessionId, created.id, scope);
+  }
+
   async update(
     organizationId: string,
     userId: string,
@@ -145,6 +254,12 @@ export class PodSessionProductService {
         where: { id },
         data: {
           ...(dto.title === undefined ? {} : { title: dto.title }),
+          // Gửi `manualData` là THAY TOÀN BỘ phần nhập tay; bỏ trống là giữ nguyên. Không
+          // có đường "xoá từng trường" ở đây — giao diện luôn gửi lên trạng thái đầy đủ của
+          // các section đang ở chế độ Nhập tay.
+          ...(dto.manualData === undefined
+            ? {}
+            : { manualData: dto.manualData as unknown as Prisma.InputJsonValue }),
           // Sửa nội dung ⇒ kết quả validate cũ hết giá trị; xoá đi để không ai nhìn nhầm
           // trạng thái xanh của lần trước.
           status: PodListingSessionProductStatus.DRAFT,

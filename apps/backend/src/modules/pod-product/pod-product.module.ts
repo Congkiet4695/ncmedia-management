@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '../auth/auth.module';
 import { PodTiktokModule } from '../pod-tiktok/pod-tiktok.module';
+import { StorageModule } from '../storage/storage.module';
 import { PodProductController } from './pod-product.controller';
 import { PodProductMapper } from './mappers/pod-product.mapper';
 import { PodProductResponseMapper } from './mappers/pod-product-response.mapper';
@@ -9,6 +10,8 @@ import { PodProductRepository } from './repositories/pod-product.repository';
 import { PodProductSyncRepository } from './repositories/pod-product-sync.repository';
 import { PodProductSyncJob } from './schedulers/pod-product-sync.job';
 import { PodProductCatalogService } from './services/pod-product-catalog.service';
+import { PodProductEditService } from './services/pod-product-edit.service';
+import { PodProductMediaService } from './services/pod-product-media.service';
 import { PodProductService } from './services/pod-product.service';
 import { PodProductSyncQueue } from './services/pod-product-sync.queue';
 import { PodProductSyncService } from './services/pod-product-sync.service';
@@ -16,7 +19,11 @@ import { PodProductSyncService } from './services/pod-product-sync.service';
 /**
  * PodProductModule — Sprint 2: **Product Synchronization** (TikTok → NCMedia).
  *
- * Phạm vi: CHỈ ĐỌC. Không tạo/sửa/xoá/publish sản phẩm trên TikTok.
+ * Phạm vi: ĐỌC + ĐỒNG BỘ + **SỬA** sản phẩm đã có trên sàn.
+ *
+ * 🔴 Ghi chú "chỉ đọc" của Sprint 2 đã HẾT hiệu lực: `PodProductEditService` gọi Partial Edit
+ * Product trên shop thật (quyền `pod.product.update`). Vẫn KHÔNG có tạo mới / xoá / publish —
+ * tạo sản phẩm là việc của module Listing.
  *
  * Phụ thuộc (một chiều):
  *  - `TikTokSdkModule` (@Global) — cửa duy nhất ra SDK TikTok.
@@ -27,13 +34,15 @@ import { PodProductSyncService } from './services/pod-product-sync.service';
  *   controller → service → repository, mapper là ACL, scheduler chỉ kích hoạt.
  */
 @Module({
-  imports: [AuthModule, PodTiktokModule, ScheduleModule.forRoot()],
+  imports: [AuthModule, PodTiktokModule, StorageModule, ScheduleModule.forRoot()],
   controllers: [PodProductController],
   providers: [
     PodProductService,
     PodProductSyncService,
     PodProductSyncQueue,
     PodProductCatalogService,
+    PodProductEditService,
+    PodProductMediaService,
     PodProductRepository,
     PodProductSyncRepository,
     PodProductMapper,

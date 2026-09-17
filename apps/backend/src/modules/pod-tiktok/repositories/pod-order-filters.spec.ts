@@ -49,7 +49,7 @@ function buildRepo(designRows: Array<{ tiktokProductId: string; sellerSku: strin
     repo,
     prisma,
     where: () => capturedWhere,
-    find: (params: Record<string, unknown>) => repo.findMany('org-1', { ...page, ...params } as never),
+    find: (params: Record<string, unknown>) => repo.findMany('org-1', { ...page, ...params }),
   };
 }
 

@@ -14,6 +14,7 @@ import { calculatePricing } from './pod-pricing.calculator';
 import { resolveSkuItemPrice } from './pod-sku-price';
 import { applyTokens } from './pod-token.engine';
 import { IMAGE_TEMPLATE_INCLUDE } from './pod-image-template.service';
+import { applyManualOverride, parseManualOverride } from './pod-manual-listing';
 import type { ListingTemplateFull } from './pod-listing-template.service';
 
 /** Lỗi/cảnh báo phát hiện khi giải template. ERROR ⇒ draft chưa thể publish ở Sprint 4. */
@@ -93,6 +94,21 @@ export interface ResolvedListing {
     tiktokImageUri: string | null;
     sortOrder: number;
   }>;
+
+  /**
+   * Bảng size — TikTok nhận ở trường RIÊNG (`size_chart.image.uri`), KHÔNG phải ảnh sản phẩm.
+   *
+   * 🔴 Tách khỏi `images` là bắt buộc: `ensureImageUris` đẩy nguyên mảng `images` thành
+   * `main_images`, nên để lẫn vào đó là bảng size xuất hiện giữa bộ ảnh sản phẩm trên trang
+   * bán hàng — người mua thấy một tấm bảng số đo ở vị trí ảnh thứ hai.
+   */
+  sizeChart: { fileId: string | null; url: string | null; tiktokImageUri: string | null } | null;
+
+  /**
+   * Video sản phẩm. TikTok nhận `video: { id }` — **ID do TikTok cấp** sau khi upload file,
+   * không phải URL. Xem `TiktokProductApiService.uploadFile`.
+   */
+  video: { fileId: string | null; url: string | null; tiktokVideoId: string | null } | null;
 
   package: {
     weight: string | null;
@@ -367,6 +383,10 @@ export class PodListingResolverService {
         customValues: attribute.customValues.map((custom) => custom.value),
       })),
       images,
+      sizeChart: this.resolveSizeChart(sessionProduct ?? null),
+      // Video chỉ đến từ dữ liệu NHẬP TAY (xem `applyManualOverride`): template chưa có khái
+      // niệm video, còn sản phẩm đã đồng bộ thì video thuộc về shop nguồn, không mang sang.
+      video: null,
       package: packageInfo,
       warehouse: {
         id: warehouse?.id ?? null,
@@ -398,7 +418,25 @@ export class PodListingResolverService {
       },
     };
 
-    return { payload, issues, payloadHash: this.hash(payload) };
+    // 🔴 Dữ liệu NHẬP TAY áp SAU CÙNG — nó là bậc cao nhất của đúng thứ tự ưu tiên đã ghi ở
+    // đầu hàm (Draft Product → Template → Product đã đồng bộ). Áp ở đây chứ không rải vào
+    // từng nhánh phía trên vì hai lý do:
+    //
+    //   1. Mọi thứ đi sau điểm này (validate, dựng payload, publish theo từng shop, retry)
+    //      chỉ nhìn thấy `ResolvedListing` — nên nhập tay tự động chảy qua TOÀN BỘ Bulk
+    //      Listing Engine mà không phải sửa một dòng nào ở đó.
+    //   2. Luật "nhập tay thắng template" nằm gọn trong MỘT hàm thuần, kiểm được bằng unit
+    //      test không cần database.
+    const manual = applyManualOverride(
+      payload,
+      parseManualOverride(sessionProduct?.manualData ?? null),
+      issues,
+    );
+
+    // Hash tính trên payload CUỐI CÙNG: nó là khoá "nội dung có đổi không" của cả đường
+    // publish. Băm bản trước khi áp nhập tay nghĩa là sửa giá xong hệ thống tưởng không có
+    // gì thay đổi và bỏ qua lần gửi lại.
+    return { payload: manual, issues, payloadHash: this.hash(manual) };
   }
 
   // ---------------------------------------------------------------------------
@@ -449,7 +487,10 @@ export class PodListingResolverService {
   ): ResolvedListing['images'] {
     // Draft Product mang ảnh riêng (import từ file) ⇒ dùng ảnh đó, bộ mockup chỉ là phương án
     // dự bị. Người vận hành đã chỉ đích danh ảnh cho sản phẩm này thì không có lý do gì đè lên.
-    const ownImages = (sessionProduct?.images ?? []).filter((image) => image.imageUrl);
+    // 🔴 Bảng size và ảnh trong mô tả KHÔNG thuộc bộ ảnh sản phẩm — lọc ra trước.
+    const ownImages = (sessionProduct?.images ?? []).filter(
+      (image) => image.imageUrl && !NON_GALLERY_IMAGE_TYPES.has(image.imageType),
+    );
     if (ownImages.length > 0) {
       return ownImages.map((image, index) => ({
         title: `${image.imageType} #${index + 1}`,
@@ -518,6 +559,22 @@ export class PodListingResolverService {
    * Bước 2 là thứ làm SKU Template dùng chung được: quy tắc "XXL cộng thêm 2" đúng với mọi
    * sản phẩm, còn "XXL giá 26.99" thì chỉ đúng với đúng một sản phẩm.
    */
+  /**
+   * Bảng size của Draft Product.
+   *
+   * Lấy tấm ĐẦU TIÊN có `imageType = SIZE_CHART` — TikTok chỉ nhận một. Nhiều hơn thì tấm
+   * sau bị bỏ qua chứ không báo lỗi: đó là dữ liệu thừa, không phải dữ liệu sai.
+   */
+  private resolveSizeChart(
+    sessionProduct: SessionProductSource | null,
+  ): ResolvedListing['sizeChart'] {
+    const chart = (sessionProduct?.images ?? []).find(
+      (image) => image.imageType === PodListingSessionImageType.SIZE_CHART && image.imageUrl,
+    );
+    if (!chart) return null;
+    return { fileId: chart.fileId, url: chart.imageUrl, tiktokImageUri: chart.remoteUri };
+  }
+
   private resolveVariants(
     ctx: ResolveContext,
     pricing: ReturnType<typeof calculatePricing> | null,
@@ -675,6 +732,17 @@ export class PodListingResolverService {
     return createHash('sha256').update(JSON.stringify(payload)).digest('hex');
   }
 }
+
+/**
+ * Loại ảnh KHÔNG thuộc bộ ảnh sản phẩm (`main_images`).
+ *
+ * Bảng size có trường riêng của TikTok; ảnh chèn trong mô tả đã nằm sẵn trong HTML mô tả nên
+ * đưa lại vào bộ ảnh là hiển thị trùng.
+ */
+const NON_GALLERY_IMAGE_TYPES = new Set<PodListingSessionImageType>([
+  PodListingSessionImageType.SIZE_CHART,
+  PodListingSessionImageType.DESCRIPTION,
+]);
 
 /** Ảnh của Draft Product ánh xạ sang vai trò ảnh của listing. */
 const SESSION_IMAGE_ASSET_TYPE: Record<PodListingSessionImageType, PodImageAssetType> = {

@@ -6,6 +6,7 @@ import type {
   PodProductQuery,
   PodProductSyncPayload,
   PodProductVariantQuery,
+  UpdatePodProductPayload,
 } from '../types';
 
 const POD_PRODUCT_KEY = 'pod-products';
@@ -78,6 +79,25 @@ export function useSyncPodProducts() {
   return useMutation({
     mutationFn: (payload: PodProductSyncPayload = {}) => podProductService.sync(payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [POD_PRODUCT_KEY] }),
+  });
+}
+
+/**
+ * Sửa sản phẩm trên sàn.
+ *
+ * Thành công ⇒ làm mới CẢ chi tiết LẪN danh sách: tiêu đề, giá, trạng thái và mốc đồng bộ
+ * trên dòng danh sách đều có thể vừa đổi (§19). Ghi thẳng kết quả vào cache chi tiết để
+ * modal hiện ngay dữ liệu sàn trả về, không phải chờ một vòng fetch nữa.
+ */
+export function useUpdatePodProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: UpdatePodProductPayload }) =>
+      podProductService.update(id, payload),
+    onSuccess: (product) => {
+      queryClient.setQueryData([POD_PRODUCT_KEY, 'detail', product.id], product);
+      void queryClient.invalidateQueries({ queryKey: [POD_PRODUCT_KEY, 'list'] });
+    },
   });
 }
 

@@ -17,6 +17,7 @@ import { useAuth } from '@/hooks/use-auth';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { ImageLightbox } from '@/features/pod-tiktok/components/image-lightbox';
 import { ProductSyncHistoryDialog } from '@/features/pod-product/components/product-sync-history-dialog';
+import { EditProductDialog } from '@/features/pod-product/components/edit-product-dialog';
 import { ProductTable } from '@/features/pod-product/components/product-table';
 import {
   usePodProductFilters,
@@ -38,15 +39,18 @@ export default function PodProductsPage() {
 /**
  * Màn hình **POD → Products**.
  *
- * Sản phẩm ở đây là BẢN SAO đọc từ TikTok Shop (Sprint 2 chỉ đồng bộ một chiều) — vì vậy
- * không có nút Tạo/Sửa/Xoá. Muốn đổi sản phẩm, seller đổi trên Seller Center rồi bấm
- * "Sync Now" để kéo về.
+ * Sản phẩm ở đây là bản sao đọc từ TikTok Shop. **Sửa** được thực hiện ngược lên sàn qua
+ * Partial Edit Product rồi đồng bộ lại (`EditProductDialog`) — vẫn không có Tạo/Xoá: tạo
+ * sản phẩm là việc của Listing, còn xoá thì làm trên Seller Center.
  */
 function PodProductsView() {
   const { t } = useTranslation(['pod', 'common']);
   const translateApiError = useApiError();
   const { hasPermission } = useAuth();
   const canSync = hasPermission('pod.product.sync');
+  // 🔴 Chỉ để ẩn/hiện nút. Backend kiểm lại quyền này ở MỖI request PATCH — ẩn nút không
+  // phải là biện pháp bảo vệ, nó chỉ tránh mời người dùng bấm một thứ chắc chắn bị từ chối.
+  const canEdit = hasPermission('pod.product.update');
 
   const [query, setQuery] = useState<PodProductQuery>({
     page: 1,
@@ -57,6 +61,8 @@ function PodProductsView() {
   const [searchInput, setSearchInput] = useState('');
   const debouncedSearch = useDebouncedValue(searchInput, 350);
   const [historyOpen, setHistoryOpen] = useState(false);
+  /** Sản phẩm đang mở ở màn hình sửa. `null` = đóng. */
+  const [editingId, setEditingId] = useState<string | null>(null);
   /**
    * Các dòng đang được tick ở bảng.
    *
@@ -268,6 +274,7 @@ function PodProductsView() {
                 selectedIds={selectedIds}
                 onSelectionChange={setSelectedIds}
                 onOpenImages={openLightbox}
+                onEdit={canEdit ? setEditingId : undefined}
               />
             </>
           )}
@@ -281,6 +288,16 @@ function PodProductsView() {
       </Card>
 
       <ProductSyncHistoryDialog open={historyOpen} onClose={() => setHistoryOpen(false)} />
+
+      {/* Chỉ gắn vào cây khi thật sự mở: modal tự tải chi tiết sản phẩm, và giữ nó trong DOM
+          ở trạng thái đóng nghĩa là mỗi lần bảng render lại đều kéo theo nó. */}
+      {editingId && (
+        <EditProductDialog
+          open
+          productId={editingId}
+          onClose={() => setEditingId(null)}
+        />
+      )}
 
       {/* 🔴 `src` của lightbox là URL ẢNH GỐC (`…-origin-jpeg`), không phải bản thu nhỏ
           300×300 mà bảng đang hiển thị — xem `buildProductGallery`. */}

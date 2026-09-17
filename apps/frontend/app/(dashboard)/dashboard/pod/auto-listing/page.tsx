@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Eye, Plus, Trash2 } from 'lucide-react';
+import { Eye, Plus, Rocket, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -105,10 +105,19 @@ function ListingSessionListView() {
       }
       actions={
         !canWrite ? undefined : (
-          <Button variant="outline" onClick={create}>
-            <Plus className="size-4" />
-            {t('listing.sessions.create')}
-          </Button>
+          <>
+            {/* 🔴 Đứng CẠNH nút tạo lượt CSV/Excel, không thay thế nó: hai lối vào cho hai
+                cách làm việc khác nhau (nhập tay một sản phẩm vs nạp cả file). Luồng import
+                giữ nguyên hoàn toàn. */}
+            <Button onClick={() => router.push('/dashboard/pod/auto-listing/custom')}>
+              <Rocket className="size-4" />
+              {t('listing.custom.addButton')}
+            </Button>
+            <Button variant="outline" onClick={create}>
+              <Plus className="size-4" />
+              {t('listing.sessions.create')}
+            </Button>
+          </>
         )
       }
     >

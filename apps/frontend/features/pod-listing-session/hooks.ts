@@ -8,6 +8,8 @@ import type {
   PodSessionProductQuery,
   PodSessionQuery,
   UpdateSessionPayload,
+  CreateCustomListingPayload,
+  CreateSessionProductPayload,
   UpdateSessionProductPayload,
 } from './types';
 
@@ -82,6 +84,38 @@ export function useImportSessionProducts() {
     mutationFn: ({ id, file, mode }: { id: string; file: File; mode?: PodSessionImportMode }) =>
       podListingSessionService.import(id, file, mode ?? 'APPEND'),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/**
+ * Add Custom Listing — tạo lượt đăng một sản phẩm nhập tay.
+ *
+ * Làm mới danh sách lượt đăng để màn hình Auto Listing thấy ngay bản nháp vừa tạo.
+ */
+export function useCreateCustomListing() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: CreateCustomListingPayload) =>
+      podListingSessionService.createCustom(payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [KEY, 'list'] }),
+  });
+}
+
+/**
+ * Thêm sản phẩm nhập tay vào lượt đăng.
+ *
+ * Làm mới CẢ danh sách sản phẩm LẪN chi tiết lượt: thêm hàng làm lượt đăng quay về DRAFT
+ * (phải validate lại), nên thẻ trạng thái ở đầu màn hình cũng phải đổi theo ngay.
+ */
+export function useCreateSessionProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: CreateSessionProductPayload }) =>
+      podListingSessionService.createProduct(id, payload),
+    onSuccess: (_result, variables) => {
+      void queryClient.invalidateQueries({ queryKey: [KEY, 'products', variables.id] });
+      void queryClient.invalidateQueries({ queryKey: [KEY, 'detail', variables.id] });
+    },
   });
 }
 

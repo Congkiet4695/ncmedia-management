@@ -6,6 +6,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -38,14 +39,22 @@ import {
 import { PodScope } from '../pod-tiktok/decorators/pod-scope.decorator';
 import { PodScopeGuard } from '../pod-tiktok/guards/pod-scope.guard';
 import type { PodAccessScope } from '../pod-tiktok/services/pod-access-scope.service';
+import { PodProductEditService } from './services/pod-product-edit.service';
 import { PodProductService } from './services/pod-product.service';
+import { UpdatePodProductDto } from './dto/pod-product-update.dto';
 
 /**
  * PodProductController — màn hình **POD → Products**.
  *
- * 🔴 Sprint 2 CHỈ ĐỌC + ĐỒNG BỘ. Không có endpoint tạo/sửa/xoá/publish sản phẩm trên
- * TikTok — đó là phạm vi của Sprint sau (Listing), và cũng là điều đã cam kết với
- * TikTok App Review cho tới khi PRD được cập nhật.
+ * 🔴 Ranh giới hiện tại: ĐỌC + ĐỒNG BỘ + **SỬA** sản phẩm đã có (`PATCH /:id`, quyền
+ * `pod.product.update`, đi qua Partial Edit Product của TikTok).
+ *
+ * VẪN KHÔNG có: tạo mới, xoá, publish. Tạo sản phẩm là việc của module Listing.
+ *
+ * ⚠️ Ghi chú cũ nói module này "chỉ đọc theo cam kết với TikTok App Review". Cam kết đó
+ * thuộc về phạm vi scope của app; khả năng GHI đã được dùng từ Sprint Listing (Create /
+ * Edit Product). Nếu PRD gửi TikTok chưa phản ánh việc sửa sản phẩm từ màn hình Products,
+ * cần cập nhật PRD — xem `TIKTOK_APP_REVIEW_PRD.md`.
  *
  * Tenant-scoped (organizationId từ JWT) + RBAC `pod.product.*`.
  */
@@ -58,7 +67,10 @@ import { PodProductService } from './services/pod-product.service';
 @UseGuards(JwtAuthGuard, PermissionsGuard, PodScopeGuard)
 @Controller('pod/products')
 export class PodProductController {
-  constructor(private readonly service: PodProductService) {}
+  constructor(
+    private readonly service: PodProductService,
+    private readonly editService: PodProductEditService,
+  ) {}
 
   @Get()
   @RequirePermissions('pod.product.read')
@@ -117,6 +129,29 @@ export class PodProductController {
     @Body() dto: TriggerProductSyncDto,
   ): Promise<PodProductSyncResultDto> {
     return this.service.triggerSync(user.organizationId, user.userId, dto, scope);
+  }
+
+  @Patch(':id')
+  @RequirePermissions('pod.product.update')
+  @ApiOperation({
+    summary: 'Sửa sản phẩm trên TikTok Shop (Partial Edit)',
+    description:
+      'Chỉ gửi những trường THỰC SỰ đổi so với dữ liệu đã đồng bộ, qua ' +
+      '`POST /product/202309/products/{id}/partial_edit`. ' +
+      '🔴 Thứ tự: gọi TikTok TRƯỚC → sàn chấp nhận → đồng bộ lại sản phẩm → mới trả về. ' +
+      'Sàn từ chối thì database KHÔNG đổi gì. ' +
+      '🔴 KHÔNG đổi được danh mục: TikTok không hỗ trợ sửa `category_id` của sản phẩm đã tạo. ' +
+      '🔴 Khoá theo sản phẩm ⇒ bấm Lưu hai lần chỉ chạy một lượt (409 POD_PRODUCT_EDIT_BUSY).',
+  })
+  @ApiOkResponse({ type: PodProductDetailDto })
+  @ApiNotFoundResponse({ description: 'POD_PRODUCT_NOT_FOUND' })
+  updateProduct(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePodProductDto,
+  ): Promise<PodProductDetailDto> {
+    return this.editService.update(user.organizationId, user.userId, id, dto, scope);
   }
 
   @Get('categories')

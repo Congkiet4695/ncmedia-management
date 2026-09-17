@@ -1,0 +1,336 @@
+'use client';
+
+import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle, Loader2, Lock, Save } from 'lucide-react';
+import { toast } from 'sonner';
+import { useTranslation } from 'react-i18next';
+import { Badge } from '@/components/ui/badge';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
+import { Modal } from '@/components/ui/modal';
+import { RichTextEditor } from '@/components/ui/rich-text-editor';
+import { useApiError } from '@/hooks/use-api-error';
+import { cn } from '@/lib/utils';
+import { MediaEditor } from '@/features/pod-listing-session/components/media-editor';
+import { TemplatePicker } from '@/features/pod-listing-session/components/template-picker';
+import { usePodTemplates } from '@/features/pod-listing/hooks/use-pod-listing';
+import type {
+  PodCategoryTemplate,
+  PodDescriptionTemplate,
+  PodImageTemplate,
+  PodSkuTemplate,
+} from '@/features/pod-listing/types';
+import { usePodProduct, useUpdatePodProduct } from '../hooks/use-pod-products';
+import type { PodProductDetail } from '../types';
+import { BulkSkuBar, type BulkSkuPatch } from './bulk-sku-bar';
+import {
+  applyCategoryTemplateToProduct,
+  applySkuTemplateToProduct,
+  buildUpdatePayload,
+  imagesFromTemplate,
+  sizeChartFromTemplate,
+  splitList,
+  toFormState,
+  type EditProductForm,
+  type SkuDraft,
+} from './edit-product-state';
+
+/** Trần của TikTok (Create/Edit Product) — chặn ngay tại chỗ gõ. */
+const TITLE_MAX = 255;
+const DESCRIPTION_MAX = 10_000;
+const SEARCH_TERMS_MAX = 15;
+
+type TabKey = 'CONTENT' | 'IMAGES' | 'SKUS';
+
+/**
+ * **Sửa sản phẩm** đang bán trên TikTok Shop.
+ *
+ * ```
+ *   [Nội dung sản phẩm] [Ảnh sản phẩm] [SKU sản phẩm]
+ *          ↓ Lưu thay đổi
+ *   PATCH /pod/products/:id   → chỉ gửi trường ĐÃ ĐỔI
+ *          ↓ TikTok Partial Edit Product
+ *          ↓ sàn OK ⇒ đồng bộ lại ⇒ trả về đúng thứ sàn đang có
+ * ```
+ *
+ * 🔴 **Ba tab dùng CHUNG một state** — chuyển tab không nạp lại và không mất dữ liệu đang gõ
+ * (§3). Cả ba chỉ là ba khung nhìn của cùng một form.
+ *
+ * 🔴 **Chỉ bật nút Lưu khi thật sự có thay đổi** (dirty state). Và khi đóng modal lúc còn
+ * thay đổi chưa lưu thì hỏi lại — không âm thầm vứt công của người dùng.
+ *
+ * 🔴 Những gì TikTok KHÔNG cho sửa qua `partial_edit` (danh mục, thuộc tính danh mục, biến
+ * thể) được hiển thị **chỉ đọc kèm lý do**, không dựng ô nhập rồi bỏ qua giá trị — xem
+ * `ReadonlyNote`.
+ */
+export function EditProductDialog({
+  open,
+  productId,
+  onClose,
+}: {
+  open: boolean;
+  productId: string | null;
+  onClose: () => void;
+}) {
+  const { t } = useTranslation(['pod', 'common']);
+  const translateApiError = useApiError();
+  const detail = usePodProduct(open && productId ? productId : undefined);
+  const update = useUpdatePodProduct();
+
+  const [tab, setTab] = useState<TabKey>('CONTENT');
+  /**
+   * 🔴 MỘT state cho cả ba tab.
+   *
+   * Chuyển tab chỉ đổi thứ được render, không nạp lại và không mất thứ đang gõ — kể cả khi
+   * áp một template ở tab khác. Tách thành ba state riêng là cách chắc chắn nhất để "sửa
+   * tiêu đề ở tab 1, áp bộ ảnh ở tab 2" làm mất một trong hai.
+   */
+  const [form, setForm] = useState<EditProductForm | null>(null);
+  const patch = (next: Partial<EditProductForm>) =>
+    setForm((prev) => (prev ? { ...prev, ...next } : prev));
+
+  const product = detail.data ?? null;
+
+  /**
+   * Nạp dữ liệu gốc MỘT lần mỗi khi mở đúng sản phẩm đó.
+   *
+   * 🔴 Phụ thuộc `product.id`, KHÔNG phải `product`: đối tượng đổi tham chiếu sau mỗi lần
+   * refetch của react-query, và nạp lại theo tham chiếu sẽ xoá trắng thứ người dùng đang gõ.
+   */
+  useEffect(() => {
+    if (!open || !product) return;
+    setTab('CONTENT');
+    setForm(toFormState(product));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [open, product?.id]);
+
+  /** Chỉ những thay đổi THẬT — đây cũng là payload gửi đi. */
+  const payload = useMemo(
+    () => (product && form ? buildUpdatePayload(product, form) : {}),
+    [product, form],
+  );
+
+  const dirty = Object.keys(payload).length > 0;
+
+  /** Lỗi chặn — GỘP theo loại, không lặp theo từng SKU (§23). */
+  const blocking = useMemo(() => {
+    if (!form) return [];
+    const issues: string[] = [];
+
+    if (!form.title.trim()) issues.push(t('pod:products.edit.titleRequired'));
+    if (form.title.length > TITLE_MAX) {
+      issues.push(t('pod:products.edit.titleTooLong', { max: TITLE_MAX }));
+    }
+    if (form.description.length > DESCRIPTION_MAX) {
+      issues.push(t('pod:products.edit.descriptionTooLong', { max: DESCRIPTION_MAX }));
+    }
+    if (splitList(form.searchTerms, ',').length > SEARCH_TERMS_MAX) {
+      issues.push(t('pod:products.edit.tooManyTerms', { max: SEARCH_TERMS_MAX }));
+    }
+    // 🔴 Sản phẩm TikTok bắt buộc có ảnh: xoá sạch rồi bấm Lưu phải chặn ở đây, chứ không
+    // phải để sàn từ chối sau khi đã tải mọi thứ lên.
+    if (form.images.length === 0) issues.push(t('pod:products.edit.imageRequired'));
+
+    const drafts = Object.values(form.skus);
+    const badPrice = drafts.filter(
+      (draft) => draft.salePrice.trim() !== '' && !(Number(draft.salePrice) > 0),
+    ).length;
+    if (badPrice > 0) issues.push(t('pod:products.edit.badPrice', { count: badPrice }));
+
+    const badQty = drafts.filter(
+      (draft) => draft.quantity.trim() !== '' && !(Number(draft.quantity) >= 0),
+    ).length;
+    if (badQty > 0) issues.push(t('pod:products.edit.badQuantity', { count: badQty }));
+
+    const codes = drafts.map((draft) => draft.sellerSku.trim()).filter(Boolean);
+    const duplicated = codes.filter((code, index) => codes.indexOf(code) !== index);
+    if (duplicated.length > 0) {
+      issues.push(t('pod:products.edit.duplicateSku', { count: new Set(duplicated).size }));
+    }
+    return issues;
+  }, [form, t]);
+
+  const handleClose = () => {
+    if (dirty && !window.confirm(t('pod:products.edit.discardConfirm'))) return;
+    onClose();
+  };
+
+  const handleSave = async () => {
+    if (!productId || !dirty || blocking.length > 0) return;
+    try {
+      await update.mutateAsync({ id: productId, payload });
+      toast.success(t('pod:products.edit.saved'));
+      onClose();
+    } catch (error) {
+      // 🔴 KHÔNG đóng modal khi lỗi — giữ nguyên thứ người dùng đang sửa để họ chữa tiếp.
+      toast.error(t('pod:products.edit.saveFailed'), { description: translateApiError(error) });
+    }
+  };
+
+  /**
+   * Template của tổ chức — dùng LẠI đúng các endpoint và kiểu đã có của module Listing.
+   *
+   * 🔴 Nạp một lần ở đây rồi truyền xuống, không để mỗi tab tự gọi: ba tab cùng hiển thị thì
+   * ba lần gọi cùng một danh sách. `TemplatePicker` lọc tại chỗ nên không cần gọi lại khi gõ.
+   */
+  const templates = usePodProductTemplates(open);
+
+  /**
+   * Áp SKU Template lên bảng SKU ĐANG CÓ.
+   *
+   * 🔴 Chỉ điền giá/tồn kho cho tổ hợp sản phẩm đã có. Tổ hợp lạ trong mẫu KHÔNG tạo được
+   * SKU mới (xem `SkusTab`), nên phải báo con số bị bỏ qua — im lặng là để người dùng tin
+   * rằng mẫu đã áp trọn vẹn.
+   */
+  const applySkuTemplate = (template: PodSkuTemplate) => {
+    if (!product || !form) return;
+    const effect = applySkuTemplateToProduct(template, product, form.skus);
+    patch({ skus: effect.skus });
+
+    if (effect.matched === 0) {
+      toast.warning(t('pod:products.edit.skuTemplateNoMatch'));
+      return;
+    }
+    toast.success(t('pod:products.edit.skuTemplateApplied', { count: effect.matched }));
+    if (effect.unmatched.length > 0) {
+      toast.warning(
+        t('pod:products.edit.skuTemplateSkipped', {
+          count: effect.unmatched.length,
+          names: effect.unmatched.slice(0, 3).join(', '),
+        }),
+      );
+    }
+  };
+
+  /** Áp cập nhật hàng loạt lên đúng những SKU khớp bộ lọc. */
+  const applyBulk = (bulk: BulkSkuPatch, matchedSkuIds: string[]) => {
+    setForm((prev) => {
+      if (!prev) return prev;
+      const skus = { ...prev.skus };
+      for (const id of matchedSkuIds) {
+        const draft = skus[id];
+        if (!draft) continue;
+        skus[id] = {
+          ...draft,
+          ...(bulk.salePrice !== undefined ? { salePrice: bulk.salePrice } : {}),
+          ...(bulk.listPrice !== undefined ? { listPrice: bulk.listPrice } : {}),
+          ...(bulk.quantity !== undefined ? { quantity: bulk.quantity } : {}),
+        };
+      }
+      return { ...prev, skus };
+    });
+    toast.success(t('pod:products.edit.bulkApplied', { count: matchedSkuIds.length }));
+  };
+
+  return (
+    <Modal
+      open={open}
+      onClose={handleClose}
+      className="max-w-5xl"
+      title={
+        product
+          ? t('pod:products.edit.title', { id: product.tiktokProductId })
+          : t('pod:products.edit.loading')
+      }
+      description={t('pod:products.edit.hint')}
+    >
+      {detail.isPending ? (
+        <div className="flex items-center justify-center py-20">
+          <Loader2 className="size-6 animate-spin text-muted-foreground" />
+        </div>
+      ) : detail.isError || !product ? (
+        <p className="py-16 text-center text-sm text-destructive">
+          {translateApiError(detail.error)}
+        </p>
+      ) : !form ? null : (
+        <div className="space-y-4">
+          <div className="flex gap-1 border-b">
+            {(['CONTENT', 'IMAGES', 'SKUS'] as TabKey[]).map((key) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setTab(key)}
+                aria-current={tab === key}
+                className={cn(
+                  '-mb-px border-b-2 px-4 py-2 text-sm font-medium transition-colors',
+                  tab === key
+                    ? 'border-primary text-primary'
+                    : 'border-transparent text-muted-foreground hover:text-foreground',
+                )}
+              >
+                {t(`pod:products.edit.tab.${key}`)}
+              </button>
+            ))}
+          </div>
+
+          <div className="max-h-[62vh] space-y-4 overflow-y-auto pr-1">
+            {/* 🔴 Cả ba tab LUÔN nằm trong cây, chỉ ẩn/hiện bằng CSS. Tháo tab khỏi cây là
+                tháo luôn state cục bộ của nó (ô đang gõ dở, mẫu vừa chọn trong dropdown) —
+                đúng thứ §VII cấm: "không làm mất dữ liệu ở tab khác". */}
+            <div className={tab === 'CONTENT' ? 'space-y-4' : 'hidden'}>
+              <ContentTab
+                product={product}
+                form={form}
+                onPatch={patch}
+                templates={templates}
+              />
+            </div>
+
+            <div className={tab === 'IMAGES' ? 'space-y-4' : 'hidden'}>
+              <ImagesTab form={form} onPatch={patch} templates={templates} />
+            </div>
+
+            <div className={tab === 'SKUS' ? 'space-y-4' : 'hidden'}>
+              <SkusTab
+                product={product}
+                form={form}
+                templates={templates}
+                onChange={(id, next) =>
+                  setForm((prev) =>
+                    prev ? { ...prev, skus: { ...prev.skus, [id]: { ...prev.skus[id], ...next } } } : prev,
+                  )
+                }
+                onBulk={applyBulk}
+                onApplySkuTemplate={applySkuTemplate}
+              />
+            </div>
+          </div>
+
+          {blocking.length > 0 && (
+            <div className="space-y-1 rounded-md border border-destructive bg-destructive/5 p-3">
+              {blocking.map((issue) => (
+                <p key={issue} className="text-sm text-destructive">
+                  {issue}
+                </p>
+              ))}
+            </div>
+          )}
+
+          <div className="flex items-center justify-end gap-2 border-t pt-3">
+            {!dirty && (
+              <span className="mr-auto text-sm text-muted-foreground">
+                {t('pod:products.edit.noChange')}
+              </span>
+            )}
+            <Button variant="outline" onClick={handleClose} disabled={update.isPending}>
+              {t('common:action.cancel')}
+            </Button>
+            {/* 🔴 Không đổi gì ⇒ nút tắt: không gửi một request để sàn trả về "không có gì mới". */}
+            <Button
+              onClick={() => void handleSave()}
+              disabled={!dirty || blocking.length > 0 || update.isPending}
+            >
+              {update.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Save className="size-4" />
+              )}
+              {t('pod:products.edit.save')}
+            </Button>
+          </div>
+        </div>
+      )}
+    </Modal>
+  );
+}

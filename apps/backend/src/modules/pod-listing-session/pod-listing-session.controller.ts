@@ -41,6 +41,8 @@ import {
   PreviewSessionProductDto,
   StartSessionListingDto,
   UpdateListingSessionDto,
+  CreateCustomListingDto,
+  CreateSessionProductDto,
   UpdateSessionProductDto,
 } from './dto/pod-listing-session.dto';
 import { PodScope } from '../pod-tiktok/decorators/pod-scope.decorator';
@@ -91,6 +93,25 @@ export class PodListingSessionController {
     @Body() dto: CreateListingSessionDto,
   ) {
     return this.sessions.create(user.organizationId, user.userId, dto, scope);
+  }
+
+  @Post('custom')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermissions('pod.session.write')
+  @ApiOperation({
+    summary: 'Add Custom Listing — tạo lượt đăng MỘT sản phẩm nhập tay',
+    description:
+      'Dựng lượt đăng (market + N shop) kèm đúng MỘT Draft Product nhập tay, trong một lời ' +
+      'gọi. KHÔNG chạy listing — đây là "Lưu nháp". Muốn đăng thì gọi tiếp ' +
+      '`POST /pod/listing-sessions/{id}/start` (cần quyền `pod.listing.run`). ' +
+      '🔴 Shop ngoài phạm vi của người dùng ⇒ 403; Employee chỉ chọn được shop đã được gán.',
+  })
+  createCustom(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Body() dto: CreateCustomListingDto,
+  ) {
+    return this.products.createCustom(user.organizationId, user.userId, dto, scope);
   }
 
   @Get()
@@ -236,6 +257,26 @@ export class PodListingSessionController {
     return {
       deleted: await this.products.removeAll(user.organizationId, user.userId, id, scope),
     };
+  }
+
+  @Post(':id/products')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermissions('pod.session.write')
+  @ApiOperation({
+    summary: 'Thêm MỘT Draft Product nhập tay vào lượt đăng',
+    description:
+      'Dùng cho luồng nhập tay (không qua file Excel/CSV). `manualData` là phần GHI ĐÈ lên ' +
+      'template của lượt đăng, theo từng trường: bỏ trống trường nào thì trường đó lấy từ ' +
+      'template. Sau khi thêm, Start Listing fan-out sản phẩm này lên MỌI shop của lượt — ' +
+      'cùng hàng đợi, cùng retry, cùng phạm vi shop như sản phẩm import.',
+  })
+  createProduct(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: CreateSessionProductDto,
+  ) {
+    return this.products.create(user.organizationId, user.userId, id, dto, scope);
   }
 
   @Get(':id/products/:productId')

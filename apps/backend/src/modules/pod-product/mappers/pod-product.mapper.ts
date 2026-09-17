@@ -26,6 +26,11 @@ export interface PodProductWriteData {
   dimensionUnit: string | null;
   packageWeight: string | null;
   weightUnit: string | null;
+  searchTerms: string[] | null;
+  keyProductFeatures: string[] | null;
+  sizeChartUri: string | null;
+  sizeChartUrl: string | null;
+  sizeChartTemplateId: string | null;
   isNotForSale: boolean;
   hasDraft: boolean;
   listingQualityTier: string | null;
@@ -151,6 +156,12 @@ export class PodProductMapper {
         dimensionUnit: this.truncate(detail.packageDimensions?.unit, 16),
         packageWeight: this.truncate(detail.packageWeight?.value, 32),
         weightUnit: this.truncate(detail.packageWeight?.unit, 16),
+        searchTerms: detail.searchTerms ?? null,
+        keyProductFeatures: detail.keyProductFeatures ?? null,
+        // 🔴 `uri` mới là thứ gửi lại được cho TikTok; `urls[0]` chỉ để hiển thị và có hạn dùng.
+        sizeChartUri: this.truncate(detail.sizeChart?.image?.uri, 512),
+        sizeChartUrl: this.truncate(detail.sizeChart?.image?.urls?.[0], 2048),
+        sizeChartTemplateId: this.truncate(detail.sizeChart?.template?.id, 64),
         isNotForSale: detail.isNotForSale ?? false,
         hasDraft: detail.hasDraft ?? false,
         listingQualityTier: this.truncate(detail.listingQualityTier, 40),

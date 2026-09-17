@@ -14,6 +14,15 @@ export const POD_SESSION_IMPORT_MAX_ROWS = 5_000;
 /** Số Draft Product tối đa trong một session. */
 export const POD_SESSION_MAX_PRODUCTS = 1_000;
 
+/**
+ * Số shop tối đa cho MỘT lượt Custom Listing.
+ *
+ * 🔴 Có trần vì mỗi shop là một lượt Create Product riêng trên TikTok: 50 shop × 1 sản phẩm
+ * đã là 50 lời gọi API cộng ảnh. Hàng đợi vẫn giới hạn 5 luồng nên không có nguy cơ vỡ hạn
+ * mức, nhưng một con số vô hạn ở đây chỉ để người dùng chọn nhầm cả tổ chức rồi chờ.
+ */
+export const POD_CUSTOM_LISTING_MAX_SHOPS = 50;
+
 /** Định dạng file nhận vào. */
 export const POD_SESSION_IMPORT_EXTENSIONS = ['.xlsx', '.csv'] as const;
 

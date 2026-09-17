@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import {
-  PodBrandMode, PodListingLogLevel, PodListingStep } from '@prisma/client';
+  PodBrandMode, PodListingLogLevel, PodListingSessionImageType, PodListingStep } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { PodTiktokTokenService } from '../../pod-tiktok/services/pod-tiktok-token.service';
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
@@ -10,6 +10,7 @@ import { TiktokProductApiService } from '../../tiktok-sdk/tiktok-product-api.ser
 import {
   TIKTOK_IMAGE_USE_CASE,
   TIKTOK_PRODUCT_SAVE_MODE,
+  type TiktokImageUseCase,
 } from '../../tiktok-sdk/tiktok-sdk.constants';
 import type { TiktokShopContext } from '../../tiktok-sdk/types/tiktok-shop-context.type';
 import type {
@@ -273,6 +274,8 @@ export class PodListingPublisherService {
       images.uris,
       images.variantUris,
       warehouse.tiktokWarehouseId,
+      images.sizeChartUri,
+      images.videoId,
     );
 
     await log(
@@ -379,6 +382,8 @@ export class PodListingPublisherService {
       images.uris,
       images.variantUris,
       warehouse.tiktokWarehouseId,
+      images.sizeChartUri,
+      images.videoId,
     );
 
     const mode: 'EDIT' | 'CREATE' = tiktokDraftId ? 'EDIT' : 'CREATE';
@@ -566,6 +571,10 @@ export class PodListingPublisherService {
   ): Promise<{
     uris: string[];
     variantUris: Map<string, string>;
+    /** `uri` bảng size đã upload — `null` khi không có, hoặc upload hỏng (không chặn listing). */
+    sizeChartUri: string | null;
+    /** ID video phía TikTok — `null` khi không có, hoặc upload hỏng (không chặn listing). */
+    videoId: string | null;
     uploaded: number;
     reused: number;
   }> {
@@ -596,10 +605,11 @@ export class PodListingPublisherService {
       source: { fileId?: string | null; url?: string | null },
       label: string,
       persist: (uri: string) => Promise<unknown>,
+      useCase: TiktokImageUseCase = TIKTOK_IMAGE_USE_CASE.MAIN_IMAGE,
     ): Promise<string> => {
       // Khoá cache: file id nếu ảnh nằm trong Storage, còn lại là chính URL — hai draft dùng
-      // chung một URL ảnh thì cũng chỉ upload một lần.
-      const key = source.fileId || source.url || '';
+      // chung một URL ảnh thì cũng chỉ upload một lần. Xem `cacheKey`.
+      const key = this.cacheKey(useCase, source);
       const pending = cache.get(key);
       if (pending) {
         reused += 1;
@@ -607,7 +617,7 @@ export class PodListingPublisherService {
       }
 
       uploaded += 1;
-      const promise = this.uploadFile(organizationId, ctx, source, label).then(async (uri) => {
+      const promise = this.uploadFile(organizationId, ctx, source, label, useCase).then(async (uri) => {
         await persist(uri);
         return uri;
       });
@@ -652,13 +662,101 @@ export class PodListingPublisherService {
       ),
     );
 
+    /**
+     * Bảng size — upload với `useCase = SIZE_CHART_IMAGE`, KHÔNG phải MAIN_IMAGE.
+     *
+     * 🔴 Dùng nhầm use case thì TikTok xếp tấm ảnh vào sai chỗ và bảng size không hiện ở mục
+     * "Size guide" của trang sản phẩm. Đi qua `uriOf` nên vẫn chỉ upload một lần cho cả lượt.
+     */
+    const sizeChartUri = payload.sizeChart
+      ? await uriOf({ fileId: payload.sizeChart.fileId, url: payload.sizeChart.url }, 'bảng size', (uri) =>
+          this.prisma.podListingSessionProductImage.updateMany({
+            where: {
+              organizationId,
+              imageType: PodListingSessionImageType.SIZE_CHART,
+              ...(payload.sizeChart?.fileId
+                ? { fileId: payload.sizeChart.fileId }
+                : { imageUrl: payload.sizeChart?.url ?? '' }),
+            },
+            data: { remoteUri: uri, uploadedAt: new Date() },
+          }),
+        TIKTOK_IMAGE_USE_CASE.SIZE_CHART_IMAGE,
+      ).catch(async (error: unknown) => {
+        // 🔴 Bảng size hỏng KHÔNG được làm hỏng cả listing: nó là thông tin phụ trợ, còn
+        // sản phẩm thì vẫn đăng được. Ghi cảnh báo rồi đi tiếp.
+        await log(
+          PodListingLogLevel.WARN,
+          PodListingStep.UPLOAD_IMAGE,
+          'Không tải được bảng size — bỏ qua, sản phẩm vẫn được đăng',
+          { error: error instanceof Error ? error.message : String(error) },
+        );
+        return null;
+      })
+      : null;
+
+    /**
+     * Video sản phẩm — API KHÁC hẳn ảnh: `POST /product/202309/files/upload`, trả về **ID**.
+     *
+     * 🔴 Dùng chung `cache` của lượt job nên một video chỉ upload MỘT lần dù đăng lên 8 shop
+     * (file có thể tới 100 MB — upload lại mỗi shop là tám lần tải lên vô ích).
+     *
+     * 🔴 Fail-soft như bảng size: video là thứ làm listing đẹp hơn, không phải thứ khiến sản
+     * phẩm không bán được. Hỏng thì cảnh báo và đăng tiếp.
+     */
+    let videoId: string | null = null;
+    if (payload.video?.fileId) {
+      const key = `VIDEO:${payload.video.fileId}`;
+      try {
+        const pending = cache.get(key);
+        if (pending) {
+          videoId = await pending;
+          reused += 1;
+        } else {
+          uploaded += 1;
+          const promise = this.uploadVideo(organizationId, ctx, payload.video.fileId);
+          cache.set(key, promise);
+          try {
+            videoId = await promise;
+          } catch (error) {
+            cache.delete(key);
+            throw error;
+          }
+        }
+      } catch (error) {
+        await log(
+          PodListingLogLevel.WARN,
+          PodListingStep.UPLOAD_IMAGE,
+          'Không tải được video — bỏ qua, sản phẩm vẫn được đăng',
+          { error: error instanceof Error ? error.message : String(error) },
+        );
+      }
+    }
+
     await log(PodListingLogLevel.INFO, PodListingStep.UPLOAD_IMAGE, 'Đã chuẩn bị ảnh cho listing', {
       total: uris.length,
       uploaded,
       reused,
+      sizeChart: sizeChartUri ? 'OK' : 'NONE',
+      video: videoId ? 'OK' : 'NONE',
     });
 
-    return { uris, variantUris, uploaded, reused };
+    return { uris, variantUris, sizeChartUri, videoId, uploaded, reused };
+  }
+
+  /**
+   * Khoá cache của một file đã upload lên TikTok.
+   *
+   * 🔴 Gồm CẢ `useCase`: cùng một tấm ảnh dùng làm ảnh sản phẩm và làm bảng size là HAI `uri`
+   * khác nhau phía TikTok. Bỏ `useCase` ra khỏi khoá thì bảng size sẽ nhận nhầm uri của ảnh
+   * sản phẩm và hiện ra giữa bộ ảnh.
+   *
+   * 🔴 MỘT định nghĩa duy nhất, dùng cho cả lúc GHI (`uriOf`) lẫn lúc NẠP SẴN
+   * (`seedCacheFromDatabase`). Hai công thức khoá lệch nhau nghĩa là phần nạp sẵn không bao
+   * giờ trúng, và mọi ảnh đã upload từ trước sẽ bị upload lại — âm thầm, chỉ lộ ra ở hoá đơn
+   * băng thông và ở hạn mức API.
+   */
+  private cacheKey(useCase: TiktokImageUseCase, source: { fileId?: string | null; url?: string | null }): string {
+    return `${useCase}:${source.fileId || source.url || ''}`;
   }
 
   /**
@@ -673,15 +771,22 @@ export class PodListingPublisherService {
     images: ResolvedListing['images'],
     variantFileIds: string[],
   ): Promise<void> {
-    const missingImages = images.filter((image) => image.fileId && !cache.has(image.fileId));
+    // Mọi thứ nạp ở đây đều là ảnh SẢN PHẨM (bộ mẫu + ảnh biến thể) ⇒ dùng use case MAIN.
+    const main = TIKTOK_IMAGE_USE_CASE.MAIN_IMAGE;
+    const missingImages = images.filter(
+      (image) => image.fileId && !cache.has(this.cacheKey(main, { fileId: image.fileId })),
+    );
     // Ảnh của draft đã từng upload thì `remote_uri` đã có sẵn trong payload (resolver chép
     // sang `tiktokImageUri`), nên chỉ cần nạp trước phần ảnh của bộ mẫu.
     for (const image of images) {
-      if (!image.fileId && image.url && image.tiktokImageUri && !cache.has(image.url)) {
-        cache.set(image.url, Promise.resolve(image.tiktokImageUri));
+      const key = this.cacheKey(main, { url: image.url });
+      if (!image.fileId && image.url && image.tiktokImageUri && !cache.has(key)) {
+        cache.set(key, Promise.resolve(image.tiktokImageUri));
       }
     }
-    const missingVariants = variantFileIds.filter((fileId) => !cache.has(fileId));
+    const missingVariants = variantFileIds.filter(
+      (fileId) => !cache.has(this.cacheKey(main, { fileId })),
+    );
 
     const [imageRows, variantRows] = await Promise.all([
       missingImages.length === 0
@@ -707,11 +812,16 @@ export class PodListingPublisherService {
     ]);
 
     for (const row of imageRows) {
-      if (row.tiktokImageUri) cache.set(row.fileId, Promise.resolve(row.tiktokImageUri));
+      if (row.tiktokImageUri) {
+        cache.set(this.cacheKey(main, { fileId: row.fileId }), Promise.resolve(row.tiktokImageUri));
+      }
     }
     for (const row of variantRows) {
       if (row.imageFileId && row.tiktokImageUri) {
-        cache.set(row.imageFileId, Promise.resolve(row.tiktokImageUri));
+        cache.set(
+          this.cacheKey(main, { fileId: row.imageFileId }),
+          Promise.resolve(row.tiktokImageUri),
+        );
       }
     }
   }
@@ -722,6 +832,8 @@ export class PodListingPublisherService {
     ctx: TiktokShopContext,
     source: { fileId?: string | null; url?: string | null },
     label: string,
+    /** Vai trò của ảnh phía TikTok. Bảng size PHẢI dùng `SIZE_CHART_IMAGE`. */
+    useCase: TiktokImageUseCase = TIKTOK_IMAGE_USE_CASE.MAIN_IMAGE,
   ): Promise<string> {
     // Hai nguồn ảnh: file trong Storage Module (bộ ảnh mẫu, ảnh người dùng tải lên) hoặc
     // **URL ngoài** ghi trong file import. Cả hai đều quy về một buffer rồi đẩy lên sàn.
@@ -729,14 +841,30 @@ export class PodListingPublisherService {
       ? await this.readStorageFile(organizationId, source.fileId)
       : await this.fetchRemoteImage(source.url ?? '', label);
 
-    const { data } = await this.productApi.uploadImage(
-      ctx,
-      image,
-      TIKTOK_IMAGE_USE_CASE.MAIN_IMAGE,
-    );
+    const { data } = await this.productApi.uploadImage(ctx, image, useCase);
 
     if (!data.uri) throw new Error(`TikTok không trả về uri cho ${label}`);
     return data.uri;
+  }
+
+  /**
+   * Đưa video từ Storage Module lên TikTok, trả về **ID** của họ.
+   *
+   * Chỉ nhận video đã nằm trong Storage (có `fileId`): video là file lớn, tải từ một URL
+   * ngoài về rồi đẩy lên là hai lần truyền không kiểm soát được kích thước.
+   */
+  private async uploadVideo(
+    organizationId: string,
+    ctx: TiktokShopContext,
+    fileId: string,
+  ): Promise<string> {
+    const file = await this.readStorageFile(organizationId, fileId);
+    const { data } = await this.productApi.uploadFile(ctx, {
+      buffer: file.buffer,
+      fileName: file.fileName,
+    });
+    if (!data.id) throw new Error('TikTok không trả về id cho video');
+    return data.id;
   }
 
   private async readStorageFile(
@@ -826,6 +954,10 @@ export class PodListingPublisherService {
     uriByFileId: Map<string, string>,
     /** Kho ĐÃ ĐƯỢC quyết theo shop — không lấy lại từ payload. */
     warehouseId: string,
+    /** `uri` bảng size đã upload. `null` = không có, hoặc upload hỏng ⇒ bỏ trường này. */
+    sizeChartUri: string | null,
+    /** ID video phía TikTok. `null` ⇒ bỏ trường này. */
+    videoId: string | null,
   ): TiktokCreateProductRequest {
     // Giá trị chính thức đi kèm `id`; giá trị tự nhập chỉ có `name` — TikTok nhận cả hai
     // trong cùng một mảng và KHÔNG cần biết cái nào do người dùng gõ.
@@ -860,6 +992,10 @@ export class PodListingPublisherService {
               unit: payload.package.dimensionUnit ?? undefined,
             }
           : undefined,
+      // 🔴 Trường RIÊNG của TikTok — bảng size KHÔNG nằm trong `main_images`.
+      ...(sizeChartUri ? { sizeChart: { image: { uri: sizeChartUri } } } : {}),
+      // Video nhận **ID** (không phải uri/URL) do `POST /product/202309/files/upload` cấp.
+      ...(videoId ? { video: { id: videoId } } : {}),
       productAttributes,
       skus: payload.variants.map((variant) =>
         this.buildSku(payload, variant, uriByFileId, warehouseId),

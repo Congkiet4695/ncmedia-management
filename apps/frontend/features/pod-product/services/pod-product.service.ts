@@ -7,6 +7,7 @@ import type {
   PodProductFilterOptions,
   PodProductListResult,
   PodProductQuery,
+  UpdatePodProductPayload,
   PodProductSyncHistoryResult,
   PodProductSyncPayload,
   PodProductSyncResult,
@@ -50,6 +51,17 @@ export const podProductService = {
 
   async get(id: string): Promise<PodProductDetail> {
     const res = await apiClient.get<ApiResponse<PodProductDetail>>(`${BASE_PATH}/${id}`);
+    return res.data.data;
+  },
+
+  /**
+   * Sửa sản phẩm trên sàn. Chỉ gửi trường người dùng đã đổi — backend diff thêm lần nữa.
+   *
+   * Trả về sản phẩm ĐÃ ĐỒNG BỘ LẠI từ TikTok, không phải thứ vừa gửi đi: sàn có thể chuẩn
+   * hoá giá trị (làm tròn giá, cắt tiêu đề).
+   */
+  async update(id: string, payload: UpdatePodProductPayload): Promise<PodProductDetail> {
+    const res = await apiClient.patch<ApiResponse<PodProductDetail>>(`${BASE_PATH}/${id}`, payload);
     return res.data.data;
   },
 

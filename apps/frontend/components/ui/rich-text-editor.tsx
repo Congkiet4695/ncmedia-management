@@ -25,6 +25,8 @@ import {
   Outdent,
   Quote,
   Redo2,
+  ImagePlus,
+  Loader2,
   RemoveFormatting,
   Strikethrough,
   Underline,
@@ -32,6 +34,7 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { sanitizeHtml, toEditableHtml } from '@/lib/sanitize-html';
+import { applyFontSizeToRange, insertNodeAtRange } from '@/lib/rich-text-format';
 
 /**
  * RichTextEditor — trình soạn thảo WYSIWYG, **không phụ thuộc thư viện ngoài**.
@@ -76,6 +79,14 @@ interface RichTextEditorProps {
   className?: string;
   /** Nhãn i18n — component UI không tự dịch. */
   labels?: Partial<RichTextEditorLabels>;
+  /**
+   * Tải một ảnh lên rồi trả về URL để chèn vào nội dung.
+   *
+   * 🔴 Không truyền ⇒ **ẩn hẳn nút ảnh**. Component UI này không biết tới service nào của
+   * feature; nơi dùng truyền vào đúng service tải lên đang có của dự án. Hiện một nút mà
+   * bấm vào không làm được gì là thứ tệ hơn cả không có nút.
+   */
+  onUploadImage?: (file: File) => Promise<{ url: string; alt?: string }>;
 }
 
 export interface RichTextEditorLabels {
@@ -109,6 +120,11 @@ export interface RichTextEditorLabels {
   linkUrl: string;
   linkApply: string;
   linkCancel: string;
+  image: string;
+  imageUploading: string;
+  imageBadFormat: string;
+  imageTooLarge: string;
+  imageUploadFailed: string;
 }
 
 const DEFAULT_LABELS: RichTextEditorLabels = {
@@ -142,6 +158,11 @@ const DEFAULT_LABELS: RichTextEditorLabels = {
   linkUrl: 'https://…',
   linkApply: 'Apply',
   linkCancel: 'Cancel',
+  image: 'Insert image',
+  imageUploading: 'Uploading…',
+  imageBadFormat: 'Only JPG, PNG or WEBP images are allowed.',
+  imageTooLarge: 'Image is larger than 5 MB.',
+  imageUploadFailed: 'Upload image failed.',
 };
 
 /**
@@ -166,18 +187,17 @@ const FONT_OPTIONS = [
 const FONT_SIZE_OPTIONS = ['12', '14', '16', '18', '20', '24', '28', '32', '40'];
 
 /**
- * Cỡ chữ "mồi" của `execCommand('fontSize')`.
+ * Giới hạn ảnh chèn vào mô tả.
  *
- * 🔴 `fontSize` chỉ nhận thang 1–7 của HTML đời đầu và sinh ra `<font size="7">` — kể cả khi
- * `styleWithCSS` đang bật. Không có lệnh nào đặt được px trực tiếp. Cách duy nhất còn lại:
- * gọi lệnh với một cỡ KHÔNG BAO GIỜ dùng thật (7), rồi tìm đúng những nút vừa sinh ra đó mà
- * đổi thành `<span style="font-size: Npx">`. Xem `applyFontSize`.
+ * Bằng đúng giới hạn của `MediaEditor` (ảnh sản phẩm) — cùng một Storage Module, cùng một
+ * TikTok ở đầu bên kia, nên không có lý do gì để hai chỗ nhận hai bộ giới hạn khác nhau.
  */
-const FONT_SIZE_SENTINEL = '7';
+const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(
   function RichTextEditor(
-    { value, onChange, placeholder, minHeight = '260px', className, labels },
+    { value, onChange, placeholder, minHeight = '260px', className, labels, onUploadImage },
     ref,
   ) {
     const text = { ...DEFAULT_LABELS, ...labels };
@@ -189,6 +209,9 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     const [sourceMode, setSourceMode] = useState(false);
     const [linkOpen, setLinkOpen] = useState(false);
     const [linkUrl, setLinkUrl] = useState('');
+    const [uploading, setUploading] = useState(false);
+    const [imageError, setImageError] = useState<string | null>(null);
+    const imageInput = useRef<HTMLInputElement>(null);
 
     // Đồng bộ MỘT CHIỀU value → DOM, và chỉ khi DOM chưa phản ánh `value`. Bỏ điều kiện này
     // là con trỏ nhảy về đầu sau mỗi phím gõ.
@@ -252,27 +275,103 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       [emit, restoreSelection, saveSelection],
     );
 
-    /** Cỡ chữ theo px — xem ghi chú ở `FONT_SIZE_SENTINEL`. */
+    /**
+     * Cỡ chữ theo px — thao tác thẳng trên Range, KHÔNG qua `execCommand`.
+     *
+     * 🔴 Bản cũ gọi `execCommand('fontSize', '7')` rồi đi tìm `<font size="7">` để đổi thành
+     * span px. Hai lỗi: (1) ngay dòng trên đã bật `styleWithCSS` — tức bảo trình duyệt ĐỪNG
+     * sinh `<font>` — nên thứ sinh ra là `<span style="font-size: xxx-large">` và vòng lặp
+     * không tìm thấy gì; (2) `replaceWith` huỷ vùng chọn, mà `saveSelection()` chạy ngay sau
+     * đó lại lưu đúng vùng rỗng ấy, nên lần đổi cỡ KẾ TIẾP ra lệnh trên một vùng không có ký
+     * tự nào. Đó là lý do "chỉ đổi được một lần".
+     *
+     * 🔴 Đặt lại vùng chọn theo Range mà hàm trả về là phần BẮT BUỘC, không phải tiện thể:
+     * nó chính là thứ cho phép đổi cỡ liên tiếp 12 → 14 → 16 → 40 mà không phải bôi đen lại.
+     */
     const applyFontSize = useCallback(
       (px: string) => {
         const editor = editorRef.current;
         if (!editor) return;
         editor.focus();
         restoreSelection();
-        document.execCommand('styleWithCSS', false, 'true');
-        document.execCommand('fontSize', false, FONT_SIZE_SENTINEL);
 
-        for (const node of Array.from(editor.querySelectorAll(`font[size="${FONT_SIZE_SENTINEL}"]`))) {
-          const span = document.createElement('span');
-          span.style.fontSize = `${px}px`;
-          span.innerHTML = node.innerHTML;
-          node.replaceWith(span);
-        }
+        const selection = window.getSelection();
+        if (!selection || selection.rangeCount === 0) return;
+        const next = applyFontSizeToRange(editor, selection.getRangeAt(0), px);
+        if (!next) return;
 
-        saveSelection();
+        selection.removeAllRanges();
+        selection.addRange(next);
+        savedRange.current = next.cloneRange();
         emit();
       },
-      [emit, restoreSelection, saveSelection],
+      [emit, restoreSelection],
+    );
+
+    /**
+     * Chèn ảnh tại con trỏ.
+     *
+     * 🔴 Việc TẢI LÊN không nằm ở đây: component UI này không được biết tới service nào của
+     * feature. Nơi dùng truyền `onUploadImage` (Description Template dùng lại đúng
+     * `podListingService.uploadAsset` → Storage Module mà ảnh sản phẩm vẫn đang dùng). Không
+     * có prop đó thì nút ảnh không hiện — thà không có nút còn hơn một nút bấm vào không
+     * làm gì.
+     */
+    const insertImage = useCallback(
+      async (file: File | undefined) => {
+        const editor = editorRef.current;
+        if (!file || !onUploadImage || !editor) return;
+
+        if (!IMAGE_TYPES.includes(file.type)) {
+          setImageError(text.imageBadFormat);
+          return;
+        }
+        if (file.size > IMAGE_MAX_BYTES) {
+          setImageError(text.imageTooLarge);
+          return;
+        }
+
+        setImageError(null);
+        setUploading(true);
+        try {
+          const uploaded = await onUploadImage(file);
+          if (!uploaded?.url) throw new Error('missing url');
+
+          const image = document.createElement('img');
+          image.src = uploaded.url;
+          image.alt = uploaded.alt ?? file.name;
+          // Ảnh mô tả hiển thị trên trang sản phẩm TikTok, nơi không có CSS của ta ⇒ chặn
+          // tràn bằng style INLINE, không bằng class.
+          image.style.maxWidth = '100%';
+          image.style.height = 'auto';
+
+          editor.focus();
+          restoreSelection();
+          const selection = window.getSelection();
+          const range =
+            selection && selection.rangeCount > 0 && editor.contains(selection.getRangeAt(0).commonAncestorContainer)
+              ? selection.getRangeAt(0)
+              : (() => {
+                  // Chưa từng đặt con trỏ ⇒ chèn vào CUỐI, không phải đầu: người dùng vừa gõ
+                  // xong nội dung thì chỗ họ mong đợi ảnh xuất hiện là bên dưới.
+                  const end = document.createRange();
+                  end.selectNodeContents(editor);
+                  end.collapse(false);
+                  return end;
+                })();
+
+          const after = insertNodeAtRange(range, image);
+          selection?.removeAllRanges();
+          selection?.addRange(after);
+          savedRange.current = after.cloneRange();
+          emit();
+        } catch {
+          setImageError(text.imageUploadFailed);
+        } finally {
+          setUploading(false);
+        }
+      },
+      [emit, onUploadImage, restoreSelection, text.imageBadFormat, text.imageTooLarge, text.imageUploadFailed],
     );
 
     /**
@@ -466,6 +565,38 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             icon={<Link2 className="size-4" />}
           />
           <ToolbarButton label={text.unlink} onClick={() => exec('unlink')} icon={<Link2Off className="size-4" />} />
+          {onUploadImage && (
+            <>
+              <input
+                ref={imageInput}
+                type="file"
+                accept={IMAGE_TYPES.join(',')}
+                hidden
+                onChange={(event) => {
+                  void insertImage(event.target.files?.[0]);
+                  // Xoá giá trị để chọn LẠI đúng tấm vừa chọn vẫn kích hoạt `onChange`.
+                  event.target.value = '';
+                }}
+              />
+              <ToolbarButton
+                label={uploading ? text.imageUploading : text.image}
+                disabled={uploading}
+                onClick={() => {
+                  // Lưu con trỏ TRƯỚC khi mở hộp thoại chọn tệp: mở hộp thoại là mất focus,
+                  // và mất focus là mất luôn chỗ người dùng muốn ảnh xuất hiện.
+                  saveSelection();
+                  imageInput.current?.click();
+                }}
+                icon={
+                  uploading ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <ImagePlus className="size-4" />
+                  )
+                }
+              />
+            </>
+          )}
           <ToolbarButton
             label={text.blockquote}
             onClick={() => exec('formatBlock', 'blockquote')}
@@ -524,6 +655,12 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             icon={<Code2 className="size-4" />}
           />
         </Toolbar>
+
+        {imageError && (
+          <p className="border-b bg-destructive/5 px-3 py-1.5 text-xs text-destructive">
+            {imageError}
+          </p>
+        )}
 
         {linkOpen && (
           <div className="flex items-center gap-2 border-b bg-muted/30 px-2 py-1.5">
@@ -619,11 +756,13 @@ function ToolbarButton({
   icon,
   onClick,
   active,
+  disabled,
 }: {
   label: string;
   icon: ReactNode;
   onClick: () => void;
   active?: boolean;
+  disabled?: boolean;
 }) {
   return (
     <button
@@ -631,11 +770,13 @@ function ToolbarButton({
       title={label}
       aria-label={label}
       aria-pressed={active}
+      disabled={disabled}
       onMouseDown={(event) => event.preventDefault()}
       onClick={onClick}
       className={cn(
         'flex size-7 shrink-0 items-center justify-center rounded text-muted-foreground',
         'hover:bg-background hover:text-foreground',
+        'disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:bg-transparent',
         active && 'bg-background text-foreground shadow-sm',
       )}
     >

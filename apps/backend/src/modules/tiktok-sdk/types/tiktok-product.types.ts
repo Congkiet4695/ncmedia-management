@@ -163,6 +163,17 @@ export interface TiktokProductDetail extends TiktokProductSummary {
   minimumOrderQuantity?: number;
   shippingInsuranceRequirement?: string;
   productTypes?: string[];
+  /** Từ khoá tìm kiếm (ST words) — Get Product CÓ trả về, dùng làm vế so khi sửa. */
+  searchTerms?: string[];
+  /** Product Highlights. */
+  keyProductFeatures?: string[];
+  /**
+   * Bảng size hiện tại.
+   *
+   * 🔴 Hai dạng loại trừ nhau: ảnh do người bán tải lên (`image.uri`) hoặc bảng size mẫu của
+   * TikTok (`template.id`). Sửa sản phẩm phải biết đang là dạng nào để không gửi nhầm.
+   */
+  sizeChart?: { image?: TiktokProductImage; template?: { id?: string } };
   /** Cấu hình POD (chỉ thị trường US) — Sprint sau dùng, sync sẵn để không mất dữ liệu. */
   podInfo?: unknown;
   /**
@@ -229,6 +240,18 @@ export interface TiktokCategoryAttribute {
 // Ghi dữ liệu lên TikTok — Upload Product Image & Create Product
 // ---------------------------------------------------------------------------
 
+/**
+ * File (video/PDF) vừa tải lên TikTok.
+ *
+ * 🔴 Create Product nhận video bằng `video: { id }` — **ID**, không phải `uri` như ảnh.
+ */
+export interface TiktokUploadedFile {
+  id?: string;
+  url?: string;
+  /** TikTok trả về khi file là video — dùng để đối chiếu, không gửi lại. */
+  format?: string;
+}
+
 /** Ảnh vừa tải lên TikTok. `uri` là thứ Create Product cần, `url` chỉ để xem lại. */
 export interface TiktokUploadedImage {
   uri?: string;
@@ -281,6 +304,57 @@ export interface TiktokCreateProductRequest {
   video?: { id?: string };
   isCodAllowed?: boolean;
   minimumOrderQuantity?: number;
+}
+
+/**
+ * Thân request **Partial Edit Product** — `POST /product/202309/products/{id}/partial_edit`.
+ *
+ * 🔴 Khác `Edit Product` (PUT) ở điểm quyết định: PUT là **thay toàn bộ**, thiếu trường nào
+ * là TikTok coi như xoá trường đó. Partial Edit chỉ đụng tới những trường CÓ MẶT trong body.
+ * Sửa mỗi tiêu đề mà dùng PUT là mất sạch mô tả, ảnh và bảng giá.
+ *
+ * 🔴 **KHÔNG có `categoryId`.** TikTok không cho đổi danh mục của sản phẩm đã tạo qua API
+ * này — giao diện phải để danh mục ở chế độ chỉ đọc, không được dựng ô chọn rồi âm thầm
+ * bỏ qua giá trị người dùng chọn.
+ */
+export interface TiktokPartialEditProductRequest {
+  title?: string;
+  description?: string;
+  brandId?: string;
+  /** Từ khoá tìm kiếm (ST words) — tối đa 15 từ, tổng 250 ký tự. */
+  searchTerms?: string[];
+  /** Product Highlights — mỗi dòng một ý. */
+  keyProductFeatures?: string[];
+  /**
+   * Ảnh sản phẩm — danh sách **ĐẦY ĐỦ và ĐÚNG THỨ TỰ**, không phải phần thêm vào.
+   *
+   * 🔴 TikTok THAY cả bộ ảnh bằng mảng này: gửi 2 tấm cho sản phẩm đang có 7 tấm là xoá 5
+   * tấm kia. Vì vậy nơi gọi chỉ được đưa vào đây khi thật sự có thay đổi, và khi đưa thì
+   * phải đủ cả bộ. Tấm ĐẦU TIÊN là ảnh đại diện — TikTok không có trường riêng cho việc đó.
+   */
+  mainImages?: Array<{ uri?: string }>;
+  /** Ảnh bảng size (`image.uri`) HOẶC bảng size mẫu của TikTok (`template.id`), không cả hai. */
+  sizeChart?: { image?: { uri?: string }; template?: { id?: string } };
+  /** Video sản phẩm — `id` nhận từ Upload Product File, KHÔNG phải `uri` như ảnh. */
+  video?: { id?: string };
+  packageWeight?: { value?: string; unit?: string };
+  packageDimensions?: { length?: string; width?: string; height?: string; unit?: string };
+  productAttributes?: Array<{ id?: string; values?: Array<{ id?: string; name?: string }> }>;
+  skus?: TiktokPartialEditSku[];
+}
+
+/**
+ * Một SKU trong Partial Edit.
+ *
+ * 🔴 `id` là **TikTok SKU ID** và là BẮT BUỘC: thiếu nó TikTok không biết sửa dòng nào và
+ * có thể tạo thêm SKU mới. Đây là lý do luồng sửa chỉ làm việc với SKU đã đồng bộ về.
+ */
+export interface TiktokPartialEditSku {
+  id: string;
+  sellerSku?: string;
+  price?: { amount?: string; currency?: string };
+  listPrice?: { amount?: string; currency?: string };
+  inventory?: Array<{ warehouseId?: string; quantity?: number }>;
 }
 
 /** Kết quả Create Product. */

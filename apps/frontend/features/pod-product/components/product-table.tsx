@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { ImageOff, Loader2, Package } from 'lucide-react';
+import { ImageOff, Loader2, Package, Pencil } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -36,6 +36,14 @@ interface ProductTableProps {
    * bảng. Trang giữ state, bảng chỉ báo "người dùng vừa bấm ảnh thứ i của sản phẩm này".
    */
   onOpenImages?: (images: ProductGalleryImage[], index: number, alt: string) => void;
+  /**
+   * Mở màn hình sửa sản phẩm.
+   *
+   * 🔴 Bỏ trống ⇒ **ẩn hẳn nút Sửa**. Trang cha quyết định dựa trên quyền `pod.product.update`
+   * — và backend kiểm lại quyền đó ở mỗi request, nên đây chỉ là chuyện đừng mời người dùng
+   * bấm một nút chắc chắn bị từ chối.
+   */
+  onEdit?: (productId: string) => void;
 }
 
 /** Số ảnh phụ hiển thị cạnh ảnh chính. Vượt quá ⇒ gộp vào chỉ báo `+N`. */
@@ -58,6 +66,7 @@ export function ProductTable({
   selectedIds,
   onSelectionChange,
   onOpenImages,
+  onEdit,
 }: ProductTableProps) {
   const { t } = useTranslation(['pod', 'common']);
   const { formatDateTime, formatNumber } = useLocaleFormat();
@@ -182,11 +191,19 @@ export function ProductTable({
             </TableCell>
 
             <TableCell className="align-top">
-              <Button asChild variant="outline" size="sm">
-                <Link href={`/dashboard/pod/products/${product.id}`}>
-                  {t('common:action.viewDetail')}
-                </Link>
-              </Button>
+              <div className="flex flex-col gap-1.5">
+                <Button asChild variant="outline" size="sm">
+                  <Link href={`/dashboard/pod/products/${product.id}`}>
+                    {t('common:action.viewDetail')}
+                  </Link>
+                </Button>
+                {onEdit && (
+                  <Button variant="outline" size="sm" onClick={() => onEdit(product.id)}>
+                    <Pencil className="size-3.5" />
+                    {t('common:action.edit')}
+                  </Button>
+                )}
+              </div>
             </TableCell>
           </TableRow>
         ))}

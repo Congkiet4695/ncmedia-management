@@ -30,6 +30,11 @@
     "scripts/verify-issue-grouping.ts",
     "scripts/verify-selection.ts",
     "scripts/verify-description-editor.ts",
-    "scripts/verify-product-images.ts"
+    "scripts/verify-product-images.ts",
+    "scripts/verify-manual-sku.ts",
+    "scripts/verify-template-apply.ts",
+    "scripts/verify-bulk-sku.ts",
+    "scripts/verify-edit-product.ts",
+    "scripts/verify-rich-text-format.ts"
   ]
 }

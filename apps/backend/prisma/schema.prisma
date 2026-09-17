@@ -2877,6 +2877,21 @@ model PodProduct {
   packageWeight String? @map("package_weight") @db.VarChar(32)
   weightUnit    String? @map("weight_unit") @db.VarChar(16)
 
+  /// Từ khoá tìm kiếm (ST words) và Product Highlights.
+  ///
+  /// 🔴 Get Product CÓ trả hai trường này; trước đây ta không lưu, nên màn hình Sửa sản phẩm
+  /// không có vế để so và luôn phải coi mọi lần nhập là "thay toàn bộ". Lưu lại để diff đúng.
+  searchTerms        Json?   @map("search_terms")
+  keyProductFeatures Json?   @map("key_product_features")
+
+  /// Bảng size hiện tại của sản phẩm (`size_chart`).
+  ///
+  /// 🔴 `uri` là thứ GỬI LẠI cho TikTok, `url` chỉ để hiển thị. Một sản phẩm dùng bảng size
+  /// mẫu của TikTok thì có `templateId` mà không có ảnh — giữ cả ba để không đoán.
+  sizeChartUri        String? @map("size_chart_uri") @db.VarChar(512)
+  sizeChartUrl        String? @map("size_chart_url") @db.VarChar(2048)
+  sizeChartTemplateId String? @map("size_chart_template_id") @db.VarChar(64)
+
   isNotForSale       Boolean @default(false) @map("is_not_for_sale")
   hasDraft           Boolean @default(false) @map("has_draft")
   listingQualityTier String? @map("listing_quality_tier") @db.VarChar(40)
@@ -4685,6 +4700,24 @@ model PodListingSessionProduct {
   /// Payload xem trước gần nhất (kết quả áp template). Chỉ để xem lại nhanh; nguồn sự thật
   /// là `pod_listing_payloads` lúc thực sự gửi đi.
   previewData Json? @map("preview_data")
+
+  /// Dữ liệu người dùng NHẬP TAY cho riêng sản phẩm này — ghi đè lên template của lượt đăng.
+  ///
+  /// 🔴 Vì sao là override trên bảng CŨ chứ không phải một bảng "manual draft" mới: lượt đăng
+  /// đã mang sẵn danh sách shop, và `startListing` đã fan-out (sản phẩm × shop) vào Bulk
+  /// Listing Engine — cùng hàng đợi, cùng retry, cùng phân quyền theo shop. Dựng một đường
+  /// listing thứ hai cho sản phẩm nhập tay nghĩa là nhân đôi TẤT CẢ những thứ đó, và hai bản
+  /// sao sẽ trôi khỏi nhau ngay ở lần sửa luật đầu tiên.
+  ///
+  /// 🔴 Ghi đè THEO TỪNG TRƯỜNG, không phải thay cả cụm: giao diện cho phép mỗi khu vực chọn
+  /// "dùng mẫu có sẵn" hoặc "nhập tay" một cách độc lập (xem docs/listing/2.png — mỗi section
+  /// có một dropdown mẫu riêng). Trường vắng mặt ⇒ rơi về template, đúng thứ tự ưu tiên đã có
+  /// ở `PodListingResolverService.resolveFromContext`.
+  ///
+  /// Để JSON vì đây là ảnh chụp nội dung do người dùng gõ, đọc/ghi trọn gói theo sản phẩm và
+  /// KHÔNG bao giờ bị truy vấn theo trường con. Hình dạng được kiểm ở tầng DTO
+  /// (`ManualListingDataDto`) và ở `parseManualOverride` trước khi dùng.
+  manualData Json? @map("manual_data")
 
   /// Kết quả validate gần nhất: `[{ level, field, code, message }]`.
   issues     Json?

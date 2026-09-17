@@ -148,8 +148,12 @@ describe('Quyền mặc định của Role EMPLOYEE', () => {
     expect(EMPLOYEE_DEFAULT_PERMISSIONS).toContain('pod.listing.publish');
   });
 
-  it('KHÔNG có quyền sửa/xoá sản phẩm', () => {
-    expect(EMPLOYEE_DEFAULT_PERMISSIONS).not.toContain('pod.product.update');
+  it('🔴 CÓ `pod.product.update` — sửa hàng của shop mình, KHÔNG có quyền xoá', () => {
+    // Đổi so với trước: Seller nay sửa được sản phẩm đang bán trên shop được gán. Cùng lý do
+    // đã trao `pod.listing.publish` — người đã được đưa hàng MỚI lên sàn thì giữ lại quyền
+    // sửa một con số giá không bảo vệ được gì. Phạm vi vẫn bị `assertShopAllowed` chặn, và
+    // shop được lấy từ CHÍNH bản ghi sản phẩm chứ không phải từ request.
+    expect(EMPLOYEE_DEFAULT_PERMISSIONS).toContain('pod.product.update');
     expect(EMPLOYEE_DEFAULT_PERMISSIONS).not.toContain('pod.product.delete');
   });
 });

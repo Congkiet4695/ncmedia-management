@@ -43,7 +43,17 @@ const BUNDLE_FILENAME: Record<PodTemplateKind, string> = {
 // Template CRUD (dùng chung cho 6 loại)
 // ---------------------------------------------------------------------------
 
-export function usePodTemplates<T>(kind: PodTemplateKind, query: PodTemplateQuery = {}) {
+/**
+ * Danh sách template theo loại.
+ *
+ * `options.enabled` để nơi gọi hoãn việc nạp cho tới khi danh sách thật sự cần — ví dụ modal
+ * Sửa sản phẩm chỉ cần template khi nó đang mở, mà bảng sản phẩm thì render lại liên tục.
+ */
+export function usePodTemplates<T>(
+  kind: PodTemplateKind,
+  query: PodTemplateQuery = {},
+  options: { enabled?: boolean } = {},
+) {
   return useQuery({
     queryKey: [KEY, kind, 'list', query],
     queryFn: () =>
@@ -52,6 +62,7 @@ export function usePodTemplates<T>(kind: PodTemplateKind, query: PodTemplateQuer
         meta: { page: number; limit: number; total: number; totalPages: number };
       }>,
     placeholderData: keepPreviousData,
+    enabled: options.enabled ?? true,
   });
 }
 

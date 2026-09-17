@@ -171,6 +171,8 @@ export class PodProductRepository {
         productTags: mapped.product.productTags ?? Prisma.JsonNull,
         salesRegions: mapped.product.salesRegions ?? Prisma.JsonNull,
         productTypes: mapped.product.productTypes ?? Prisma.JsonNull,
+        searchTerms: mapped.product.searchTerms ?? Prisma.JsonNull,
+        keyProductFeatures: mapped.product.keyProductFeatures ?? Prisma.JsonNull,
         lastSyncedAt: new Date(),
       };
 

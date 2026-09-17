@@ -90,9 +90,24 @@ export interface PodProductAttribute {
   values: string[];
 }
 
+/** Bảng size của sản phẩm — ảnh tải lên HOẶC bảng size mẫu của TikTok. */
+export interface PodProductSizeChart {
+  /** `uri` phía TikTok — thứ duy nhất gửi lại được khi sửa. */
+  uri: string | null;
+  /** Link xem. Có hạn dùng, KHÔNG dùng để so sánh. */
+  url: string | null;
+  templateId: string | null;
+}
+
 export interface PodProductDetail extends PodProductListItem {
   description: string | null;
   categoryPath: string | null;
+  /** `category_id` phía TikTok — dùng để biết một Category Template có cùng danh mục không. */
+  tiktokCategoryId: string | null;
+  tiktokBrandId: string | null;
+  searchTerms: string[];
+  highlights: string[];
+  sizeChart: PodProductSizeChart | null;
   packageWeight: string | null;
   weightUnit: string | null;
   packageDimensions: string | null;
@@ -141,6 +156,59 @@ export interface PodProductFilterOptions {
    * gửi lên server. Xem `shopOptionLabel`.
    */
   shops: Array<{ id: string; name: string; connectionName: string }>;
+}
+
+/** Một dòng SKU cần sửa. `tiktokSkuId` là cách TikTok biết sửa biến thể nào. */
+export interface UpdatePodProductSku {
+  tiktokSkuId: string;
+  sellerSku?: string;
+  salePrice?: string;
+  listPrice?: string;
+  quantity?: number;
+  /** Kho nhận tồn kho mới. Thiếu ⇒ backend BỎ QUA phần tồn kho, không đoán. */
+  warehouseId?: string;
+}
+
+/**
+ * Sửa sản phẩm đang bán — ánh xạ sang **Partial Edit Product** của TikTok.
+ *
+ * 🔴 Trường vắng mặt = KHÔNG đụng tới; chuỗi rỗng mới là "xoá". Form chỉ gửi những gì người
+ * dùng thật sự sửa, và backend còn diff thêm một lần nữa với dữ liệu đã đồng bộ.
+ *
+ * 🔴 KHÔNG có `categoryId`: TikTok không cho đổi danh mục của sản phẩm đã tạo.
+ */
+/** Một tấm ảnh gửi lên khi sửa: ảnh TikTok đã có (`uri`) hoặc file vừa tải lên (`fileId`). */
+export interface UpdatePodProductImage {
+  uri?: string;
+  fileId?: string;
+}
+
+export interface UpdatePodProductPayload {
+  title?: string;
+  description?: string;
+  searchTerms?: string[];
+  highlights?: string[];
+  brandId?: string;
+  package?: {
+    weight?: string;
+    weightUnit?: string;
+    length?: string;
+    width?: string;
+    height?: string;
+    dimensionUnit?: string;
+  };
+  /**
+   * Bộ ảnh sản phẩm SAU khi sửa — đầy đủ và đúng thứ tự, tấm đầu là ảnh đại diện.
+   *
+   * 🔴 TikTok THAY cả bộ ảnh bằng mảng này. Đây không phải danh sách ảnh thêm vào: gửi 2 tấm
+   * cho sản phẩm đang có 7 tấm là xoá 5 tấm còn lại.
+   */
+  mainImages?: UpdatePodProductImage[];
+  /** Bảng size mới. Chỉ gửi khi người dùng thật sự chọn tấm khác. */
+  sizeChart?: { fileId?: string; uri?: string; templateId?: string };
+  /** Video mới — file trong Storage Module, backend đẩy lên TikTok để lấy `id`. */
+  video?: { fileId: string };
+  skus?: UpdatePodProductSku[];
 }
 
 export interface PodProductSyncPayload {

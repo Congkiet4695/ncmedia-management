@@ -12,6 +12,9 @@ function buildPayload(over: Partial<ResolvedListing> = {}): ResolvedListing {
     category: { tiktokCategoryId: '601226', name: 'T-Shirts', path: 'Womenswear > T-Shirts' },
     brand: { tiktokBrandId: '7082427311584347905', name: 'No Brand' },
     attributes: [],
+    // Bảng size / video không bắt buộc — mặc định trống, test nào cần thì tự đặt.
+    sizeChart: null,
+    video: null,
     images: [
       {
         title: 'Front Mockup',

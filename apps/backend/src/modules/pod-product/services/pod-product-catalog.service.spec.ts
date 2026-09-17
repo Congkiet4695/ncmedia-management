@@ -154,7 +154,7 @@ function buildAttributeService(attributesByCategory: Record<string, Array<{ id: 
   const prisma = {
     podProductCategory: {
       findMany: jest.fn((args: never) => {
-        lastFindManyArgs = args as unknown as Record<string, unknown>;
+        lastFindManyArgs = args;
         return Promise.resolve(
           Object.keys(attributesByCategory).map((tiktokCategoryId) => ({
             id: `uuid-${tiktokCategoryId}`,

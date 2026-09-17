@@ -19,7 +19,12 @@
     "test:issues": "node --experimental-strip-types scripts/verify-issue-grouping.ts",
     "test:selection": "node --experimental-strip-types scripts/verify-selection.ts",
     "test:editor": "node --experimental-strip-types scripts/verify-description-editor.ts",
-    "test:images": "node --experimental-strip-types scripts/verify-product-images.ts"
+    "test:images": "node --experimental-strip-types scripts/verify-product-images.ts",
+    "test:manual-sku": "node --experimental-strip-types scripts/verify-manual-sku.ts",
+    "test:template-apply": "node --experimental-strip-types scripts/verify-template-apply.ts",
+    "test:bulk-sku": "node --experimental-strip-types scripts/verify-bulk-sku.ts",
+    "test:edit-product": "node --experimental-strip-types scripts/verify-edit-product.ts",
+    "test:rich-text": "node --experimental-strip-types scripts/verify-rich-text-format.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",
@@ -52,6 +57,7 @@
     "eslint": "^8.57.1",
     "eslint-config-next": "15.1.7",
     "eslint-config-prettier": "^9.1.0",
+    "jsdom": "^30.1.0",
     "postcss": "^8.5.1",
     "prettier": "^3.4.2",
     "prettier-plugin-tailwindcss": "^0.6.11",

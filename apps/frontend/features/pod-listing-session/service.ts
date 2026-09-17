@@ -13,6 +13,8 @@ import type {
   PodSessionValidation,
   StartSessionListingResult,
   UpdateSessionPayload,
+  CreateCustomListingPayload,
+  CreateSessionProductPayload,
   UpdateSessionProductPayload,
 } from './types';
 
@@ -136,6 +138,24 @@ export const podListingSessionService = {
       `${BASE}/${id}/products/${productId}`,
     );
     return normalizeProduct(res.data.data);
+  },
+
+  /** Add Custom Listing — tạo lượt đăng một sản phẩm nhập tay trong MỘT lời gọi. */
+  async createCustom(payload: CreateCustomListingPayload): Promise<PodListingSessionDetail> {
+    const res = await apiClient.post<ApiResponse<PodListingSessionDetail>>(
+      `${BASE}/custom`,
+      payload,
+    );
+    return res.data.data;
+  },
+
+  /** Thêm MỘT Draft Product nhập tay (không qua file import). */
+  async createProduct(id: string, payload: CreateSessionProductPayload): Promise<PodSessionProduct> {
+    const res = await apiClient.post<ApiResponse<PodSessionProduct>>(
+      `${BASE}/${id}/products`,
+      payload,
+    );
+    return res.data.data;
   },
 
   async updateProduct(

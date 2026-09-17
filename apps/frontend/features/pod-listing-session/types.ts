@@ -140,6 +140,8 @@ export interface PodSessionProduct {
   images: PodSessionImage[];
   /** Chỉ có ở danh sách — kết quả trên từng shop. */
   results?: PodSessionProductResult[];
+  /** Dữ liệu nhập tay đã lưu. NULL = sản phẩm này lấy toàn bộ nội dung từ template. */
+  manualData: ManualListingData | null;
 }
 
 export interface PodSessionQuery extends PaginationParams {
@@ -184,9 +186,143 @@ export interface UpdateSessionPayload {
 }
 
 /** Sửa một Draft Product — `images` gửi lên là THAY TOÀN BỘ. */
+/** Một giá trị trục đã chọn cho một SKU (`Color: Black`). */
+export interface ManualSkuOption {
+  name: string;
+  value: string;
+}
+
+/** Một trục biến thể (`Color: Black, White, Navy`). */
+export interface ManualVariation {
+  name: string;
+  values: string[];
+}
+
+/**
+ * Một dòng bảng SKU nhập tay.
+ *
+ * 🔴 Giá là CHUỖI, không phải `number`: đây là số tiền, và phép cộng dấu phẩy động của
+ * JavaScript không có chỗ ở đây. Cả hệ thống đã dùng chuỗi cho tiền.
+ */
+export interface ManualSku {
+  sellerSku: string;
+  optionValues: ManualSkuOption[];
+  /** Giá bán thực tế — TikTok `sale_price`. Cột "Retail price" trên lưới. */
+  salePrice?: string;
+  /** Giá gạch ngang — TikTok `original_price`. Cột "List price". */
+  retailPrice?: string;
+  quantity?: number;
+  imageFileId?: string;
+  barcode?: string;
+}
+
+/**
+ * Dữ liệu NHẬP TAY của một Draft Product — ghi đè template của lượt đăng, **theo từng trường**.
+ *
+ * 🔴 Trường vắng mặt = "dùng mẫu có sẵn", KHÔNG phải "xoá". Đây là hợp đồng của màn hình:
+ * mỗi khu vực có công tắc riêng "Dùng mẫu / Nhập tay", và chỉ khu vực đang ở chế độ Nhập tay
+ * mới gửi trường của nó lên.
+ */
+export interface ManualListingData {
+  /** HTML từ rich text editor. Chuỗi rỗng = cố ý xoá mô tả (Validate sẽ chặn). */
+  description?: string;
+  category?: ManualCategory;
+  brand?: ManualBrand;
+  /** Gửi mảng là THAY TOÀN BỘ bộ thuộc tính của Category Template. */
+  attributes?: ManualAttribute[];
+  /** Ghi đè TỪNG trường lên template. */
+  package?: ManualPackage;
+  /** Video sản phẩm. Publisher upload lên TikTok rồi gửi `video.id` — form chỉ giữ `fileId`. */
+  video?: ManualVideo;
+  /** Trục biến thể — lưu để mở lại nháp dựng đúng lưới đã sinh. */
+  variations?: ManualVariation[];
+  /** Bảng SKU — gửi mảng là THAY TOÀN BỘ biến thể của SKU Template. */
+  skus?: ManualSku[];
+}
+
+export interface ManualCategory {
+  tiktokCategoryId: string;
+  name?: string | null;
+  path?: string | null;
+}
+
+export interface ManualBrand {
+  /** Bỏ trống = No brand (mặc định của hàng POD). */
+  tiktokBrandId?: string | null;
+  name?: string | null;
+}
+
+export interface ManualAttribute {
+  tiktokAttributeId: string;
+  name?: string;
+  type?: string;
+  isRequired?: boolean;
+  values?: Array<{ id?: string; name?: string }>;
+  customValues?: string[];
+}
+
+export interface ManualPackage {
+  weight?: string;
+  weightUnit?: string;
+  length?: string;
+  width?: string;
+  height?: string;
+  dimensionUnit?: string;
+}
+
+/** Payload của **Add Custom Listing** — lượt đăng một sản phẩm nhập tay. */
+export interface CreateCustomListingPayload {
+  name?: string;
+  market: PodListingMarket;
+  shopIds: string[];
+  templates?: CreateSessionPayload['templates'];
+  product: CreateSessionProductPayload;
+}
+
+/**
+ * Một ảnh trong form trước khi gửi lên.
+ *
+ * `fileName` chỉ để hiển thị — backend không nhận trường này, `buildImagesPayload` gỡ ra.
+ */
+export interface SessionImageInput {
+  imageUrl: string;
+  fileId?: string;
+  imageType: PodSessionImageType;
+  fileName?: string;
+  /**
+   * `uri` phía TikTok — CHỈ có với ảnh đang nằm trên một sản phẩm đã đăng (màn hình Sửa sản
+   * phẩm). Ảnh nào có sẵn `uri` thì không phải upload lại; luồng Custom Listing không dùng
+   * trường này vì sản phẩm chưa tồn tại trên sàn.
+   */
+  uri?: string;
+}
+
+/** Video sản phẩm — file trong Storage Module. TikTok nhận `video.id` sau khi publisher upload. */
+export interface ManualVideo {
+  /**
+   * File trong Storage Module.
+   *
+   * 🔴 Rỗng khi đây là video ĐANG nằm trên sản phẩm TikTok (màn hình Sửa sản phẩm): nó chưa
+   * bao giờ đi qua Storage của ta. Nơi gọi chỉ được gửi video lên sàn khi trường này có giá
+   * trị — bằng không là gửi một file không tồn tại.
+   */
+  fileId?: string;
+  fileName?: string | null;
+  /** Link xem video hiện tại (nếu TikTok có trả về). */
+  url?: string | null;
+}
+
+export interface CreateSessionProductPayload {
+  title: string;
+  images?: Array<{ imageUrl: string; imageType?: PodSessionImageType; sortOrder?: number }>;
+  manualData?: ManualListingData;
+}
+
 export interface UpdateSessionProductPayload {
   title?: string;
   images?: Array<{ imageUrl: string; imageType?: PodSessionImageType; sortOrder?: number }>;
+  /** Gửi object là THAY TOÀN BỘ phần nhập tay; bỏ trống là giữ nguyên. */
+  manualData?: ManualListingData;
 }
 
 export type PodSessionImportMode = 'APPEND' | 'REPLACE';

@@ -26,6 +26,7 @@ import type {
   UpdateSkuTemplateDto,
 } from '../dto/pod-template.dto';
 import { assertPricingFormulaValid } from './pod-pricing.formula';
+import { sanitizeDescriptionHtml } from './description-html.sanitizer';
 import { applyTokens, findUnknownTokens, isSystemToken } from './pod-token.engine';
 
 /** Không tìm thấy template trong Organization (hoặc đã xoá). */
@@ -866,7 +867,9 @@ export class PodTemplateService {
         data: {
           organizationId,
           name: dto.name,
-          contentHtml: dto.contentHtml,
+          // 🔴 Lọc Ở ĐÂY, không tin bộ lọc của trình soạn thảo: endpoint này gọi thẳng được
+          // bằng bất kỳ client nào. Ảnh hợp lệ vẫn giữ nguyên — xem `sanitizeDescriptionHtml`.
+          contentHtml: sanitizeDescriptionHtml(dto.contentHtml),
           isDefault: dto.isDefault ?? false,
           displayOrder: dto.displayOrder ?? 0,
           note: dto.note,
@@ -896,7 +899,7 @@ export class PodTemplateService {
         where: { id },
         data: {
           name: dto.name,
-          contentHtml: dto.contentHtml,
+          contentHtml: sanitizeDescriptionHtml(dto.contentHtml),
           isDefault: dto.isDefault ?? false,
           isActive: dto.isActive ?? true,
           displayOrder: dto.displayOrder ?? 0,
@@ -985,10 +988,20 @@ export class PodTemplateService {
       ...Object.fromEntries(tokens.map((token) => [token.code, token.value])),
     };
 
+    /**
+     * 🔴 Lọc TRƯỚC rồi mới thay token — đúng thứ tự của lúc lưu, nên thứ xem trước chính là
+     * thứ sẽ chạy thật. Lọc sau khi thay token thì một giá trị token chứa HTML sẽ bị lọc ở
+     * bản xem trước nhưng không bị lọc lúc dựng listing: xem một đằng, chạy một nẻo.
+     *
+     * Khung xem trước là `iframe sandbox=""` nên script không chạy được; lọc ở đây là lớp
+     * thứ hai, và để bản xem trước khớp từng ký tự với bản sẽ lưu.
+     */
+    const safeHtml = sanitizeDescriptionHtml(dto.contentHtml);
+
     return {
-      html: applyTokens(dto.contentHtml, values),
+      html: applyTokens(safeHtml, values),
       unknownTokens: findUnknownTokens(
-        dto.contentHtml,
+        safeHtml,
         tokens.map((token) => token.code),
       ),
     };

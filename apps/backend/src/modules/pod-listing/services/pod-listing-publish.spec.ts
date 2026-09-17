@@ -113,7 +113,10 @@ function buildService() {
       payload,
       tiktokDraftId,
       // Ảnh đã có `uri` sẵn trong payload ⇒ cache được nạp từ đó, không upload lại.
-      imageUriCache: new Map([['file-1', Promise.resolve('uri-1')]]),
+      // 🔴 Khoá cache nay gồm CẢ use case (`MAIN_IMAGE:<fileId>`): cùng một tấm ảnh dùng làm
+      // ảnh sản phẩm và làm bảng size là hai `uri` khác nhau phía TikTok. Xem
+      // `PodListingPublisherService.cacheKey`.
+      imageUriCache: new Map([['MAIN_IMAGE:file-1', Promise.resolve('uri-1')]]),
       log: jest.fn().mockResolvedValue(undefined),
     });
 
