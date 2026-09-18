@@ -2881,8 +2881,8 @@ model PodProduct {
   ///
   /// 🔴 Get Product CÓ trả hai trường này; trước đây ta không lưu, nên màn hình Sửa sản phẩm
   /// không có vế để so và luôn phải coi mọi lần nhập là "thay toàn bộ". Lưu lại để diff đúng.
-  searchTerms        Json?   @map("search_terms")
-  keyProductFeatures Json?   @map("key_product_features")
+  searchTerms        Json? @map("search_terms")
+  keyProductFeatures Json? @map("key_product_features")
 
   /// Bảng size hiện tại của sản phẩm (`size_chart`).
   ///
@@ -4534,6 +4534,21 @@ enum PodListingSessionTemplateType {
   @@map("pod_listing_session_template_type")
 }
 
+/// Nguồn sinh ra một Listing Session — quyết định màn hình nào mở lại nó.
+///
+/// 🔴 Vì sao cần cột riêng thay vì suy từ dữ liệu: một lượt IMPORT có thể chỉ có một dòng và
+/// dòng đó cũng có thể được sửa tay (`manual_data`), nên "1 sản phẩm + có manual_data" KHÔNG
+/// phân biệt được Custom Listing với một lô Excel nhỏ. Người dùng bấm Sửa trên Custom
+/// Listing phải mở lại ĐÚNG form đầy đủ đã dùng để tạo nó, không phải màn hình Review lô.
+enum PodListingSessionSource {
+  /// Import Excel/CSV (New Listing).
+  IMPORT
+  /// Add Custom Listing — một sản phẩm nhập tay trên form đầy đủ.
+  CUSTOM
+
+  @@map("pod_listing_session_source")
+}
+
 /// Vai trò của một tấm ảnh trong Draft Product.
 enum PodListingSessionImageType {
   /// Ảnh chính của sản phẩm.
@@ -4569,6 +4584,8 @@ model PodListingSession {
   name   String                  @db.VarChar(255)
   market PodListingMarket
   status PodListingSessionStatus @default(DRAFT)
+  /// IMPORT (lô Excel/CSV) hay CUSTOM (một sản phẩm nhập tay). Xem `PodListingSessionSource`.
+  source PodListingSessionSource @default(IMPORT)
 
   note String? @db.VarChar(2000)
 

@@ -10,6 +10,7 @@ import type {
   UpdateSessionPayload,
   CreateCustomListingPayload,
   CreateSessionProductPayload,
+  UpdateCustomListingPayload,
   UpdateSessionProductPayload,
 } from './types';
 
@@ -98,6 +99,21 @@ export function useCreateCustomListing() {
     mutationFn: (payload: CreateCustomListingPayload) =>
       podListingSessionService.createCustom(payload),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [KEY, 'list'] }),
+  });
+}
+
+/**
+ * Edit Custom Listing — sửa tại chỗ.
+ *
+ * Làm mới cả danh sách, chi tiết lượt lẫn danh sách sản phẩm: sửa xong lượt về DRAFT và nội
+ * dung sản phẩm đã đổi, mọi màn hình đang mở phải thấy bản mới.
+ */
+export function useUpdateCustomListing() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateCustomListingPayload }) =>
+      podListingSessionService.updateCustom(id, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [KEY] }),
   });
 }
 

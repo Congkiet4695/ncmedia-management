@@ -35,6 +35,14 @@ export interface CategoryTemplatePatch {
   };
   sizeChartFileId?: string;
   videoFileId?: string;
+  /**
+   * Giá trị thuộc tính danh mục mà template đã điền, khoá theo `tiktokAttributeId`.
+   *
+   * 🔴 Phải đi kèm danh mục: form gửi bộ thuộc tính nhập tay là THAY TOÀN BỘ bộ của template
+   * (`applyManualOverride`), nên áp mẫu mà không mang giá trị thuộc tính sang là đăng lên sàn
+   * một danh mục với thuộc tính bắt buộc bỏ trống — trong khi template đã điền sẵn.
+   */
+  attributeValues?: Record<string, { valueIds: string[]; customValues: string[] }>;
 }
 
 /**
@@ -69,6 +77,21 @@ export function applyCategoryTemplate(template: PodCategoryTemplate): CategoryTe
   if (template.packageHeight) pkg.height = template.packageHeight;
   if (template.dimensionUnit) pkg.dimensionUnit = template.dimensionUnit;
   if (Object.keys(pkg).length > 0) patch.package = pkg;
+
+  const attributes = (template.attributes ?? []).filter(
+    (attribute) => attribute.values.length > 0 || attribute.customValues.length > 0,
+  );
+  if (attributes.length > 0) {
+    patch.attributeValues = Object.fromEntries(
+      attributes.map((attribute) => [
+        attribute.tiktokAttributeId,
+        {
+          valueIds: attribute.values.map((value) => value.tiktokValueId),
+          customValues: attribute.customValues.map((custom) => custom.value),
+        },
+      ]),
+    );
+  }
 
   return patch;
 }

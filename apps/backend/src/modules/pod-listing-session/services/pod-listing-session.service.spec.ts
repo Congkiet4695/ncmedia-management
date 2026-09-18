@@ -24,8 +24,9 @@ type ProductRow = {
   id: string;
   title: string;
   status: PodListingSessionProductStatus;
-  /** 🔴 Draft Product chỉ mang tiêu đề + ảnh gốc (URL1 → URL10). */
   images: Array<{ imageUrl: string }>;
+  /** Dữ liệu nhập tay (Custom Listing). NULL = lấy toàn bộ từ template của lượt. */
+  manualData?: Record<string, unknown> | null;
 };
 
 function buildProduct(over: Partial<ProductRow> = {}): ProductRow {
@@ -34,6 +35,7 @@ function buildProduct(over: Partial<ProductRow> = {}): ProductRow {
     title: 'Vintage Sunset Poster',
     status: PodListingSessionProductStatus.DRAFT,
     images: [{ imageUrl: 'https://cdn.example/front.jpg' }],
+    manualData: null,
     ...over,
   };
 }
@@ -223,5 +225,104 @@ describe('PodListingSessionService — cổng Validate', () => {
 
     expect(result.ok).toBe(false);
     expect(result.products[0].issues[0].code).toBe('LISTING_MISSING_CATEGORY');
+  });
+});
+
+/**
+ * Custom Listing: template chỉ là NGUỒN dữ liệu, không phải điều kiện bắt buộc.
+ *
+ * 🔴 Lỗi thật đã gặp: người dùng chọn danh mục Poster, dựng SKU S/M/L, điền giá và tồn, bấm
+ * Đăng — hệ thống vẫn báo "Chưa chọn Category Template" và "Chưa chọn SKU Template". Cổng
+ * validate phải nhìn vào DỮ LIỆU SẢN PHẨM, và thông điệp phải nói về thứ thật sự thiếu.
+ */
+describe('PodListingSessionService — Custom Listing nhập tay không cần template', () => {
+  const manualCategory = { tiktokCategoryId: '1237008', name: 'Posters', path: 'Home > Posters' };
+  const manualSkus = [
+    { sellerSku: 'POSTER-S', optionValues: [{ name: 'Size', value: 'S' }], salePrice: '9.99', quantity: 5 },
+  ];
+
+  it('🔴 danh mục tay + bảng SKU tay, KHÔNG template ⇒ không còn lỗi "chưa chọn template"', async () => {
+    const { service } = buildService(buildSession({ templates: [] }), [
+      buildProduct({ manualData: { category: manualCategory, skus: manualSkus } }),
+    ]);
+
+    const result = await service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
+
+    expect(result.issues).toEqual([]);
+    expect(result.products[0].issues).toEqual([]);
+    expect(result.ok).toBe(true);
+  });
+
+  it('🔴 nhập tay nhưng CHƯA chọn danh mục và không có Category Template ⇒ "Category là bắt buộc"', async () => {
+    const { service } = buildService(buildSession({ templates: [] }), [
+      buildProduct({ manualData: { skus: manualSkus } }),
+    ]);
+
+    const result = await service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
+
+    const codes = result.products[0].issues.map((issue) => issue.code);
+    expect(codes).toContain(POD_SESSION_VALIDATION_CODES.MISSING_CATEGORY);
+    expect(result.products[0].issues.find((i) => i.code === POD_SESSION_VALIDATION_CODES.MISSING_CATEGORY)?.message)
+      .toBe('Category là bắt buộc.');
+    // Không nói về template khi sản phẩm đang ở chế độ nhập tay.
+    expect(result.issues.map((issue) => issue.code)).not.toContain(
+      POD_SESSION_VALIDATION_CODES.NO_SKU_TEMPLATE,
+    );
+  });
+
+  it('🔴 nhập tay nhưng bảng SKU rỗng và không có SKU Template ⇒ "thêm ít nhất một SKU"', async () => {
+    const { service } = buildService(buildSession({ templates: [] }), [
+      buildProduct({ manualData: { category: manualCategory, skus: [] } }),
+    ]);
+
+    const result = await service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
+
+    const issue = result.products[0].issues.find(
+      (item) => item.code === POD_SESSION_VALIDATION_CODES.MISSING_SKU,
+    );
+    expect(issue?.message).toBe('Vui lòng thêm ít nhất một SKU/variation hợp lệ.');
+    expect(result.issues).toEqual([]);
+  });
+
+  it('KẾT HỢP: Category Template + SKU tay ⇒ qua; SKU Template + danh mục tay ⇒ qua', async () => {
+    const onlyCategory = buildSession({
+      templates: [templateRow(PodListingSessionTemplateType.CATEGORY, 'cat-1')],
+    });
+    const mixedA = await buildService(onlyCategory, [
+      buildProduct({ manualData: { skus: manualSkus } }),
+    ]).service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
+    expect(mixedA.ok).toBe(true);
+
+    const onlySku = buildSession({
+      templates: [templateRow(PodListingSessionTemplateType.SKU, 'sku-1')],
+    });
+    const mixedB = await buildService(onlySku, [
+      buildProduct({ manualData: { category: manualCategory } }),
+    ]).service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
+    expect(mixedB.ok).toBe(true);
+  });
+
+  it('lô Excel (không manualData) vẫn bắt buộc Category + SKU Template như cũ', async () => {
+    const { service } = buildService(buildSession({ templates: [] }), [buildProduct()]);
+
+    const result = await service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
+
+    const codes = result.issues.map((issue) => issue.code);
+    expect(codes).toContain(POD_SESSION_VALIDATION_CODES.NO_CATEGORY_TEMPLATE);
+    expect(codes).toContain(POD_SESSION_VALIDATION_CODES.NO_SKU_TEMPLATE);
+  });
+
+  it('cùng lượt: dòng Excel trông cậy template + dòng nhập tay ⇒ lỗi template CHỈ vì dòng Excel', async () => {
+    const { service } = buildService(buildSession({ templates: [] }), [
+      buildProduct({ id: 'excel', manualData: null }),
+      buildProduct({ id: 'manual', manualData: { category: manualCategory, skus: manualSkus } }),
+    ]);
+
+    const result = await service.validate('org-1', 'session-1', POD_SCOPE_SYSTEM);
+
+    expect(result.issues.map((issue) => issue.code)).toContain(
+      POD_SESSION_VALIDATION_CODES.NO_CATEGORY_TEMPLATE,
+    );
+    expect(result.products.find((p) => p.id === 'manual')?.issues).toEqual([]);
   });
 });

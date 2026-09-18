@@ -35,6 +35,7 @@
     "scripts/verify-template-apply.ts",
     "scripts/verify-bulk-sku.ts",
     "scripts/verify-edit-product.ts",
-    "scripts/verify-rich-text-format.ts"
+    "scripts/verify-rich-text-format.ts",
+    "scripts/verify-custom-listing.ts"
   ]
 }

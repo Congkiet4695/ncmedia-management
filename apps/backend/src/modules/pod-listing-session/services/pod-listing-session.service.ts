@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
   PodListingSessionProductStatus,
+  PodListingSessionSource,
   PodListingSessionStatus,
   PodListingSessionTemplateType,
   Prisma,
@@ -20,6 +21,10 @@ import {
   type ListingTemplateFull,
 } from '../../pod-listing/services/pod-listing-template.service';
 import { PodListingValidatorService } from '../../pod-listing/services/pod-listing-validator.service';
+import {
+  parseManualOverride,
+  type ManualListingOverride,
+} from '../../pod-listing/services/pod-manual-listing';
 import {
   POD_DEFAULT_PLATFORM_CODE,
   POD_SESSION_VALIDATION_CODES,
@@ -218,6 +223,8 @@ export class PodListingSessionService {
     userId: string,
     dto: CreateListingSessionDto,
     scope: PodAccessScope,
+    /** IMPORT (New Listing) hay CUSTOM (Add Custom Listing) — quyết định màn hình mở lại. */
+    source: PodListingSessionSource = PodListingSessionSource.IMPORT,
   ) {
     const platform = await this.prisma.platform.findFirst({
       where: { code: POD_DEFAULT_PLATFORM_CODE },
@@ -240,6 +247,7 @@ export class PodListingSessionService {
         platformId: platform.id,
         name: dto.name,
         market: dto.market,
+        source,
         note: dto.note ?? null,
         createdBy: userId,
         shops: { create: shopIds.map((shopId) => ({ organizationId, shopId })) },
@@ -379,13 +387,14 @@ export class PodListingSessionService {
     scope: PodAccessScope,
   ): Promise<SessionValidation> {
     const session = await this.get(organizationId, id, scope);
-    const issues = this.checkConfig(session);
 
     const products = await this.prisma.podListingSessionProduct.findMany({
       where: { sessionId: id, deletedAt: null },
       include: { images: { orderBy: { sortOrder: 'asc' } } },
       orderBy: { importOrder: 'asc' },
     });
+
+    const issues = this.checkConfig(session, products);
 
     if (products.length === 0) {
       issues.push(
@@ -587,30 +596,48 @@ export class PodListingSessionService {
     return map;
   }
 
-  /** Lỗi thuộc về CẤU HÌNH của lượt đăng (không phụ thuộc sản phẩm nào). */
-  private checkConfig(session: SessionFull): SessionIssue[] {
+  /**
+   * Lỗi thuộc về CẤU HÌNH của lượt đăng.
+   *
+   * 🔴 Template là NGUỒN dữ liệu, không phải điều kiện bắt buộc. Lượt đăng chỉ bị chặn vì
+   * "thiếu Category/SKU Template" khi có sản phẩm THỰC SỰ trông cậy vào template đó — tức
+   * sản phẩm không mang danh mục / bảng SKU nhập tay của riêng nó. Một Custom Listing đã chọn
+   * danh mục và tự dựng SKU thì không cần template nào, và không được nhận thông điệp
+   * "Chưa chọn Category Template" trong khi danh mục đã có sẵn trên form.
+   *
+   * Lô Excel/CSV (sản phẩm không có `manualData`) giữ nguyên luật cũ: file import không
+   * mang danh mục hay biến thể nào, nên hai template đó vẫn là nguồn duy nhất.
+   */
+  private checkConfig(session: SessionFull, products: ProductForValidation[]): SessionIssue[] {
     const issues: SessionIssue[] = [];
     if (session.shops.length === 0) {
       issues.push(this.issue('NO_SHOP', 'shops', 'Lượt đăng chưa chọn shop nào.'));
     }
-    if (!this.templateId(session, PodListingSessionTemplateType.CATEGORY)) {
+
+    // Sản phẩm KHÔNG có dữ liệu nhập tay (dòng Excel/CSV) là sản phẩm trông cậy hoàn toàn vào
+    // template. Sản phẩm nhập tay mà thiếu danh mục/SKU được báo ở CHÍNH nó (`checkProduct`:
+    // "Category là bắt buộc") — không nhắc lại ở đây bằng ngôn ngữ template.
+    const relyOnTemplate = products.some(
+      (product) => parseManualOverride(product.manualData) === null,
+    );
+
+    if (relyOnTemplate && !this.templateId(session, PodListingSessionTemplateType.CATEGORY)) {
       issues.push(
         this.issue(
           'NO_CATEGORY_TEMPLATE',
           'templates',
-          'Chưa chọn Category Template ⇒ không biết đăng vào danh mục nào.',
+          'Chưa chọn Category Template ⇒ không biết đăng sản phẩm import vào danh mục nào.',
         ),
       );
     }
-    // 🔴 File import không mang biến thể nào, nên SKU Template là NGUỒN DUY NHẤT sinh ra
-    // SKU/giá/tồn. Thiếu nó thì mọi sản phẩm đều bị chặn ở bước sau với thông điệp khó hiểu
-    // ("listing chưa có biến thể"); nói thẳng ở đây để người dùng sửa đúng chỗ.
-    if (!this.templateId(session, PodListingSessionTemplateType.SKU)) {
+    // 🔴 File import không mang biến thể nào, nên với lô Excel SKU Template là NGUỒN DUY NHẤT
+    // sinh ra SKU/giá/tồn. Nói thẳng ở đây để người dùng sửa đúng chỗ.
+    if (relyOnTemplate && !this.templateId(session, PodListingSessionTemplateType.SKU)) {
       issues.push(
         this.issue(
           'NO_SKU_TEMPLATE',
           'templates',
-          'Chưa chọn SKU Template ⇒ không có biến thể, giá và tồn kho để đăng.',
+          'Chưa chọn SKU Template ⇒ sản phẩm import không có biến thể, giá và tồn kho để đăng.',
         ),
       );
     }
@@ -620,15 +647,16 @@ export class PodListingSessionService {
   /**
    * Lỗi thuộc về MỘT Draft Product, kiểm được ngay không cần áp template.
    *
-   * Draft Product chỉ mang tiêu đề + ảnh gốc, nên chỉ có đúng hai thứ để kiểm ở đây. Biến
-   * thể, giá và tồn đến từ SKU/Pricing Template — chúng được kiểm ở tầng cấu hình và ở
-   * chính bộ luật của Bulk Listing Engine sau khi áp template.
+   * Kiểm trên DỮ LIỆU CUỐI CÙNG của sản phẩm: danh mục / bảng SKU / ảnh có thể đến từ dữ liệu
+   * nhập tay HOẶC từ template của lượt — chỉ khi cả hai nguồn đều trống mới là lỗi, và thông
+   * điệp nói về thứ thiếu ("Category là bắt buộc"), không nói về template.
+   *
+   * Sau bước này resolver + Bulk Listing Engine kiểm tiếp phần còn lại (mô tả, giá, thuộc
+   * tính bắt buộc, kiện hàng…) bằng đúng bộ luật lúc đăng.
    */
-  private checkProduct(
-    session: SessionFull,
-    product: { title: string; images: Array<unknown> },
-  ): SessionIssue[] {
+  private checkProduct(session: SessionFull, product: ProductForValidation): SessionIssue[] {
     const issues: SessionIssue[] = [];
+    const manual = parseManualOverride(product.manualData);
 
     if (!product.title.trim()) {
       issues.push(this.issue('MISSING_TITLE', 'title', 'Sản phẩm chưa có tiêu đề.'));
@@ -641,12 +669,33 @@ export class PodListingSessionService {
         this.issue(
           'MISSING_IMAGE',
           'images',
-          'Sản phẩm chưa có ảnh gốc và lượt đăng cũng chưa chọn Image Template.',
+          'Sản phẩm chưa có ảnh và lượt đăng cũng chưa chọn Image Template.',
         ),
       );
     }
+    // Chỉ kiểm hai mục dưới cho sản phẩm NHẬP TAY: sản phẩm từ file import đã được cổng cấu
+    // hình (`checkConfig`) nói rõ thiếu template nào — lặp lại ở từng dòng là 500 dòng lỗi
+    // giống hệt nhau.
+    if (manual) {
+      if (!manual.category && !this.templateId(session, PodListingSessionTemplateType.CATEGORY)) {
+        issues.push(this.issue('MISSING_CATEGORY', 'category', 'Category là bắt buộc.'));
+      }
+      if (
+        !this.hasUsableSkus(manual) &&
+        !this.templateId(session, PodListingSessionTemplateType.SKU)
+      ) {
+        issues.push(
+          this.issue('MISSING_SKU', 'skus', 'Vui lòng thêm ít nhất một SKU/variation hợp lệ.'),
+        );
+      }
+    }
 
     return issues;
+  }
+
+  /** Bảng SKU nhập tay có ít nhất một dòng dùng được (`parseManualOverride` đã lọc dòng rỗng). */
+  private hasUsableSkus(manual: ManualListingOverride): boolean {
+    return (manual.skus?.length ?? 0) > 0;
   }
 
   private templateId(session: SessionFull, type: PodListingSessionTemplateType): string | null {
@@ -790,6 +839,13 @@ export class PodListingSessionService {
     });
   }
 }
+
+/** Phần dữ liệu Draft Product mà cổng validate cần — đủ để quyết "thiếu gì" trước khi áp template. */
+type ProductForValidation = {
+  title: string;
+  images: Array<unknown>;
+  manualData: Prisma.JsonValue | null;
+};
 
 /** Khung số đếm — mọi trạng thái đều có mặt để màn hình không phải kiểm `undefined`. */
 function emptyCounts(): Record<PodListingSessionProductStatus | 'TOTAL', number> {

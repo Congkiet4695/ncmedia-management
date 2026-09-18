@@ -203,6 +203,16 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     const text = { ...DEFAULT_LABELS, ...labels };
     const editorRef = useRef<HTMLDivElement>(null);
     const savedRange = useRef<Range | null>(null);
+    /**
+     * Đang focus editor BẰNG MÃ (trước khi khôi phục vùng chọn) ⇒ `onFocus` KHÔNG được lưu.
+     *
+     * 🔴 Đây là lý do "đổi cỡ chữ chỉ được một lần": người dùng chọn cỡ trên `<select>` ⇒
+     * focus rời khỏi editor ⇒ lệnh gọi `editor.focus()` để đưa focus về ⇒ trình duyệt đặt một
+     * con trỏ THU GỌN ở đầu vùng soạn thảo ⇒ `onFocus` chạy `saveSelection()` và ghi đè range
+     * đã lưu bằng con trỏ rỗng đó ⇒ `restoreSelection()` ngay sau khôi phục đúng cái range rỗng
+     * ấy ⇒ không có ký tự nào để đổi cỡ. Lần đầu "tình cờ" chạy vì editor còn giữ focus.
+     */
+    const restoring = useRef(false);
     /** Giá trị mà chính editor vừa phát ra — để `useEffect` không ghi đè ngược lên DOM. */
     const emittedValue = useRef<string | null>(null);
 
@@ -238,6 +248,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
     /** Ghi nhớ vùng chọn — cần cho các điều khiển KHÔNG giữ được focus (select, input màu). */
     const saveSelection = useCallback(() => {
+      if (restoring.current) return;
       const selection = window.getSelection();
       if (!selection || selection.rangeCount === 0) return;
       const range = selection.getRangeAt(0);
@@ -251,8 +262,26 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       if (!range) return;
       const selection = window.getSelection();
       selection?.removeAllRanges();
-      selection?.addRange(range);
+      // `cloneRange`: range đang lưu KHÔNG được trao cho selection — trình duyệt sửa range
+      // "sống" trong selection khi DOM thay đổi, và bản lưu sẽ lặng lẽ biến dạng theo.
+      selection?.addRange(range.cloneRange());
     }, []);
+
+    /**
+     * Đưa focus về editor rồi khôi phục vùng chọn — MỘT cửa cho mọi lệnh trên thanh công cụ.
+     * Trong lúc `focus()` chạy, `onFocus` bị chặn không ghi đè range đã lưu (xem `restoring`).
+     */
+    const focusAndRestore = useCallback(() => {
+      const editor = editorRef.current;
+      if (!editor) return;
+      restoring.current = true;
+      try {
+        editor.focus();
+      } finally {
+        restoring.current = false;
+      }
+      restoreSelection();
+    }, [restoreSelection]);
 
     /**
      * Chạy một lệnh soạn thảo.
@@ -265,14 +294,13 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       (command: string, commandValue?: string) => {
         const editor = editorRef.current;
         if (!editor) return;
-        editor.focus();
-        restoreSelection();
+        focusAndRestore();
         document.execCommand('styleWithCSS', false, 'true');
         document.execCommand(command, false, commandValue);
         saveSelection();
         emit();
       },
-      [emit, restoreSelection, saveSelection],
+      [emit, focusAndRestore, saveSelection],
     );
 
     /**
@@ -292,8 +320,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
       (px: string) => {
         const editor = editorRef.current;
         if (!editor) return;
-        editor.focus();
-        restoreSelection();
+        focusAndRestore();
 
         const selection = window.getSelection();
         if (!selection || selection.rangeCount === 0) return;
@@ -305,7 +332,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
         savedRange.current = next.cloneRange();
         emit();
       },
-      [emit, restoreSelection],
+      [emit, focusAndRestore],
     );
 
     /**
@@ -345,8 +372,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           image.style.maxWidth = '100%';
           image.style.height = 'auto';
 
-          editor.focus();
-          restoreSelection();
+          focusAndRestore();
           const selection = window.getSelection();
           const range =
             selection && selection.rangeCount > 0 && editor.contains(selection.getRangeAt(0).commonAncestorContainer)
@@ -371,7 +397,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           setUploading(false);
         }
       },
-      [emit, onUploadImage, restoreSelection, text.imageBadFormat, text.imageTooLarge, text.imageUploadFailed],
+      [emit, focusAndRestore, onUploadImage, text.imageBadFormat, text.imageTooLarge, text.imageUploadFailed],
     );
 
     /**
@@ -382,15 +408,14 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     const clearFormatting = useCallback(() => {
       const editor = editorRef.current;
       if (!editor) return;
-      editor.focus();
-      restoreSelection();
+      focusAndRestore();
       document.execCommand('styleWithCSS', false, 'true');
       document.execCommand('removeFormat');
       document.execCommand('unlink');
       document.execCommand('formatBlock', false, 'p');
       saveSelection();
       emit();
-    }, [emit, restoreSelection, saveSelection]);
+    }, [emit, focusAndRestore, saveSelection]);
 
     const applyLink = useCallback(() => {
       const url = linkUrl.trim();
@@ -427,15 +452,14 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
             return;
           }
 
-          editor.focus();
-          restoreSelection();
+          focusAndRestore();
           // `insertText` giữ nguyên văn bản (token `{{…}}` không bị hiểu thành thẻ HTML).
           document.execCommand('insertText', false, value);
           saveSelection();
           emit();
         },
       }),
-      [emit, onChange, restoreSelection, saveSelection, sourceMode],
+      [emit, focusAndRestore, onChange, saveSelection, sourceMode],
     );
 
     // --- Chế độ HTML thuần -------------------------------------------------

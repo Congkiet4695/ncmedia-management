@@ -43,6 +43,7 @@ import {
   UpdateListingSessionDto,
   CreateCustomListingDto,
   CreateSessionProductDto,
+  UpdateCustomListingDto,
   UpdateSessionProductDto,
 } from './dto/pod-listing-session.dto';
 import { PodScope } from '../pod-tiktok/decorators/pod-scope.decorator';
@@ -150,6 +151,24 @@ export class PodListingSessionController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.sessions.getDetail(user.organizationId, id, scope);
+  }
+
+  @Patch(':id/custom')
+  @RequirePermissions('pod.session.write')
+  @ApiOperation({
+    summary: 'Edit Custom Listing — sửa lượt đăng một sản phẩm nhập tay TẠI CHỖ',
+    description:
+      'Cập nhật cấu hình (market · shop · template) và Draft Product duy nhất của lượt trong ' +
+      'một lời gọi. KHÔNG tạo lượt mới. Chỉ nhận lượt có `source = CUSTOM`. ' +
+      '🔴 Shop ngoài phạm vi của người dùng ⇒ 403.',
+  })
+  updateCustom(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateCustomListingDto,
+  ) {
+    return this.products.updateCustom(user.organizationId, user.userId, id, dto, scope);
   }
 
   @Patch(':id')

@@ -41,6 +41,10 @@ export type PodSessionTemplateType = (typeof POD_SESSION_TEMPLATE_TYPES)[number]
 export const POD_SESSION_IMAGE_TYPES = ['MAIN', 'VARIANT', 'DESCRIPTION', 'SIZE_CHART'] as const;
 export type PodSessionImageType = (typeof POD_SESSION_IMAGE_TYPES)[number];
 
+/** Nguồn sinh ra lượt đăng — quyết định màn hình nào mở lại nó (Review lô hay form Custom Listing). */
+export const POD_SESSION_SOURCES = ['IMPORT', 'CUSTOM'] as const;
+export type PodSessionSource = (typeof POD_SESSION_SOURCES)[number];
+
 export interface PodSessionIssue {
   level: 'ERROR' | 'WARNING';
   code: string;
@@ -68,6 +72,8 @@ export interface PodListingSession {
   name: string;
   market: PodListingMarket;
   status: PodSessionStatus;
+  /** IMPORT (lô Excel/CSV) hay CUSTOM (Add Custom Listing). Backend cũ không trả ⇒ coi là IMPORT. */
+  source?: PodSessionSource;
   note: string | null;
   sourceFile: string | null;
   importedAt: string | null;
@@ -226,6 +232,12 @@ export interface ManualSku {
 export interface ManualListingData {
   /** HTML từ rich text editor. Chuỗi rỗng = cố ý xoá mô tả (Validate sẽ chặn). */
   description?: string;
+  /** Từ khoá tìm kiếm (TikTok `search_terms`) — tối đa 15. */
+  searchTerms?: string[];
+  /** Product Highlights — mỗi phần tử một ý. */
+  highlights?: string[];
+  /** Kho gợi ý (UUID nội bộ) — publisher vẫn quyết kho theo từng shop lúc đăng. */
+  warehouseId?: string;
   category?: ManualCategory;
   brand?: ManualBrand;
   /** Gửi mảng là THAY TOÀN BỘ bộ thuộc tính của Category Template. */
@@ -312,15 +324,36 @@ export interface ManualVideo {
   url?: string | null;
 }
 
+/** Một ảnh gửi lên backend — `fileId` giữ liên kết với Storage Module để mở lại nháp không mất file. */
+export interface SessionImagePayload {
+  imageUrl: string;
+  imageType?: PodSessionImageType;
+  sortOrder?: number;
+  fileId?: string;
+}
+
 export interface CreateSessionProductPayload {
   title: string;
-  images?: Array<{ imageUrl: string; imageType?: PodSessionImageType; sortOrder?: number }>;
+  images?: SessionImagePayload[];
   manualData?: ManualListingData;
+}
+
+/**
+ * Payload của **Edit Custom Listing** — sửa TẠI CHỖ lượt đăng một sản phẩm nhập tay.
+ *
+ * Cùng một `sessionId`, cùng Draft Product: không tạo lượt mới. Form luôn gửi trạng thái đầy đủ.
+ */
+export interface UpdateCustomListingPayload {
+  name?: string;
+  market?: PodListingMarket;
+  shopIds?: string[];
+  templates?: PodSessionTemplateSelection;
+  product?: UpdateSessionProductPayload;
 }
 
 export interface UpdateSessionProductPayload {
   title?: string;
-  images?: Array<{ imageUrl: string; imageType?: PodSessionImageType; sortOrder?: number }>;
+  images?: SessionImagePayload[];
   /** Gửi object là THAY TOÀN BỘ phần nhập tay; bỏ trống là giữ nguyên. */
   manualData?: ManualListingData;
 }

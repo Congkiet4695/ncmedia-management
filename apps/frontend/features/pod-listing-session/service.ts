@@ -15,6 +15,7 @@ import type {
   UpdateSessionPayload,
   CreateCustomListingPayload,
   CreateSessionProductPayload,
+  UpdateCustomListingPayload,
   UpdateSessionProductPayload,
 } from './types';
 
@@ -144,6 +145,18 @@ export const podListingSessionService = {
   async createCustom(payload: CreateCustomListingPayload): Promise<PodListingSessionDetail> {
     const res = await apiClient.post<ApiResponse<PodListingSessionDetail>>(
       `${BASE}/custom`,
+      payload,
+    );
+    return res.data.data;
+  },
+
+  /** Edit Custom Listing — sửa TẠI CHỖ lượt đăng một sản phẩm nhập tay (không tạo lượt mới). */
+  async updateCustom(
+    id: string,
+    payload: UpdateCustomListingPayload,
+  ): Promise<PodListingSessionDetail> {
+    const res = await apiClient.patch<ApiResponse<PodListingSessionDetail>>(
+      `${BASE}/${id}/custom`,
       payload,
     );
     return res.data.data;

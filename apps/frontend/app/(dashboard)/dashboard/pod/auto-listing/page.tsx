@@ -3,7 +3,7 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Eye, Plus, Rocket, Trash2 } from 'lucide-react';
+import { Eye, Pencil, Plus, Rocket, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -144,7 +144,9 @@ function ListingSessionListView() {
                   {session.name}
                 </Link>
                 <p className="text-xs text-muted-foreground">
-                  {session.sourceFile ?? t('listing.sessions.noImport')}
+                  {session.source === 'CUSTOM'
+                    ? t('listing.custom.sourceLabel')
+                    : (session.sourceFile ?? t('listing.sessions.noImport'))}
                 </p>
               </TableCell>
               <TableCell>{session.market}</TableCell>
@@ -176,6 +178,14 @@ function ListingSessionListView() {
                       <Eye className="size-4" />
                     </Link>
                   </Button>
+                  {/* Custom Listing sửa bằng form đầy đủ — mở thẳng từ danh sách. */}
+                  {canWrite && session.source === 'CUSTOM' && (
+                    <Button variant="ghost" size="sm" asChild title={t('listing.custom.editCustom')}>
+                      <Link href={`/dashboard/pod/auto-listing/custom/${session.id}`}>
+                        <Pencil className="size-4" />
+                      </Link>
+                    </Button>
+                  )}
                   {canWrite && (
                     <Button
                       variant="ghost"

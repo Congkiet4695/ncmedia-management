@@ -329,22 +329,22 @@ describe('applyManualOverride — danh mục · thương hiệu · thuộc tính
     expect(issues).toHaveLength(0);
   });
 
-  it('🔴 thương hiệu giữ NGUYÊN `mode` của template, chỉ thay giá trị', () => {
-    // `mode` là câu trả lời "có thương hiệu hay không" và publisher đọc nó. Ghi đè nhầm
-    // `mode` là đổi ý định của template — sản phẩm lên sàn mang brand người dùng không chọn.
+  it('🔴 thương hiệu chọn tay QUYẾT `mode`: có id ⇒ SPECIFIC, kể cả khi template nói No brand', () => {
+    // `mode` là thứ validator và publisher đọc. Brand chọn tay là câu trả lời của người dùng
+    // cho chính sản phẩm này, nên template NONE không được giữ quyền chặn brand đó.
     const payload = templateListing({
-      brand: { mode: 'SPECIFIC', tiktokBrandId: 'old', name: 'Cũ' } as never,
+      brand: { mode: 'NONE', tiktokBrandId: null, name: 'No brand' } as never,
     });
 
     const result = applyManualOverride(payload, { brand: { tiktokBrandId: 'new', name: 'Mới' } }, []);
 
-    expect(result.brand.tiktokBrandId).toBe('new');
-    expect((result.brand as { mode?: string }).mode).toBe('SPECIFIC');
+    expect(result.brand).toEqual({ mode: 'SPECIFIC', tiktokBrandId: 'new', name: 'Mới' });
   });
 
-  it('thương hiệu bỏ trống = No brand', () => {
+  it('🔴 thương hiệu bỏ trống = No brand (mode NONE) — không template cũng không bị chặn "chưa chọn thương hiệu"', () => {
     const result = applyManualOverride(templateListing(), { brand: {} }, []);
     expect(result.brand.tiktokBrandId).toBeNull();
+    expect((result.brand as { mode?: string }).mode).toBe('NONE');
   });
 
   it('bộ thuộc tính nhập tay THAY TOÀN BỘ bộ của template', () => {
@@ -467,5 +467,37 @@ describe('applyManualOverride — video', () => {
 
   it('parse bỏ video thiếu fileId', () => {
     expect(parseManualOverride({ video: { fileName: 'a.mp4' } })).toBeNull();
+  });
+});
+
+describe('applyManualOverride — từ khoá · highlights · kho (Custom Listing)', () => {
+  it('từ khoá và highlights chỉ đến từ nhập tay; không nhập thì payload KHÔNG có trường đó', () => {
+    const untouched = applyManualOverride(templateListing(), { description: 'x' }, []);
+    // 🔴 Không được thêm `[]` mặc định — payload cũ đã đóng băng không có trường này và
+    // `payloadHash` của chúng phải giữ nguyên.
+    expect(untouched).not.toHaveProperty('searchTerms');
+    expect(untouched).not.toHaveProperty('highlights');
+
+    const result = applyManualOverride(
+      templateListing(),
+      { searchTerms: ['poster', 'wall art'], highlights: ['Giấy dày 250gsm'] },
+      [],
+    );
+    expect(result.searchTerms).toEqual(['poster', 'wall art']);
+    expect(result.highlights).toEqual(['Giấy dày 250gsm']);
+  });
+
+  it('parse cắt khoảng trắng, bỏ phần tử rỗng và giữ mảng rỗng là một ý định', () => {
+    expect(parseManualOverride({ searchTerms: [' poster ', '', 7, null], highlights: [] })).toEqual({
+      searchTerms: ['poster'],
+      highlights: [],
+    });
+  });
+
+  it('kho chọn tay chỉ mang UUID nội bộ — publisher tra lại theo shop đích', () => {
+    const result = applyManualOverride(templateListing(), { warehouseId: 'wh-1' }, []);
+    expect(result.warehouse).toEqual({ id: 'wh-1', tiktokWarehouseId: null, name: null });
+    expect(parseManualOverride({ warehouseId: '  ' })).toBeNull();
+    expect(parseManualOverride({ warehouseId: 'wh-2' })).toEqual({ warehouseId: 'wh-2' });
   });
 });

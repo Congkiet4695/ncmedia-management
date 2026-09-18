@@ -52,6 +52,15 @@ export interface ResolvedListing {
   market: string;
   title: string;
   description: string;
+  /**
+   * Từ khoá tìm kiếm (TikTok `search_terms`) và Product Highlights (`key_product_features`).
+   *
+   * 🔴 Optional, KHÔNG phải `[]`: chúng chỉ đến từ dữ liệu nhập tay (Custom Listing), còn
+   * payload đã đóng băng của các draft cũ không có trường này — thêm vào với giá trị mặc định
+   * sẽ đổi `payloadHash` của mọi draft và hệ thống tưởng tất cả đều vừa thay đổi nội dung.
+   */
+  searchTerms?: string[];
+  highlights?: string[];
 
   category: { tiktokCategoryId: string | null; name: string | null; path: string | null };
   /**

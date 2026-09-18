@@ -442,7 +442,46 @@ export class ManualVideoDto {
   fileName?: string;
 }
 
+/** Trần của TikTok cho từ khoá tìm kiếm (Create/Edit Product — `search_terms`). */
+export const MANUAL_SEARCH_TERMS_MAX = 15;
+/** Số dòng Product Highlights tối đa — mỗi dòng một ý. */
+export const MANUAL_HIGHLIGHTS_MAX = 20;
+
 export class ManualListingDataDto {
+  @ApiPropertyOptional({
+    type: [String],
+    maxItems: MANUAL_SEARCH_TERMS_MAX,
+    description: 'Từ khoá tìm kiếm (TikTok `search_terms`) — tối đa 15 từ.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MANUAL_SEARCH_TERMS_MAX)
+  @IsString({ each: true })
+  @MaxLength(100, { each: true })
+  searchTerms?: string[];
+
+  @ApiPropertyOptional({
+    type: [String],
+    maxItems: MANUAL_HIGHLIGHTS_MAX,
+    description: 'Product Highlights (TikTok `key_product_features`) — mỗi phần tử một ý.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(MANUAL_HIGHLIGHTS_MAX)
+  @IsString({ each: true })
+  @MaxLength(500, { each: true })
+  highlights?: string[];
+
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Kho gợi ý (UUID nội bộ). Publisher vẫn quyết kho theo từng shop lúc đăng — kho không ' +
+      'thuộc shop đích thì rơi về cấu hình kho của shop đó.',
+  })
+  @IsOptional()
+  @IsUUID()
+  warehouseId?: string;
+
   @ApiPropertyOptional({
     type: ManualVideoDto,
     description:
@@ -621,6 +660,46 @@ export class UpdateSessionProductDto {
   @ValidateNested()
   @Type(() => ManualListingDataDto)
   manualData?: ManualListingDataDto;
+}
+
+/**
+ * **Edit Custom Listing** — sửa lượt đăng một sản phẩm nhập tay, trong MỘT lời gọi.
+ *
+ * 🔴 Cùng một lượt đăng, cùng một Draft Product: endpoint này CẬP NHẬT tại chỗ, không tạo
+ * lượt mới. "Sửa → Lưu → thêm một bản nháp nữa trong danh sách" là đúng lỗi mà endpoint này
+ * tồn tại để chặn. Mọi trường đều tuỳ chọn; `product` gửi lên là thay TOÀN BỘ nội dung sản
+ * phẩm (tiêu đề + ảnh + dữ liệu nhập tay) — form luôn gửi trạng thái đầy đủ.
+ */
+export class UpdateCustomListingDto {
+  @ApiPropertyOptional() @IsOptional() @Transform(trim) @IsString() @MaxLength(255) name?: string;
+
+  @ApiPropertyOptional({ enum: PodListingMarket })
+  @IsOptional()
+  @IsEnum(PodListingMarket)
+  market?: PodListingMarket;
+
+  @ApiPropertyOptional({ type: [String], description: 'Gửi mảng là THAY TOÀN BỘ danh sách shop' })
+  @IsOptional()
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(POD_CUSTOM_LISTING_MAX_SHOPS)
+  @IsUUID('4', { each: true })
+  shopIds?: string[];
+
+  @ApiPropertyOptional({
+    type: SessionTemplatesDto,
+    description: 'Gửi object là THAY TOÀN BỘ bộ template (trường bỏ trống = gỡ template đó ra)',
+  })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => SessionTemplatesDto)
+  templates?: SessionTemplatesDto;
+
+  @ApiPropertyOptional({ type: UpdateSessionProductDto })
+  @IsOptional()
+  @ValidateNested()
+  @Type(() => UpdateSessionProductDto)
+  product?: UpdateSessionProductDto;
 }
 
 /** Bộ lọc danh sách Draft Product trong một session. */

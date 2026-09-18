@@ -73,13 +73,18 @@ export type PodSessionProductSortField = (typeof POD_SESSION_PRODUCT_SORT_FIELDS
 export const POD_SESSION_VALIDATION_CODES = {
   /** Cấu hình của cả lượt */
   NO_SHOP: 'SESSION_NO_SHOP',
+  /** Chỉ bật khi có sản phẩm TRÔNG CẬY vào template (không mang danh mục nhập tay). */
   NO_CATEGORY_TEMPLATE: 'SESSION_NO_CATEGORY_TEMPLATE',
-  /** 🔴 Biến thể CHỈ đến từ SKU Template — file import không mang biến thể nào. */
+  /** 🔴 File import không mang biến thể nào ⇒ lô Excel bắt buộc có SKU Template. Sản phẩm nhập tay có bảng SKU riêng thì không. */
   NO_SKU_TEMPLATE: 'SESSION_NO_SKU_TEMPLATE',
   NO_PRODUCT: 'SESSION_NO_PRODUCT',
   /** Từng Draft Product */
   MISSING_TITLE: 'PRODUCT_MISSING_TITLE',
   MISSING_IMAGE: 'PRODUCT_MISSING_IMAGE',
+  /** Sản phẩm nhập tay chưa chọn danh mục và lượt đăng cũng không có Category Template. */
+  MISSING_CATEGORY: 'PRODUCT_MISSING_CATEGORY',
+  /** Sản phẩm nhập tay chưa có SKU nào dùng được và lượt đăng cũng không có SKU Template. */
+  MISSING_SKU: 'PRODUCT_MISSING_SKU',
   ALREADY_UPLOADED: 'PRODUCT_ALREADY_UPLOADED',
   RESOLVE_FAILED: 'PRODUCT_RESOLVE_FAILED',
 } as const;

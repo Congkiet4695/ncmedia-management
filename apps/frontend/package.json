@@ -24,7 +24,8 @@
     "test:template-apply": "node --experimental-strip-types scripts/verify-template-apply.ts",
     "test:bulk-sku": "node --experimental-strip-types scripts/verify-bulk-sku.ts",
     "test:edit-product": "node --experimental-strip-types scripts/verify-edit-product.ts",
-    "test:rich-text": "node --experimental-strip-types scripts/verify-rich-text-format.ts"
+    "test:rich-text": "node --experimental-strip-types scripts/verify-rich-text-format.ts",
+    "test:custom-listing": "node --experimental-strip-types scripts/verify-custom-listing.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

@@ -288,6 +288,10 @@ export interface TiktokCreateProductSku {
 export interface TiktokCreateProductRequest {
   title?: string;
   description?: string;
+  /** Từ khoá tìm kiếm (ST words) — tối đa 15 từ, tổng 250 ký tự. */
+  searchTerms?: string[];
+  /** Product Highlights — mỗi dòng một ý. */
+  keyProductFeatures?: string[];
   categoryId?: string;
   categoryVersion?: string;
   brandId?: string;

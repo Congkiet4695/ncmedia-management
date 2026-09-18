@@ -975,6 +975,10 @@ export class PodListingPublisherService {
     return {
       title: payload.title.trim().slice(0, 255),
       description: payload.description,
+      // Chỉ gửi khi người dùng THỰC SỰ nhập (Custom Listing). Mảng rỗng cũng bỏ: TikTok không
+      // cần một trường `[]` và draft từ template chưa bao giờ có trường này.
+      ...(payload.searchTerms?.length ? { searchTerms: payload.searchTerms } : {}),
+      ...(payload.highlights?.length ? { keyProductFeatures: payload.highlights } : {}),
       categoryId: payload.category.tiktokCategoryId ?? undefined,
       brandId: resolveTiktokBrandId(payload.brand),
       // 🔴 DUY NHẤT cho mỗi request. Không phải hash payload — xem `buildTiktokExternalId`.

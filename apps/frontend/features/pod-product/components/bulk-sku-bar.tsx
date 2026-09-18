@@ -8,17 +8,17 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
-import type { PodProductVariant } from '../types';
 import {
   cleanPatch,
   hasPatch,
   listVariationValues,
   matchSkus,
+  type BulkSkuCandidate,
   type BulkSkuPatch,
   type VariationValue,
 } from './bulk-sku';
 
-export type { BulkSkuPatch } from './bulk-sku';
+export type { BulkSkuCandidate, BulkSkuPatch } from './bulk-sku';
 
 /**
  * Thanh **cập nhật SKU hàng loạt**.
@@ -34,12 +34,16 @@ export type { BulkSkuPatch } from './bulk-sku';
  *
  * 🔴 Áp dụng chỉ ghi vào form, **chưa gửi đi đâu cả**. Người dùng còn xem lại bảng bên dưới
  * rồi mới bấm Lưu — và lúc đó backend còn diff thêm một lần nữa.
+ *
+ * Nhận `BulkSkuCandidate` (id + tên biến thể) chứ không phải biến thể TikTok: cùng một thanh
+ * dùng cho lưới SKU của sản phẩm đã đồng bộ LẪN lưới SKU nhập tay của Custom Listing — hai
+ * nơi cùng một thao tác thì phải cùng một component.
  */
 export function BulkSkuBar({
   variants,
   onApply,
 }: {
-  variants: PodProductVariant[];
+  variants: BulkSkuCandidate[];
   onApply: (patch: BulkSkuPatch, matchedSkuIds: string[]) => void;
 }) {
   const { t } = useTranslation('pod');

@@ -1,5 +1,10 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
-import { PodListingSessionProductStatus, PodListingSessionStatus, Prisma } from '@prisma/client';
+import {
+  PodListingSessionProductStatus,
+  PodListingSessionSource,
+  PodListingSessionStatus,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import type { PodAccessScope } from '../../pod-tiktok/services/pod-access-scope.service';
 import {
@@ -14,6 +19,7 @@ import type {
   PreviewSessionProductDto,
   CreateCustomListingDto,
   CreateSessionProductDto,
+  UpdateCustomListingDto,
   UpdateSessionProductDto,
 } from '../dto/pod-listing-session.dto';
 import { PodListingSessionService } from './pod-listing-session.service';
@@ -164,10 +170,67 @@ export class PodSessionProductService {
         templates: dto.templates,
       },
       scope,
+      // Đánh dấu nguồn để màn hình "Sửa" mở lại ĐÚNG form đầy đủ, không phải màn Review lô.
+      PodListingSessionSource.CUSTOM,
     );
 
     await this.create(organizationId, userId, session.id, dto.product, scope);
     return this.sessions.getDetail(organizationId, session.id, scope);
+  }
+
+  /**
+   * **Edit Custom Listing** — sửa lượt đăng một sản phẩm nhập tay, tại chỗ.
+   *
+   * 🔴 KHÔNG tạo lượt mới, KHÔNG tạo Draft Product mới: cùng `sessionId`, cùng Draft Product
+   * duy nhất của lượt. "Sửa → Lưu → danh sách có thêm một bản nháp" là đúng lỗi mà hàm này
+   * tồn tại để chặn. Dùng lại `sessions.update()` (shop trong phạm vi, template hợp lệ, cùng
+   * thị trường) và `update()` (ảnh + dữ liệu nhập tay thay trọn bộ) — không có đường ghi thứ
+   * hai nào để hai bên trôi khỏi nhau.
+   *
+   * Sửa xong lượt về `DRAFT` và phải Validate lại — đó là luật chung của mọi lần sửa.
+   */
+  async updateCustom(
+    organizationId: string,
+    userId: string,
+    sessionId: string,
+    dto: UpdateCustomListingDto,
+    scope: PodAccessScope,
+  ) {
+    const session = await this.sessions.get(organizationId, sessionId, scope);
+    if (session.source !== PodListingSessionSource.CUSTOM) {
+      throw new BadRequestException({
+        code: 'POD_SESSION_NOT_CUSTOM',
+        message: 'Lượt đăng này không phải Custom Listing — sửa ở màn hình Review lô.',
+      });
+    }
+
+    const product = await this.prisma.podListingSessionProduct.findFirst({
+      where: { sessionId, organizationId, deletedAt: null },
+      orderBy: { importOrder: 'asc' },
+      select: { id: true },
+    });
+    if (!product) throw new PodSessionProductNotFoundException();
+
+    // Tên lượt đi theo tiêu đề sản phẩm (như lúc tạo) trừ khi người dùng đặt tên riêng.
+    const name = dto.name?.trim() || dto.product?.title?.trim();
+    await this.sessions.update(
+      organizationId,
+      userId,
+      sessionId,
+      {
+        ...(name ? { name } : {}),
+        ...(dto.market ? { market: dto.market } : {}),
+        ...(dto.shopIds ? { shopIds: dto.shopIds } : {}),
+        ...(dto.templates ? { templates: dto.templates } : {}),
+      },
+      scope,
+    );
+
+    if (dto.product) {
+      await this.update(organizationId, userId, sessionId, product.id, dto.product, scope);
+    }
+
+    return this.sessions.getDetail(organizationId, sessionId, scope);
   }
 
   /**

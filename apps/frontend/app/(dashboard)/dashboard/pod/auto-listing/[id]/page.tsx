@@ -2,6 +2,7 @@
 
 import { use, useEffect, useMemo, useRef, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import {
   ArrowLeft,
   CheckCircle2,
@@ -89,6 +90,7 @@ export default function ListingSessionDetailPage({
  */
 function SessionDetailView({ sessionId }: { sessionId: string }) {
   const { t } = useTranslation(['pod', 'common']);
+  const router = useRouter();
   const translateApiError = useApiError();
   const { hasPermission } = useAuth();
   const { formatDateTime } = useLocaleFormat();
@@ -150,6 +152,14 @@ function SessionDetailView({ sessionId }: { sessionId: string }) {
   }
 
   const data = session.data;
+  /**
+   * Custom Listing mở lại bằng ĐÚNG form đầy đủ đã tạo ra nó (danh mục, thuộc tính, mô tả,
+   * ảnh, SKU, shop…) — không phải hộp thoại "tiêu đề + ảnh" của lô Excel. Lô Excel không
+   * có gì để sửa ngoài hai thứ đó vì phần còn lại đến từ template.
+   */
+  const isCustom = data.source === 'CUSTOM';
+  const openEditor = (product: PodSessionProduct) =>
+    isCustom ? router.push(`/dashboard/pod/auto-listing/custom/${sessionId}`) : setEditing(product);
 
   return (
     <div className="space-y-6">
@@ -177,6 +187,14 @@ function SessionDetailView({ sessionId }: { sessionId: string }) {
         </div>
 
         <div className="flex flex-wrap gap-2">
+          {isCustom && canWrite && (
+            <Button variant="outline" disabled={running} asChild>
+              <Link href={`/dashboard/pod/auto-listing/custom/${sessionId}`}>
+                <Pencil className="size-4" />
+                {t('listing.custom.editCustom')}
+              </Link>
+            </Button>
+          )}
           <Button
             variant="outline"
             disabled={validate.isPending || running}
@@ -270,8 +288,8 @@ function SessionDetailView({ sessionId }: { sessionId: string }) {
         onToggle={() => setConfigOpen((prev) => !prev)}
       />
 
-      {/* --- Import --- */}
-      {canImport && (
+      {/* --- Import — chỉ với lô Excel/CSV. Custom Listing là MỘT sản phẩm nhập tay, không nạp thêm dòng. --- */}
+      {canImport && !isCustom && (
         <ImportCard
           disabled={running || importProducts.isPending}
           pending={importProducts.isPending}
@@ -317,7 +335,7 @@ function SessionDetailView({ sessionId }: { sessionId: string }) {
                   setSearch(event.target.value);
                 }}
               />
-              {canWrite && (
+              {canWrite && !isCustom && (
                 <Button variant="outline" size="sm" onClick={() => setManualTarget(null)}>
                   <Plus className="size-4" />
                   {t('listing.manual.addProduct')}
@@ -463,7 +481,7 @@ function SessionDetailView({ sessionId }: { sessionId: string }) {
                             variant="ghost"
                             size="sm"
                             title={t('common:action.edit')}
-                            onClick={() => setEditing(product)}
+                            onClick={() => openEditor(product)}
                           >
                             <Pencil className="size-4" />
                           </Button>

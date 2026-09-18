@@ -1,4 +1,4 @@
-import type { Prisma } from '@prisma/client';
+import { PodBrandMode, type Prisma } from '@prisma/client';
 import { POD_DRAFT_ISSUE_CODES } from '../constants/pod-listing.constants';
 import type { ResolveIssue, ResolvedListing, ResolvedVariant } from './pod-listing-resolver.service';
 
@@ -24,6 +24,17 @@ import type { ResolveIssue, ResolvedListing, ResolvedVariant } from './pod-listi
 export interface ManualListingOverride {
   /** Mô tả HTML người dùng gõ. Chuỗi rỗng = CÓ Ý xoá mô tả, khác hẳn `undefined` = dùng mẫu. */
   description?: string;
+  /** Từ khoá tìm kiếm (TikTok `search_terms`) — tối đa 15 từ. */
+  searchTerms?: string[];
+  /** Product Highlights (TikTok `key_product_features`) — mỗi phần tử một ý. */
+  highlights?: string[];
+  /**
+   * Kho GỢI Ý do người dùng chọn trên form (UUID nội bộ của `pod_tiktok_warehouses`).
+   *
+   * 🔴 Chỉ là gợi ý, giống hệt kho của template: publisher vẫn quyết kho theo TỪNG shop lúc
+   * đăng (`resolveWarehouse`) — kho không thuộc shop đích thì rơi về cấu hình của shop đó.
+   */
+  warehouseId?: string;
   /** Danh mục TikTok chọn trực tiếp trên form (không qua Category Template). */
   category?: ManualCategory;
   /** Thương hiệu. `tiktokBrandId` rỗng = "No brand" (TikTok chấp nhận, là mặc định hàng POD). */
@@ -129,6 +140,16 @@ export function parseManualOverride(value: Prisma.JsonValue | null): ManualListi
   const result: ManualListingOverride = {};
 
   if (typeof value.description === 'string') result.description = value.description;
+
+  if (Array.isArray(value.searchTerms)) {
+    result.searchTerms = value.searchTerms.map(asString).filter(isNonEmpty);
+  }
+  if (Array.isArray(value.highlights)) {
+    result.highlights = value.highlights.map(asString).filter(isNonEmpty);
+  }
+
+  const warehouseId = asString(value.warehouseId);
+  if (warehouseId) result.warehouseId = warehouseId;
 
   if (isJsonObject(value.category)) {
     const tiktokCategoryId = asString(value.category.tiktokCategoryId);
@@ -263,6 +284,16 @@ export function applyManualOverride(
     }
   }
 
+  // Từ khoá / highlights chỉ đến từ dữ liệu nhập tay — template không có khái niệm này.
+  // Gửi mảng RỖNG cũng là một ý định ("không có từ khoá"), nên giữ nguyên, không ép về mẫu.
+  if (override.searchTerms !== undefined) next.searchTerms = override.searchTerms;
+  if (override.highlights !== undefined) next.highlights = override.highlights;
+
+  if (override.warehouseId) {
+    // Chỉ biết UUID nội bộ; `tiktokWarehouseId`/`name` do publisher tra lại theo shop đích.
+    next.warehouse = { id: override.warehouseId, tiktokWarehouseId: null, name: null };
+  }
+
   if (override.category) {
     next.category = {
       tiktokCategoryId: override.category.tiktokCategoryId,
@@ -275,12 +306,16 @@ export function applyManualOverride(
   }
 
   if (override.brand) {
-    // 🔴 KHÔNG đụng tới `mode`: `brand.mode` là câu trả lời "có thương hiệu hay không" do
-    // template quyết, và `PodListingPublisherService.resolveBrandId` đọc nó. Ở đây chỉ thay
-    // GIÁ TRỊ. Thiếu `tiktokBrandId` nghĩa là No brand — lựa chọn mặc định của hàng POD.
+    // 🔴 Brand chọn tay là CÂU TRẢ LỜI của người dùng cho chính sản phẩm này, nên nó quyết
+    // luôn `mode` — thứ mà validator (`MISSING_BRAND`) và publisher (`resolveTiktokBrandId`)
+    // đọc. Có id ⇒ SPECIFIC; để trống ⇒ NONE ("No brand", mặc định của hàng POD). Giữ
+    // nguyên mode của template ở đây là hai lỗi: không template (UNSET) thì "No brand" chọn
+    // tay vẫn bị chặn "chưa chọn thương hiệu"; template NONE thì brand chọn tay không bao giờ
+    // được gửi đi.
+    const tiktokBrandId = override.brand.tiktokBrandId ?? null;
     next.brand = {
-      ...payload.brand,
-      tiktokBrandId: override.brand.tiktokBrandId ?? null,
+      mode: tiktokBrandId ? PodBrandMode.SPECIFIC : PodBrandMode.NONE,
+      tiktokBrandId,
       name: override.brand.name ?? null,
     };
   }
