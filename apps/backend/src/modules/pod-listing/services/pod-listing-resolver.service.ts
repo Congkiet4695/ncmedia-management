@@ -15,6 +15,7 @@ import { resolveSkuItemPrice } from './pod-sku-price';
 import { applyTokens } from './pod-token.engine';
 import { IMAGE_TEMPLATE_INCLUDE } from './pod-image-template.service';
 import { applyManualOverride, parseManualOverride } from './pod-manual-listing';
+import { resolveListingCurrency } from './pod-market-currency';
 import type { ListingTemplateFull } from './pod-listing-template.service';
 
 /** Lỗi/cảnh báo phát hiện khi giải template. ERROR ⇒ draft chưa thể publish ở Sprint 4. */
@@ -442,10 +443,72 @@ export class PodListingResolverService {
       issues,
     );
 
+    // 🔴 Tiền tệ chốt SAU CÙNG, theo SHOP đích (rồi thị trường). Đây là bước làm cho giá nhập
+    // tay — vốn không đi qua Pricing/SKU Template nên không mang tiền tệ — có được
+    // `price.currency` mà TikTok bắt buộc. Cũng là bước bảo đảm mẫu USD dùng nhầm cho shop UK
+    // vẫn gửi GBP: tiền tệ là của shop, không phải của mẫu.
+    const final = this.applyCurrency(manual, ctx, issues);
+
     // Hash tính trên payload CUỐI CÙNG: nó là khoá "nội dung có đổi không" của cả đường
     // publish. Băm bản trước khi áp nhập tay nghĩa là sửa giá xong hệ thống tưởng không có
     // gì thay đổi và bỏ qua lần gửi lại.
-    return { payload: manual, issues, payloadHash: this.hash(manual) };
+    return { payload: final, issues, payloadHash: this.hash(final) };
+  }
+
+  /**
+   * Gán tiền tệ cho mọi giá trong listing: `variants[].currency` và `pricing.currency`.
+   *
+   * Thứ tự: region của shop → market của lượt → currency của mẫu (chỉ khi hai nguồn trên không
+   * tra được). Mẫu khai tiền tệ KHÁC tiền tệ của shop ⇒ vẫn dùng của shop và cảnh báo — gửi
+   * GBP lên shop US là TikTok từ chối, không phải "tôn trọng cấu hình".
+   */
+  private applyCurrency(
+    payload: ResolvedListing,
+    ctx: ResolveContext,
+    issues: ResolveIssue[],
+  ): ResolvedListing {
+    const templateCurrency =
+      payload.pricing?.currency ?? ctx.template.skuTemplate?.currency ?? null;
+    const resolved = resolveListingCurrency({
+      shopRegion: ctx.shop.region,
+      market: ctx.template.market,
+      fallback: templateCurrency,
+    });
+
+    if (!resolved.currency) {
+      if (payload.variants.some((variant) => variant.salePrice || variant.retailPrice)) {
+        issues.push(
+          this.error(
+            'variants.currency',
+            POD_DRAFT_ISSUE_CODES.MISSING_CURRENCY,
+            `Không xác định được tiền tệ cho shop "${ctx.shop.name}" (vùng ${ctx.shop.region}, thị trường ${ctx.template.market}).`,
+          ),
+        );
+      }
+      return payload;
+    }
+
+    const mismatched = new Set(
+      [templateCurrency, ...payload.variants.map((variant) => variant.currency)]
+        .filter((currency): currency is string => Boolean(currency))
+        .map((currency) => currency.toUpperCase())
+        .filter((currency) => currency !== resolved.currency),
+    );
+    if (mismatched.size > 0) {
+      issues.push(
+        this.warning(
+          'variants.currency',
+          POD_DRAFT_ISSUE_CODES.CURRENCY_MISMATCH,
+          `Mẫu khai tiền tệ ${[...mismatched].join(', ')} nhưng shop "${ctx.shop.name}" dùng ${resolved.currency} — listing sẽ gửi ${resolved.currency}.`,
+        ),
+      );
+    }
+
+    return {
+      ...payload,
+      pricing: payload.pricing ? { ...payload.pricing, currency: resolved.currency } : null,
+      variants: payload.variants.map((variant) => ({ ...variant, currency: resolved.currency })),
+    };
   }
 
   // ---------------------------------------------------------------------------

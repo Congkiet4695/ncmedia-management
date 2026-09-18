@@ -11,6 +11,7 @@ import { PodProductSyncRepository } from './repositories/pod-product-sync.reposi
 import { PodProductSyncJob } from './schedulers/pod-product-sync.job';
 import { PodProductCatalogService } from './services/pod-product-catalog.service';
 import { PodProductEditService } from './services/pod-product-edit.service';
+import { PodDescriptionImageService } from './services/pod-description-image.service';
 import { PodProductMediaService } from './services/pod-product-media.service';
 import { PodProductService } from './services/pod-product.service';
 import { PodProductSyncQueue } from './services/pod-product-sync.queue';
@@ -43,6 +44,7 @@ import { PodProductSyncService } from './services/pod-product-sync.service';
     PodProductCatalogService,
     PodProductEditService,
     PodProductMediaService,
+    PodDescriptionImageService,
     PodProductRepository,
     PodProductSyncRepository,
     PodProductMapper,
@@ -61,6 +63,9 @@ import { PodProductSyncService } from './services/pod-product-sync.service';
     PodProductSyncService,
     // Màn hình Resources gọi từng lệnh đồng bộ danh mục / thương hiệu / thuộc tính riêng lẻ.
     PodProductCatalogService,
+    // Ảnh trong MÔ TẢ upload với use_case DESCRIPTION_IMAGE — Bulk Listing (module pod-listing)
+    // và Edit Product dùng CHUNG một đường, không mỗi nơi một cách đổi src.
+    PodDescriptionImageService,
   ],
 })
 export class PodProductModule {}

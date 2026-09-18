@@ -6,6 +6,8 @@ import { PrismaService } from '../../../database/prisma.service';
 import { PodTiktokTokenService } from '../../pod-tiktok/services/pod-tiktok-token.service';
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
 import { StorageService } from '../../storage/storage.service';
+import { PodDescriptionImageService } from '../../pod-product/services/pod-description-image.service';
+import { fetchRemoteImage } from '../../pod-product/services/remote-image.fetch';
 import { TiktokProductApiService } from '../../tiktok-sdk/tiktok-product-api.service';
 import {
   TIKTOK_IMAGE_USE_CASE,
@@ -18,10 +20,7 @@ import type {
   TiktokCreateProductSku,
 } from '../../tiktok-sdk/types/tiktok-product.types';
 import {
-  POD_IMAGE_FETCH_MAX_BYTES,
-  POD_IMAGE_FETCH_TIMEOUT_MS,
   POD_LISTING_MAX_IMAGES,
-  POD_PRIVATE_HOST_PATTERN,
 } from '../constants/pod-listing.constants';
 import { POD_TIKTOK_LEGACY_FAKE_NO_BRAND_ID } from '../../pod-product/constants/pod-product.constants';
 import type { ResolvedListing } from './pod-listing-resolver.service';
@@ -195,6 +194,7 @@ export class PodListingPublisherService {
     private readonly storage: StorageService,
     private readonly tokenService: PodTiktokTokenService,
     private readonly encryption: TiktokEncryptionService,
+    private readonly descriptionImages: PodDescriptionImageService,
   ) {}
 
   /**
@@ -255,7 +255,11 @@ export class PodListingPublisherService {
     imageUriCache: Map<string, Promise<string>>;
     log: ListingLogger;
   }): Promise<PublishOutcome> {
-    const { payload, ctx, log, imageUriCache } = params;
+    const { ctx, log, imageUriCache } = params;
+
+    // 🔴 Ảnh trong MÔ TẢ đi trước cả bộ ảnh sản phẩm: đây là bước hay hỏng nhất (tải URL ngoài,
+    // upload từng tấm) và nếu hỏng thì KHÔNG được tốn lượt upload ảnh sản phẩm rồi mới biết.
+    const payload = await this.ensureDescriptionImages(params.organizationId, ctx, params.payload, log);
 
     const images = await this.ensureImageUris(
       params.organizationId,
@@ -291,7 +295,10 @@ export class PodListingPublisherService {
         brandId: request.brandId ?? 'OMITTED',
         warehouseId: warehouse.tiktokWarehouseId,
         warehouseSource: warehouse.source,
+        market: payload.market,
+        currency: summarizeCurrencies(request),
         skus: request.skus?.length ?? 0,
+        skuSummary: summarizeSkus(request),
         images: request.mainImages?.length ?? 0,
       },
     );
@@ -355,13 +362,17 @@ export class PodListingPublisherService {
     imageUriCache: Map<string, Promise<string>>;
     log: ListingLogger;
   }): Promise<PublishListingOutcome> {
-    const { payload, ctx, log, imageUriCache, tiktokDraftId } = params;
+    const { ctx, log, imageUriCache, tiktokDraftId } = params;
 
-    if (payload.variants.length === 0) {
+    if (params.payload.variants.length === 0) {
       throw new PodPublishPayloadException(
         'Payload của listing không còn biến thể nào — sinh lại Draft trước khi publish.',
       );
     }
+
+    // Edit Product là full edit ⇒ mô tả gửi lại toàn bộ, nên ảnh mô tả cũng phải là URL
+    // DESCRIPTION_IMAGE. Ảnh đã upload ở lượt tạo Draft nằm sẵn trong bảng mapping ⇒ dùng lại.
+    const payload = await this.ensureDescriptionImages(params.organizationId, ctx, params.payload, log);
 
     const images = await this.ensureImageUris(
       params.organizationId,
@@ -399,7 +410,10 @@ export class PodListingPublisherService {
         tiktokDraftId,
         warehouseId: warehouse.tiktokWarehouseId,
         warehouseSource: warehouse.source,
+        market: payload.market,
+        currency: summarizeCurrencies(request),
         skus: request.skus?.length ?? 0,
+        skuSummary: summarizeSkus(request),
         images: request.mainImages?.length ?? 0,
       },
     );
@@ -554,6 +568,38 @@ export class PodListingPublisherService {
   // ---------------------------------------------------------------------------
   // Private
   // ---------------------------------------------------------------------------
+
+  /**
+   * Đưa ảnh trong MÔ TẢ lên TikTok (`use_case = DESCRIPTION_IMAGE`) và thay `src` bằng URL sàn
+   * trả về, kèm `width`/`height`. Trả về payload MỚI với mô tả đã chuẩn hoá.
+   *
+   * 🔴 Không có ảnh thì không đụng gì (mô tả chỉ chữ đi thẳng). Hỏng ⇒ ném
+   * `PodDescriptionImageException` — nơi gọi không được gửi Create/Edit Product.
+   */
+  private async ensureDescriptionImages(
+    organizationId: string,
+    ctx: TiktokShopContext,
+    payload: ResolvedListing,
+    log: ListingLogger,
+  ): Promise<ResolvedListing> {
+    const { html, stats } = await this.descriptionImages.normalize(
+      organizationId,
+      ctx,
+      payload.description,
+      { label: 'mô tả' },
+    );
+    if (stats.total > 0) {
+      await log(PodListingLogLevel.INFO, PodListingStep.UPLOAD_IMAGE, 'Đã chuẩn bị ảnh trong mô tả', {
+        descriptionImageCount: stats.total,
+        uploadedCount: stats.uploaded,
+        reusedCount: stats.reused,
+        failedCount: stats.failed,
+        finalDescriptionImageCount: stats.finalCount,
+        useCase: 'DESCRIPTION_IMAGE',
+      });
+    }
+    return html === payload.description ? payload : { ...payload, description: html };
+  }
 
   /**
    * Bảo đảm mọi ảnh của listing đều có `uri` phía TikTok.
@@ -839,7 +885,7 @@ export class PodListingPublisherService {
     // **URL ngoài** ghi trong file import. Cả hai đều quy về một buffer rồi đẩy lên sàn.
     const image = source.fileId
       ? await this.readStorageFile(organizationId, source.fileId)
-      : await this.fetchRemoteImage(source.url ?? '', label);
+      : await fetchRemoteImage(source.url ?? '', label);
 
     const { data } = await this.productApi.uploadImage(ctx, image, useCase);
 
@@ -877,66 +923,6 @@ export class PodListingPublisherService {
       fileName: file.originalName || `${fileId}.png`,
       contentType: file.mimeType,
     };
-  }
-
-  /**
-   * Tải ảnh từ URL ngoài (ảnh trong file import thường nằm trên CDN của xưởng in).
-   *
-   * 🔴 URL do người dùng nhập mà server tự đi gọi ⇒ **SSRF**. Chỉ cho http/https và chặn
-   * mọi địa chỉ nội bộ: không có hàng rào này thì một dòng Excel trỏ tới
-   * `http://169.254.169.254/...` là đủ để đọc metadata của máy chủ.
-   */
-  private async fetchRemoteImage(
-    url: string,
-    label: string,
-  ): Promise<{ buffer: Buffer; fileName: string; contentType: string }> {
-    const target = this.assertPublicHttpUrl(url, label);
-
-    const response = await fetch(target, {
-      redirect: 'follow',
-      signal: AbortSignal.timeout(POD_IMAGE_FETCH_TIMEOUT_MS),
-    }).catch((error: unknown) => {
-      throw new Error(
-        `Không tải được ảnh ${label} (${target.hostname}): ${
-          error instanceof Error ? error.message : 'lỗi mạng'
-        }`,
-      );
-    });
-
-    if (!response.ok) {
-      throw new Error(`Không tải được ảnh ${label}: máy chủ trả về ${response.status}`);
-    }
-
-    const contentType = response.headers.get('content-type')?.split(';')[0]?.trim() ?? '';
-    if (!contentType.startsWith('image/')) {
-      throw new Error(`URL ảnh ${label} trả về "${contentType || 'không rõ'}", không phải ảnh.`);
-    }
-
-    const buffer = Buffer.from(await response.arrayBuffer());
-    if (buffer.byteLength > POD_IMAGE_FETCH_MAX_BYTES) {
-      throw new Error(`Ảnh ${label} nặng hơn giới hạn ${POD_IMAGE_FETCH_MAX_BYTES} byte.`);
-    }
-
-    const fileName = decodeURIComponent(target.pathname.split('/').pop() || 'image') || 'image';
-    return { buffer, fileName, contentType };
-  }
-
-  /** Chỉ chấp nhận http/https trỏ ra ngoài — chặn localhost và dải IP nội bộ. */
-  private assertPublicHttpUrl(raw: string, label: string): URL {
-    let url: URL;
-    try {
-      url = new URL(raw);
-    } catch {
-      throw new Error(`URL ảnh ${label} không hợp lệ: "${raw}"`);
-    }
-
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      throw new Error(`URL ảnh ${label} phải dùng http/https.`);
-    }
-    if (POD_PRIVATE_HOST_PATTERN.test(url.hostname)) {
-      throw new Error(`URL ảnh ${label} trỏ vào địa chỉ nội bộ — không được phép.`);
-    }
-    return url;
   }
 
   /**
@@ -1014,6 +1000,14 @@ export class PodListingPublisherService {
     warehouseId: string,
   ): TiktokCreateProductSku {
     const currency = variant.currency ?? payload.pricing?.currency ?? undefined;
+    // 🔴 Hàng rào cuối cùng: giá không kèm tiền tệ là TikTok trả `36009004` sau khi đã tốn
+    // cả lượt upload ảnh. Validator đã chặn từ trước; tới đây mà vẫn thiếu là payload cũ đóng
+    // băng trước khi có luật — hỏng ngay tại chỗ với thông điệp rõ, không gửi.
+    if ((variant.salePrice || variant.retailPrice) && !currency) {
+      throw new PodPublishPayloadException(
+        `Biến thể "${variant.sellerSku}" có giá nhưng thiếu tiền tệ — kiểm tra Market/Shop của lượt đăng rồi tạo lại nháp.`,
+      );
+    }
     // Ảnh biến thể gắn vào TRỤC ĐẦU TIÊN (thường là Color) — TikTok chỉ hiển thị ảnh của
     // một trục, gắn vào cả hai trục là ảnh nhảy loạn khi người mua đổi size.
     const variantUri = variant.imageFileId ? uriByFileId.get(variant.imageFileId) : undefined;
@@ -1038,4 +1032,27 @@ export class PodListingPublisherService {
       })),
     };
   }
+}
+
+/**
+ * Tóm tắt SKU cho log — `seller_sku → giá tiền tệ → tồn`. Chỉ dữ liệu nghiệp vụ, không token.
+ * Cắt ở 20 dòng: log là để đọc, một sản phẩm 600 SKU thì 20 dòng đầu đủ để thấy sai ở đâu.
+ */
+function summarizeSkus(request: TiktokCreateProductRequest): string[] {
+  const skus = request.skus ?? [];
+  const lines = skus
+    .slice(0, 20)
+    .map(
+      (sku) =>
+        `${sku.sellerSku ?? '?'} -> ${sku.price?.amount ?? '?'} ${sku.price?.currency ?? 'NO_CURRENCY'} -> qty ${sku.inventory?.[0]?.quantity ?? '?'}`,
+    );
+  return skus.length > 20 ? [...lines, `… (+${skus.length - 20} SKU)`] : lines;
+}
+
+/** Tiền tệ đang gửi — một mã, hoặc danh sách nếu (sai) có nhiều mã, hoặc `NONE`. */
+function summarizeCurrencies(request: TiktokCreateProductRequest): string {
+  const codes = new Set(
+    (request.skus ?? []).map((sku) => sku.price?.currency ?? 'NONE'),
+  );
+  return codes.size === 0 ? 'NONE' : [...codes].join(',');
 }

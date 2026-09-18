@@ -20,6 +20,7 @@ import {
   buildUpdateCustomListingPayload,
   checkCustomListingForm,
   emptyCustomListingForm,
+  hasUnsendableDescriptionImage,
   pruneAttributeValues,
   restoreCustomListingForm,
   type CustomListingForm,
@@ -28,7 +29,7 @@ import type {
   PodListingSessionDetail,
   PodSessionProduct,
 } from '../features/pod-listing-session/types.ts';
-import type { PodCategoryAttributeDef } from '../features/pod-listing/types.ts';
+import { currencyForMarket, type PodCategoryAttributeDef } from '../features/pod-listing/types.ts';
 
 let failed = 0;
 let passed = 0;
@@ -280,31 +281,60 @@ console.log('Thuộc tính khi định nghĩa chưa nạp / khi đổi danh mụ
 console.log('Kiểm nhanh trước khi gửi — theo DỮ LIỆU, không theo "đã chọn mẫu chưa"');
 {
   const form = fullForm();
-  check('đủ dữ liệu ⇒ không lỗi', checkCustomListingForm(form, 'SUBMIT'), []);
+  check('đủ dữ liệu ⇒ không lỗi', checkCustomListingForm(form, 'SUBMIT', 'USD'), []);
 
   const noCategory = fullForm();
   noCategory.category = { id: '', name: '', path: '' };
-  check('thiếu danh mục và không có Category Template ⇒ CATEGORY_REQUIRED', checkCustomListingForm(noCategory, 'SUBMIT'), ['CATEGORY_REQUIRED']);
+  check('thiếu danh mục và không có Category Template ⇒ CATEGORY_REQUIRED', checkCustomListingForm(noCategory, 'SUBMIT', 'USD'), ['CATEGORY_REQUIRED']);
   noCategory.templates.category = 'ct-1';
-  check('thiếu danh mục nhưng có Category Template ⇒ qua', checkCustomListingForm(noCategory, 'SUBMIT'), []);
+  check('thiếu danh mục nhưng có Category Template ⇒ qua', checkCustomListingForm(noCategory, 'SUBMIT', 'USD'), []);
 
   const noSku = fullForm();
   noSku.skus = [];
-  check('không SKU và không SKU Template ⇒ SKU_REQUIRED', checkCustomListingForm(noSku, 'SUBMIT'), ['SKU_REQUIRED']);
+  check('không SKU và không SKU Template ⇒ SKU_REQUIRED', checkCustomListingForm(noSku, 'SUBMIT', 'USD'), ['SKU_REQUIRED']);
   noSku.templates.sku = 'st-1';
-  check('không SKU nhưng có SKU Template ⇒ qua', checkCustomListingForm(noSku, 'SUBMIT'), []);
+  check('không SKU nhưng có SKU Template ⇒ qua', checkCustomListingForm(noSku, 'SUBMIT', 'USD'), []);
 
   const badSku = fullForm();
   badSku.skus[0] = { ...badSku.skus[0], salePrice: '0' };
-  check('SKU giá 0 ⇒ SKU_INVALID', checkCustomListingForm(badSku, 'SUBMIT'), ['SKU_INVALID']);
+  check('SKU giá 0 ⇒ SKU_INVALID', checkCustomListingForm(badSku, 'SUBMIT', 'USD'), ['SKU_INVALID']);
 
   const draft = fullForm();
   draft.category = { id: '', name: '', path: '' };
   draft.skus = [];
-  check('lưu nháp chỉ cần tiêu đề + shop', checkCustomListingForm(draft, 'DRAFT'), []);
+  check('lưu nháp chỉ cần tiêu đề + shop', checkCustomListingForm(draft, 'DRAFT', 'USD'), []);
   draft.shopIds = [];
   draft.title = '';
-  check('nháp thiếu tiêu đề + shop', checkCustomListingForm(draft, 'DRAFT'), ['TITLE_REQUIRED', 'SHOP_REQUIRED']);
+  check('nháp thiếu tiêu đề + shop', checkCustomListingForm(draft, 'DRAFT', 'USD'), ['TITLE_REQUIRED', 'SHOP_REQUIRED']);
+}
+
+
+// ---------------------------------------------------------------------------
+console.log('Tiền tệ theo thị trường — hiện trước, chặn sớm (backend tra lại theo shop)');
+{
+  check('US ⇒ USD', currencyForMarket('US'), 'USD');
+  check('UK ⇒ GBP', currencyForMarket('UK'), 'GBP');
+  check('EU/DE/IE ⇒ EUR', [currencyForMarket('EU'), currencyForMarket('DE'), currencyForMarket('IE')], ['EUR', 'EUR', 'EUR']);
+  check('thị trường lạ ⇒ null', currencyForMarket('ZZ'), null);
+
+  const form = fullForm();
+  check('có giá nhưng không tra được tiền tệ ⇒ CURRENCY_REQUIRED', checkCustomListingForm(form, 'SUBMIT', currencyForMarket('ZZ')), ['CURRENCY_REQUIRED']);
+  check('đổi Market sang UK ⇒ hết lỗi (GBP)', checkCustomListingForm(form, 'SUBMIT', currencyForMarket('UK')), []);
+  const noPrice = fullForm();
+  noPrice.skus = noPrice.skus.map((sku) => ({ ...sku, salePrice: '', retailPrice: '' }));
+  check('không có giá ⇒ không đòi tiền tệ (SKU_INVALID vì thiếu giá bán)', checkCustomListingForm(noPrice, 'SUBMIT', null), ['SKU_INVALID']);
+}
+
+// ---------------------------------------------------------------------------
+console.log('Ảnh trong mô tả — chỉ ảnh đã tải lên (http) mới đi được lên TikTok');
+{
+  check('http ⇒ hợp lệ', hasUnsendableDescriptionImage('<p>x</p><img src="https://cdn.ncmedia.test/a.jpg" width="1">'), false);
+  check('data: ⇒ chặn', hasUnsendableDescriptionImage('<img src="data:image/png;base64,AAA">'), true);
+  check('blob: ⇒ chặn', hasUnsendableDescriptionImage("<img src='blob:https://app/x'>"), true);
+  check('src rỗng ⇒ chặn', hasUnsendableDescriptionImage('<img src="" alt="x">'), true);
+  const form = fullForm();
+  form.description = '<p>ok</p><img src="data:image/png;base64,AAA">';
+  check('precheck SUBMIT ⇒ DESCRIPTION_IMAGE_INVALID', checkCustomListingForm(form, 'SUBMIT', 'USD'), ['DESCRIPTION_IMAGE_INVALID']);
 }
 
 console.log(`\n${passed} đạt · ${failed} lỗi`);

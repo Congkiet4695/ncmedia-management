@@ -36,7 +36,11 @@ import {
   useUpdateCustomListing,
   useValidateSession,
 } from '../hooks';
-import { POD_LISTING_MARKETS, type PodListingMarket } from '@/features/pod-listing/types';
+import {
+  POD_LISTING_MARKETS,
+  currencyForMarket,
+  type PodListingMarket,
+} from '@/features/pod-listing/types';
 import type {
   PodCategoryTemplate,
   PodDescriptionTemplate,
@@ -90,6 +94,8 @@ const CHECK_MESSAGE: Record<CustomListingCheck, string> = {
   CATEGORY_REQUIRED: 'listing.custom.categoryRequired',
   SKU_REQUIRED: 'listing.custom.skuRequired',
   SKU_INVALID: 'listing.custom.skuInvalid',
+  CURRENCY_REQUIRED: 'listing.custom.currencyRequired',
+  DESCRIPTION_IMAGE_INVALID: 'listing.custom.descriptionImageInvalid',
 };
 
 /**
@@ -142,6 +148,8 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
    * sau lần lưu đầu tiên — từ đó mọi lần Lưu/Kiểm tra/Đăng đều là SỬA lượt đó, không tạo thêm.
    */
   const [persistedId, setPersistedId] = useState<string | null>(sessionId ?? null);
+  /** Ảnh trong mô tả đang tải lên Storage — khoá Lưu/Kiểm tra/Đăng cho tới khi xong. */
+  const [descriptionUploading, setDescriptionUploading] = useState(false);
 
   // --- Chế độ sửa: nạp lượt đăng + Draft Product duy nhất rồi dựng lại form ĐÚNG MỘT LẦN ---
   // Nạp lại ở mỗi lần refetch (polling, sau khi lưu) là xoá mất thứ người dùng đang gõ.
@@ -163,6 +171,12 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
   }, [sessionId, session.data, products.data]);
 
   const sessionLocked = session.data?.status === 'LISTING';
+  /**
+   * Tiền tệ của listing — suy từ thị trường, CHỈ ĐỌC. Backend tra lại theo region của shop đích
+   * lúc đăng (`resolveListingCurrency`); ở đây hiện ra để người dùng biết giá đang nhập bằng
+   * tiền gì, và đổi Market là con số này đổi theo ngay.
+   */
+  const currency = currencyForMarket(form.market);
   const notCustom = Boolean(session.data && session.data.source && session.data.source !== 'CUSTOM');
 
   /**
@@ -326,7 +340,11 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
 
   const pendingSkuCount = useMemo(() => countCombinations(form.variations), [form.variations]);
   const busy =
-    createCustom.isPending || updateCustom.isPending || validate.isPending || start.isPending;
+    createCustom.isPending ||
+    updateCustom.isPending ||
+    validate.isPending ||
+    start.isPending ||
+    descriptionUploading;
 
   const generateSkus = () => {
     if (pendingSkuCount === 0) {
@@ -382,7 +400,7 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
 
   /** Kiểm nhanh phía client; trả `false` khi có lỗi (đã báo). */
   const precheck = (mode: 'DRAFT' | 'SUBMIT'): boolean => {
-    const checks = checkCustomListingForm(form, mode);
+    const checks = checkCustomListingForm(form, mode, currency);
     for (const check of checks) {
       toast.error(t(CHECK_MESSAGE[check], { max: TITLE_MAX }));
     }
@@ -495,7 +513,7 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
 
       {/* ---------- 1. Thị trường & Cửa hàng ---------- */}
       <Section title={t('listing.custom.marketShop')}>
-        <div className="grid gap-4 lg:grid-cols-2">
+        <div className="grid gap-4 lg:grid-cols-3">
           <div className="space-y-1">
             <Label>
               {t('listing.sessions.market')}
@@ -507,6 +525,12 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
               options={MARKETS.map((value) => ({ value, label: value }))}
             />
             <p className="text-xs text-muted-foreground">{t('listing.custom.marketHint')}</p>
+          </div>
+
+          <div className="space-y-1">
+            <Label>{t('listing.custom.currency')}</Label>
+            <Input value={currency ?? '—'} readOnly disabled />
+            <p className="text-xs text-muted-foreground">{t('listing.custom.currencyHint')}</p>
           </div>
 
           <div className="space-y-1">
@@ -815,7 +839,11 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
             if (!asset.publicUrl) throw new Error('missing url');
             return { url: asset.publicUrl, alt: asset.originalName };
           }}
+          onUploadingChange={setDescriptionUploading}
         />
+        {/* Ảnh mô tả lúc đăng được upload lại lên TikTok với use_case DESCRIPTION_IMAGE và đổi src —
+            ở đây chỉ giữ URL Storage để mở lại nháp vẫn thấy ảnh. */}
+        <p className="mt-1 text-xs text-muted-foreground">{t('listing.custom.descriptionImageHint')}</p>
         <p
           className={cn(
             'mt-1 text-right text-xs',
@@ -925,7 +953,7 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
           </div>
         )}
 
-        <SkuEditor skus={form.skus} onChange={(skus) => patch({ skus })} />
+        <SkuEditor skus={form.skus} onChange={(skus) => patch({ skus })} currency={currency} />
       </Section>
 
       {/* ---------- Kết quả kiểm tra ---------- */}

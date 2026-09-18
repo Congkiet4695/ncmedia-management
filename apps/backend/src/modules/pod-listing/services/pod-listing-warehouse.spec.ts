@@ -45,6 +45,12 @@ function buildService(
     {} as never,
     {} as never,
     {} as never,
+    // Ảnh mô tả: không có ảnh ⇒ trả nguyên HTML.
+    {
+      normalize: jest.fn((_o: string, _c: unknown, html: string) =>
+        Promise.resolve({ html, stats: { total: 0, uploaded: 0, reused: 0, failed: 0, finalCount: 0 } }),
+      ),
+    } as never,
   );
 
   // `resolveWarehouse` là chi tiết nội bộ của publisher; test gọi thẳng vì đây chính là luật
@@ -163,6 +169,12 @@ describe('PodListingPublisherService — payload gửi TikTok', () => {
       {} as never,
       {} as never,
       {} as never,
+      // Ảnh mô tả: không có ảnh ⇒ trả nguyên HTML.
+      {
+      normalize: jest.fn((_o: string, _c: unknown, html: string) =>
+        Promise.resolve({ html, stats: { total: 0, uploaded: 0, reused: 0, failed: 0, finalCount: 0 } }),
+      ),
+    } as never,
     );
 
     const payload = {

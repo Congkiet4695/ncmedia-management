@@ -87,6 +87,11 @@ interface RichTextEditorProps {
    * bấm vào không làm được gì là thứ tệ hơn cả không có nút.
    */
   onUploadImage?: (file: File) => Promise<{ url: string; alt?: string }>;
+  /**
+   * Báo ra ngoài khi đang tải ảnh lên — form dùng để KHÔNG cho Lưu/Đăng giữa chừng: ảnh chưa
+   * về thì HTML chưa có thẻ `<img>`, lưu lúc đó là lưu một mô tả thiếu ảnh mà không ai báo.
+   */
+  onUploadingChange?: (uploading: boolean) => void;
 }
 
 export interface RichTextEditorLabels {
@@ -197,7 +202,16 @@ const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
 
 export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorProps>(
   function RichTextEditor(
-    { value, onChange, placeholder, minHeight = '260px', className, labels, onUploadImage },
+    {
+      value,
+      onChange,
+      placeholder,
+      minHeight = '260px',
+      className,
+      labels,
+      onUploadImage,
+      onUploadingChange,
+    },
     ref,
   ) {
     const text = { ...DEFAULT_LABELS, ...labels };
@@ -360,6 +374,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
 
         setImageError(null);
         setUploading(true);
+        onUploadingChange?.(true);
         try {
           const uploaded = await onUploadImage(file);
           if (!uploaded?.url) throw new Error('missing url');
@@ -395,9 +410,10 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
           setImageError(text.imageUploadFailed);
         } finally {
           setUploading(false);
+          onUploadingChange?.(false);
         }
       },
-      [emit, focusAndRestore, onUploadImage, text.imageBadFormat, text.imageTooLarge, text.imageUploadFailed],
+      [emit, focusAndRestore, onUploadImage, onUploadingChange, text.imageBadFormat, text.imageTooLarge, text.imageUploadFailed],
     );
 
     /**

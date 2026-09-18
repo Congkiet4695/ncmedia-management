@@ -9,6 +9,11 @@ import { PodProductCatalogService } from './pod-product-catalog.service';
 import { PodProductSyncService } from './pod-product-sync.service';
 import { buildPartialEditPayload, type ProductEditInput, type ProductSnapshot } from './pod-product-edit.payload';
 import { PodProductMediaService } from './pod-product-media.service';
+import {
+  PodDescriptionImageException,
+  PodDescriptionImageService,
+  knownDescriptionImageUrls,
+} from './pod-description-image.service';
 import { PodProductResponseMapper } from '../mappers/pod-product-response.mapper';
 import { PodProductRepository } from '../repositories/pod-product.repository';
 import { PodProductSyncRepository } from '../repositories/pod-product-sync.repository';
@@ -78,6 +83,7 @@ export class PodProductEditService {
     private readonly catalog: PodProductCatalogService,
     private readonly productApi: TiktokProductApiService,
     private readonly media: PodProductMediaService,
+    private readonly descriptionImages: PodDescriptionImageService,
     private readonly accessScope: PodAccessScopeService,
     private readonly lock: DistributedLockService,
     private readonly mapper: PodProductResponseMapper,
@@ -110,7 +116,7 @@ export class PodProductEditService {
      */
     const target = await this.resolveShopTarget(organizationId, product.shopId);
     const ctx = await this.catalog.buildContext(target);
-    const resolved = await this.resolveMedia(organizationId, ctx, dto);
+    const resolved = await this.resolveMedia(organizationId, ctx, dto, product.description);
 
     const plan = buildPartialEditPayload(resolved, this.toSnapshot(product));
     // Không có gì đổi thì KHÔNG gọi TikTok — mỗi request thừa là một lần tiêu hạn mức và
@@ -227,8 +233,35 @@ export class PodProductEditService {
     organizationId: string,
     ctx: Awaited<ReturnType<PodProductCatalogService['buildContext']>>,
     dto: UpdatePodProductDto,
+    /** Mô tả ĐANG có trên sàn — ảnh trong đó là ảnh TikTok hợp lệ, giữ nguyên. */
+    currentDescription: string | null,
   ): Promise<ProductEditInput> {
     const input: ProductEditInput = { ...dto, mainImageUris: undefined, sizeChart: undefined };
+
+    /**
+     * 🔴 Ảnh trong MÔ TẢ: TikTok chỉ nhận URL do Upload Product Image (`DESCRIPTION_IMAGE`) trả
+     * về (`12052340`). Ảnh người dùng vừa chèn nằm ở Storage của ta ⇒ upload + đổi src TRƯỚC khi
+     * diff. Ảnh đã có trên mô tả hiện tại của sản phẩm (do TikTok trả về lúc đồng bộ) giữ nguyên
+     * — không upload lại thứ sàn đã có. KHÔNG dùng MAIN_IMAGE cho ảnh mô tả.
+     */
+    if (dto.description !== undefined) {
+      try {
+        const { html } = await this.descriptionImages.normalize(organizationId, ctx, dto.description, {
+          knownTiktokUrls: knownDescriptionImageUrls(currentDescription),
+          label: 'mô tả',
+        });
+        input.description = html;
+      } catch (error) {
+        if (error instanceof PodDescriptionImageException) {
+          throw new BadRequestException({
+            code: 'POD_PRODUCT_DESCRIPTION_IMAGE_FAILED',
+            message: error.message,
+            problems: error.problems,
+          });
+        }
+        throw error;
+      }
+    }
 
     if (dto.mainImages !== undefined) {
       input.mainImageUris = await this.media.resolveImages(organizationId, ctx, dto.mainImages);

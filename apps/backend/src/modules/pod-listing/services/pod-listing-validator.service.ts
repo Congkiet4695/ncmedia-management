@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { findUnsendableDescriptionImages } from '../../pod-product/services/description-images';
 import {
   POD_LISTING_BLOCKER_CODES,
   POD_LISTING_MAX_IMAGES,
@@ -95,6 +96,7 @@ export class PodListingValidatorService {
 
     this.validateImages(payload, blockers, warnings);
     this.validateVariants(payload, blockers);
+    this.validateDescriptionImages(payload, blockers);
 
     return { ok: blockers.length === 0, blockers, warnings };
   }
@@ -134,6 +136,25 @@ export class PodListingValidatorService {
     }
   }
 
+  /**
+   * Ảnh trong MÔ TẢ: `data:`/`blob:`/rỗng/không http(s) không bao giờ đưa lên TikTok được —
+   * chặn ngay ở cổng validate. Ảnh http(s) của ta thì KHÔNG phải lỗi ở đây: publisher sẽ upload
+   * chúng với `DESCRIPTION_IMAGE` và đổi src trước khi gọi Create Product.
+   */
+  private validateDescriptionImages(payload: ResolvedListing, blockers: ListingBlocker[]): void {
+    const problems = findUnsendableDescriptionImages(payload.description);
+    if (problems.length === 0) return;
+    blockers.push(
+      this.blocker(
+        'DESCRIPTION_IMAGE_INVALID',
+        'description',
+        `Mô tả sản phẩm chứa ảnh chưa được upload lên TikTok Shop (ảnh thứ ${problems
+          .map((problem) => problem.index + 1)
+          .join(', ')}) — chèn lại ảnh bằng nút tải ảnh của trình soạn thảo.`,
+      ),
+    );
+  }
+
   private validateVariants(payload: ResolvedListing, blockers: ListingBlocker[]): void {
     if (payload.variants.length === 0) {
       blockers.push(this.blocker('MISSING_SKU', 'variants', 'Listing chưa có biến thể nào'));
@@ -147,6 +168,17 @@ export class PodListingValidatorService {
             'MISSING_PRICE',
             `variant.${variant.sellerSku}`,
             `Biến thể "${variant.variantName}" chưa có giá bán hợp lệ`,
+          ),
+        );
+      }
+      // 🔴 Giá mà không có tiền tệ ⇒ TikTok trả `36009004` SAU KHI đã upload xong bộ ảnh.
+      // Chặn ở đây, nói thẳng thiếu gì và cần kiểm tra ở đâu.
+      if ((variant.salePrice || variant.retailPrice) && !variant.currency?.trim()) {
+        blockers.push(
+          this.blocker(
+            'MISSING_CURRENCY',
+            `variant.${variant.sellerSku}`,
+            `Biến thể "${variant.variantName}" có giá nhưng thiếu tiền tệ — kiểm tra Market/Shop của lượt đăng.`,
           ),
         );
       }

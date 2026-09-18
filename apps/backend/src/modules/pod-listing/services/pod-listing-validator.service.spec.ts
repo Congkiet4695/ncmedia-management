@@ -207,3 +207,46 @@ describe('PodListingValidatorService', () => {
     );
   });
 });
+
+
+describe('PodListingValidatorService — tiền tệ của giá', () => {
+  const validator = new PodListingValidatorService();
+
+  it('🔴 biến thể có giá nhưng thiếu currency ⇒ chặn LISTING_MISSING_CURRENCY, không gửi TikTok', () => {
+    const payload = buildPayload();
+    payload.variants = payload.variants.map((variant) => ({ ...variant, currency: null }));
+    const result = validator.validate(payload);
+    expect(result.ok).toBe(false);
+    expect(result.blockers.map((blocker) => blocker.code)).toContain(
+      POD_LISTING_BLOCKER_CODES.MISSING_CURRENCY,
+    );
+  });
+
+  it('có currency ⇒ qua', () => {
+    expect(validator.validate(buildPayload()).ok).toBe(true);
+  });
+});
+
+describe('PodListingValidatorService — ảnh trong mô tả', () => {
+  const validator = new PodListingValidatorService();
+
+  it('ảnh data:/blob: trong mô tả ⇒ chặn LISTING_DESCRIPTION_IMAGE_INVALID (không có gì để upload)', () => {
+    const result = validator.validate(
+      buildPayload({ description: '<p>x</p><img src="data:image/png;base64,AAAA"><img src="blob:https://app/1">' }),
+    );
+    expect(result.ok).toBe(false);
+    const blocker = result.blockers.find(
+      (item) => item.code === POD_LISTING_BLOCKER_CODES.DESCRIPTION_IMAGE_INVALID,
+    );
+    expect(blocker?.message).toContain('ảnh thứ 1, 2');
+  });
+
+  it('ảnh http(s) của Storage KHÔNG phải lỗi ở cổng validate — publisher sẽ upload DESCRIPTION_IMAGE', () => {
+    const result = validator.validate(
+      buildPayload({ description: '<img src="https://cdn.ncmedia.test/uploads/a.jpg">' }),
+    );
+    expect(result.blockers.map((item) => item.code)).not.toContain(
+      POD_LISTING_BLOCKER_CODES.DESCRIPTION_IMAGE_INVALID,
+    );
+  });
+});

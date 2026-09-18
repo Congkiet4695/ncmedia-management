@@ -35,8 +35,8 @@ export const POD_MARKET_CURRENCIES: ReadonlyArray<{
   markets: PodListingMarket[];
 }> = [
   { currency: 'USD', markets: ['US'] },
-  { currency: 'GBP', markets: ['UK', 'IE'] },
-  { currency: 'EUR', markets: ['EU', 'DE', 'FR', 'IT', 'ES'] },
+  { currency: 'GBP', markets: ['UK'] },
+  { currency: 'EUR', markets: ['EU', 'DE', 'FR', 'IT', 'ES', 'IE'] },
   { currency: 'AUD', markets: ['AU'] },
   { currency: 'JPY', markets: ['JP'] },
   { currency: 'SGD', markets: ['SG'] },
@@ -48,6 +48,19 @@ export const POD_MARKET_CURRENCIES: ReadonlyArray<{
   { currency: 'BRL', markets: ['BR'] },
   { currency: 'MXN', markets: ['MX'] },
 ];
+
+/**
+ * Tiền tệ của một thị trường — bản sao để HIỂN THỊ của `POD_MARKET_CURRENCY` phía backend
+ * (`pod-market-currency.ts`). Backend mới là nơi quyết định currency gửi TikTok (theo region của
+ * shop đích rồi tới market); form chỉ dùng hàm này để báo trước cho người dùng và chặn sớm.
+ */
+export function currencyForMarket(market: string | null | undefined): string | null {
+  if (!market) return null;
+  return (
+    POD_MARKET_CURRENCIES.find((entry) => entry.markets.includes(market as PodListingMarket))
+      ?.currency ?? null
+  );
+}
 
 /** Loại tài sản trong Image Template. */
 /** Vai trò của một tấm ảnh trong bộ ảnh mẫu (mockup) của phôi. */

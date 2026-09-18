@@ -67,6 +67,7 @@ import {
   PodWarehouseResolutionException,
   type ListingLogger,
 } from './pod-listing-publisher.service';
+import { humanizeTiktokListingError } from './pod-tiktok-error-message';
 import { PodProductSyncService } from '../../pod-product/services/pod-product-sync.service';
 import { PodListingValidatorService } from './pod-listing-validator.service';
 import { computeRetryDelayMs, runWithConcurrency } from './pod-listing.queue';
@@ -1081,7 +1082,12 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
     const { organizationId, jobId, item, error } = params;
     const publishing = params.jobType === PodListingJobType.PUBLISH;
     const tiktokError = error instanceof TiktokClientError ? error : null;
-    const message = error instanceof Error ? error.message : 'Lỗi không xác định';
+    const rawMessage = error instanceof Error ? error.message : 'Lỗi không xác định';
+    // Cột `error` của item là thứ hiện trên màn hình ⇒ dịch lỗi TikTok đã biết sang câu chỉ rõ
+    // phải sửa gì. Câu gốc vẫn ghi vào log ngay dưới (`message`) để truy vết.
+    const message =
+      (tiktokError ? humanizeTiktokListingError(tiktokError.tiktokCode, rawMessage) : null) ??
+      rawMessage;
     const errorCode = tiktokError ? String(tiktokError.tiktokCode) : null;
 
     const permanent =
@@ -1104,7 +1110,7 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
           : PodListingStep.CREATE_DRAFT,
       canRetry ? `Lỗi — sẽ thử lại lần ${retryCount}/${params.maxRetries}` : `Thất bại: ${message}`,
       {
-        message,
+        message: rawMessage,
         tiktokCode: tiktokError?.tiktokCode,
         tiktokRequestId: tiktokError?.requestId,
         errorClass: tiktokError?.errorClass ?? TiktokErrorClass.NETWORK,

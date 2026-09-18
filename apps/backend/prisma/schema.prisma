@@ -3011,6 +3011,49 @@ model PodProductVariant {
 }
 
 // ---------------------------------------------------------------------------
+// PodTiktokDescriptionImage — ảnh trong MÔ TẢ sản phẩm đã upload lên TikTok với
+// `use_case = DESCRIPTION_IMAGE`.
+//
+// 🔴 Vì sao có bảng riêng: TikTok chỉ nhận `<img src>` trong mô tả là URL do chính Upload
+// Product Image (DESCRIPTION_IMAGE) trả về (lỗi `12052340`). Ảnh người dùng chèn vào trình soạn
+// thảo nằm ở Storage Module (URL CDN của ta), ảnh của Description Template cũng vậy ⇒ trước khi
+// gửi sản phẩm phải đổi từng `src` sang URL của TikTok. Bảng này là METADATA đáng tin cho câu
+// "src này đã là ảnh mô tả TikTok chưa" — không đoán bằng tiền tố URL — và là cache dedup:
+// cùng file (theo `file_id`/`checksum`) hay cùng URL ngoài chỉ upload MỘT lần cho mọi listing.
+//
+// `uri`/`url` của TikTok ở phạm vi app (dùng lại được cho mọi shop) nhưng dữ liệu vẫn ràng
+// buộc `organization_id` (ADR-004) — hai tổ chức không nhìn thấy mapping của nhau.
+// ---------------------------------------------------------------------------
+
+model PodTiktokDescriptionImage {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+
+  /// Khoá nguồn: `file:<storage file id>` với ảnh trong Storage, `url:<sha256(url)>` với URL ngoài.
+  sourceKey String  @map("source_key") @db.VarChar(200)
+  /// URL nguồn như nó xuất hiện trong HTML lúc upload (để đọc log/đối chiếu).
+  sourceUrl String  @map("source_url") @db.VarChar(2048)
+  fileId    String? @map("file_id") @db.Uuid
+  /// sha256 nội dung file (từ `storage_files.checksum`) — hai file cùng tên khác nội dung là hai dòng.
+  checksum  String? @db.Char(64)
+
+  tiktokUri String @map("tiktok_uri") @db.VarChar(512)
+  /// URL TikTok trả về — thứ DUY NHẤT được phép đứng trong `<img src>` của mô tả.
+  tiktokUrl String @map("tiktok_url") @db.VarChar(2048)
+  width     Int?
+  height    Int?
+
+  uploadedAt DateTime @map("uploaded_at") @db.Timestamptz(6)
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt  DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@unique([organizationId, sourceKey])
+  @@index([organizationId, tiktokUrl])
+  @@index([organizationId, checksum])
+  @@map("pod_tiktok_description_images")
+}
+
+// ---------------------------------------------------------------------------
 // PodProductImage — ảnh sản phẩm (`main_images[]`) và ảnh biến thể (`sku_img`).
 // ---------------------------------------------------------------------------
 

@@ -16,6 +16,9 @@
  *   4. Thiếu danh mục thật sự ⇒ "Category là bắt buộc." — không nhắc tới template.
  *   5. Employee chỉ đăng được vào shop được gán; shop ngoài phạm vi ⇒ 403 ở CẢ tạo lẫn sửa.
  *   6. Hồi quy lô Excel: session IMPORT không template vẫn bị chặn đúng hai lỗi template cũ.
+ *   7. Template thật: kết hợp / full template.
+ *   8. Tiền tệ (`36009004`): SKU nhập tay không template vẫn có `price.currency` theo shop
+ *      (US ⇒ USD, GB ⇒ GBP); mẫu USD trên shop UK ⇒ gửi GBP kèm cảnh báo lệch.
  *
  * Toàn bộ dữ liệu test tự dọn ở cuối.
  */
@@ -111,7 +114,7 @@ async function main() {
       created.employeeIds.push(employee.id);
       return { userId: user.id, employeeId: employee.id };
     }
-    async function makeShop(tag: string, sellerEmployeeId: string) {
+    async function makeShop(tag: string, sellerEmployeeId: string, region = 'US') {
       const account = await prisma.podTiktokAccount.create({
         data: {
           organizationId: orgId,
@@ -135,7 +138,7 @@ async function main() {
           tiktokShopId: `e2e-${tag}-${STAMP}`,
           shopCipherEnc: 'e2e',
           name: `E2E Shop ${tag}`,
-          region: 'US',
+          region,
           sellerType: 'CROSS_BORDER',
         },
         select: { id: true },
@@ -149,9 +152,10 @@ async function main() {
     const other = await makeUser('other', employeeRole.id);
     const shopMine = await makeShop('mine', seller.employeeId);
     const shopOther = await makeShop('other', other.employeeId);
+    const shopUk = await makeShop('uk', seller.employeeId, 'GB');
     const adminToken = token(admin.userId, 'ADMIN');
     const sellerToken = token(seller.userId, 'EMPLOYEE');
-    check('dựng xong 3 user, 2 shop', created.shopIds.length === 2);
+    check('dựng xong 3 user, 3 shop (US · US · GB)', created.shopIds.length === 3);
 
     const manualData = {
       description: '<p>Poster in mờ <img src="https://cdn.example/desc.jpg" alt="mô tả"></p>',
@@ -200,6 +204,9 @@ async function main() {
     check('không PRODUCT_MISSING_CATEGORY / PRODUCT_MISSING_SKU', !productCodes.includes('PRODUCT_MISSING_CATEGORY') && !productCodes.includes('PRODUCT_MISSING_SKU'), productCodes);
     check('không lỗi thiếu danh mục / biến thể / giá / mô tả / kiện hàng từ engine', !productCodes.some((c) => /MISSING_(CATEGORY|VARIANT|SKU|PRICE|DESCRIPTION|PACKAGE)/.test(c)), validation.data?.products?.[0]?.issues);
     check('validate.ok = true (full manual, không template)', validation.data?.ok === true, validation.data);
+    const firstProducts = await call(adminToken, 'GET', `/pod/listing-sessions/${sessionId}/products`);
+    const prevUs = await call(adminToken, 'POST', `/pod/listing-sessions/${sessionId}/products/${firstProducts.data?.items?.[0]?.id}/preview`, { shopId: shopMine });
+    check('🔴 36009004: SKU nhập tay KHÔNG template ⇒ 3/3 biến thể có currency USD (theo shop US)', prevUs.data?.payload?.variants?.length === 3 && prevUs.data.payload.variants.every((v: any) => v.currency === 'USD'), prevUs.data?.payload?.variants?.map((v: any) => [v.sellerSku, v.salePrice, v.currency]));
 
     // -------------------------------------------------------------------------
     console.log('\n▶ 2. Nháp lưu ĐỦ dữ liệu (GET detail + products)');
@@ -381,6 +388,53 @@ async function main() {
     const fp = await call(adminToken, 'GET', `/pod/listing-sessions/${full.data?.id}/products`);
     const prevF = await call(adminToken, 'POST', `/pod/listing-sessions/${full.data?.id}/products/${fp.data?.items?.[0]?.id}/preview`, {});
     check('danh mục tay THẮNG Category Template, SKU vẫn từ SKU Template', overrideCat.status === 200 && prevF.data?.payload?.category?.tiktokCategoryId === '999999' && prevF.data?.payload?.variants?.length === 2, [overrideCat.status, prevF.data?.payload?.category, prevF.data?.payload?.variants?.length]);
+    // -------------------------------------------------------------------------
+    console.log('\n▶ 8. Tiền tệ theo SHOP: GB ⇒ GBP (nhập tay) · mẫu USD trên shop UK ⇒ GBP + cảnh báo');
+    const ukManual = await call(adminToken, 'POST', '/pod/listing-sessions/custom', {
+      market: 'UK', shopIds: [shopUk],
+      product: { title: `E2E UK manual ${STAMP}`, images: images.slice(0, 1), manualData },
+    });
+    if (ukManual.data?.id) created.sessionIds.push(ukManual.data.id);
+    const ukP = await call(adminToken, 'GET', `/pod/listing-sessions/${ukManual.data?.id}/products`);
+    const prevUk = await call(adminToken, 'POST', `/pod/listing-sessions/${ukManual.data?.id}/products/${ukP.data?.items?.[0]?.id}/preview`, {});
+    check('shop GB + SKU nhập tay ⇒ mọi biến thể GBP', prevUk.data?.payload?.variants?.every((v: any) => v.currency === 'GBP'), prevUk.data?.payload?.variants?.map((v: any) => v.currency));
+    const vUk = await call(adminToken, 'POST', `/pod/listing-sessions/${ukManual.data?.id}/validate`, {});
+    check('validate UK ok (không MISSING_CURRENCY)', vUk.data?.ok === true, vUk.data);
+
+    const ukTemplate = await call(adminToken, 'POST', '/pod/listing-sessions/custom', {
+      market: 'UK', shopIds: [shopUk],
+      templates: { skuTemplateId: st.data?.id },
+      product: { title: `E2E UK template ${STAMP}`, images: images.slice(0, 1), manualData: noSkuData },
+    });
+    if (ukTemplate.data?.id) created.sessionIds.push(ukTemplate.data.id);
+    const ukTP = await call(adminToken, 'GET', `/pod/listing-sessions/${ukTemplate.data?.id}/products`);
+    const prevUkT = await call(adminToken, 'POST', `/pod/listing-sessions/${ukTemplate.data?.id}/products/${ukTP.data?.items?.[0]?.id}/preview`, {});
+    check('SKU Template khai USD nhưng shop GB ⇒ gửi GBP', prevUkT.data?.payload?.variants?.every((v: any) => v.currency === 'GBP'), prevUkT.data?.payload?.variants?.map((v: any) => v.currency));
+    check('… kèm cảnh báo DRAFT_CURRENCY_MISMATCH (WARNING, không chặn)', (prevUkT.data?.issues ?? []).some((i: any) => i.code === 'DRAFT_CURRENCY_MISMATCH' && i.level === 'WARNING'), prevUkT.data?.issues);
+    // -------------------------------------------------------------------------
+    console.log('\n▶ 9. Ảnh trong mô tả: data:/blob: bị cổng Validate chặn; ảnh http của Storage đi tiếp (upload DESCRIPTION_IMAGE lúc đăng)');
+    const descSession = await call(adminToken, 'POST', '/pod/listing-sessions/custom', {
+      market: 'US', shopIds: [shopMine],
+      product: { title: `E2E desc image ${STAMP}`, images: images.slice(0, 1), manualData: { ...manualData, description: '<p>x</p><img src="data:image/png;base64,iVBORw0KGgo=">' } },
+    });
+    if (descSession.data?.id) created.sessionIds.push(descSession.data.id);
+    const vDesc = await call(adminToken, 'POST', `/pod/listing-sessions/${descSession.data?.id}/validate`, {});
+    const descIssue = (vDesc.data?.products?.[0]?.issues ?? []).find((i: any) => i.code === 'LISTING_DESCRIPTION_IMAGE_INVALID');
+    check('ảnh data: trong mô tả ⇒ LISTING_DESCRIPTION_IMAGE_INVALID, không được Start Listing', vDesc.data?.ok === false && Boolean(descIssue), vDesc.data?.products?.[0]?.issues);
+    check('thông điệp nói rõ ảnh thứ mấy + cách sửa', /ảnh thứ 1/.test(descIssue?.message ?? ''), descIssue?.message);
+    const startDesc = await call(adminToken, 'POST', `/pod/listing-sessions/${descSession.data?.id}/start`, {});
+    check('Start Listing bị từ chối (POD_SESSION_NOT_READY)', startDesc.status === 400 && startDesc.body?.code === 'POD_SESSION_NOT_READY', startDesc.body);
+
+    await call(adminToken, 'PATCH', `/pod/listing-sessions/${descSession.data?.id}/custom`, {
+      product: { manualData: { ...manualData, description: '<p>x</p><img src="https://cdn.example/desc.jpg" alt="d">' } },
+    });
+    const vDesc2 = await call(adminToken, 'POST', `/pod/listing-sessions/${descSession.data?.id}/validate`, {});
+    check('ảnh http ⇒ Validate qua (upload DESCRIPTION_IMAGE là việc của lúc đăng)', vDesc2.data?.ok === true, vDesc2.data);
+    const dp = await call(adminToken, 'GET', `/pod/listing-sessions/${descSession.data?.id}/products`);
+    const prevD = await call(adminToken, 'POST', `/pod/listing-sessions/${descSession.data?.id}/products/${dp.data?.items?.[0]?.id}/preview`, {});
+    check('Preview KHÔNG gọi sàn: mô tả còn nguyên src Storage', prevD.data?.payload?.description?.includes('https://cdn.example/desc.jpg') === true, prevD.data?.payload?.description);
+    const mappingRows = await prisma.podTiktokDescriptionImage.count({ where: { organizationId: orgId } });
+    check('chưa có dòng mapping nào được ghi (chưa upload)', mappingRows === 0, mappingRows);
   } finally {
     console.log('\n🧹 Dọn dữ liệu test');
     const sessionIds = created.sessionIds;

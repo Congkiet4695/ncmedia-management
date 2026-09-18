@@ -377,7 +377,9 @@ export type CustomListingCheck =
   | 'SHOP_REQUIRED'
   | 'CATEGORY_REQUIRED'
   | 'SKU_REQUIRED'
-  | 'SKU_INVALID';
+  | 'SKU_INVALID'
+  | 'CURRENCY_REQUIRED'
+  | 'DESCRIPTION_IMAGE_INVALID';
 
 export const TITLE_MAX = 255;
 
@@ -393,6 +395,8 @@ export const TITLE_MAX = 255;
 export function checkCustomListingForm(
   form: CustomListingForm,
   mode: 'DRAFT' | 'SUBMIT',
+  /** Tiền tệ suy từ thị trường (`currencyForMarket`) — truyền vào để module này giữ thuần. */
+  currency: string | null = null,
 ): CustomListingCheck[] {
   const issues: CustomListingCheck[] = [];
   if (!form.title.trim()) issues.push('TITLE_REQUIRED');
@@ -406,7 +410,26 @@ export function checkCustomListingForm(
   } else if (form.skus.some((sku) => !isUsableSku(sku))) {
     issues.push('SKU_INVALID');
   }
+  // 🔴 Giá mà không có tiền tệ ⇒ TikTok `36009004`. Tiền tệ suy từ thị trường (backend còn tra
+  // theo region của shop đích) — không tra được nghĩa là thị trường chưa có trong bảng, chặn
+  // ngay ở đây thay vì để sàn từ chối sau khi đã upload ảnh.
+  if (form.skus.some((sku) => sku.salePrice || sku.retailPrice) && !currency) {
+    issues.push('CURRENCY_REQUIRED');
+  }
+  // Ảnh dán thẳng vào mô tả (`data:`) hay ảnh tạm (`blob:`) chưa bao giờ rời trình duyệt ⇒ backend
+  // không thể upload DESCRIPTION_IMAGE cho nó. Báo ngay, kèm cách sửa (dùng nút tải ảnh).
+  if (hasUnsendableDescriptionImage(form.description)) issues.push('DESCRIPTION_IMAGE_INVALID');
   return issues;
+}
+
+/** `<img src>` trong mô tả là `data:`/`blob:`/rỗng — không đưa lên TikTok được. */
+export function hasUnsendableDescriptionImage(html: string): boolean {
+  for (const match of html.matchAll(/<img\b[^>]*>/gi)) {
+    const src = /\bsrc\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'=<>`]+))/i.exec(match[0]);
+    const value = (src?.[1] ?? src?.[2] ?? src?.[3] ?? '').trim().toLowerCase();
+    if (!value || value.startsWith('data:') || value.startsWith('blob:')) return true;
+  }
+  return false;
 }
 
 /** Một dòng SKU dùng được: có Seller SKU, giá bán > 0, số lượng không âm. */

@@ -726,3 +726,77 @@ describe('PodListingResolverService', () => {
     });
   });
 });
+
+
+/**
+ * Tiền tệ của giá — quyết theo SHOP đích, không theo mẫu.
+ *
+ * 🔴 Lỗi đã gặp trên sàn: Custom Listing (SKU nhập tay, không Pricing/SKU Template) gửi
+ * `price.amount` mà không có `price.currency` ⇒ TikTok `36009004`.
+ */
+describe('PodListingResolverService — tiền tệ', () => {
+  const service = new PodListingResolverService({} as unknown as PrismaService);
+  const manualSkus = [
+    { sellerSku: 'P-8X12', optionValues: [{ name: 'Size', value: '8x12' }], salePrice: '19.99', quantity: 500 },
+    { sellerSku: 'P-8X20', optionValues: [{ name: 'Size', value: '8x20' }], salePrice: '22.99', retailPrice: '29.99', quantity: 500 },
+  ];
+  const sessionProduct = (manualData: unknown) =>
+    ({
+      id: 'sp-1',
+      title: 'Poster',
+      manualData,
+      images: [{ imageUrl: 'https://cdn.example/1.jpg', imageType: 'MAIN', fileId: null, remoteUri: null, sortOrder: 0 }],
+    }) as never;
+
+  it('🔴 SKU nhập tay, KHÔNG Pricing/SKU Template ⇒ mọi biến thể vẫn có currency của shop (US ⇒ USD)', () => {
+    const template = buildTemplate({ pricingStrategy: null, skuTemplate: null });
+    const { payload, issues } = service.resolveFromContext(
+      buildContext({ template, product: null, sessionProduct: sessionProduct({ skus: manualSkus }) }),
+    );
+
+    expect(payload.variants).toHaveLength(2);
+    expect(payload.variants.map((variant) => variant.currency)).toEqual(['USD', 'USD']);
+    expect(issues.some((issue) => issue.code.includes('CURRENCY'))).toBe(false);
+  });
+
+  it('shop UK (region GB) ⇒ GBP; shop DE ⇒ EUR — kể cả khi mẫu khai USD (kèm cảnh báo lệch)', () => {
+    const uk = service.resolveFromContext(
+      buildContext({ shop: { id: 'shop-uk', name: 'UK Store', region: 'GB' } }),
+    );
+    expect(uk.payload.variants.every((variant) => variant.currency === 'GBP')).toBe(true);
+    expect(uk.payload.pricing?.currency).toBe('GBP');
+    const warning = uk.issues.find((issue) => issue.code === 'DRAFT_CURRENCY_MISMATCH');
+    expect(warning?.level).toBe('WARNING');
+
+    const de = service.resolveFromContext(
+      buildContext({ shop: { id: 'shop-de', name: 'DE Store', region: 'DE' } }),
+    );
+    expect(de.payload.variants.every((variant) => variant.currency === 'EUR')).toBe(true);
+  });
+
+  it('region lạ ⇒ rơi về market của lượt; cả hai lạ ⇒ dùng currency của mẫu', () => {
+    const byMarket = service.resolveFromContext(
+      buildContext({ shop: { id: 's', name: 'S', region: 'ZZ' } }),
+    );
+    expect(byMarket.payload.variants[0].currency).toBe('USD');
+
+    const template = buildTemplate({ market: 'ZZ' } as never);
+    const byTemplate = service.resolveFromContext(
+      buildContext({ template, shop: { id: 's', name: 'S', region: 'ZZ' } }),
+    );
+    expect(byTemplate.payload.variants[0].currency).toBe('USD');
+  });
+
+  it('không nguồn nào tra được + có giá ⇒ lỗi DRAFT_MISSING_CURRENCY (chặn trước khi gọi sàn)', () => {
+    const template = buildTemplate({ market: 'ZZ', pricingStrategy: null, skuTemplate: null } as never);
+    const { issues } = service.resolveFromContext(
+      buildContext({
+        template,
+        product: null,
+        sessionProduct: sessionProduct({ skus: manualSkus }),
+        shop: { id: 's', name: 'S', region: 'ZZ' },
+      }),
+    );
+    expect(issues.some((issue) => issue.code === 'DRAFT_MISSING_CURRENCY')).toBe(true);
+  });
+});

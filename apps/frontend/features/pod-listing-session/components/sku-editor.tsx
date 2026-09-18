@@ -17,9 +17,12 @@ import type { ManualSku } from '../types';
 export function SkuEditor({
   skus,
   onChange,
+  currency,
 }: {
   skus: ManualSku[];
   onChange: (next: ManualSku[]) => void;
+  /** Tiền tệ của lượt đăng (theo thị trường) — chỉ để hiện trên tiêu đề cột giá. */
+  currency?: string | null;
 }) {
   const { t } = useTranslation('pod');
 
@@ -46,8 +49,14 @@ export function SkuEditor({
           <tr>
             <th className="px-3 py-2 text-left">{t('listing.manual.variant')}</th>
             <th className="px-3 py-2 text-left">{t('listing.manual.sellerSku')}</th>
-            <th className="px-3 py-2 text-left">{t('listing.manual.retailPrice')}</th>
-            <th className="px-3 py-2 text-left">{t('listing.manual.listPrice')}</th>
+            <th className="px-3 py-2 text-left">
+              {t('listing.manual.retailPrice')}
+              {currency ? ` (${currency})` : ''}
+            </th>
+            <th className="px-3 py-2 text-left">
+              {t('listing.manual.listPrice')}
+              {currency ? ` (${currency})` : ''}
+            </th>
             <th className="px-3 py-2 text-left">{t('listing.manual.quantity')}</th>
             <th className="w-[1%] px-3 py-2" />
           </tr>

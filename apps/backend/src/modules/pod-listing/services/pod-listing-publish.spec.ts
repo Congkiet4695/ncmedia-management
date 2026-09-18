@@ -94,6 +94,12 @@ function buildService() {
     {} as never,
     {} as never,
     {} as never,
+    // Ảnh mô tả: không có ảnh ⇒ trả nguyên HTML.
+    {
+      normalize: jest.fn((_o: string, _c: unknown, html: string) =>
+        Promise.resolve({ html, stats: { total: 0, uploaded: 0, reused: 0, failed: 0, finalCount: 0 } }),
+      ),
+    } as never,
   );
 
   /** Đối số của lời gọi thứ n — `jest.fn()` trả `any`, ép kiểu một chỗ thay vì rải khắp test. */
@@ -251,5 +257,95 @@ describe('PodListingPublisherService.publishListing', () => {
 
     // Báo hỏng ở đây chỉ khiến người dùng bấm Publish thêm lần nữa cho một sản phẩm đã publish.
     expect(outcome.remoteProductId).toBe('TT-PRODUCT-1');
+  });
+});
+
+/**
+ * Ảnh trong MÔ TẢ đi qua `PodDescriptionImageService` TRƯỚC khi dựng request — mô tả gửi TikTok
+ * là bản đã chuẩn hoá (src = URL DESCRIPTION_IMAGE, kèm width/height).
+ */
+describe('PodListingPublisherService — ảnh trong mô tả', () => {
+  const buildWithNormalizer = (normalize: jest.Mock) => {
+    const productApi = {
+      createProduct: jest.fn().mockResolvedValue({
+        data: { productId: 'TT-NEW', skus: [{ id: 'S', sellerSku: 'SKU-1' }] },
+        requestId: 'r',
+      }),
+      publishProduct: jest.fn(),
+      uploadImage: jest.fn(),
+    };
+    const prisma = {
+      podTiktokShop: {
+        findFirst: jest.fn().mockResolvedValue({
+          name: 'Playmaker',
+          defaultWarehouse: { id: 'wh-1', tiktokWarehouseId: 'TT-WH-1', name: 'Kho A' },
+          warehouses: [{ id: 'wh-1', tiktokWarehouseId: 'TT-WH-1', name: 'Kho A', isDefault: true }],
+        }),
+      },
+      podImageTemplateItem: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn() },
+      podSkuTemplateItem: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn() },
+      podListingSessionProductImage: { updateMany: jest.fn() },
+    };
+    const service = new PodListingPublisherService(
+      prisma as never,
+      productApi as never,
+      {} as never,
+      {} as never,
+      {} as never,
+      { normalize } as never,
+    );
+    const log = jest.fn().mockResolvedValue(undefined);
+    return { service, productApi, log };
+  };
+
+  it('🔴 Create Draft: mô tả gửi đi là bản ĐÃ đổi src sang URL DESCRIPTION_IMAGE của TikTok', async () => {
+    const normalize = jest.fn().mockResolvedValue({
+      html: '<p>hi</p><img src="https://p16-oec.tiktokcdn.com/desc/1" width="1600" height="900">',
+      stats: { total: 1, uploaded: 1, reused: 0, failed: 0, finalCount: 1 },
+    });
+    const { service, productApi, log } = buildWithNormalizer(normalize);
+
+    await service.publishDraft({
+      organizationId: 'org-1',
+      ctx: CTX,
+      payload: buildPayload({ description: '<p>hi</p><img src="https://cdn.ncmedia.test/uploads/a.jpg">' }),
+      imageUriCache: new Map([['MAIN_IMAGE:file-1', Promise.resolve('uri-1')]]),
+      log,
+    });
+
+    expect(normalize).toHaveBeenCalledTimes(1);
+    expect((normalize.mock.calls[0] as unknown[])[2]).toBe('<p>hi</p><img src="https://cdn.ncmedia.test/uploads/a.jpg">');
+    const request = (productApi.createProduct.mock.calls[0] as unknown[])[1] as { description: string };
+    expect(request.description).toBe(
+      '<p>hi</p><img src="https://p16-oec.tiktokcdn.com/desc/1" width="1600" height="900">',
+    );
+    expect(request.description).not.toContain('cdn.ncmedia.test');
+    // Log số liệu — không có token nào ở đây.
+    const logged = (log.mock.calls as unknown[][]).find((call) => call[2] === 'Đã chuẩn bị ảnh trong mô tả');
+    expect(logged?.[3]).toMatchObject({
+      descriptionImageCount: 1,
+      uploadedCount: 1,
+      reusedCount: 0,
+      failedCount: 0,
+      finalDescriptionImageCount: 1,
+      useCase: 'DESCRIPTION_IMAGE',
+    });
+  });
+
+  it('🔴 upload ảnh mô tả hỏng ⇒ KHÔNG gọi Create Product', async () => {
+    const normalize = jest.fn().mockRejectedValue(new Error('Không thể upload ảnh trong mô tả lên TikTok Shop. Vui lòng thử lại.'));
+    const { service, productApi, log } = buildWithNormalizer(normalize);
+
+    await expect(
+      service.publishDraft({
+        organizationId: 'org-1',
+        ctx: CTX,
+        payload: buildPayload({ description: '<img src="https://cdn.ncmedia.test/uploads/a.jpg">' }),
+        imageUriCache: new Map(),
+        log,
+      }),
+    ).rejects.toThrow('Không thể upload ảnh trong mô tả');
+    expect(productApi.createProduct).not.toHaveBeenCalled();
+    expect(productApi.uploadImage).not.toHaveBeenCalled();
   });
 });

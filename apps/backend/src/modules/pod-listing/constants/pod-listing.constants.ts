@@ -232,6 +232,10 @@ export const POD_LISTING_BLOCKER_CODES = {
   MISSING_TITLE: 'LISTING_MISSING_TITLE',
   MISSING_DESCRIPTION: 'LISTING_MISSING_DESCRIPTION',
   MISSING_PACKAGE: 'LISTING_MISSING_PACKAGE',
+  /** Có giá nhưng không tiền tệ — TikTok từ chối bằng `36009004`; chặn ở đây trước khi gọi sàn. */
+  MISSING_CURRENCY: 'LISTING_MISSING_CURRENCY',
+  /** Mô tả có ảnh `data:`/`blob:`/rỗng — không thể upload DESCRIPTION_IMAGE. */
+  DESCRIPTION_IMAGE_INVALID: 'LISTING_DESCRIPTION_IMAGE_INVALID',
 } as const;
 
 /** Mã lỗi validate của draft — frontend dịch sang thông điệp người dùng. */
@@ -245,6 +249,10 @@ export const POD_DRAFT_ISSUE_CODES = {
   MISSING_PACKAGE: 'DRAFT_MISSING_PACKAGE',
   MISSING_DESCRIPTION: 'DRAFT_MISSING_DESCRIPTION',
   MARKET_MISMATCH: 'DRAFT_MARKET_MISMATCH',
+  /** Tiền tệ của mẫu khác tiền tệ của shop/thị trường đích — dùng của shop, cảnh báo. */
+  CURRENCY_MISMATCH: 'DRAFT_CURRENCY_MISMATCH',
+  /** Không tra được tiền tệ từ shop, thị trường lẫn mẫu. */
+  MISSING_CURRENCY: 'DRAFT_MISSING_CURRENCY',
 } as const;
 
 // ---------------------------------------------------------------------------

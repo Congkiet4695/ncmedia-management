@@ -1079,7 +1079,12 @@
       "highlightsHint": "Mỗi dòng một ý.",
       "categoryRequired": "Category là bắt buộc — chọn danh mục hoặc Category Template.",
       "skuRequired": "Vui lòng thêm ít nhất một SKU/variation hợp lệ (hoặc chọn SKU Template).",
-      "skuInvalid": "Có SKU chưa hợp lệ — mỗi dòng cần Seller SKU và giá bán lớn hơn 0."
+      "skuInvalid": "Có SKU chưa hợp lệ — mỗi dòng cần Seller SKU và giá bán lớn hơn 0.",
+      "currency": "Tiền tệ",
+      "currencyHint": "Suy từ thị trường; backend tra lại theo shop đích lúc đăng.",
+      "currencyRequired": "Giá sản phẩm cần có tiền tệ — chọn thị trường được hỗ trợ.",
+      "descriptionImageInvalid": "Mô tả chứa ảnh chưa được tải lên — chèn ảnh bằng nút tải ảnh của trình soạn thảo.",
+      "descriptionImageHint": "Ảnh trong mô tả sẽ được upload lên TikTok Shop (DESCRIPTION_IMAGE) lúc đăng."
     },
     "media": {
       "section": "Hình ảnh & Video",
