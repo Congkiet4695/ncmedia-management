@@ -8,6 +8,7 @@ import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryp
 import { StorageService } from '../../storage/storage.service';
 import { PodDescriptionImageService } from '../../pod-product/services/pod-description-image.service';
 import { fetchRemoteImage } from '../../pod-product/services/remote-image.fetch';
+import { extractDescriptionImages, hostnameOf } from '../../pod-product/services/description-images';
 import { TiktokProductApiService } from '../../tiktok-sdk/tiktok-product-api.service';
 import {
   TIKTOK_IMAGE_USE_CASE,
@@ -300,6 +301,7 @@ export class PodListingPublisherService {
         skus: request.skus?.length ?? 0,
         skuSummary: summarizeSkus(request),
         images: request.mainImages?.length ?? 0,
+        descriptionImages: summarizeDescriptionImages(request.description ?? ''),
       },
     );
 
@@ -415,6 +417,7 @@ export class PodListingPublisherService {
         skus: request.skus?.length ?? 0,
         skuSummary: summarizeSkus(request),
         images: request.mainImages?.length ?? 0,
+        descriptionImages: summarizeDescriptionImages(request.description ?? ''),
       },
     );
 
@@ -582,13 +585,15 @@ export class PodListingPublisherService {
     payload: ResolvedListing,
     log: ListingLogger,
   ): Promise<ResolvedListing> {
-    const { html, stats } = await this.descriptionImages.normalize(
+    const { html, stats, images } = await this.descriptionImages.normalize(
       organizationId,
       ctx,
       payload.description,
-      { label: 'mô tả' },
+      { label: `mô tả · ${payload.title.slice(0, 60)}` },
     );
     if (stats.total > 0) {
+      // Từng ảnh: nguồn (STORAGE/EXTERNAL/TIKTOK/PRODUCT) → hành động → host kết quả. Không log URL
+      // đầy đủ: query string của TikTok mang khoá ký, và HTML đầy đủ không cần cho việc truy vết.
       await log(PodListingLogLevel.INFO, PodListingStep.UPLOAD_IMAGE, 'Đã chuẩn bị ảnh trong mô tả', {
         descriptionImageCount: stats.total,
         uploadedCount: stats.uploaded,
@@ -596,6 +601,17 @@ export class PodListingPublisherService {
         failedCount: stats.failed,
         finalDescriptionImageCount: stats.finalCount,
         useCase: 'DESCRIPTION_IMAGE',
+        images: images.map((image) => ({
+          index: image.index,
+          sourceType: image.sourceType,
+          sourceHost: image.sourceHost,
+          action: image.action,
+          normalized: image.action !== 'KEPT',
+          useCase: image.useCase,
+          resultHost: image.resultHost,
+          width: image.width,
+          height: image.height,
+        })),
       });
     }
     return html === payload.description ? payload : { ...payload, description: html };
@@ -1055,4 +1071,13 @@ function summarizeCurrencies(request: TiktokCreateProductRequest): string {
     (request.skus ?? []).map((sku) => sku.price?.currency ?? 'NONE'),
   );
   return codes.size === 0 ? 'NONE' : [...codes].join(',');
+}
+
+/**
+ * Ảnh trong mô tả CỦA REQUEST sắp gửi — số lượng + host, KHÔNG có URL đầy đủ. Đây là bằng chứng
+ * cuối cùng trước SDK: mọi host phải là host TikTok, không còn host Storage/CDN của ta.
+ */
+function summarizeDescriptionImages(description: string): { count: number; hosts: string[] } {
+  const refs = extractDescriptionImages(description);
+  return { count: refs.length, hosts: [...new Set(refs.map((ref) => hostnameOf(ref.src)))] };
 }

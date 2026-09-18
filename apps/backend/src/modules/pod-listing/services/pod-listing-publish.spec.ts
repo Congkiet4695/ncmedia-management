@@ -299,9 +299,15 @@ describe('PodListingPublisherService — ảnh trong mô tả', () => {
   };
 
   it('🔴 Create Draft: mô tả gửi đi là bản ĐÃ đổi src sang URL DESCRIPTION_IMAGE của TikTok', async () => {
+    // URL đúng dạng TikTok trả về — query có `&`.
+    const TT_URL =
+      'https://p16-oec-general-useast5.ttcdn-us.com/tos-useast5-i-omjb5zjo8w-tx/1~tplv-fhlh96nyum-origin-jpeg.jpeg?dr=12178&from=520841845&t=555f072d';
     const normalize = jest.fn().mockResolvedValue({
-      html: '<p>hi</p><img src="https://p16-oec.tiktokcdn.com/desc/1" width="1600" height="900">',
+      html: `<p>hi</p><img src="${TT_URL}" width="1600" height="900">`,
       stats: { total: 1, uploaded: 1, reused: 0, failed: 0, finalCount: 1 },
+      images: [
+        { index: 0, sourceType: 'STORAGE', sourceHost: 'cdn.ncmedia.test', action: 'UPLOADED', useCase: 'DESCRIPTION_IMAGE', resultHost: 'p16-oec-general-useast5.ttcdn-us.com', width: 1600, height: 900 },
+      ],
     });
     const { service, productApi, log } = buildWithNormalizer(normalize);
 
@@ -315,11 +321,12 @@ describe('PodListingPublisherService — ảnh trong mô tả', () => {
 
     expect(normalize).toHaveBeenCalledTimes(1);
     expect((normalize.mock.calls[0] as unknown[])[2]).toBe('<p>hi</p><img src="https://cdn.ncmedia.test/uploads/a.jpg">');
+    // 🔴 BOUNDARY SDK: đúng body đưa vào `productApi.createProduct` (→ ProductsPost).
     const request = (productApi.createProduct.mock.calls[0] as unknown[])[1] as { description: string };
-    expect(request.description).toBe(
-      '<p>hi</p><img src="https://p16-oec.tiktokcdn.com/desc/1" width="1600" height="900">',
-    );
+    expect(request.description).toBe(`<p>hi</p><img src="${TT_URL}" width="1600" height="900">`);
     expect(request.description).not.toContain('cdn.ncmedia.test');
+    expect(request.description).not.toContain('&amp;');
+    expect(request.description).not.toMatch(/src="(blob:|data:)/);
     // Log số liệu — không có token nào ở đây.
     const logged = (log.mock.calls as unknown[][]).find((call) => call[2] === 'Đã chuẩn bị ảnh trong mô tả');
     expect(logged?.[3]).toMatchObject({
@@ -329,6 +336,12 @@ describe('PodListingPublisherService — ảnh trong mô tả', () => {
       failedCount: 0,
       finalDescriptionImageCount: 1,
       useCase: 'DESCRIPTION_IMAGE',
+      images: [expect.objectContaining({ sourceType: 'STORAGE', action: 'UPLOADED', normalized: true })],
+    });
+    // Log ngay trước SDK: chỉ host, không URL đầy đủ, và host phải là TikTok.
+    const sent = (log.mock.calls as unknown[][]).find((call) => call[2] === 'Gửi Create Product (AS_DRAFT)');
+    expect(sent?.[3]).toMatchObject({
+      descriptionImages: { count: 1, hosts: ['p16-oec-general-useast5.ttcdn-us.com'] },
     });
   });
 

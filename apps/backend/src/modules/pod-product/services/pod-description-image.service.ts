@@ -9,6 +9,7 @@ import {
   classifyImageSource,
   extractDescriptionImages,
   findDescriptionImageProblems,
+  hostnameOf,
   rewriteDescriptionImages,
   type DescriptionImageProblem,
   type DescriptionImageRef,
@@ -48,9 +49,23 @@ export interface DescriptionImageStats {
   finalCount: number;
 }
 
+/** Một ảnh đã đi qua chuẩn hoá — dữ liệu để log, KHÔNG có URL đầy đủ (query của TikTok mang khoá ký). */
+export interface DescriptionImageTrace {
+  index: number;
+  /** STORAGE (file của ta) · EXTERNAL (URL ngoài) · TIKTOK (đã là ảnh mô tả TikTok) · PRODUCT (đang có trên sản phẩm). */
+  sourceType: 'STORAGE' | 'EXTERNAL' | 'TIKTOK' | 'PRODUCT';
+  sourceHost: string;
+  action: 'UPLOADED' | 'REUSED' | 'KEPT';
+  useCase: 'DESCRIPTION_IMAGE';
+  resultHost: string;
+  width: number | null;
+  height: number | null;
+}
+
 export interface NormalizeDescriptionResult {
   html: string;
   stats: DescriptionImageStats;
+  images: DescriptionImageTrace[];
 }
 
 /**
@@ -113,7 +128,7 @@ export class PodDescriptionImageService {
       failed: 0,
       finalCount: 0,
     };
-    if (refs.length === 0) return { html, stats };
+    if (refs.length === 0) return { html, stats, images: [] };
 
     // Lỗi hình thức (data:/blob:/rỗng) chặn ngay — không có gì để tải lên.
     const unsendable = findDescriptionImageProblems(html, () => true);
@@ -134,7 +149,18 @@ export class PodDescriptionImageService {
     );
 
     const resolvedBySrc = new Map<string, ResolvedDescriptionImage>();
+    const traceBySrc = new Map<string, Omit<DescriptionImageTrace, 'index'>>();
     const failures: DescriptionImageProblem[] = [];
+
+    this.logger.log({
+      module: 'pod-product',
+      operation: 'description-image.normalize',
+      organizationId,
+      shopId: ctx.shopId,
+      label: options.label ?? null,
+      imageCount: refs.length,
+      msg: 'Chuẩn hoá ảnh trong mô tả (DESCRIPTION_IMAGE)',
+    });
 
     await Promise.all(
       [...new Set(refs.map((ref) => ref.src))].map(async (src) => {
@@ -142,11 +168,13 @@ export class PodDescriptionImageService {
         if (own) {
           resolvedBySrc.set(src, own);
           stats.reused += 1;
+          traceBySrc.set(src, this.trace('TIKTOK', src, 'REUSED', own));
           return;
         }
         if (known.has(src)) {
           // Đã nằm trên sản phẩm TikTok — không có kích thước thật để bổ sung, giữ nguyên thẻ.
           stats.reused += 1;
+          traceBySrc.set(src, this.trace('PRODUCT', src, 'KEPT', { url: src, width: null, height: null }));
           return;
         }
         try {
@@ -154,6 +182,10 @@ export class PodDescriptionImageService {
           resolvedBySrc.set(src, outcome.image);
           if (outcome.uploaded) stats.uploaded += 1;
           else stats.reused += 1;
+          traceBySrc.set(
+            src,
+            this.trace(outcome.sourceType, src, outcome.uploaded ? 'UPLOADED' : 'REUSED', outcome.image),
+          );
         } catch (error) {
           stats.failed += 1;
           const index = refs.find((ref) => ref.src === src)?.index ?? 0;
@@ -182,17 +214,63 @@ export class PodDescriptionImageService {
     const normalized = rewriteDescriptionImages(html, (ref) => resolvedBySrc.get(ref.src) ?? null);
     stats.finalCount = extractDescriptionImages(normalized).length;
 
-    // Hàng rào cuối: sau chuẩn hoá, KHÔNG còn `<img>` nào ngoài tập đã biết. Đây là điều kiện
-    // TikTok đặt ra, kiểm ở đây thay vì để sàn từ chối sau khi đã upload bộ ảnh sản phẩm.
-    const leftover = findDescriptionImageProblems(
-      normalized,
-      (ref) => known.has(ref.src) || [...resolvedBySrc.values()].some((item) => item.url === ref.src),
-    );
+    // 🔴 Hàng rào cuối: sau chuẩn hoá, KHÔNG còn `<img>` nào ngoài tập đã biết (URL TikTok vừa
+    // resolve, hoặc ảnh đang có trên sản phẩm). So sánh trên giá trị ĐÃ decode entity — URL
+    // TikTok có `&` trong query; bản trước encode thành `&amp;` rồi đọc lại không decode nên
+    // tự kết luận "chưa upload" dù TikTok đã trả URL. Đây là điều kiện TikTok đặt ra, kiểm ở
+    // đây thay vì để sàn từ chối sau khi đã upload bộ ảnh sản phẩm.
+    const accepted = new Set([...known, ...[...resolvedBySrc.values()].map((item) => item.url)]);
+    const leftover = findDescriptionImageProblems(normalized, (ref) => accepted.has(ref.src));
     if (leftover.length > 0) {
+      this.logger.error({
+        module: 'pod-product',
+        operation: 'description-image.normalize.leftover',
+        organizationId,
+        shopId: ctx.shopId,
+        leftover: leftover.map((problem) => ({ index: problem.index, reason: problem.reason, host: hostnameOf(problem.src) })),
+        msg: 'Còn ảnh mô tả không thuộc tập đã upload — không gửi sản phẩm',
+      });
       throw new PodDescriptionImageException(DESCRIPTION_IMAGE_NOT_UPLOADED_MESSAGE, leftover);
     }
 
-    return { html: normalized, stats };
+    const images = refs.map((ref) => ({ index: ref.index, ...(traceBySrc.get(ref.src) as Omit<DescriptionImageTrace, 'index'>) }));
+    this.logger.log({
+      module: 'pod-product',
+      operation: 'description-image.normalize.done',
+      organizationId,
+      shopId: ctx.shopId,
+      ...stats,
+      images: images.map((image) => ({
+        index: image.index,
+        sourceType: image.sourceType,
+        sourceHost: image.sourceHost,
+        action: image.action,
+        useCase: image.useCase,
+        resultHost: image.resultHost,
+        width: image.width,
+        height: image.height,
+      })),
+      msg: 'Ảnh trong mô tả đã sẵn sàng gửi TikTok',
+    });
+
+    return { html: normalized, stats, images };
+  }
+
+  private trace(
+    sourceType: DescriptionImageTrace['sourceType'],
+    src: string,
+    action: DescriptionImageTrace['action'],
+    image: ResolvedDescriptionImage,
+  ): Omit<DescriptionImageTrace, 'index'> {
+    return {
+      sourceType,
+      sourceHost: hostnameOf(src),
+      action,
+      useCase: 'DESCRIPTION_IMAGE',
+      resultHost: hostnameOf(image.url),
+      width: image.width,
+      height: image.height,
+    };
   }
 
   /**
@@ -230,8 +308,9 @@ export class PodDescriptionImageService {
     ctx: TiktokShopContext,
     src: string,
     label?: string,
-  ): Promise<{ image: ResolvedDescriptionImage; uploaded: boolean }> {
+  ): Promise<{ image: ResolvedDescriptionImage; uploaded: boolean; sourceType: 'STORAGE' | 'EXTERNAL' }> {
     const source = await this.identifySource(organizationId, src);
+    const sourceType = source.fileId ? 'STORAGE' : 'EXTERNAL';
 
     const cached = await this.prisma.podTiktokDescriptionImage.findFirst({
       where: {
@@ -244,18 +323,22 @@ export class PodDescriptionImageService {
       select: { tiktokUrl: true, width: true, height: true },
     });
     if (cached) {
-      return { image: { url: cached.tiktokUrl, width: cached.width, height: cached.height }, uploaded: false };
+      return {
+        image: { url: cached.tiktokUrl, width: cached.width, height: cached.height },
+        uploaded: false,
+        sourceType,
+      };
     }
 
     const inflightKey = `${organizationId}:${source.sourceKey}`;
     const pending = this.inflight.get(inflightKey);
-    if (pending) return { image: await pending, uploaded: false };
+    if (pending) return { image: await pending, uploaded: false, sourceType };
 
     const promise = this.upload(organizationId, ctx, src, source, label).finally(() =>
       this.inflight.delete(inflightKey),
     );
     this.inflight.set(inflightKey, promise);
-    return { image: await promise, uploaded: true };
+    return { image: await promise, uploaded: true, sourceType };
   }
 
   /**
@@ -303,6 +386,19 @@ export class PodDescriptionImageService {
     if (!data.uri || !data.url) {
       throw new Error('TikTok không trả về uri/url cho ảnh mô tả');
     }
+    this.logger.log({
+      module: 'pod-product',
+      operation: 'description-image.upload',
+      organizationId,
+      shopId: ctx.shopId,
+      sourceType: source.fileId ? 'STORAGE' : 'EXTERNAL',
+      sourceHost: hostnameOf(src),
+      useCase: TIKTOK_IMAGE_USE_CASE.DESCRIPTION_IMAGE,
+      resultHost: hostnameOf(data.url),
+      width: data.width ?? null,
+      height: data.height ?? null,
+      msg: 'Đã upload ảnh mô tả lên TikTok',
+    });
 
     const row = await this.prisma.podTiktokDescriptionImage.upsert({
       where: { organizationId_sourceKey: { organizationId, sourceKey: source.sourceKey } },

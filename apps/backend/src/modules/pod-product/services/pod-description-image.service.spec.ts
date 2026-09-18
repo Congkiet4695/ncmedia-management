@@ -24,6 +24,9 @@ import {
 
 const CTX = { accessToken: 'secret', shopCipher: 'c', shopId: 'shop-1', organizationId: 'org-1' };
 const CDN = 'https://cdn.ncmedia.test/uploads';
+/** Đúng dạng URL TikTok trả về (thấy trong `pod_product_images.url`): query string có nhiều `&`. */
+const TT = (n: number) =>
+  `https://p16-oec-general-useast5.ttcdn-us.com/tos-useast5-i-omjb5zjo8w-tx/${n}~tplv-fhlh96nyum-origin-jpeg.jpeg?dr=12178&from=520841845&idc=useast5&ps=933b5bde&t=555f072d`;
 
 describe('description-images (thuần)', () => {
   it('tìm mọi <img> theo thứ tự, đọc src/width/height, chịu được thẻ tự đóng và nháy đơn', () => {
@@ -76,6 +79,15 @@ describe('description-images (thuần)', () => {
       [2, 'EMPTY'],
       [3, 'BLOB_URL'],
     ]);
+  });
+
+  it('🔴 đọc thuộc tính decode entity (&amp; ⇒ &); ghi src nguyên văn, thuộc tính khác giữ NGUYÊN VĂN', () => {
+    const html = `<img src="${CDN}/a.jpg?x=1&amp;y=2" alt="Tom &amp; Jerry" style="max-width:100%">`;
+    expect(extractDescriptionImages(html)[0].src).toBe(`${CDN}/a.jpg?x=1&y=2`);
+    const out = rewriteDescriptionImages(html, () => ({ url: TT(7), width: 10, height: 20 }));
+    expect(out).toBe(`<img src="${TT(7)}" alt="Tom &amp; Jerry" style="max-width:100%" width="10" height="20">`);
+    // Đọc lại chính đầu ra ⇒ đúng URL TikTok (vòng lặp mà hàng rào cuối thực hiện).
+    expect(extractDescriptionImages(out)[0].src).toBe(TT(7));
   });
 
   it('knownDescriptionImageUrls: ảnh http(s) đang có trên mô tả TikTok của sản phẩm', () => {
@@ -144,7 +156,7 @@ function buildService(options: {
       return {
         data: {
           uri: `tos-uri-${counter}`,
-          url: `https://p16-oec.tiktokcdn.com/desc/${counter}~tplv.jpeg`,
+          url: TT(counter),
           width: 1600,
           height: 900,
           useCase,
@@ -176,9 +188,9 @@ describe('PodDescriptionImageService.normalize', () => {
 
     expect(productApi.uploadImage).toHaveBeenCalledTimes(1);
     expect(productApi.uploadImage.mock.calls[0][2]).toBe('DESCRIPTION_IMAGE');
-    expect(result.html).toBe(
-      '<p>x</p><img src="https://p16-oec.tiktokcdn.com/desc/1~tplv.jpeg" alt="a" width="1600" height="900">',
-    );
+    // 🔴 src ghi ĐÚNG NGUYÊN VĂN URL TikTok — `&` không bị đổi thành `&amp;`.
+    expect(result.html).toBe(`<p>x</p><img src="${TT(1)}" alt="a" width="1600" height="900">`);
+    expect(result.html).not.toContain('&amp;');
     expect(result.stats).toEqual({ total: 1, uploaded: 1, reused: 0, failed: 0, finalCount: 1 });
     const create = prisma.podTiktokDescriptionImage.upsert.mock.calls[0][0].create;
     expect(create).toMatchObject({
@@ -187,7 +199,7 @@ describe('PodDescriptionImageService.normalize', () => {
       fileId: 'file-a',
       checksum: 'sha-a',
       tiktokUri: 'tos-uri-1',
-      tiktokUrl: 'https://p16-oec.tiktokcdn.com/desc/1~tplv.jpeg',
+      tiktokUrl: TT(1),
       width: 1600,
       height: 900,
     });
@@ -205,7 +217,7 @@ describe('PodDescriptionImageService.normalize', () => {
     expect(productApi.uploadImage.mock.calls.every((call) => call[2] === 'DESCRIPTION_IMAGE')).toBe(true);
     const srcs = extractDescriptionImages(result.html).map((ref) => ref.src);
     expect(new Set(srcs).size).toBe(3);
-    expect(srcs.every((src) => src.startsWith('https://p16-oec.tiktokcdn.com/desc/'))).toBe(true);
+    expect(srcs.every((src) => src.startsWith('https://p16-oec-general-useast5.ttcdn-us.com/'))).toBe(true);
     expect(result.html).not.toContain(CDN);
     expect(result.stats).toMatchObject({ total: 3, uploaded: 3, reused: 0, finalCount: 3 });
   });
@@ -274,10 +286,48 @@ describe('PodDescriptionImageService.normalize', () => {
       expect(productApi.uploadImage).toHaveBeenCalledTimes(1);
       expect(productApi.uploadImage.mock.calls[0][2]).toBe('DESCRIPTION_IMAGE');
       expect(prisma.podTiktokDescriptionImage.upsert.mock.calls[0][0].create.sourceKey).toMatch(/^url:[0-9a-f]{64}$/);
-      expect(result.html).toContain('src="https://p16-oec.tiktokcdn.com/desc/1~tplv.jpeg"');
+      expect(result.html).toContain(`src="${TT(1)}"`);
     } finally {
       fetchSpy.mockRestore();
     }
+  });
+
+  it('🔴 LỖI THẬT: URL TikTok có & trong query ⇒ hàng rào cuối KHÔNG được tự kết luận "chưa upload"', async () => {
+    // Bản trước: rewrite ghi `&amp;`, đọc lại không decode ⇒ NOT_UPLOADED sau khi upload xong ⇒
+    // listing FAILED với "Mô tả sản phẩm chứa ảnh chưa được upload lên TikTok Shop".
+    const { service, productApi } = buildService({
+      storageFiles: [{ id: 'f1', publicUrl: `${CDN}/f1.jpg`, checksum: 'c1' }],
+    });
+    const result = await service.normalize('org-1', CTX, `<p>a</p><img src="${CDN}/f1.jpg">`);
+    expect(productApi.uploadImage).toHaveBeenCalledTimes(1);
+    expect(extractDescriptionImages(result.html)[0].src).toBe(TT(1));
+    expect(result.stats).toMatchObject({ total: 1, uploaded: 1, failed: 0, finalCount: 1 });
+    expect(result.images[0]).toMatchObject({ sourceType: 'STORAGE', action: 'UPLOADED', useCase: 'DESCRIPTION_IMAGE' });
+  });
+
+  it('HTML từ trình duyệt mang &amp; trong src (innerHTML) ⇒ decode trước khi tra Storage/mapping', async () => {
+    const storageUrl = `${CDN}/f1.jpg?v=1&sig=abc`;
+    const { service, productApi } = buildService({
+      storageFiles: [{ id: 'f1', publicUrl: storageUrl, checksum: 'c1' }],
+    });
+    const result = await service.normalize('org-1', CTX, `<img src="${storageUrl.replace(/&/g, '&amp;')}">`);
+    expect(productApi.uploadImage).toHaveBeenCalledTimes(1);
+    expect(extractDescriptionImages(result.html)[0].src).toBe(TT(1));
+  });
+
+  it('Test 13 — RETRY sau khi upload đã thành công ⇒ reuse mapping, không upload lại, vẫn ra URL TikTok', async () => {
+    const { service, productApi } = buildService({
+      storageFiles: [{ id: 'f1', publicUrl: `${CDN}/f1.jpg`, checksum: 'c1' }],
+    });
+    const first = await service.normalize('org-1', CTX, `<img src="${CDN}/f1.jpg">`);
+    const second = await service.normalize('org-1', CTX, `<img src="${CDN}/f1.jpg">`);
+    expect(productApi.uploadImage).toHaveBeenCalledTimes(1);
+    expect(second.html).toBe(first.html);
+    expect(second.stats).toMatchObject({ uploaded: 0, reused: 1 });
+    // Lần ba: HTML đã mang URL TikTok (vd payload đã chuẩn hoá) ⇒ nhận ra bằng bảng mapping.
+    const third = await service.normalize('org-1', CTX, first.html);
+    expect(productApi.uploadImage).toHaveBeenCalledTimes(1);
+    expect(third.images[0].sourceType).toBe('TIKTOK');
   });
 
   it('🔴 Test 12 — upload hỏng ⇒ ném lỗi thân thiện, KHÔNG trả HTML để nơi gọi gửi đi', async () => {
