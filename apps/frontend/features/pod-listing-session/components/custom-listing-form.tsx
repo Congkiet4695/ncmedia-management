@@ -1009,7 +1009,12 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
           </div>
         )}
 
-        <SkuEditor skus={form.skus} onChange={(skus) => patch({ skus })} currency={currency} />
+        <SkuEditor
+          skus={form.skus}
+          onChange={(skus) => patch({ skus })}
+          currency={currency}
+          variations={form.variations}
+        />
       </Section>
 
       {/* ---------- Kết quả kiểm tra ---------- */}

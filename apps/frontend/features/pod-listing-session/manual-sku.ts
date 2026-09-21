@@ -1,4 +1,4 @@
-import type { ManualSku, ManualVariation } from './types';
+import type { ManualSku, ManualVariation, ManualVariationImage } from './types';
 
 /**
  * Nguồn dữ liệu cho một dòng SKU MỚI SINH — thường là SKU Template đang áp.
@@ -40,11 +40,44 @@ export function buildSkuCombinations(
 
   const byKey = new Map(previous.map((sku) => [combinationKey(sku.optionValues), sku]));
 
-  return cartesian(axes).map((optionValues) => {
+  const rows = cartesian(axes).map((optionValues) => {
     const existing = byKey.get(combinationKey(optionValues));
     if (existing) return { ...existing, optionValues };
     return newSku(optionValues, options);
   });
+  return deriveVariantImages(rows, axes);
+}
+
+/**
+ * Ảnh của TỪNG dòng SKU = ảnh mặc định của giá trị thuộc **trục đầu tiên** trong tổ hợp đó.
+ *
+ * ```
+ *   Color: Black → black.jpg · White → white.jpg      Size: S, M
+ *   Black/S → black.jpg · Black/M → black.jpg · White/S → white.jpg · White/M → white.jpg
+ * ```
+ *
+ * 🔴 Đây là NGUỒN SỰ THẬT DUY NHẤT của ảnh dòng trong Custom Listing: `variations[0].images`.
+ * Dòng KHÔNG giữ ảnh riêng — nhờ vậy xoá Color thì Size lên đầu và ảnh của Color biến mất
+ * khỏi mọi dòng (Size không có ảnh ⇒ dòng không có ảnh), không có mapping mồ côi nào lọt
+ * vào payload. Backend (`applyManualOverride`) kế thừa lại bằng đúng luật này nên hai bên
+ * không bao giờ lệch.
+ *
+ * Không đổi gì ⇒ trả về CHÍNH mảng cũ (reconcile dùng để biết "có gì đổi không").
+ */
+export function deriveVariantImages(rows: ManualSku[], variations: ManualVariation[]): ManualSku[] {
+  const first = normalizeVariations(variations)[0];
+  const byValue = new Map((first?.images ?? []).map((image) => [image.value, image.fileId]));
+  let changed = false;
+  const next = rows.map((sku) => {
+    const option = first ? sku.optionValues.find((entry) => entry.name.trim() === first.name) : undefined;
+    const fileId = option ? byValue.get(option.value.trim()) : undefined;
+    if ((sku.imageFileId ?? undefined) === fileId) return sku;
+    changed = true;
+    const rest: ManualSku = { ...sku };
+    delete rest.imageFileId;
+    return fileId ? { ...rest, imageFileId: fileId } : rest;
+  });
+  return changed ? next : rows;
 }
 
 /**
@@ -223,7 +256,11 @@ export function reconcileSkus(
     normalized.push(sameOrder ? sku : { ...sku, optionValues: sorted });
   }
 
-  return changed ? normalized : skus;
+  // 7. Ảnh dòng theo ảnh giá trị của trục đầu HIỆN TẠI — trục đầu đổi thì ảnh cũ không theo.
+  const withImages = deriveVariantImages(normalized, nextAxes);
+  if (withImages !== normalized) changed = true;
+
+  return changed ? withImages : skus;
 }
 
 /**
@@ -243,9 +280,28 @@ export function normalizeVariations(variations: ManualVariation[]): ManualVariat
         seen.add(value);
         values.push(value);
       }
-      return { name: variation.name.trim(), values };
+      // Ảnh chỉ giữ cho giá trị CÒN trên trục — xoá giá trị là ảnh của nó cũng đi.
+      const images = pruneVariationImages(variation.images, values);
+      return { name: variation.name.trim(), values, ...(images ? { images } : {}) };
     })
     .filter((variation) => variation.name !== '' && variation.values.length > 0);
+}
+
+/** Ảnh của những giá trị còn tồn tại; `undefined` khi không còn ảnh nào. */
+export function pruneVariationImages(
+  images: ManualVariationImage[] | undefined,
+  values: string[],
+): ManualVariationImage[] | undefined {
+  if (!images || images.length === 0) return undefined;
+  const allowed = new Set(values.map((value) => value.trim()));
+  const seen = new Set<string>();
+  const kept = images.filter((image) => {
+    const value = image.value.trim();
+    if (!image.fileId || !allowed.has(value) || seen.has(value)) return false;
+    seen.add(value);
+    return true;
+  });
+  return kept.length > 0 ? kept : undefined;
 }
 
 /** Khoá tổ hợp — độc lập với thứ tự trục để đổi thứ tự không làm mất dữ liệu đã gõ. */
@@ -304,7 +360,6 @@ function newSku(optionValues: ManualSku['optionValues'], options: SkuBuildOption
     salePrice: seeded?.salePrice ?? '',
     retailPrice: seeded?.retailPrice ?? '',
     quantity: seeded?.quantity ?? 0,
-    ...(seeded?.imageFileId ? { imageFileId: seeded.imageFileId } : {}),
     ...(seeded?.barcode ? { barcode: seeded.barcode } : {}),
   };
 }

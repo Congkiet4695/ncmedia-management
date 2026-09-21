@@ -17,7 +17,8 @@ import { usePodTemplate, useSavePodTemplate } from '../hooks/use-pod-listing';
 import { podListingService } from '../services/pod-listing.service';
 import { POD_MARKET_CURRENCIES } from '../types';
 import type { PodSkuTemplate } from '../types';
-import { SkuAxisEditor, type AxisDraft } from './sku-axis-editor';
+import { DEFAULT_FIRST_AXIS_NAME, SkuAxisEditor, type AxisDraft } from './sku-axis-editor';
+import type { VariationImageMap } from './variation-images-dialog';
 import { SkuGrid } from './sku-grid';
 
 interface SkuTemplateDialogProps {
@@ -50,7 +51,8 @@ export function SkuTemplateDialog({ open, template, onClose }: SkuTemplateDialog
   const current = templateId ? (detail.data ?? null) : null;
 
   const [name, setName] = useState('');
-  const [axes, setAxes] = useState<AxisDraft[]>([{ name: '', values: [] }]);
+  // Tạo mới: điền sẵn trục "Color" — chỉ là gợi ý, xoá/đổi tên đều được và không đi vào luật sinh SKU.
+  const [axes, setAxes] = useState<AxisDraft[]>([{ name: DEFAULT_FIRST_AXIS_NAME, values: [] }]);
   const [skuPrefix, setSkuPrefix] = useState('');
   const [skuSuffix, setSkuSuffix] = useState('');
   const [defaults, setDefaults] = useState({
@@ -73,8 +75,17 @@ export function SkuTemplateDialog({ open, template, onClose }: SkuTemplateDialog
         ? template.variants.map((variant) => ({
             name: variant.name,
             values: variant.values.map((value) => value.value),
+            // Ảnh mặc định theo giá trị (server trả kèm `image.publicUrl`) — mở lại thấy đúng ảnh đã lưu.
+            images: Object.fromEntries(
+              variant.values
+                .filter((value) => value.imageFileId)
+                .map((value) => [
+                  value.value,
+                  { fileId: value.imageFileId as string, url: value.image?.publicUrl ?? null },
+                ]),
+            ) as VariationImageMap,
           }))
-        : [{ name: '', values: [] }],
+        : [{ name: DEFAULT_FIRST_AXIS_NAME, values: [] }],
     );
     setSkuPrefix(template?.skuPrefix ?? '');
     setSkuSuffix(template?.skuSuffix ?? '');
@@ -97,7 +108,12 @@ export function SkuTemplateDialog({ open, template, onClose }: SkuTemplateDialog
         .map((axis, index) => ({
           name: axis.name.trim(),
           sortOrder: index,
-          values: axis.values.map((value, valueIndex) => ({ value, sortOrder: valueIndex })),
+          values: axis.values.map((value, valueIndex) => ({
+            value,
+            sortOrder: valueIndex,
+            // Ảnh chỉ gửi cho trục ĐẦU — server cũng bỏ ảnh của trục sau, gửi lên chỉ gây hiểu nhầm.
+            imageFileId: index === 0 ? (axis.images?.[value]?.fileId ?? null) : null,
+          })),
         }))
         .filter((axis) => axis.name && axis.values.length > 0),
     [axes],

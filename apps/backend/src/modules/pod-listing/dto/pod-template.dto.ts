@@ -17,6 +17,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import {
@@ -340,6 +341,17 @@ export class SkuTemplateVariantValueDto {
   @IsInt()
   @Min(0)
   sortOrder?: number;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Ảnh mặc định của giá trị (file trong Storage Module). Chỉ có nghĩa với trục ĐẦU TIÊN — ' +
+      'TikTok chỉ gắn `sku_img` vào sales attribute đầu. `null` / bỏ trống = không có ảnh.',
+  })
+  @IsOptional()
+  @ValidateIf((_, value) => value !== null)
+  @IsUUID()
+  imageFileId?: string | null;
 }
 
 /** MỘT trục biến thể. Số trục KHÔNG giới hạn ở Color/Size — người dùng tự đặt tên. */

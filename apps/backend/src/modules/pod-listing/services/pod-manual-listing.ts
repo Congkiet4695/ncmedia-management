@@ -105,6 +105,18 @@ export interface ManualPackage {
 export interface ManualVariation {
   name: string;
   values: string[];
+  /**
+   * Ảnh mặc định theo GIÁ TRỊ — chỉ có nghĩa ở trục ĐẦU TIÊN (TikTok: `sku_img` gắn vào sales
+   * attribute đầu). Tổ hợp chứa giá trị đó kế thừa ảnh khi dòng SKU không có `imageFileId` riêng.
+   * `url` chỉ để hiển thị lại trên form; thứ gửi TikTok là `fileId` (Storage) sau khi upload.
+   */
+  images?: ManualVariationImage[];
+}
+
+export interface ManualVariationImage {
+  value: string;
+  fileId: string;
+  url?: string | null;
 }
 
 export interface ManualSku {
@@ -215,10 +227,26 @@ export function parseManualOverride(value: Prisma.JsonValue | null): ManualListi
   if (Array.isArray(value.variations)) {
     const variations = value.variations
       .filter(isJsonObject)
-      .map((raw) => ({
-        name: asString(raw.name) ?? '',
-        values: Array.isArray(raw.values) ? raw.values.map(asString).filter(isNonEmpty) : [],
-      }))
+      .map((raw) => {
+        const values = Array.isArray(raw.values) ? raw.values.map(asString).filter(isNonEmpty) : [];
+        const allowed = new Set(values);
+        // Ảnh chỉ giữ cho giá trị CÒN trên trục — giá trị đã xoá thì ảnh của nó không đi theo.
+        const images = Array.isArray(raw.images)
+          ? raw.images
+              .filter(isJsonObject)
+              .map((entry) => ({
+                value: asString(entry.value) ?? '',
+                fileId: asString(entry.fileId) ?? '',
+                url: asString(entry.url),
+              }))
+              .filter((entry) => entry.value !== '' && entry.fileId !== '' && allowed.has(entry.value))
+          : [];
+        return {
+          name: asString(raw.name) ?? '',
+          values,
+          ...(images.length > 0 ? { images } : {}),
+        };
+      })
       .filter((variation) => variation.name !== '' && variation.values.length > 0);
     if (variations.length > 0) result.variations = variations;
   }
@@ -385,7 +413,7 @@ export function applyManualOverride(
     // Bảng SKU nhập tay thay TOÀN BỘ biến thể của template ⇒ mọi lỗi biến thể/giá của
     // template không còn nói về dữ liệu đang dùng nữa.
     dropIssues(issues, POD_DRAFT_ISSUE_CODES.MISSING_VARIANT, POD_DRAFT_ISSUE_CODES.MISSING_PRICE);
-    next.variants = buildManualVariants(override.skus, payload, issues);
+    next.variants = buildManualVariants(override.skus, payload, issues, override.variations);
   }
 
   return next;
@@ -406,7 +434,19 @@ function buildManualVariants(
   skus: ManualSku[],
   payload: ResolvedListing,
   issues: ResolveIssue[],
+  variations: ManualVariation[] = [],
 ): ResolvedVariant[] {
+  // Ảnh mặc định của trục ĐẦU TIÊN (theo thứ tự trục đã lưu) — dòng không có ảnh riêng kế thừa.
+  // Trục đầu xác định theo vị trí, không theo tên: "Color" chỉ là mặc định gợi ý trên form.
+  const firstAxis = variations[0];
+  const firstAxisImages = new Map(
+    (firstAxis?.images ?? []).map((image) => [image.value, image.fileId] as const),
+  );
+  const inheritedImage = (optionValues: ManualSku['optionValues']): string | null => {
+    if (!firstAxis) return null;
+    const option = optionValues.find((entry) => entry.name === firstAxis.name);
+    return option ? (firstAxisImages.get(option.value) ?? null) : null;
+  };
   if (skus.length === 0) {
     issues.push({
       level: 'ERROR',
@@ -451,7 +491,7 @@ function buildManualVariants(
       currency,
       // Không điền số lượng ⇒ 0. TikTok nhận 0 (hàng hết), nên đây không phải lỗi chặn.
       quantity: sku.quantity ?? 0,
-      imageFileId: sku.imageFileId ?? null,
+      imageFileId: sku.imageFileId ?? inheritedImage(sku.optionValues),
       sortOrder: index,
     } satisfies ResolvedVariant;
   });

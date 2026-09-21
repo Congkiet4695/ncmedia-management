@@ -202,6 +202,18 @@ export interface ManualSkuOption {
 export interface ManualVariation {
   name: string;
   values: string[];
+  /**
+   * Ảnh mặc định theo GIÁ TRỊ — chỉ có nghĩa ở trục ĐẦU TIÊN (TikTok gắn `sku_img` vào sales
+   * attribute đầu). Dòng SKU kế thừa ảnh của giá trị trục đầu (`deriveVariantImages`); backend
+   * cũng kế thừa lại lần nữa khi dựng payload. `url` chỉ để hiển thị.
+   */
+  images?: ManualVariationImage[];
+}
+
+export interface ManualVariationImage {
+  value: string;
+  fileId: string;
+  url?: string | null;
 }
 
 /**

@@ -70,7 +70,7 @@ interface Paging {
 interface NormalizedVariant {
   name: string;
   sortOrder: number;
-  values: Array<{ value: string; code: string; sortOrder: number }>;
+  values: Array<{ value: string; code: string; sortOrder: number; imageFileId: string | null }>;
 }
 
 /**
@@ -124,11 +124,22 @@ export const CATEGORY_TEMPLATE_INCLUDE = {
   },
 } satisfies Prisma.PodCategoryTemplateInclude;
 
-export const SKU_TEMPLATE_INCLUDE = {
-  variants: {
-    orderBy: { sortOrder: 'asc' },
-    include: { values: { orderBy: { sortOrder: 'asc' } } },
+/**
+ * Giá trị trục kèm ảnh mặc định (Storage) — dùng chung cho bản chi tiết, bản danh sách và
+ * Listing Template, để mọi nơi đọc trục đều thấy ảnh của giá trị.
+ */
+export const SKU_TEMPLATE_VARIANT_INCLUDE = {
+  orderBy: { sortOrder: 'asc' },
+  include: {
+    values: {
+      orderBy: { sortOrder: 'asc' },
+      include: { image: { select: { id: true, publicUrl: true, originalName: true } } },
+    },
   },
+} satisfies Prisma.PodSkuTemplate$variantsArgs;
+
+export const SKU_TEMPLATE_INCLUDE = {
+  variants: SKU_TEMPLATE_VARIANT_INCLUDE,
   items: {
     orderBy: { sortOrder: 'asc' },
     include: {
@@ -141,6 +152,9 @@ export const SKU_TEMPLATE_INCLUDE = {
               value: true,
               // `code` để Bulk Update dựng lại mã SKU theo tiền tố mà không phải đoán.
               code: true,
+              // Ảnh mặc định của giá trị: resolver kế thừa cho tổ hợp (trục đầu) khi tổ hợp
+              // không có ảnh riêng.
+              imageFileId: true,
               variant: { select: { id: true, name: true, sortOrder: true } },
             },
           },
@@ -366,10 +380,7 @@ export class PodTemplateService {
       this.prisma.podSkuTemplate.findMany({
         where,
         include: {
-          variants: {
-            orderBy: { sortOrder: 'asc' },
-            include: { values: { orderBy: { sortOrder: 'asc' } } },
-          },
+          variants: SKU_TEMPLATE_VARIANT_INCLUDE,
           _count: { select: { items: true, listingTemplates: true } },
         },
         orderBy: this.orderBy(paging),
@@ -485,6 +496,7 @@ export class PodTemplateService {
   async createSkuTemplate(organizationId: string, userId: string, dto: CreateSkuTemplateDto) {
     const variants = this.normalizeVariants(dto.variants);
     this.assertCombinationCount(variants);
+    await this.assertFilesBelongToOrg(organizationId, this.valueImageFileIds(variants));
 
     return this.prisma.$transaction(async (tx) => {
       if (dto.isDefault) await this.clearDefault(tx, 'podSkuTemplate', organizationId);
@@ -533,6 +545,7 @@ export class PodTemplateService {
     const existing = await this.getSkuTemplate(organizationId, id);
     const variants = this.normalizeVariants(dto.variants);
     this.assertCombinationCount(variants);
+    await this.assertFilesBelongToOrg(organizationId, this.valueImageFileIds(variants));
     const axesChanged = !this.sameAxes(existing.variants, variants);
 
     return this.prisma.$transaction(async (tx) => {
@@ -563,6 +576,10 @@ export class PodTemplateService {
         // đụng — dòng cũ vẫn còn nguyên giá/tồn, chỉ mất liên kết trục cho tới lần tạo lại.
         await tx.podSkuTemplateVariant.deleteMany({ where: { skuTemplateId: id } });
         await this.writeAxes(tx, organizationId, id, variants);
+      } else {
+        // Trục không đổi nhưng ẢNH của giá trị có thể đổi — cập nhật tại chỗ, không dời mốc
+        // `axesUpdatedAt`: đổi ảnh không làm bảng SKU "cũ" (tổ hợp kế thừa ảnh lúc dựng listing).
+        await this.syncValueImages(tx, existing.variants, variants);
       }
 
       return this.getSkuTemplate(organizationId, id, tx);
@@ -636,6 +653,8 @@ export class PodTemplateService {
           value: value.value,
           code: value.code ?? undefined,
           sortOrder: value.sortOrder,
+          // Ảnh mặc định của giá trị theo sang bản sao — cùng tổ chức, cùng file Storage.
+          imageFileId: value.imageFileId ?? null,
         })),
       })),
       skuPrefix: source.skuPrefix ?? undefined,
@@ -1152,6 +1171,9 @@ export class PodTemplateService {
           value,
           code: (entry.code?.trim() || this.shortCode(value)).toUpperCase(),
           sortOrder: entry.sortOrder ?? valueIndex,
+          // 🔴 Chỉ trục ĐẦU TIÊN mang ảnh (TikTok: `sku_img` gắn vào sales attribute đầu). Ảnh
+          // gửi cho trục sau bị bỏ — không lưu một thứ không bao giờ được dùng.
+          imageFileId: index === 0 ? (entry.imageFileId ?? null) : null,
         });
       });
 
@@ -1229,6 +1251,7 @@ export class PodTemplateService {
           value: entry.value,
           code: entry.code,
           sortOrder: entry.sortOrder,
+          imageFileId: entry.imageFileId,
         })),
       });
     }
@@ -1299,6 +1322,46 @@ export class PodTemplateService {
   }
 
   /** Bộ trục có thật sự đổi không — so tên trục, thứ tự và toàn bộ giá trị. */
+  /** Mọi file ảnh khai trên giá trị trục — để kiểm "thuộc tổ chức này" một lần. */
+  private valueImageFileIds(variants: NormalizedVariant[]): string[] {
+    return variants.flatMap((variant) =>
+      variant.values
+        .map((value) => value.imageFileId)
+        .filter((fileId): fileId is string => Boolean(fileId)),
+    );
+  }
+
+  /**
+   * Cập nhật ảnh của từng giá trị TẠI CHỖ khi trục không đổi.
+   *
+   * Khớp theo (tên trục, giá trị) không phân biệt hoa thường — đúng khoá `sameAxes` đã dùng để
+   * kết luận "trục không đổi". Ảnh đổi ⇒ xoá cache `tiktokImageUri` (uri thuộc về file cũ).
+   */
+  private async syncValueImages(
+    tx: Prisma.TransactionClient,
+    current: Array<{
+      name: string;
+      values: Array<{ id: string; value: string; imageFileId: string | null }>;
+    }>,
+    next: NormalizedVariant[],
+  ): Promise<void> {
+    const currentByKey = new Map(
+      current.flatMap((variant) =>
+        variant.values.map((value) => [this.valueKey(variant.name, value.value), value] as const),
+      ),
+    );
+    for (const variant of next) {
+      for (const value of variant.values) {
+        const stored = currentByKey.get(this.valueKey(variant.name, value.value));
+        if (!stored || (stored.imageFileId ?? null) === value.imageFileId) continue;
+        await tx.podSkuTemplateVariantValue.update({
+          where: { id: stored.id },
+          data: { imageFileId: value.imageFileId, tiktokImageUri: null, imageUploadedAt: null },
+        });
+      }
+    }
+  }
+
   private sameAxes(
     current: Array<{ name: string; values: Array<{ value: string; code: string | null }> }>,
     next: NormalizedVariant[],

@@ -1798,6 +1798,8 @@ model StorageFile {
   imageTemplateItems   PodImageTemplateItem[]
   /// File dùng làm ảnh riêng của một tổ hợp SKU trong SKU Template.
   skuTemplateItems     PodSkuTemplateItem[]            @relation("PodSkuTemplateItemImage")
+  /// Ảnh mặc định của một giá trị biến thể (trục đầu) trong SKU Template.
+  skuTemplateVariantValues PodSkuTemplateVariantValue[] @relation("PodSkuTemplateVariantValueImage")
   sessionProductImages PodListingSessionProductImage[] @relation("PodListingSessionProductImageFile")
 
   @@index([organizationId])
@@ -4058,14 +4060,25 @@ model PodSkuTemplateVariantValue {
   code      String? @db.VarChar(32)
   sortOrder Int     @default(0) @map("sort_order")
 
+  /// **Ảnh mặc định của giá trị biến thể** (Storage Module) — chỉ có nghĩa với trục ĐẦU TIÊN
+  /// của template (TikTok: `sku_img` chỉ gắn vào sales attribute đầu). Ảnh thuộc về GIÁ TRỊ
+  /// (Color = Black → black.jpg), mọi tổ hợp chứa giá trị đó kế thừa;
+  /// `pod_sku_template_items.image_file_id` vẫn là ghi đè riêng của từng tổ hợp khi cần.
+  imageFileId     String?   @map("image_file_id") @db.Uuid
+  /// `uri` TikTok trả về sau lần upload đầu với `use_case = ATTRIBUTE_IMAGE` — dùng lại cho mọi listing.
+  tiktokImageUri  String?   @map("tiktok_image_uri") @db.VarChar(512)
+  imageUploadedAt DateTime? @map("image_uploaded_at") @db.Timestamptz(6)
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   variant    PodSkuTemplateVariant     @relation(fields: [variantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  image      StorageFile?              @relation("PodSkuTemplateVariantValueImage", fields: [imageFileId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   itemValues PodSkuTemplateItemValue[]
 
   @@unique([variantId, value])
   @@index([organizationId])
+  @@index([imageFileId])
   @@map("pod_sku_template_variant_values")
 }
 

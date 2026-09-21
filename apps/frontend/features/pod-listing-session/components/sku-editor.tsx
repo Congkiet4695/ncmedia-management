@@ -1,12 +1,12 @@
 'use client';
 
-import { Trash2 } from 'lucide-react';
+import { ImageOff, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 import { combinationKey } from '../manual-sku';
-import type { ManualSku } from '../types';
+import type { ManualSku, ManualVariation } from '../types';
 
 /**
  * Lưới SKU — mỗi dòng một tổ hợp.
@@ -19,13 +19,22 @@ export function SkuEditor({
   skus,
   onChange,
   currency,
+  variations,
 }: {
   skus: ManualSku[];
   onChange: (next: ManualSku[]) => void;
   /** Tiền tệ của lượt đăng (theo thị trường) — chỉ để hiện trên tiêu đề cột giá. */
   currency?: string | null;
+  /** Trục biến thể — để hiện ảnh của giá trị trục đầu cạnh tên tổ hợp (chỉ hiển thị). */
+  variations?: ManualVariation[];
 }) {
   const { t } = useTranslation('pod');
+  // Ảnh dòng = ảnh giá trị trục ĐẦU; URL chỉ để xem, thứ gửi đi là `imageFileId` đã derive.
+  const firstAxis = variations?.find((variation) => variation.name.trim() !== '');
+  const imageUrlByValue = new Map(
+    (firstAxis?.images ?? []).filter((image) => image.url).map((image) => [image.value, image.url as string]),
+  );
+  const showImages = imageUrlByValue.size > 0;
 
   if (skus.length === 0) {
     return (
@@ -70,7 +79,10 @@ export function SkuEditor({
               // React dựng lại cả dòng và ô đang gõ mất focus.
               <tr key={combinationKey(sku.optionValues) || String(index)} className="border-b last:border-0">
                 <td className="whitespace-nowrap px-3 py-2 font-medium">
-                  {sku.optionValues.map((option) => option.value).join(' / ')}
+                  <span className="flex items-center gap-2">
+                    {showImages && <VariantThumb src={variantImageUrl(sku, firstAxis, imageUrlByValue)} />}
+                    {sku.optionValues.map((option) => option.value).join(' / ')}
+                  </span>
                 </td>
                 <td className="px-3 py-2">
                   <Input
@@ -123,4 +135,27 @@ export function SkuEditor({
       </table>
     </div>
   );
+}
+
+function variantImageUrl(
+  sku: ManualSku,
+  firstAxis: ManualVariation | undefined,
+  urls: Map<string, string>,
+): string | null {
+  if (!firstAxis) return null;
+  const option = sku.optionValues.find((entry) => entry.name.trim() === firstAxis.name.trim());
+  return option ? (urls.get(option.value.trim()) ?? null) : null;
+}
+
+/** Ảnh nhỏ cạnh tên tổ hợp — không có ảnh thì ô trống, không phải thẻ img hỏng. */
+function VariantThumb({ src }: { src: string | null }) {
+  if (!src) {
+    return (
+      <span className="flex size-7 shrink-0 items-center justify-center rounded border bg-muted">
+        <ImageOff className="size-3 text-muted-foreground" />
+      </span>
+    );
+  }
+  // eslint-disable-next-line @next/next/no-img-element
+  return <img src={src} alt="" className="size-7 shrink-0 rounded border object-cover" />;
 }

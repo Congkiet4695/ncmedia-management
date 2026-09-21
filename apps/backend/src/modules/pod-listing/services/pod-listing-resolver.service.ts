@@ -789,7 +789,10 @@ export class PodListingResolverService {
         retailPrice: retail?.toString() ?? null,
         currency: pricing?.currency ?? skuTemplate?.currency ?? null,
         quantity: item.quantity,
-        imageFileId: item.imageFileId,
+        // 🔴 Ảnh SKU: ảnh RIÊNG của tổ hợp thắng; không có thì kế thừa ảnh mặc định của giá
+        // trị trên TRỤC ĐẦU TIÊN (Color = Black → black.jpg). TikTok chỉ gắn `sku_img` vào
+        // sales attribute đầu, nên ảnh của trục sau (nếu ai đó khai) không bao giờ được dùng.
+        imageFileId: item.imageFileId ?? this.firstAxisValueImage(item.values),
         sortOrder: item.sortOrder ?? index,
       };
     });
@@ -851,6 +854,21 @@ export class PodListingResolverService {
 
     const clamped = adjusted.lessThan(0) ? new Prisma.Decimal(0) : adjusted;
     return new Prisma.Decimal(clamped.toFixed(2));
+  }
+
+  /**
+   * Ảnh mặc định của giá trị thuộc TRỤC ĐẦU TIÊN trong tổ hợp — trục đầu xác định theo
+   * `variant.sortOrder` nhỏ nhất, không theo tên ("Color" chỉ là mặc định gợi ý, không phải luật).
+   */
+  private firstAxisValueImage(
+    links: Array<{
+      variantValue: { imageFileId?: string | null; variant: { sortOrder: number } };
+    }>,
+  ): string | null {
+    const first = [...links].sort(
+      (a, b) => a.variantValue.variant.sortOrder - b.variantValue.variant.sortOrder,
+    )[0];
+    return first?.variantValue.imageFileId ?? null;
   }
 
   private slug(value: string): string {

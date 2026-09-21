@@ -1118,6 +1118,19 @@
       "tooLarge": "{{name}} is {{size}} — over the {{max}} limit",
       "replace": "Replace"
     },
+    "variantImages": {
+      "action": "Update variant images",
+      "title": "Add images to variation {{axis}}",
+      "hint": "One image per value (optional). The image applies to every SKU with that value and is uploaded to TikTok as the variant image (sku_img) when listing.",
+      "firstAxisHint": "Only the first variation can have images (TikTok accepts images for the first sales attribute only).",
+      "count": "{{count}}/{{total}} values have an image",
+      "upload": "Upload",
+      "remove": "Remove image",
+      "hasImage": "Image set",
+      "noImage": "No image",
+      "noValues": "Add values to the variation first, then attach images.",
+      "uploadFailed": "Could not upload the image for variant {{value}}."
+    },
     "templatePicker": {
       "none": "— No template —",
       "search": "Search {{label}}…",

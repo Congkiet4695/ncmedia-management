@@ -272,6 +272,13 @@ export interface PodSkuTemplateVariantValue {
   value: string;
   code?: string | null;
   sortOrder?: number;
+  /**
+   * Ảnh mặc định của giá trị (Storage Module). Chỉ có nghĩa ở trục ĐẦU TIÊN — TikTok gắn
+   * `sku_img` vào sales attribute đầu; tổ hợp chứa giá trị này kế thừa ảnh khi dựng listing.
+   */
+  imageFileId?: string | null;
+  /** Bản đọc ra kèm file để hiển thị (`publicUrl`). */
+  image?: PodStorageFileRef | null;
 }
 
 /** MỘT trục biến thể (Color, Size, Style…) — số trục do người dùng quyết định. */

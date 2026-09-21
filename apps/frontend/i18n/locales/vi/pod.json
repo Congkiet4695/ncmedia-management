@@ -1118,6 +1118,19 @@
       "tooLarge": "{{name}} nặng {{size}} — vượt giới hạn {{max}}",
       "replace": "Thay"
     },
+    "variantImages": {
+      "action": "Cập nhật ảnh biến thể",
+      "title": "Thêm ảnh vào biến thể {{axis}}",
+      "hint": "Mỗi giá trị một ảnh đại diện (không bắt buộc). Ảnh áp cho mọi SKU chứa giá trị đó và được upload lên TikTok làm ảnh biến thể (sku_img) khi đăng.",
+      "firstAxisHint": "Chỉ biến thể đầu tiên có ảnh (TikTok chỉ nhận ảnh cho thuộc tính bán hàng đầu).",
+      "count": "Đã có ảnh {{count}}/{{total}} giá trị",
+      "upload": "Tải ảnh",
+      "remove": "Gỡ ảnh",
+      "hasImage": "Đã có ảnh",
+      "noImage": "Chưa có ảnh",
+      "noValues": "Thêm giá trị cho biến thể trước rồi mới gắn ảnh.",
+      "uploadFailed": "Không tải được ảnh cho biến thể {{value}}."
+    },
     "templatePicker": {
       "none": "— Không dùng mẫu —",
       "search": "Tìm {{label}}…",

@@ -736,22 +736,32 @@ export class PodListingPublisherService {
       ),
     );
 
+    /**
+     * Ảnh biến thể (`sku_img`) — upload với `use_case = ATTRIBUTE_IMAGE`, KHÔNG phải MAIN_IMAGE.
+     *
+     * 🔴 Hợp đồng Create Product của TikTok (SDK `CreateProductRequestBodySkusSalesAttributesSkuImg`):
+     * "Obtain this URI by uploading the images through the Upload Product Image API with
+     * `use_case=ATTRIBUTE_IMAGE`". Cùng một file ⇒ một `uri` cho cả lượt (cache theo use case +
+     * file), nên Black/S · Black/M · Black/L dùng chung đúng một lần upload. `uri` được ghi ngược
+     * vào CẢ ảnh riêng của tổ hợp lẫn ảnh mặc định của giá trị trục để listing sau khỏi upload lại.
+     */
+    const attribute = TIKTOK_IMAGE_USE_CASE.ATTRIBUTE_IMAGE;
     const variantUris = new Map<string, string>(
       await Promise.all([
         ...variantFileIds.map(async (fileId): Promise<[string, string]> => [
           fileId,
-          await uriOf({ fileId }, 'ảnh biến thể', (uri) =>
-            this.prisma.podSkuTemplateItem.updateMany({
-              where: { organizationId, imageFileId: fileId },
-              data: { tiktokImageUri: uri, imageUploadedAt: new Date() },
-            }),
+          await uriOf(
+            { fileId },
+            'ảnh biến thể',
+            (uri) => this.persistVariantImageUri(organizationId, fileId, uri),
+            attribute,
           ),
         ]),
         // URL ngoài không có bảng nào để ghi ngược `uri` — cache của lượt job là đủ: một ảnh
         // biến thể của sản phẩm nguồn chỉ upload một lần cho cả N shop đích.
         ...variantUrls.map(async (url): Promise<[string, string]> => [
           url,
-          await uriOf({ url }, 'ảnh biến thể', () => Promise.resolve()),
+          await uriOf({ url }, 'ảnh biến thể', () => Promise.resolve(), attribute),
         ]),
       ]),
     );
@@ -887,8 +897,9 @@ export class PodListingPublisherService {
     images: ResolvedListing['images'],
     variantFileIds: string[],
   ): Promise<void> {
-    // Mọi thứ nạp ở đây đều là ảnh SẢN PHẨM (bộ mẫu + ảnh biến thể) ⇒ dùng use case MAIN.
+    // Bộ ảnh sản phẩm ⇒ MAIN_IMAGE; ảnh biến thể ⇒ ATTRIBUTE_IMAGE (uri KHÁC nhau phía TikTok).
     const main = TIKTOK_IMAGE_USE_CASE.MAIN_IMAGE;
+    const attribute = TIKTOK_IMAGE_USE_CASE.ATTRIBUTE_IMAGE;
     const missingImages = images.filter(
       (image) => image.fileId && !cache.has(this.cacheKey(main, { fileId: image.fileId })),
     );
@@ -901,10 +912,10 @@ export class PodListingPublisherService {
       }
     }
     const missingVariants = variantFileIds.filter(
-      (fileId) => !cache.has(this.cacheKey(main, { fileId })),
+      (fileId) => !cache.has(this.cacheKey(attribute, { fileId })),
     );
 
-    const [imageRows, variantRows] = await Promise.all([
+    const [imageRows, variantRows, valueRows] = await Promise.all([
       missingImages.length === 0
         ? Promise.resolve([])
         : this.prisma.podImageTemplateItem.findMany({
@@ -925,6 +936,17 @@ export class PodListingPublisherService {
             },
             select: { imageFileId: true, tiktokImageUri: true },
           }),
+      // Ảnh mặc định của GIÁ TRỊ trục (Color = Black) — nguồn thứ hai của `uri` đã upload.
+      missingVariants.length === 0
+        ? Promise.resolve([])
+        : this.prisma.podSkuTemplateVariantValue.findMany({
+            where: {
+              organizationId,
+              imageFileId: { in: missingVariants },
+              tiktokImageUri: { not: null },
+            },
+            select: { imageFileId: true, tiktokImageUri: true },
+          }),
     ]);
 
     for (const row of imageRows) {
@@ -932,14 +954,33 @@ export class PodListingPublisherService {
         cache.set(this.cacheKey(main, { fileId: row.fileId }), Promise.resolve(row.tiktokImageUri));
       }
     }
-    for (const row of variantRows) {
+    for (const row of [...variantRows, ...valueRows]) {
       if (row.imageFileId && row.tiktokImageUri) {
         cache.set(
-          this.cacheKey(main, { fileId: row.imageFileId }),
+          this.cacheKey(attribute, { fileId: row.imageFileId }),
           Promise.resolve(row.tiktokImageUri),
         );
       }
     }
+  }
+
+  /** Ghi `uri` ATTRIBUTE_IMAGE ngược vào mọi dòng dùng chung file — tổ hợp lẫn giá trị trục. */
+  private async persistVariantImageUri(
+    organizationId: string,
+    fileId: string,
+    uri: string,
+  ): Promise<void> {
+    const data = { tiktokImageUri: uri, imageUploadedAt: new Date() };
+    await Promise.all([
+      this.prisma.podSkuTemplateItem.updateMany({
+        where: { organizationId, imageFileId: fileId },
+        data,
+      }),
+      this.prisma.podSkuTemplateVariantValue.updateMany({
+        where: { organizationId, imageFileId: fileId },
+        data,
+      }),
+    ]);
   }
 
   /** Tải file từ Storage rồi đẩy lên TikTok, trả về `uri`. */

@@ -256,6 +256,27 @@ export class ManualSkuOptionDto {
   value!: string;
 }
 
+/** Ảnh mặc định của MỘT giá trị trục (Black → black.jpg) — file trong Storage Module. */
+export class ManualVariationImageDto {
+  @ApiProperty({ example: 'Black' })
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  value!: string;
+
+  @ApiProperty({ description: 'File ảnh trong Storage Module', format: 'uuid' })
+  @IsUUID()
+  fileId!: string;
+
+  @ApiPropertyOptional({ description: 'URL xem trước — chỉ để form hiển thị lại, không gửi TikTok' })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(2048)
+  url?: string;
+}
+
 /** Một trục biến thể (`Color: Black, White, Navy`). */
 export class ManualVariationDto {
   @ApiProperty({ example: 'Color' })
@@ -271,6 +292,20 @@ export class ManualVariationDto {
   @ArrayMaxSize(200)
   @IsString({ each: true })
   values!: string[];
+
+  @ApiPropertyOptional({
+    type: ManualVariationImageDto,
+    isArray: true,
+    description:
+      'Ảnh mặc định theo giá trị — chỉ có nghĩa ở trục ĐẦU TIÊN (TikTok gắn `sku_img` vào sales ' +
+      'attribute đầu). Dòng SKU không có `imageFileId` riêng sẽ kế thừa ảnh của giá trị trục đầu.',
+  })
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(200)
+  @ValidateNested({ each: true })
+  @Type(() => ManualVariationImageDto)
+  images?: ManualVariationImageDto[];
 }
 
 /**

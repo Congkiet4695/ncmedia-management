@@ -1,11 +1,13 @@
 import type { AttributeSelection } from '@/features/pod-listing/components/attribute-value-picker';
 import type { PodCategoryAttributeDef, PodListingMarket } from '@/features/pod-listing/types';
+import { deriveVariantImages, pruneVariationImages } from './manual-sku';
 import type {
   CreateCustomListingPayload,
   ManualAttribute,
   ManualListingData,
   ManualSku,
   ManualVariation,
+  ManualVariationImage,
   ManualVideo,
   PodListingSessionDetail,
   PodSessionProduct,
@@ -204,6 +206,23 @@ export function restoreCustomListingForm(
     : null;
   form.variations = manual?.variations ?? [];
   form.skus = manual?.skus ?? [];
+
+  // Nháp CŨ: ảnh nằm rải trên từng dòng (`skus[].imageFileId`), chưa có `variations[0].images`.
+  // Gom lại về trục đầu để mọi thao tác sau (đổi trục, sinh lại) không làm mất ảnh — dòng
+  // không giữ ảnh riêng nữa, ảnh sống ở đúng một chỗ.
+  const first = form.variations[0];
+  if (first && !first.images?.length) {
+    const images: ManualVariationImage[] = [];
+    const seen = new Set<string>();
+    for (const sku of form.skus) {
+      const option = sku.optionValues.find((entry) => entry.name === first.name);
+      if (!sku.imageFileId || !option || seen.has(option.value)) continue;
+      seen.add(option.value);
+      images.push({ value: option.value, fileId: sku.imageFileId });
+    }
+    if (images.length > 0) form.variations = [{ ...first, images }, ...form.variations.slice(1)];
+  }
+  form.skus = deriveVariantImages(form.skus, form.variations);
 
   return form;
 }
@@ -455,12 +474,17 @@ function splitList(value: string, separator: string): string[] {
     .filter(Boolean);
 }
 
-/** Bỏ trục trống và giá trị rỗng — lưới SKU đã dựng từ bộ này nên không đổi tổ hợp nào. */
+/**
+ * Bỏ trục trống và giá trị rỗng — lưới SKU đã dựng từ bộ này nên không đổi tổ hợp nào.
+ * Ảnh chỉ đi theo giá trị còn tồn tại và chỉ ở trục ĐẦU (payload không mang ảnh của trục sau).
+ */
 function normalizeVariations(variations: ManualVariation[]): ManualVariation[] {
   return variations
-    .map((variation) => ({
-      name: variation.name.trim(),
-      values: variation.values.map((value) => value.trim()).filter(Boolean),
-    }))
-    .filter((variation) => variation.name !== '' && variation.values.length > 0);
+    .map((variation) => {
+      const values = variation.values.map((value) => value.trim()).filter(Boolean);
+      const images = pruneVariationImages(variation.images, values);
+      return { name: variation.name.trim(), values, ...(images ? { images } : {}) };
+    })
+    .filter((variation) => variation.name !== '' && variation.values.length > 0)
+    .map((variation, index) => (index === 0 ? variation : { name: variation.name, values: variation.values }));
 }

@@ -4,8 +4,13 @@ import type {
   PodSkuTemplate,
   PodSkuTemplateItem,
 } from '@/features/pod-listing/types';
-import { combinationKey, suggestSellerSku, type SkuBuildOptions } from './manual-sku';
-import type { ManualSku, ManualVariation, SessionImageInput } from './types';
+import {
+  combinationKey,
+  deriveVariantImages,
+  suggestSellerSku,
+  type SkuBuildOptions,
+} from './manual-sku';
+import type { ManualSku, ManualVariation, ManualVariationImage, SessionImageInput } from './types';
 
 /**
  * Chuyển **template có sẵn** thành dữ liệu của form Custom Listing.
@@ -158,16 +163,47 @@ export function applySkuTemplate(template: PodSkuTemplate): {
 } {
   const variations: ManualVariation[] = [...template.variants]
     .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
-    .map((variant) => ({
-      name: variant.name.trim(),
-      values: [...variant.values]
-        .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
-        .map((value) => value.value.trim())
-        .filter((value) => value !== ''),
-    }))
+    .map((variant) => {
+      const values = [...variant.values].sort(
+        (left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0),
+      );
+      const images: ManualVariationImage[] = values
+        .filter((value) => value.value.trim() !== '' && value.imageFileId)
+        .map((value) => ({
+          value: value.value.trim(),
+          fileId: value.imageFileId as string,
+          url: value.image?.publicUrl ?? null,
+        }));
+      return {
+        name: variant.name.trim(),
+        values: values.map((value) => value.value.trim()).filter((value) => value !== ''),
+        ...(images.length > 0 ? { images } : {}),
+      };
+    })
     .filter((variation) => variation.name !== '' && variation.values.length > 0);
 
+  // 🔴 Ảnh chỉ có nghĩa ở trục ĐẦU (TikTok gắn `sku_img` vào sales attribute đầu). Ảnh RIÊNG của
+  // tổ hợp trong template (`items[].imageFileId`) được gộp vào ảnh giá trị trục đầu khi giá trị
+  // đó chưa có ảnh (tổ hợp đầu tiên thắng) — Custom Listing giữ ảnh ở MỘT chỗ: `variations[0].images`.
+  for (const variation of variations.slice(1)) delete variation.images;
+  const first = variations[0];
   const items = (template.items ?? []).filter((item) => item.isActive !== false);
+  if (first) {
+    const known = new Set((first.images ?? []).map((image) => image.value));
+    for (const item of items) {
+      if (!item.imageFileId) continue;
+      const option = itemOptionValues(item, variations.map((variation) => variation.name)).find(
+        (entry) => entry.name === first.name,
+      );
+      if (!option || known.has(option.value)) continue;
+      known.add(option.value);
+      first.images = [
+        ...(first.images ?? []),
+        { value: option.value, fileId: item.imageFileId, url: item.image?.publicUrl ?? null },
+      ];
+    }
+  }
+
   if (items.length === 0) return { variations, skus: [] };
 
   const axisNames = variations.map((variation) => variation.name);
@@ -211,7 +247,8 @@ export function applySkuTemplate(template: PodSkuTemplate): {
     return 0;
   });
 
-  return { variations, skus };
+  // Ảnh dòng = ảnh giá trị trục đầu (một nguồn sự thật — xem `deriveVariantImages`).
+  return { variations, skus: deriveVariantImages(skus, variations) };
 }
 
 /**
@@ -269,7 +306,7 @@ function itemToSkuData(item: PodSkuTemplateItem, template: PodSkuTemplate): Part
     salePrice: salePrice ?? '',
     retailPrice: usable(retailPrice) ? (retailPrice as string) : '',
     quantity: item.quantity > 0 ? item.quantity : template.defaultQuantity,
-    ...(item.imageFileId ? { imageFileId: item.imageFileId } : {}),
+    // Ảnh KHÔNG đi theo dòng: Custom Listing kế thừa ảnh từ `variations[0].images` (`deriveVariantImages`).
     ...(item.barcode ? { barcode: item.barcode } : {}),
   };
 }

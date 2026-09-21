@@ -14,6 +14,7 @@
 import {
   buildSkuCombinations,
   combinationKey,
+  deriveVariantImages,
   reconcileSkus,
 } from '../features/pod-listing-session/manual-sku.ts';
 import { applySkuTemplate, skuTemplateSeed } from '../features/pod-listing-session/template-apply.ts';
@@ -48,6 +49,18 @@ function check(label: string, actual: unknown, expected: unknown): void {
 const names = (skus: ManualSku[]) => skus.map((sku) => sku.optionValues.map((o) => o.value).join('/'));
 const row = (skus: ManualSku[], value: string) =>
   skus.find((sku) => sku.optionValues.map((o) => o.value).join('/') === value);
+/** Một dòng SKU Color × Size tối thiểu (cho các case ảnh / nháp cũ). */
+const sku = (color: string, size: string, imageFileId?: string): ManualSku => ({
+  sellerSku: (color + '-' + size).toUpperCase(),
+  optionValues: [
+    { name: 'Color', value: color },
+    { name: 'Size', value: size },
+  ],
+  salePrice: '19.99',
+  retailPrice: '',
+  quantity: 3,
+  ...(imageFileId ? { imageFileId } : {}),
+});
 
 // ---------------------------------------------------------------------------
 // Fixture: dựng SKU Template ĐÚNG hình dạng API chi tiết (`GET /pod/templates/skus/:id`) —
@@ -435,6 +448,96 @@ console.log('Biên — mặc định template, tổ hợp tắt, bản ghi cũ, 
 
   check('chưa có bảng ⇒ reconcile không tự sinh (vẫn chờ "Tạo SKU")', reconcileSkus([], applied.variations, []), []);
   check('"Tạo SKU" lần đầu với mẫu ⇒ dòng lấy dữ liệu mẫu', row(buildSkuCombinations(applied.variations, [], seed), '8"x20"')?.sellerSku, '8X20');
+}
+
+
+// ===========================================================================
+// ẢNH BIẾN THỂ — ảnh mặc định theo giá trị của TRỤC ĐẦU (SKU Template → Custom Listing → payload)
+// ===========================================================================
+{
+  console.log('Ảnh biến thể — Apply template: ảnh giá trị trục đầu → variations[0].images → từng dòng SKU');
+  const withImages = teeTemplate();
+  withImages.variants[0].values = withImages.variants[0].values.map((value) =>
+    value.value === 'Black'
+      ? { ...value, imageFileId: 'file-black', image: { id: 'file-black', publicUrl: 'https://cdn/black.jpg', originalName: 'black.jpg' } }
+      : value.value === 'White'
+        ? { ...value, imageFileId: 'file-white', image: { id: 'file-white', publicUrl: 'https://cdn/white.jpg', originalName: 'white.jpg' } }
+        : value,
+  );
+  // Ảnh khai ở trục thứ hai (Size) phải bị bỏ — không bao giờ là ảnh SKU.
+  withImages.variants[1].values[0] = { ...withImages.variants[1].values[0], imageFileId: 'file-size-s' };
+  const applied = applySkuTemplate(withImages);
+  check('variations[0].images mang ảnh + url của Black/White', applied.variations[0].images, [
+    { value: 'Black', fileId: 'file-black', url: 'https://cdn/black.jpg' },
+    { value: 'White', fileId: 'file-white', url: 'https://cdn/white.jpg' },
+  ]);
+  check('trục thứ hai KHÔNG mang ảnh', applied.variations[1].images, undefined);
+  check(
+    '🔴 mọi SKU kế thừa ảnh của giá trị Color (Black/S,M,L → black; White/S,M,L → white)',
+    applied.skus.map((item) => [names([item])[0], item.imageFileId]),
+    [['Black/S', 'file-black'], ['Black/M', 'file-black'], ['Black/L', 'file-black'], ['White/S', 'file-white'], ['White/M', 'file-white'], ['White/L', 'file-white']],
+  );
+
+  // Ảnh RIÊNG của tổ hợp trong template khi giá trị chưa có ảnh ⇒ gộp thành ảnh giá trị.
+  const ownImage = teeTemplate();
+  ownImage.items[1] = { ...ownImage.items[1], imageFileId: 'file-own-black', image: { id: 'file-own-black', publicUrl: 'https://cdn/own.jpg', originalName: 'own.jpg' } };
+  const appliedOwn = applySkuTemplate(ownImage);
+  check('ảnh riêng của tổ hợp Black/S (không có ảnh giá trị) ⇒ trở thành ảnh của giá trị Black', appliedOwn.variations[0].images, [
+    { value: 'Black', fileId: 'file-own-black', url: 'https://cdn/own.jpg' },
+  ]);
+  check('⇒ cả Black/M, Black/L cũng nhận ảnh đó', [row(appliedOwn.skus, 'Black/M')?.imageFileId, row(appliedOwn.skus, 'White/S')?.imageFileId], ['file-own-black', undefined]);
+
+  console.log('Ảnh biến thể — đồng bộ khi đổi trục / giá trị');
+  const seed = skuTemplateSeed(withImages);
+  const removedWhite = reconcileSkus(applied.variations, [{ ...applied.variations[0], values: ['Black'] }, applied.variations[1]], applied.skus, seed);
+  check('xoá White ⇒ White/S, White/M, White/L biến mất', names(removedWhite), ['Black/S', 'Black/M', 'Black/L']);
+  check('ảnh của White không còn ở dòng nào', removedWhite.every((item) => item.imageFileId === 'file-black'), true);
+
+  const addedNavy = reconcileSkus(applied.variations, [{ ...applied.variations[0], values: [...COLORS, 'Navy'] }, applied.variations[1]], applied.skus, seed);
+  check('thêm Navy (chưa có ảnh) ⇒ 3 dòng mới không có ảnh, dòng cũ giữ ảnh', [names(addedNavy).filter((n) => n.startsWith('Navy')).length, row(addedNavy, 'Navy/M')?.imageFileId, row(addedNavy, 'Black/M')?.imageFileId], [3, undefined, 'file-black']);
+
+  const navyWithImage = [{ ...applied.variations[0], values: [...COLORS, 'Navy'], images: [...(applied.variations[0].images ?? []), { value: 'Navy', fileId: 'file-navy' }] }, applied.variations[1]];
+  const addedNavyImg = reconcileSkus(applied.variations, navyWithImage, applied.skus, seed);
+  check('gắn ảnh cho Navy ⇒ Navy/S,M,L nhận ảnh ngay (không cần tạo lại SKU)', ['S', 'M', 'L'].map((s) => row(addedNavyImg, 'Navy/' + s)?.imageFileId), ['file-navy', 'file-navy', 'file-navy']);
+
+  const withoutColor = reconcileSkus(applied.variations, [applied.variations[1]], applied.skus, seed);
+  check('🔴 xoá TRỤC Color ⇒ Size lên đầu, Size không có ảnh ⇒ không dòng nào còn ảnh của Color', [names(withoutColor), withoutColor.every((item) => item.imageFileId === undefined)], [['S', 'M', 'L'], true]);
+
+  const sizeWithImages = [{ ...applied.variations[1], images: [{ value: 'S', fileId: 'file-size-s' }] }];
+  const withoutColorSizeImg = reconcileSkus(applied.variations, sizeWithImages, applied.skus, seed);
+  check('xoá Color, Size (trục đầu mới) có ảnh cho S ⇒ chỉ dòng S có ảnh của Size', withoutColorSizeImg.map((item) => [names([item])[0], item.imageFileId]), [['S', 'file-size-s'], ['M', undefined], ['L', undefined]]);
+
+  const unchanged = reconcileSkus(applied.variations, applied.variations, applied.skus, seed);
+  check('không đổi gì ⇒ trả về chính mảng cũ (ảnh không gây render lại)', unchanged === applied.skus, true);
+
+  console.log('Ảnh biến thể — Lưu nháp / mở lại / payload');
+  const form = emptyCustomListingForm();
+  form.title = 'Tee';
+  form.shopIds = ['shop-a'];
+  form.variations = [
+    { ...applied.variations[0], images: [...(applied.variations[0].images ?? []), { value: 'Ghost', fileId: 'file-ghost' }] },
+    { ...applied.variations[1], images: [{ value: 'S', fileId: 'file-size-s' }] },
+  ];
+  form.skus = applied.skus;
+  const manual = buildManualData(form);
+  check('payload: ảnh trục đầu chỉ gồm giá trị CÒN TỒN TẠI (Ghost bị bỏ), trục sau không mang ảnh', [manual.variations?.[0].images?.map((i) => i.value), manual.variations?.[1].images], [['Black', 'White'], undefined]);
+  check('payload: từng SKU mang imageFileId kế thừa', manual.skus?.map((item) => item.imageFileId), ['file-black', 'file-black', 'file-black', 'file-white', 'file-white', 'file-white']);
+
+  const session = { id: 's-1', market: 'US', shops: [{ shopId: 'shop-a', shop: { id: 'shop-a', name: 'A', region: 'US' } }], templates: [] } as unknown as PodListingSessionDetail;
+  const product = { id: 'sp-1', title: 'Tee', images: [], manualData: JSON.parse(JSON.stringify(manual)) } as unknown as PodSessionProduct;
+  const restored = restoreCustomListingForm(session, product);
+  check('mở lại nháp: ảnh giá trị còn nguyên (kèm url)', restored.variations[0].images, [
+    { value: 'Black', fileId: 'file-black', url: 'https://cdn/black.jpg' },
+    { value: 'White', fileId: 'file-white', url: 'https://cdn/white.jpg' },
+  ]);
+  check('mở lại nháp: từng dòng vẫn mang đúng ảnh', restored.skus.map((item) => item.imageFileId), ['file-black', 'file-black', 'file-black', 'file-white', 'file-white', 'file-white']);
+
+  // Nháp CŨ: ảnh nằm trên dòng, chưa có variations[0].images.
+  const legacy = { id: 'sp-2', title: 'Tee', images: [], manualData: { variations: [{ name: 'Color', values: ['Black', 'White'] }], skus: [sku('Black', 'S', 'file-black'), sku('White', 'S')] } } as unknown as PodSessionProduct;
+  const restoredLegacy = restoreCustomListingForm(session, legacy);
+  check('nháp cũ ⇒ gom ảnh dòng về trục đầu, dòng vẫn giữ ảnh', [restoredLegacy.variations[0].images, restoredLegacy.skus.map((s) => s.imageFileId)], [[{ value: 'Black', fileId: 'file-black' }], ['file-black', undefined]]);
+
+  check('deriveVariantImages: không có trục ⇒ gỡ ảnh khỏi dòng', deriveVariantImages([sku('Black', 'S', 'x')], []).map((s) => s.imageFileId), [undefined]);
 }
 
 // ---------------------------------------------------------------------------

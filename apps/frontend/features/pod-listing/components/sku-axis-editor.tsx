@@ -1,18 +1,27 @@
 'use client';
 
 import { useState } from 'react';
-import { Plus, Trash2, X } from 'lucide-react';
+import { ImageIcon, Plus, Trash2, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
+import { VariationImagesDialog, type VariationImageMap } from './variation-images-dialog';
 
-/** Một trục biến thể đang soạn: tên + danh sách giá trị dạng thẻ. */
+/** Một trục biến thể đang soạn: tên + danh sách giá trị dạng thẻ (+ ảnh theo giá trị ở trục đầu). */
 export interface AxisDraft {
   name: string;
   values: string[];
+  /**
+   * Ảnh mặc định theo giá trị — chỉ trục ĐẦU TIÊN dùng (TikTok gắn `sku_img` vào sales attribute
+   * đầu). Khoá là chính giá trị; xoá giá trị thì ảnh của nó cũng bị gỡ.
+   */
+  images?: VariationImageMap;
 }
+
+/** Tên trục gợi ý khi tạo mới — chỉ là MẶC ĐỊNH điền sẵn, người dùng đổi/xoá tuỳ ý. */
+export const DEFAULT_FIRST_AXIS_NAME = 'Color';
 
 /**
  * Bộ khai báo **trục biến thể** (Color: Black/White/Red · Size: S/M/L/XL).
@@ -54,6 +63,9 @@ export function SkuAxisEditor({
           onChange={(next) => patch(index, next)}
           onRemove={() => onChange(axes.filter((_, i) => i !== index))}
           canRemove={axes.length > 1}
+          // 🔴 Chỉ trục ĐẦU được gắn ảnh — theo VỊ TRÍ, không theo tên: xoá Color thì Size lên
+          // đầu và Size mới là trục có ảnh (ảnh của Color không theo sang).
+          allowImages={index === 0}
         />
       ))}
 
@@ -78,6 +90,7 @@ function AxisRow({
   onChange,
   onRemove,
   canRemove,
+  allowImages,
 }: {
   axis: AxisDraft;
   index: number;
@@ -86,10 +99,21 @@ function AxisRow({
   onChange: (next: Partial<AxisDraft>) => void;
   onRemove: () => void;
   canRemove: boolean;
+  allowImages: boolean;
 }) {
   const { t } = useTranslation('pod');
   const [draft, setDraft] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [imagesOpen, setImagesOpen] = useState(false);
+  const images = axis.images ?? {};
+  const imageCount = axis.values.filter((value) => images[value]).length;
+
+  /** Gỡ giá trị ⇒ gỡ luôn ảnh của nó, không để ảnh mồ côi đi theo template. */
+  const removeValue = (value: string): void => {
+    const nextImages = { ...images };
+    delete nextImages[value];
+    onChange({ values: axis.values.filter((item) => item !== value), images: nextImages });
+  };
 
   /** Thêm một giá trị: trim · không rỗng · không trùng (không phân biệt hoa thường). */
   const addValue = (raw: string): void => {
@@ -154,7 +178,7 @@ function AxisRow({
                 <button
                   type="button"
                   disabled={disabled}
-                  onClick={() => onChange({ values: axis.values.filter((item) => item !== value) })}
+                  onClick={() => removeValue(value)}
                   className="text-muted-foreground hover:text-foreground"
                 >
                   <X className="size-3" />
@@ -180,7 +204,7 @@ function AxisRow({
                   return;
                 }
                 if (event.key === 'Backspace' && !draft && axis.values.length > 0) {
-                  onChange({ values: axis.values.slice(0, -1) });
+                  removeValue(axis.values[axis.values.length - 1]);
                 }
               }}
               onBlur={() => draft.trim() && addValue(draft)}
@@ -203,6 +227,35 @@ function AxisRow({
         <p className="text-xs text-destructive">{t('listing.skuTemplates.variantDuplicate')}</p>
       )}
       {error && <p className="text-xs text-destructive">{error}</p>}
+
+      {allowImages && (
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={disabled || axis.values.length === 0}
+            onClick={() => setImagesOpen(true)}
+          >
+            <ImageIcon className="size-4" />
+            {t('listing.variantImages.action')}
+          </Button>
+          <span className="text-xs text-muted-foreground">
+            {imageCount > 0
+              ? t('listing.variantImages.count', { count: imageCount, total: axis.values.length })
+              : t('listing.variantImages.firstAxisHint')}
+          </span>
+          {imagesOpen && (
+            <VariationImagesDialog
+              open
+              axisName={axis.name.trim() || t('listing.skuTemplates.variantName')}
+              values={axis.values}
+              images={images}
+              onChange={(next) => onChange({ images: next })}
+              onClose={() => setImagesOpen(false)}
+            />
+          )}
+        </div>
+      )}
     </div>
   );
 }
