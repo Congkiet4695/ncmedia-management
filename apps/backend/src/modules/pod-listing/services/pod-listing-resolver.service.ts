@@ -39,6 +39,12 @@ export interface ResolvedVariant {
   currency: string | null;
   quantity: number;
   imageFileId: string | null;
+  /**
+   * Ảnh biến thể theo **URL ngoài** — chỉ có ở lượt NHÂN BẢN (ảnh `sku_img` của sản phẩm
+   * nguồn, không nằm trong Storage). Optional để payload cũ (chỉ có `imageFileId`) giữ nguyên
+   * hash. Publisher tải về rồi upload như ảnh của Draft Product nhập từ file.
+   */
+  imageUrl?: string | null;
   sortOrder: number;
 }
 

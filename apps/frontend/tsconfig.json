@@ -36,6 +36,7 @@
     "scripts/verify-bulk-sku.ts",
     "scripts/verify-edit-product.ts",
     "scripts/verify-rich-text-format.ts",
-    "scripts/verify-custom-listing.ts"
+    "scripts/verify-custom-listing.ts",
+    "scripts/verify-sku-sync.ts"
   ]
 }

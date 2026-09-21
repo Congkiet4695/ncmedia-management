@@ -316,3 +316,19 @@ export const POD_PUBLISH_BLOCKER_CODES = {
   MISSING_TIKTOK_DRAFT: 'PUBLISH_MISSING_TIKTOK_DRAFT',
   NOT_PUBLISHABLE: 'PUBLISH_NOT_PUBLISHABLE',
 } as const;
+
+// ---------------------------------------------------------------------------
+// Sprint Products — Nhân bản sản phẩm sang nhiều shop
+// ---------------------------------------------------------------------------
+
+/**
+ * Số shop đích tối đa trong MỘT lượt nhân bản.
+ *
+ * Một lượt là 1 sản phẩm × N shop, mỗi shop tối đa ~9 + số SKU lần upload ảnh + 1 Create
+ * Product. 50 shop là quá đủ cho một tổ chức và vẫn nằm gọn trong hàng đợi 5 luồng; cần hơn
+ * thì bấm thêm lượt — không có lý do để một cú bấm sinh hàng nghìn request.
+ */
+export const POD_PRODUCT_CLONE_MAX_SHOPS = 50;
+
+/** Khoá chống bấm "Nhân bản" hai lần liên tiếp cho cùng sản phẩm nguồn (ms). */
+export const POD_PRODUCT_CLONE_LOCK_MS = 30_000;

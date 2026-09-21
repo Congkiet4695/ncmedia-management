@@ -20,12 +20,13 @@
     "test:selection": "node --experimental-strip-types scripts/verify-selection.ts",
     "test:editor": "node --experimental-strip-types scripts/verify-description-editor.ts",
     "test:images": "node --experimental-strip-types scripts/verify-product-images.ts",
-    "test:manual-sku": "node --experimental-strip-types scripts/verify-manual-sku.ts",
-    "test:template-apply": "node --experimental-strip-types scripts/verify-template-apply.ts",
+    "test:manual-sku": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-manual-sku.ts",
+    "test:template-apply": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-template-apply.ts",
     "test:bulk-sku": "node --experimental-strip-types scripts/verify-bulk-sku.ts",
     "test:edit-product": "node --experimental-strip-types scripts/verify-edit-product.ts",
     "test:rich-text": "node --experimental-strip-types scripts/verify-rich-text-format.ts",
-    "test:custom-listing": "node --experimental-strip-types scripts/verify-custom-listing.ts"
+    "test:custom-listing": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-custom-listing.ts",
+    "test:sku-sync": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-sku-sync.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

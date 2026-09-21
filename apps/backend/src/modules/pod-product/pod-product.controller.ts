@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -40,16 +41,22 @@ import { PodScope } from '../pod-tiktok/decorators/pod-scope.decorator';
 import { PodScopeGuard } from '../pod-tiktok/guards/pod-scope.guard';
 import type { PodAccessScope } from '../pod-tiktok/services/pod-access-scope.service';
 import { PodProductEditService } from './services/pod-product-edit.service';
+import {
+  PodProductLifecycleService,
+  type PodProductDeleteResultDto,
+} from './services/pod-product-lifecycle.service';
 import { PodProductService } from './services/pod-product.service';
 import { UpdatePodProductDto } from './dto/pod-product-update.dto';
 
 /**
  * PodProductController — màn hình **POD → Products**.
  *
- * 🔴 Ranh giới hiện tại: ĐỌC + ĐỒNG BỘ + **SỬA** sản phẩm đã có (`PATCH /:id`, quyền
- * `pod.product.update`, đi qua Partial Edit Product của TikTok).
+ * 🔴 Ranh giới hiện tại: ĐỌC + ĐỒNG BỘ + **SỬA** (`PATCH /:id`, `pod.product.update`, Partial
+ * Edit Product) + **NGỪNG BÁN** (`POST /:id/deactivate`, `pod.product.deactivate`) + **XOÁ**
+ * (`DELETE /:id`, `pod.product.delete`) sản phẩm đã có trên sàn.
  *
- * VẪN KHÔNG có: tạo mới, xoá, publish. Tạo sản phẩm là việc của module Listing.
+ * VẪN KHÔNG có tạo mới ở đây. **Nhân bản sang shop khác** (`POST /:id/clone`) nằm ở
+ * `PodProductCloneController` (module Listing) vì nó tạo sản phẩm MỚI qua Bulk Listing Engine.
  *
  * ⚠️ Ghi chú cũ nói module này "chỉ đọc theo cam kết với TikTok App Review". Cam kết đó
  * thuộc về phạm vi scope của app; khả năng GHI đã được dùng từ Sprint Listing (Create /
@@ -70,6 +77,7 @@ export class PodProductController {
   constructor(
     private readonly service: PodProductService,
     private readonly editService: PodProductEditService,
+    private readonly lifecycle: PodProductLifecycleService,
   ) {}
 
   @Get()
@@ -152,6 +160,46 @@ export class PodProductController {
     @Body() dto: UpdatePodProductDto,
   ): Promise<PodProductDetailDto> {
     return this.editService.update(user.organizationId, user.userId, id, dto, scope);
+  }
+
+  @Post(':id/deactivate')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('pod.product.deactivate')
+  @ApiOperation({
+    summary: 'Ngừng bán sản phẩm trên TikTok Shop (Deactivate Products)',
+    description:
+      'Gọi `POST /product/202309/products/deactivate` cho đúng sản phẩm này. ' +
+      '🔴 Sàn chấp nhận mới đồng bộ lại sản phẩm và ghi `deactivated_at`; sàn từ chối thì database KHÔNG đổi gì. ' +
+      'Phạm vi kiểm theo shop CỦA SẢN PHẨM — Seller chỉ ngừng bán được hàng của shop đã gán. ' +
+      'Đảo ngược được bằng Activate trên Seller Center.',
+  })
+  @ApiOkResponse({ type: PodProductDetailDto })
+  @ApiNotFoundResponse({ description: 'POD_PRODUCT_NOT_FOUND' })
+  deactivateProduct(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<PodProductDetailDto> {
+    return this.lifecycle.deactivate(user.organizationId, user.userId, id, scope);
+  }
+
+  @Delete(':id')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('pod.product.delete')
+  @ApiOperation({
+    summary: 'Xoá sản phẩm khỏi TikTok Shop và xoá mềm khỏi hệ thống',
+    description:
+      'Gọi `DELETE /product/202309/products` (TikTok giữ sản phẩm đã xoá 30 ngày — Recover Products). ' +
+      '🔴 Sàn chấp nhận mới xoá mềm bản ghi (`deleted_at`); Draft Listing / Listing Job / đơn hàng ' +
+      'đang tham chiếu sản phẩm được GIỮ NGUYÊN. Sàn từ chối ⇒ database không đổi gì.',
+  })
+  @ApiNotFoundResponse({ description: 'POD_PRODUCT_NOT_FOUND' })
+  deleteProduct(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<PodProductDeleteResultDto> {
+    return this.lifecycle.remove(user.organizationId, user.userId, id, scope);
   }
 
   @Get('categories')

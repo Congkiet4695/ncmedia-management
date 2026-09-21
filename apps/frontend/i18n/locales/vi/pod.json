@@ -721,7 +721,8 @@
       "pickItem": "Chọn một sản phẩm để xem đã gửi gì và TikTok trả về gì.",
       "type": {
         "CREATE_DRAFT": "Tạo Draft",
-        "PUBLISH": "Publish"
+        "PUBLISH": "Publish",
+        "CLONE": "Nhân bản sản phẩm"
       }
     },
     "scope": {
@@ -1482,6 +1483,69 @@
       "viewImage": "Xem ảnh {{index}}/{{total}} của {{name}}",
       "moreHint": "Còn {{count}} ảnh nữa — mở trang chi tiết sản phẩm để xem đầy đủ"
     },
+      "actions": {
+        "menu": "Thao tác khác",
+        "clone": "Nhân bản sản phẩm",
+        "deactivate": "Ngừng bán",
+        "delete": "Xoá"
+      },
+      "deactivate": {
+        "title": "Ngừng bán sản phẩm",
+        "question": "Bạn có chắc muốn deactivate {{count}} sản phẩm này không?",
+        "confirm": "Ngừng bán",
+        "warning": "Sản phẩm sẽ được gửi lệnh Deactivate lên TikTok Shop và không còn hiển thị với người mua. Có thể bật bán lại trên Seller Center.",
+        "relatedData": "Bản ghi trong hệ thống được giữ lại (đánh dấu ngừng bán) để Draft Listing, ánh xạ sản phẩm và đơn hàng cũ không mất tham chiếu.",
+        "success": "Đã ngừng bán {{count}} sản phẩm trên TikTok Shop",
+        "failed": "Không ngừng bán được {{count}} sản phẩm"
+      },
+      "delete": {
+        "title": "Xoá sản phẩm",
+        "question": "Bạn có chắc muốn xoá {{count}} sản phẩm này không?",
+        "confirm": "Xoá sản phẩm",
+        "warning": "Đây là thao tác XOÁ: sản phẩm bị xoá khỏi TikTok Shop (TikTok giữ 30 ngày để khôi phục) và được xoá khỏi danh sách trong hệ thống.",
+        "relatedData": "Draft Listing, lượt đăng, ánh xạ sản phẩm và đơn hàng đang tham chiếu sản phẩm này được GIỮ NGUYÊN — hệ thống chỉ xoá mềm bản ghi, không xoá dữ liệu liên quan.",
+        "success": "Đã xoá {{count}} sản phẩm",
+        "failed": "Không xoá được {{count}} sản phẩm"
+      },
+      "bulk": {
+        "progress": "Đang xử lý {{done}}/{{total}}…",
+        "more": "… và {{count}} sản phẩm khác",
+        "partial": "Xong {{success}} sản phẩm, {{failed}} sản phẩm lỗi"
+      },
+      "clone": {
+        "title": "Nhân bản sản phẩm",
+        "description": "Tạo sản phẩm này trên nhiều shop TikTok cùng lúc. Mỗi shop là một kết quả độc lập — shop lỗi không ảnh hưởng shop khác.",
+        "source": "Sản phẩm nguồn",
+        "targets": "Shop đích",
+        "needShop": "Vui lòng chọn ít nhất một shop.",
+        "onlyOne": "Vui lòng chỉ chọn một sản phẩm để nhân bản.",
+        "action": "Nhân bản sản phẩm",
+        "started": "Đã bắt đầu nhân bản sang {{count}} shop",
+        "failed": "Không tạo được lượt nhân bản",
+        "publishHint": "Sản phẩm được đăng lên từng shop đích (chờ TikTok duyệt). Kho, tiền tệ được quyết theo shop đích.",
+        "copyHint": "Sao chép tiêu đề, mô tả, từ khoá, danh mục, thương hiệu, thuộc tính, ảnh (đúng thứ tự), bảng size, video, biến thể/SKU, giá, tồn kho và kiện hàng. Không sao chép TikTok Product ID / SKU ID của shop nguồn. Shop đã có sản phẩm này sẽ được bỏ qua.",
+        "result": {
+          "running": "Đang nhân bản sản phẩm…",
+          "done": "Nhân bản hoàn tất",
+          "total": "Tổng shop: {{count}}",
+          "success": "Thành công: {{count}}",
+          "skipped": "Bỏ qua: {{count}}",
+          "failed": "Thất bại: {{count}}",
+          "loading": "Đang tải kết quả…",
+          "detail": "Xem chi tiết",
+          "remoteId": "TikTok Product ID",
+          "syncHint": "Sản phẩm mới sẽ xuất hiện trong danh sách Products của shop đích sau lượt đồng bộ được hẹn (~5 phút). Lượt chạy xem lại được ở Lịch sử Publish."
+        },
+        "status": {
+          "PENDING": "Đang chờ",
+          "PROCESSING": "Đang xử lý",
+          "RETRYING": "Đang thử lại",
+          "SUCCESS": "Thành công",
+          "FAILED": "Thất bại",
+          "SKIPPED": "Bỏ qua",
+          "CANCELLED": "Đã huỷ"
+        }
+      },
     "edit": {
       "title": "Sửa sản phẩm · {{id}}",
       "loading": "Đang tải sản phẩm…",

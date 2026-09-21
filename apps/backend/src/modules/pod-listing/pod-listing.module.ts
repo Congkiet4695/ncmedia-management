@@ -5,6 +5,7 @@ import { PodProductModule } from '../pod-product/pod-product.module';
 import { PodTiktokModule } from '../pod-tiktok/pod-tiktok.module';
 import { PodListingController } from './pod-listing.controller';
 import { PodListingJobController } from './pod-listing-job.controller';
+import { PodProductCloneController } from './pod-product-clone.controller';
 import { PodTemplateController } from './pod-template.controller';
 import { PodListingPayloadService } from './services/pod-listing-payload.service';
 import { PodListingJobService } from './services/pod-listing-job.service';
@@ -20,6 +21,7 @@ import { PodTemplateScopeService } from './services/pod-template-scope.service';
 import { PodTemplateService } from './services/pod-template.service';
 import { PodTemplateTransferService } from './services/pod-template-transfer.service';
 import { PodWarehouseService } from './services/pod-warehouse.service';
+import { PodProductCloneResolverService } from './services/pod-product-clone-resolver.service';
 
 /**
  * PodListingModule — Template Engine (Sprint 3) + **Bulk Listing Engine** (Sprint 4)
@@ -27,7 +29,8 @@ import { PodWarehouseService } from './services/pod-warehouse.service';
  *
  * Phạm vi: quản lý template (Category / SKU / Description / Image / Listing / Pricing),
  * đồng bộ kho, xem trước listing, sinh Draft Listing vào database, **đẩy hàng loạt lên
- * TikTok dưới dạng Draft Product**, và **Publish Draft** vào hàng chờ duyệt — tất cả qua
+ * TikTok dưới dạng Draft Product**, **Publish Draft** vào hàng chờ duyệt, và **Nhân bản
+ * sản phẩm** (1 sản phẩm đã đồng bộ → nhiều shop, `PodListingJobType.CLONE`) — tất cả qua
  * cùng một hàng đợi có retry.
  *
  * 🔴 Toàn bộ lời gọi ghi tới TikTok đi qua `TiktokProductApiService`, không có HTTP thủ công:
@@ -45,7 +48,13 @@ import { PodWarehouseService } from './services/pod-warehouse.service';
   // `ScheduleModule.forRoot()` khai báo tại chính module có scheduler — cùng khuôn với
   // PodProduct / PodTiktok / Fulfillment. Module này là global nên gọi nhiều lần vô hại.
   imports: [AuthModule, PodTiktokModule, PodProductModule, ScheduleModule.forRoot()],
-  controllers: [PodTemplateController, PodListingController, PodListingJobController],
+  controllers: [
+    PodTemplateController,
+    PodListingController,
+    PodListingJobController,
+    // Nhân bản sản phẩm (POST /pod/products/:id/clone) — tạo Listing Job type CLONE.
+    PodProductCloneController,
+  ],
   providers: [
     PodTemplateService,
     PodListingValidatorService,
@@ -61,6 +70,7 @@ import { PodWarehouseService } from './services/pod-warehouse.service';
     PodListingResolverService,
     PodListingPayloadService,
     PodWarehouseService,
+    PodProductCloneResolverService,
   ],
   exports: [
     // Sprint sau (Generate Draft + Bulk Publish) đọc ba thứ này và KHÔNG cần gì thêm:

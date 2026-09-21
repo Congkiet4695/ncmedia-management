@@ -1,6 +1,9 @@
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse } from '@/types/api';
+import type { PodListingJob } from '@/features/pod-listing/types';
 import type {
+  CloneProductPayload,
+  PodProductDeleteResult,
   PodProductVariantListResult,
   PodProductVariantQuery,
   PodProductDetail,
@@ -24,8 +27,9 @@ function clean<T extends Record<string, unknown>>(obj: T): Partial<T> {
 /**
  * Gọi API module Product.
  *
- * 🔴 Sprint 2 chỉ có ĐỌC + ĐỒNG BỘ: không có `create`/`update`/`delete`/`publish`.
- * Sản phẩm là bản sao từ TikTok — mọi thay đổi phải thực hiện trên Seller Center.
+ * ĐỌC + ĐỒNG BỘ + SỬA (`update`) + NGỪNG BÁN (`deactivate`) + XOÁ (`remove`) + NHÂN BẢN
+ * (`clone` — sang nhiều shop, trả về Listing Job để theo dõi tiến độ). Mọi thao tác ghi đều
+ * đi lên TikTok trước; sàn từ chối thì backend không đổi gì và trả lỗi nguyên văn.
  */
 export const podProductService = {
   async list(query: PodProductQuery): Promise<PodProductListResult> {
@@ -62,6 +66,28 @@ export const podProductService = {
    */
   async update(id: string, payload: UpdatePodProductPayload): Promise<PodProductDetail> {
     const res = await apiClient.patch<ApiResponse<PodProductDetail>>(`${BASE_PATH}/${id}`, payload);
+    return res.data.data;
+  },
+
+  /** Ngừng bán trên TikTok (Deactivate Products) rồi đồng bộ lại — trả về sản phẩm như sàn đang có. */
+  async deactivate(id: string): Promise<PodProductDetail> {
+    const res = await apiClient.post<ApiResponse<PodProductDetail>>(`${BASE_PATH}/${id}/deactivate`);
+    return res.data.data;
+  },
+
+  /** Xoá khỏi TikTok (Delete Products) rồi xoá mềm bản ghi trong hệ thống. */
+  async remove(id: string): Promise<PodProductDeleteResult> {
+    const res = await apiClient.delete<ApiResponse<PodProductDeleteResult>>(`${BASE_PATH}/${id}`);
+    return res.data.data;
+  },
+
+  /**
+   * Nhân bản một sản phẩm sang nhiều shop — trả về Listing Job (`type = CLONE`).
+   *
+   * Tiến độ / kết quả từng shop đọc qua `podListingService.job` + `jobItems` như mọi lượt khác.
+   */
+  async clone(id: string, payload: CloneProductPayload): Promise<PodListingJob> {
+    const res = await apiClient.post<ApiResponse<PodListingJob>>(`${BASE_PATH}/${id}/clone`, payload);
     return res.data.data;
   },
 

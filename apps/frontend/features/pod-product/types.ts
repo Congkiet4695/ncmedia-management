@@ -44,6 +44,8 @@ export interface PodProductListItem {
    * thị trường US. `null` = TikTok không trả về (thị trường khác, hoặc chưa đồng bộ lại).
    */
   listingQualityTier: string | null;
+  /** Shop sở hữu sản phẩm (UUID nội bộ) — dialog Nhân bản loại shop này khỏi danh sách đích. */
+  shopId: string;
   shopName: string | null;
   /** Mã shop hiển thị ở Seller Center — người vận hành đối soát bằng mã này. */
   shopCode: string | null;
@@ -155,7 +157,7 @@ export interface PodProductFilterOptions {
    * gian hàng TikTok trả về. Dropdown chọn shop dùng `connectionName`; `id` vẫn là giá trị
    * gửi lên server. Xem `shopOptionLabel`.
    */
-  shops: Array<{ id: string; name: string; connectionName: string }>;
+  shops: Array<{ id: string; name: string; connectionName: string; region?: string | null }>;
 }
 
 /** Một dòng SKU cần sửa. `tiktokSkuId` là cách TikTok biết sửa biến thể nào. */
@@ -298,4 +300,21 @@ export interface PodProductVariantQuery {
 export interface PodProductVariantListResult {
   items: PodProductVariantOption[];
   meta: { total: number; page: number; limit: number; totalPages: number };
+}
+
+/** Kết quả xoá sản phẩm — `id` để gỡ đúng dòng khỏi bảng. */
+export interface PodProductDeleteResult {
+  id: string;
+  tiktokProductId: string;
+  deletedOnTiktok: boolean;
+}
+
+/**
+ * Nhân bản MỘT sản phẩm sang NHIỀU shop.
+ *
+ * 🔴 Chỉ có danh sách shop đích. Sản phẩm nguồn nằm trên URL; `organizationId` / người gọi /
+ * shop nguồn do backend lấy từ JWT + bản ghi — client không gửi và backend không tin.
+ */
+export interface CloneProductPayload {
+  targetShopIds: string[];
 }

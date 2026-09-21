@@ -325,10 +325,35 @@ export class TiktokProductApiService {
   }
 
   /**
+   * Deactivate Products — **ngừng bán** sản phẩm (TikTok chuyển sang `SELLER_DEACTIVATED`).
+   *
+   * 🔴 Đảo ngược được bằng Activate Products (trên Seller Center hoặc API) — khác hẳn
+   * `deleteProducts`. Cùng envelope lỗi từng sản phẩm như Delete: `errors[]` liệt kê id nào
+   * TikTok từ chối và vì sao; code 0 mà `errors` không rỗng vẫn là thất bại với id đó.
+   */
+  async deactivateProducts(
+    ctx: TiktokShopContext,
+    productIds: string[],
+  ): Promise<TiktokSdkResult<{ errors?: Array<{ code?: number; message?: string }> }>> {
+    return this.sdk.execute<{ errors?: Array<{ code?: number; message?: string }> }>({
+      endpoint: 'PRODUCT_DEACTIVATE',
+      invoke: () =>
+        this.sdk.api.ProductV202309Api.ProductsDeactivatePost(
+          ctx.accessToken,
+          TIKTOK_SDK_CONTENT_TYPE,
+          ctx.shopCipher,
+          { productIds },
+        ),
+    });
+  }
+
+  /**
    * Delete Products — xoá sản phẩm khỏi shop.
    *
    * Dùng để **dọn dẹp**: draft tạo nhầm (chạy thử, job lỗi) phải xoá được từ hệ thống thay
-   * vì bắt người vận hành vào Seller Center xoá tay từng cái.
+   * vì bắt người vận hành vào Seller Center xoá tay từng cái. Từ sprint Products
+   * (Deactivate / Delete / Clone) còn là đường xoá sản phẩm THẬT từ màn hình Products —
+   * TikTok giữ sản phẩm đã xoá 30 ngày (Recover Products), không mất ngay.
    */
   async deleteProducts(
     ctx: TiktokShopContext,

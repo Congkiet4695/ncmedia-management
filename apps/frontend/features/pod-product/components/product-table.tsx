@@ -1,11 +1,12 @@
 'use client';
 
 import Link from 'next/link';
-import { ImageOff, Loader2, Package, Pencil } from 'lucide-react';
+import { Copy, ImageOff, Loader2, MoreHorizontal, Package, PauseCircle, Pencil, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
+import { DropdownMenu, DropdownMenuItem, DropdownMenuSeparator } from '@/components/ui/dropdown-menu';
 import { Tooltip } from '@/components/ui/tooltip';
 import {
   Table,
@@ -44,6 +45,14 @@ interface ProductTableProps {
    * bấm một nút chắc chắn bị từ chối.
    */
   onEdit?: (productId: string) => void;
+  /**
+   * Ba hành động mới của sprint Products — mỗi cái bỏ trống ⇒ ẩn mục tương ứng trong menu.
+   * Trang cha quyết theo quyền `pod.product.deactivate` / `pod.product.delete` /
+   * `pod.product.clone`; backend kiểm lại ở mỗi request.
+   */
+  onDeactivate?: (product: PodProductListItem) => void;
+  onDelete?: (product: PodProductListItem) => void;
+  onClone?: (product: PodProductListItem) => void;
 }
 
 /** Số ảnh phụ hiển thị cạnh ảnh chính. Vượt quá ⇒ gộp vào chỉ báo `+N`. */
@@ -67,6 +76,9 @@ export function ProductTable({
   onSelectionChange,
   onOpenImages,
   onEdit,
+  onDeactivate,
+  onDelete,
+  onClone,
 }: ProductTableProps) {
   const { t } = useTranslation(['pod', 'common']);
   const { formatDateTime, formatNumber } = useLocaleFormat();
@@ -191,17 +203,54 @@ export function ProductTable({
             </TableCell>
 
             <TableCell className="align-top">
-              <div className="flex flex-col gap-1.5">
+              <div className="flex items-center gap-1">
                 <Button asChild variant="outline" size="sm">
                   <Link href={`/dashboard/pod/products/${product.id}`}>
                     {t('common:action.viewDetail')}
                   </Link>
                 </Button>
-                {onEdit && (
-                  <Button variant="outline" size="sm" onClick={() => onEdit(product.id)}>
-                    <Pencil className="size-3.5" />
-                    {t('common:action.edit')}
-                  </Button>
+                {/* Menu chỉ hiện khi có ít nhất một hành động được phép — không mời người
+                    dùng mở một menu rỗng. */}
+                {(onEdit || onClone || onDeactivate || onDelete) && (
+                  <DropdownMenu
+                    trigger={
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="size-9"
+                        aria-label={t('products.actions.menu')}
+                        title={t('products.actions.menu')}
+                      >
+                        <MoreHorizontal className="size-4" />
+                      </Button>
+                    }
+                  >
+                    {onEdit && (
+                      <DropdownMenuItem onSelect={() => onEdit(product.id)}>
+                        <Pencil className="size-4" />
+                        {t('common:action.edit')}
+                      </DropdownMenuItem>
+                    )}
+                    {onClone && (
+                      <DropdownMenuItem onSelect={() => onClone(product)}>
+                        <Copy className="size-4" />
+                        {t('products.actions.clone')}
+                      </DropdownMenuItem>
+                    )}
+                    {(onDeactivate || onDelete) && (onEdit || onClone) && <DropdownMenuSeparator />}
+                    {onDeactivate && (
+                      <DropdownMenuItem onSelect={() => onDeactivate(product)}>
+                        <PauseCircle className="size-4" />
+                        {t('products.actions.deactivate')}
+                      </DropdownMenuItem>
+                    )}
+                    {onDelete && (
+                      <DropdownMenuItem destructive onSelect={() => onDelete(product)}>
+                        <Trash2 className="size-4" />
+                        {t('products.actions.delete')}
+                      </DropdownMenuItem>
+                    )}
+                  </DropdownMenu>
                 )}
               </div>
             </TableCell>

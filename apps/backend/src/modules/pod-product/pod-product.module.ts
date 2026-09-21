@@ -11,6 +11,7 @@ import { PodProductSyncRepository } from './repositories/pod-product-sync.reposi
 import { PodProductSyncJob } from './schedulers/pod-product-sync.job';
 import { PodProductCatalogService } from './services/pod-product-catalog.service';
 import { PodProductEditService } from './services/pod-product-edit.service';
+import { PodProductLifecycleService } from './services/pod-product-lifecycle.service';
 import { PodDescriptionImageService } from './services/pod-description-image.service';
 import { PodProductMediaService } from './services/pod-product-media.service';
 import { PodProductService } from './services/pod-product.service';
@@ -23,8 +24,9 @@ import { PodProductSyncService } from './services/pod-product-sync.service';
  * Phạm vi: ĐỌC + ĐỒNG BỘ + **SỬA** sản phẩm đã có trên sàn.
  *
  * 🔴 Ghi chú "chỉ đọc" của Sprint 2 đã HẾT hiệu lực: `PodProductEditService` gọi Partial Edit
- * Product trên shop thật (quyền `pod.product.update`). Vẫn KHÔNG có tạo mới / xoá / publish —
- * tạo sản phẩm là việc của module Listing.
+ * Product trên shop thật (`pod.product.update`); `PodProductLifecycleService` ngừng bán / xoá
+ * trên sàn (`pod.product.deactivate` / `pod.product.delete`). Vẫn KHÔNG có tạo mới ở đây —
+ * nhân bản sản phẩm sang shop khác là việc của module Listing (`PodProductCloneController`).
  *
  * Phụ thuộc (một chiều):
  *  - `TikTokSdkModule` (@Global) — cửa duy nhất ra SDK TikTok.
@@ -43,6 +45,7 @@ import { PodProductSyncService } from './services/pod-product-sync.service';
     PodProductSyncQueue,
     PodProductCatalogService,
     PodProductEditService,
+    PodProductLifecycleService,
     PodProductMediaService,
     PodDescriptionImageService,
     PodProductRepository,

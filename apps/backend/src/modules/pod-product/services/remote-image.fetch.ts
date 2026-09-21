@@ -72,3 +72,44 @@ export function assertPublicHttpUrl(raw: string, label: string): URL {
   }
   return url;
 }
+
+/** Trần dung lượng video tải về từ URL ngoài — bằng trần TikTok nhận cho video sản phẩm. */
+export const POD_VIDEO_FETCH_MAX_BYTES = 100 * 1024 * 1024;
+
+/**
+ * Tải VIDEO từ URL ngoài (video của sản phẩm nguồn khi nhân bản sang shop khác).
+ *
+ * Cùng hàng rào SSRF với `fetchRemoteImage`; khác ở content-type (`video/*`) và trần dung
+ * lượng. Timeout dài hơn ảnh vì file lớn hơn nhiều lần.
+ */
+export async function fetchRemoteVideo(url: string, label: string): Promise<FetchedImage> {
+  const target = assertPublicHttpUrl(url, label);
+
+  const response = await fetch(target, {
+    redirect: 'follow',
+    signal: AbortSignal.timeout(POD_IMAGE_FETCH_TIMEOUT_MS * 4),
+  }).catch((error: unknown) => {
+    throw new Error(
+      `Không tải được video ${label} (${target.hostname}): ${
+        error instanceof Error ? error.message : 'lỗi mạng'
+      }`,
+    );
+  });
+
+  if (!response.ok) {
+    throw new Error(`Không tải được video ${label}: máy chủ trả về ${response.status}`);
+  }
+
+  const contentType = response.headers.get('content-type')?.split(';')[0]?.trim() ?? '';
+  if (!contentType.startsWith('video/') && contentType !== 'application/octet-stream') {
+    throw new Error(`URL video ${label} trả về "${contentType || 'không rõ'}", không phải video.`);
+  }
+
+  const buffer = Buffer.from(await response.arrayBuffer());
+  if (buffer.byteLength > POD_VIDEO_FETCH_MAX_BYTES) {
+    throw new Error(`Video ${label} nặng hơn giới hạn ${POD_VIDEO_FETCH_MAX_BYTES} byte.`);
+  }
+
+  const fileName = decodeURIComponent(target.pathname.split('/').pop() || 'video.mp4') || 'video.mp4';
+  return { buffer, fileName: fileName.includes('.') ? fileName : `${fileName}.mp4`, contentType };
+}

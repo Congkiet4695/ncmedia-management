@@ -48,6 +48,8 @@ export class PodProductResponseMapper {
       currency: row.currency,
       sellerSku: row.variants[0]?.sellerSku ?? null,
       listingQualityTier: row.listingQualityTier,
+      // `shopId` để màn hình Nhân bản loại đúng shop NGUỒN khỏi danh sách shop đích.
+      shopId: row.shopId,
       shopName: row.shop?.name ?? null,
       shopCode: row.shop?.shopCode ?? null,
       accountName: row.account?.accountName ?? null,

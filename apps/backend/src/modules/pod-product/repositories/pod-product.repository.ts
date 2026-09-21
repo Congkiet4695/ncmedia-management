@@ -315,6 +315,36 @@ export class PodProductRepository {
    * Chạy ở MỌI phạm vi đồng bộ: có mặt trong danh sách ACTIVATE nghĩa là đang bán, bất kể
    * lượt quét là FULL hay INCREMENTAL. Một câu `updateMany` cho cả lô.
    */
+  /**
+   * Đánh dấu **ngừng bán** MỘT sản phẩm ngay sau khi TikTok đã nhận Deactivate Products.
+   *
+   * 🔴 Gọi SAU lượt đồng bộ lại sản phẩm: `upsertAggregate` / `reactivateSeen` luôn xoá
+   * `deactivatedAt` (chúng coi "TikTok còn trả về sản phẩm" là "đang bán"), nên nếu đặt dấu
+   * trước lúc đồng bộ thì dấu bị xoá mất. Cột `status` giữ đúng chuỗi sàn trả về
+   * (`SELLER_DEACTIVATED`) — không bịa giá trị.
+   */
+  async markDeactivated(organizationId: string, id: string, actorUserId: string): Promise<void> {
+    await this.prisma.podProduct.updateMany({
+      where: { id, organizationId, deletedAt: null },
+      data: { deactivatedAt: new Date(), updatedBy: actorUserId },
+    });
+  }
+
+  /**
+   * **Xoá mềm** một sản phẩm sau khi TikTok đã nhận Delete Products.
+   *
+   * 🔴 KHÔNG xoá cứng — cùng lý do với `deactivateMissing`: `pod_product_mappings`, Draft
+   * Listing, Listing Job Item và đơn hàng cũ còn trỏ vào bản ghi này. Biến thể / ảnh / thuộc
+   * tính đi theo `onDelete: Cascade` nên KHÔNG đụng tới; `deletedAt` ở bản ghi cha là đủ để
+   * mọi truy vấn màn hình (`deletedAt: null`) bỏ qua cả cụm.
+   */
+  async softDelete(organizationId: string, id: string, actorUserId: string): Promise<void> {
+    await this.prisma.podProduct.updateMany({
+      where: { id, organizationId, deletedAt: null },
+      data: { deletedAt: new Date(), updatedBy: actorUserId },
+    });
+  }
+
   async reactivateSeen(
     organizationId: string,
     shopId: string,

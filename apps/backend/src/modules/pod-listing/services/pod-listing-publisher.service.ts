@@ -7,7 +7,7 @@ import { PodTiktokTokenService } from '../../pod-tiktok/services/pod-tiktok-toke
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
 import { StorageService } from '../../storage/storage.service';
 import { PodDescriptionImageService } from '../../pod-product/services/pod-description-image.service';
-import { fetchRemoteImage } from '../../pod-product/services/remote-image.fetch';
+import { fetchRemoteImage, fetchRemoteVideo } from '../../pod-product/services/remote-image.fetch';
 import { extractDescriptionImages, hostnameOf } from '../../pod-product/services/description-images';
 import { TiktokProductApiService } from '../../tiktok-sdk/tiktok-product-api.service';
 import {
@@ -363,6 +363,14 @@ export class PodListingPublisherService {
     tiktokDraftId: string | null;
     imageUriCache: Map<string, Promise<string>>;
     log: ListingLogger;
+    /**
+     * Bảng size upload hỏng ⇒ HỎNG cả listing (thay vì cảnh báo rồi đăng tiếp).
+     *
+     * Mặc định `false` — giữ nguyên hành vi fail-soft của Bulk Listing / Publish. Lượt NHÂN BẢN
+     * bật cờ này: sản phẩm nguồn CÓ bảng size thì bản sao thiếu bảng size là một bản sao sai,
+     * không phải một bản sao "kém đẹp".
+     */
+    sizeChartRequired?: boolean;
   }): Promise<PublishListingOutcome> {
     const { ctx, log, imageUriCache, tiktokDraftId } = params;
 
@@ -382,6 +390,7 @@ export class PodListingPublisherService {
       payload,
       imageUriCache,
       log,
+      { sizeChartRequired: params.sizeChartRequired === true },
     );
     // Kho vẫn được quyết theo SHOP, y như lúc tạo Draft — yêu cầu sprint nói rõ: không
     // validate kho ở cổng trước, kho được resolve tại thời điểm publish.
@@ -630,8 +639,10 @@ export class PodListingPublisherService {
     payload: ResolvedListing,
     cache: Map<string, Promise<string>>,
     log: ListingLogger,
+    options: { sizeChartRequired?: boolean } = {},
   ): Promise<{
     uris: string[];
+    /** Khoá là `imageFileId` (Storage) hoặc `imageUrl` (URL ngoài — lượt nhân bản). */
     variantUris: Map<string, string>;
     /** `uri` bảng size đã upload — `null` khi không có, hoặc upload hỏng (không chặn listing). */
     sizeChartUri: string | null;
@@ -648,6 +659,15 @@ export class PodListingPublisherService {
         payload.variants
           .map((variant) => variant.imageFileId)
           .filter((fileId): fileId is string => Boolean(fileId)),
+      ),
+    ];
+    // Ảnh biến thể theo URL ngoài (nhân bản sản phẩm): chỉ những biến thể KHÔNG có file Storage.
+    const variantUrls = [
+      ...new Set(
+        payload.variants
+          .filter((variant) => !variant.imageFileId)
+          .map((variant) => variant.imageUrl)
+          .filter((url): url is string => Boolean(url)),
       ),
     ];
 
@@ -717,8 +737,8 @@ export class PodListingPublisherService {
     );
 
     const variantUris = new Map<string, string>(
-      await Promise.all(
-        variantFileIds.map(async (fileId): Promise<[string, string]> => [
+      await Promise.all([
+        ...variantFileIds.map(async (fileId): Promise<[string, string]> => [
           fileId,
           await uriOf({ fileId }, 'ảnh biến thể', (uri) =>
             this.prisma.podSkuTemplateItem.updateMany({
@@ -727,7 +747,13 @@ export class PodListingPublisherService {
             }),
           ),
         ]),
-      ),
+        // URL ngoài không có bảng nào để ghi ngược `uri` — cache của lượt job là đủ: một ảnh
+        // biến thể của sản phẩm nguồn chỉ upload một lần cho cả N shop đích.
+        ...variantUrls.map(async (url): Promise<[string, string]> => [
+          url,
+          await uriOf({ url }, 'ảnh biến thể', () => Promise.resolve()),
+        ]),
+      ]),
     );
 
     /**
@@ -750,6 +776,13 @@ export class PodListingPublisherService {
           }),
         TIKTOK_IMAGE_USE_CASE.SIZE_CHART_IMAGE,
       ).catch(async (error: unknown) => {
+        // 🔴 Lượt NHÂN BẢN: sản phẩm nguồn có bảng size thì bản sao PHẢI có — hỏng là hỏng
+        // cả item, với lý do rõ ràng, không báo thành công giả.
+        if (options.sizeChartRequired) {
+          throw new PodPublishPayloadException(
+            `Không tải được bảng size lên TikTok: ${error instanceof Error ? error.message : String(error)}`,
+          );
+        }
         // 🔴 Bảng size hỏng KHÔNG được làm hỏng cả listing: nó là thông tin phụ trợ, còn
         // sản phẩm thì vẫn đăng được. Ghi cảnh báo rồi đi tiếp.
         await log(
@@ -778,8 +811,15 @@ export class PodListingPublisherService {
      * phẩm không bán được. Hỏng thì cảnh báo và đăng tiếp.
      */
     let videoId: string | null = null;
-    if (payload.video?.fileId) {
-      const key = `VIDEO:${payload.video.fileId}`;
+    // Hai nguồn: file trong Storage (nhập tay) hoặc URL ngoài (video của sản phẩm nguồn khi
+    // nhân bản). Cùng một cache của lượt job, cùng fail-soft.
+    const videoSource = payload.video?.fileId
+      ? { key: `VIDEO:${payload.video.fileId}`, fileId: payload.video.fileId, url: null }
+      : payload.video?.url
+        ? { key: `VIDEO:${payload.video.url}`, fileId: null, url: payload.video.url }
+        : null;
+    if (videoSource) {
+      const key = videoSource.key;
       try {
         const pending = cache.get(key);
         if (pending) {
@@ -787,7 +827,9 @@ export class PodListingPublisherService {
           reused += 1;
         } else {
           uploaded += 1;
-          const promise = this.uploadVideo(organizationId, ctx, payload.video.fileId);
+          const promise = videoSource.fileId
+            ? this.uploadVideo(organizationId, ctx, videoSource.fileId)
+            : this.uploadRemoteVideo(ctx, videoSource.url ?? '');
           cache.set(key, promise);
           try {
             videoId = await promise;
@@ -941,6 +983,17 @@ export class PodListingPublisherService {
     return data.id;
   }
 
+  /** Video của sản phẩm nguồn (URL TikTok CDN) → tải về → Upload Product File → **ID** mới. */
+  private async uploadRemoteVideo(ctx: TiktokShopContext, url: string): Promise<string> {
+    const file = await fetchRemoteVideo(url, 'sản phẩm nguồn');
+    const { data } = await this.productApi.uploadFile(ctx, {
+      buffer: file.buffer,
+      fileName: file.fileName,
+    });
+    if (!data.id) throw new Error('TikTok không trả về id cho video');
+    return data.id;
+  }
+
   private async readStorageFile(
     organizationId: string,
     fileId: string,
@@ -1038,7 +1091,11 @@ export class PodListingPublisherService {
     }
     // Ảnh biến thể gắn vào TRỤC ĐẦU TIÊN (thường là Color) — TikTok chỉ hiển thị ảnh của
     // một trục, gắn vào cả hai trục là ảnh nhảy loạn khi người mua đổi size.
-    const variantUri = variant.imageFileId ? uriByFileId.get(variant.imageFileId) : undefined;
+    const variantUri = variant.imageFileId
+      ? uriByFileId.get(variant.imageFileId)
+      : variant.imageUrl
+        ? uriByFileId.get(variant.imageUrl)
+        : undefined;
 
     return {
       sellerSku: variant.sellerSku,

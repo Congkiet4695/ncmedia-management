@@ -148,12 +148,17 @@ describe('Quyền mặc định của Role EMPLOYEE', () => {
     expect(EMPLOYEE_DEFAULT_PERMISSIONS).toContain('pod.listing.publish');
   });
 
-  it('🔴 CÓ `pod.product.update` — sửa hàng của shop mình, KHÔNG có quyền xoá', () => {
+  it('🔴 CÓ `pod.product.update` / `deactivate` / `delete` / `clone` — thao tác hàng của shop mình', () => {
     // Đổi so với trước: Seller nay sửa được sản phẩm đang bán trên shop được gán. Cùng lý do
     // đã trao `pod.listing.publish` — người đã được đưa hàng MỚI lên sàn thì giữ lại quyền
     // sửa một con số giá không bảo vệ được gì. Phạm vi vẫn bị `assertShopAllowed` chặn, và
     // shop được lấy từ CHÍNH bản ghi sản phẩm chứ không phải từ request.
     expect(EMPLOYEE_DEFAULT_PERMISSIONS).toContain('pod.product.update');
-    expect(EMPLOYEE_DEFAULT_PERMISSIONS).not.toContain('pod.product.delete');
+    // Sprint Products (Deactivate / Delete / Clone): ba quyền cùng mức tin cậy với `update` —
+    // đều lấy shop từ CHÍNH bản ghi sản phẩm (và từng shop đích khi nhân bản) rồi
+    // `assertShopAllowed`, nên Seller không chạm được hàng của shop chưa được gán.
+    expect(EMPLOYEE_DEFAULT_PERMISSIONS).toContain('pod.product.deactivate');
+    expect(EMPLOYEE_DEFAULT_PERMISSIONS).toContain('pod.product.delete');
+    expect(EMPLOYEE_DEFAULT_PERMISSIONS).toContain('pod.product.clone');
   });
 });

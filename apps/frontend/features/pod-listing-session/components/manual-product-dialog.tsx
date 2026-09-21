@@ -12,7 +12,7 @@ import { Modal } from '@/components/ui/modal';
 import { RichTextEditor } from '@/components/ui/rich-text-editor';
 import { useApiError } from '@/hooks/use-api-error';
 import { cn } from '@/lib/utils';
-import { buildSkuCombinations, countCombinations } from '../manual-sku';
+import { buildSkuCombinations, countCombinations, reconcileSkus } from '../manual-sku';
 import { useCreateSessionProduct, useUpdateSessionProduct } from '../hooks';
 import type {
   ManualSku,
@@ -260,7 +260,14 @@ export function ManualProductDialog({
             </p>
           ) : (
             <div className="space-y-4">
-              <VariationEditor variations={variations} onChange={setVariations} />
+              {/* Đổi trục ⇒ bảng SKU đồng bộ ngay (cùng luật với form Custom Listing). */}
+              <VariationEditor
+                variations={variations}
+                onChange={(next) => {
+                  setSkus((prev) => reconcileSkus(variations, next, prev));
+                  setVariations(next);
+                }}
+              />
 
               <div className="flex flex-wrap items-center gap-3">
                 <Button variant="outline" size="sm" onClick={generateSkus}>

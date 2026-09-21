@@ -502,7 +502,7 @@ export class PodProductService {
     categories: Array<{ id: string; name: string }>;
     brands: Array<{ id: string; name: string }>;
     statuses: string[];
-    shops: Array<{ id: string; name: string; connectionName: string }>;
+    shops: Array<{ id: string; name: string; connectionName: string; region: string | null }>;
   }> {
     const [categories, brands, statuses, shops] = await Promise.all([
       // 🔴 Bộ lọc phải đi qua quan hệ `products` CÓ `organizationId`. Bảng danh mục /
@@ -536,7 +536,8 @@ export class PodProductService {
           ...(scope.allShops ? {} : { id: { in: scope.shopIds } }),
         },
         // Connection Name đi kèm để dropdown hiển thị đúng thứ người vận hành đặt tên.
-        select: { id: true, name: true, ...SHOP_CONNECTION_SELECT },
+        // `region` để bộ chọn shop đích của Nhân bản sản phẩm hiện thị trường (US/GB…).
+        select: { id: true, name: true, region: true, ...SHOP_CONNECTION_SELECT },
         orderBy: { name: 'asc' },
       }),
     ]);
@@ -556,6 +557,7 @@ export class PodProductService {
         id: shop.id,
         name: shop.name,
         connectionName: connectionNameOf(shop),
+        region: shop.region ?? null,
       })),
     };
   }

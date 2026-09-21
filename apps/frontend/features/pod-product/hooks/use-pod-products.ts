@@ -3,6 +3,7 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { podProductService } from '../services/pod-product.service';
 import type {
+  CloneProductPayload,
   PodProductQuery,
   PodProductSyncPayload,
   PodProductVariantQuery,
@@ -10,6 +11,8 @@ import type {
 } from '../types';
 
 const POD_PRODUCT_KEY = 'pod-products';
+/** Khoá cache của module Listing — cùng giá trị với `KEY` trong `use-pod-listing.ts`. */
+const POD_LISTING_KEY = 'pod-listing';
 
 export function usePodProducts(query: PodProductQuery) {
   return useQuery({
@@ -109,6 +112,52 @@ export function useResyncPodProduct() {
     onSuccess: (product) => {
       queryClient.setQueryData([POD_PRODUCT_KEY, 'detail', product.id], product);
       void queryClient.invalidateQueries({ queryKey: [POD_PRODUCT_KEY, 'list'] });
+    },
+  });
+}
+
+/**
+ * Ngừng bán một sản phẩm trên sàn.
+ *
+ * Thành công ⇒ ghi kết quả vào cache chi tiết và làm mới danh sách + bộ lọc: sản phẩm rời
+ * khỏi danh sách đang bán (mặc định chỉ hiện ACTIVATE), dropdown trạng thái có thể đổi.
+ */
+export function useDeactivatePodProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => podProductService.deactivate(id),
+    onSuccess: (product) => {
+      queryClient.setQueryData([POD_PRODUCT_KEY, 'detail', product.id], product);
+      void queryClient.invalidateQueries({ queryKey: [POD_PRODUCT_KEY] });
+    },
+  });
+}
+
+/** Xoá sản phẩm (TikTok + xoá mềm) — gỡ khỏi cache chi tiết, làm mới danh sách. */
+export function useDeletePodProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (id: string) => podProductService.remove(id),
+    onSuccess: (result) => {
+      queryClient.removeQueries({ queryKey: [POD_PRODUCT_KEY, 'detail', result.id] });
+      void queryClient.invalidateQueries({ queryKey: [POD_PRODUCT_KEY] });
+    },
+  });
+}
+
+/**
+ * Nhân bản sang nhiều shop — tạo Listing Job rồi để modal theo dõi bằng `useListingJob`.
+ *
+ * Làm mới cache Listing (job vừa xuất hiện ở Publish History / Draft Listing). Danh sách sản
+ * phẩm CHƯA đổi ngay: sản phẩm mới chỉ về sau lượt đồng bộ được hẹn — modal kết quả nói rõ.
+ */
+export function useClonePodProduct() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: CloneProductPayload }) =>
+      podProductService.clone(id, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [POD_LISTING_KEY] });
     },
   });
 }

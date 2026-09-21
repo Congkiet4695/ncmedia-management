@@ -5,7 +5,6 @@ import { Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { DataPagination } from '@/components/ui/data-pagination';
-import { Button } from '@/components/ui/button';
 import { Modal } from '@/components/ui/modal';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { usePodProductSyncHistory } from '../hooks/use-pod-products';

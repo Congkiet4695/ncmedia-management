@@ -66,9 +66,14 @@ export function usePodTemplates<T>(
   });
 }
 
+/** Khoá cache bản chi tiết một template — để nơi khác nạp trước (`fetchQuery`) rồi hook dùng lại. */
+export function podTemplateDetailKey(kind: PodTemplateKind, id: string | undefined) {
+  return [KEY, kind, 'detail', id] as const;
+}
+
 export function usePodTemplate<T>(kind: PodTemplateKind, id?: string) {
   return useQuery({
-    queryKey: [KEY, kind, 'detail', id],
+    queryKey: podTemplateDetailKey(kind, id),
     queryFn: () => TEMPLATE_SERVICES[kind].get(id as string) as Promise<T>,
     enabled: Boolean(id),
   });

@@ -94,6 +94,7 @@ export class PodProductListItemDto {
   })
   listingQualityTier!: string | null;
 
+  @ApiProperty({ format: 'uuid', description: 'Shop sở hữu sản phẩm (UUID nội bộ)' }) shopId!: string;
   @ApiProperty({ nullable: true, type: String }) shopName!: string | null;
   @ApiProperty({
     nullable: true,

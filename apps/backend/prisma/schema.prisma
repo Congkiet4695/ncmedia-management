@@ -5077,6 +5077,10 @@ enum PodListingJobType {
   CREATE_DRAFT
   /// Đưa Draft đã có sẵn vào hàng chờ duyệt (`save_mode = LISTING`) — Sprint 5.
   PUBLISH
+  /// **Nhân bản** MỘT sản phẩm đã đồng bộ sang NHIỀU shop: mỗi item = (sản phẩm nguồn ×
+  /// shop đích), nội dung giải từ chính sản phẩm (không qua template), gửi Create Product
+  /// `save_mode = LISTING`. Cùng hàng đợi / retry / log với hai loại trên.
+  CLONE
 
   @@map("pod_listing_job_type")
 }

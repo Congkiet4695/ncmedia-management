@@ -128,6 +128,13 @@ const PERMISSIONS: Array<{
   // Sua san pham DANG BAN tren shop that (Partial Edit Product). Tach khoi `sync` vi day la
   // quyen GHI len san, khong phai quyen doc ve.
   { code: 'pod.product.update',        module: 'POD_TIKTOK', resource: 'pod.product',       action: 'update', description: 'Sua san pham tren TikTok Shop (tieu de, mo ta, gia, ton kho...)' },
+  // Ngung ban / xoa san pham TREN SAN (Deactivate Products / Delete Products) roi moi ghi DB.
+  // Tach rieng: deactivate dao nguoc duoc (Activate), delete thi khong — moi quyen mot hanh dong.
+  { code: 'pod.product.deactivate',    module: 'POD_TIKTOK', resource: 'pod.product',       action: 'deactivate', description: 'Ngung ban (deactivate) san pham tren TikTok Shop' },
+  { code: 'pod.product.delete',        module: 'POD_TIKTOK', resource: 'pod.product',       action: 'delete', description: 'Xoa san pham khoi TikTok Shop va xoa mem khoi he thong' },
+  // Nhan ban MOT san pham sang NHIEU shop: tao san pham moi tren tung shop dich (Create Product,
+  // save_mode = LISTING) qua Bulk Listing Engine — la hanh dong DUA HANG LEN SAN nhu pod.listing.publish.
+  { code: 'pod.product.clone',         module: 'POD_TIKTOK', resource: 'pod.product',       action: 'clone',  description: 'Nhan ban san pham sang nhieu TikTok Shop (dang len tung shop dich)' },
 
   { code: 'pod.template.read',         module: 'POD_TIKTOK', resource: 'pod.template',      action: 'read',   description: 'Xem Listing Template va cac template thanh phan' },
   { code: 'pod.template.write',        module: 'POD_TIKTOK', resource: 'pod.template',      action: 'write',  description: 'Tao/sua/xoa Listing Template va cac template thanh phan' },

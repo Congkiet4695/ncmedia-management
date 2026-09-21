@@ -2,7 +2,9 @@ import type {
   PodCategoryTemplate,
   PodImageTemplate,
   PodSkuTemplate,
+  PodSkuTemplateItem,
 } from '@/features/pod-listing/types';
+import { combinationKey, suggestSellerSku, type SkuBuildOptions } from './manual-sku';
 import type { ManualSku, ManualVariation, SessionImageInput } from './types';
 
 /**
@@ -97,14 +99,58 @@ export function applyCategoryTemplate(template: PodCategoryTemplate): CategoryTe
 }
 
 /**
+ * Dữ liệu SKU Template dùng làm NGUỒN cho bảng SKU của form: tiền tố / hậu tố mã và hàm tra
+ * dữ liệu của một tổ hợp (Seller SKU · giá bán · giá gạch · tồn · ảnh · barcode).
+ *
+ * 🔴 Tra theo **khoá tổ hợp** (`Color=Black|Size=S`) dựng từ bảng nối `items[].values` của
+ * template — không theo chỉ số dòng, không tách chuỗi `variantName`: template đổi thứ tự trục
+ * hay đổi thứ tự SKU thì giá vẫn về đúng tổ hợp. Chỉ khi bản ghi cũ không có bảng nối mới
+ * rơi về tách `variantName` theo thứ tự trục.
+ *
+ * 🔴 Ưu tiên **giá trị của TỪNG SKU** (giá hiệu lực server đã tính, tồn, mã) rồi mới tới
+ * **giá trị mặc định** của template (`defaultSalePrice` / `defaultRetailPrice` /
+ * `defaultQuantity`) — đúng thứ tự engine dùng lúc đăng (`resolveVariants`).
+ */
+export function skuTemplateSeed(template: PodSkuTemplate): SkuBuildOptions {
+  const axisNames = [...template.variants]
+    .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
+    .map((variant) => variant.name.trim())
+    .filter(Boolean);
+
+  const byKey = new Map<string, Partial<ManualSku>>();
+  for (const item of template.items ?? []) {
+    // Tổ hợp tắt trong template = người dựng cố ý không bán ⇒ không có dữ liệu để mang sang.
+    if (item.isActive === false) continue;
+    const optionValues = itemOptionValues(item, axisNames);
+    if (optionValues.length === 0) continue;
+    const key = combinationKey(optionValues);
+    if (!byKey.has(key)) byKey.set(key, itemToSkuData(item, template));
+  }
+
+  const fallback: Partial<ManualSku> = {
+    ...defaultPrices(template),
+    quantity: template.defaultQuantity,
+  };
+
+  return {
+    skuPrefix: template.skuPrefix,
+    skuSuffix: template.skuSuffix,
+    seed: (optionValues) => byKey.get(combinationKey(optionValues)) ?? fallback,
+  };
+}
+
+/**
  * SKU Template → trục biến thể + bảng SKU.
  *
- * 🔴 Ưu tiên `items` (tổ hợp template đã SINH và người dựng đã điền giá) hơn là sinh lại từ
- * `variants`: template thường có bảng giá khai tay cho từng tổ hợp, sinh lại sẽ vứt hết.
- * Chỉ khi template chưa sinh tổ hợp nào thì mới trả trục để form tự sinh.
+ * Trục lấy từ `variants` (đúng thứ tự người dựng). Bảng SKU = **đúng các tổ hợp template đã
+ * sinh và đang bật** (`items`), mỗi dòng mang Seller SKU / giá bán / giá gạch / tồn / ảnh của
+ * chính tổ hợp đó — không sinh lại từ trục, không chỉ chép tên giá trị.
  *
- * `effectiveSalePrice` là con số SERVER sẽ gửi TikTok (đã tính cả quy tắc lệch giá), nên nó
- * mới là giá đúng để điền vào ô — không phải `salePrice` thô.
+ * 🔴 Tổ hợp mà template đã sinh nhưng giá trị không còn trên trục (template đang "cũ" — trục
+ * đã sửa sau lần Tạo SKU) thì bị bỏ: form không được có dòng SKU không tồn tại trong bộ trục.
+ *
+ * Template chưa sinh tổ hợp nào ⇒ chỉ trả trục; người dùng bấm "Tạo SKU" (có cảnh báo khi
+ * tổ hợp quá lớn) và dòng mới sẽ lấy giá trị mặc định của template qua `skuTemplateSeed`.
  */
 export function applySkuTemplate(template: PodSkuTemplate): {
   variations: ManualVariation[];
@@ -113,37 +159,135 @@ export function applySkuTemplate(template: PodSkuTemplate): {
   const variations: ManualVariation[] = [...template.variants]
     .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
     .map((variant) => ({
-      name: variant.name,
+      name: variant.name.trim(),
       values: [...variant.values]
         .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
-        .map((value) => value.value)
-        .filter((value) => value.trim() !== ''),
+        .map((value) => value.value.trim())
+        .filter((value) => value !== ''),
     }))
-    .filter((variation) => variation.name.trim() !== '' && variation.values.length > 0);
+    .filter((variation) => variation.name !== '' && variation.values.length > 0);
 
-  const items = template.items ?? [];
+  const items = (template.items ?? []).filter((item) => item.isActive !== false);
   if (items.length === 0) return { variations, skus: [] };
 
   const axisNames = variations.map((variation) => variation.name);
+  const axisValues = new Map(variations.map((variation) => [variation.name, new Set(variation.values)]));
+  const options = skuTemplateSeed(template);
+  const seen = new Set<string>();
+  const skus: ManualSku[] = [];
 
-  const skus: ManualSku[] = items.map((item) => {
-    // `variantName` của template là "Black / S" — tách ngược theo đúng thứ tự trục.
-    const parts = item.variantName.split('/').map((part) => part.trim());
-    const optionValues = parts
-      .map((value, index) => ({ name: axisNames[index] ?? `Option ${index + 1}`, value }))
-      .filter((option) => option.value !== '');
+  for (const item of items) {
+    const optionValues = itemOptionValues(item, axisNames);
+    // Đủ trục và mọi giá trị còn trên trục — không thì đó là dòng mồ côi.
+    const complete =
+      optionValues.length === axisNames.length &&
+      optionValues.every((option) => axisValues.get(option.name)?.has(option.value));
+    if (!complete) continue;
+    const key = combinationKey(optionValues);
+    if (seen.has(key)) continue;
+    seen.add(key);
 
-    return {
-      sellerSku: item.skuCode ?? item.variantName.replace(/[^A-Za-z0-9]+/g, '-').toUpperCase(),
+    const data = itemToSkuData(item, template);
+    skus.push({
+      sellerSku: data.sellerSku?.trim() || suggestSellerSku(optionValues, options),
       optionValues,
-      salePrice: item.effectiveSalePrice ?? item.salePrice ?? '',
-      retailPrice: item.retailPrice ?? '',
-      quantity: item.quantity,
-      ...(item.barcode ? { barcode: item.barcode } : {}),
-    };
+      salePrice: data.salePrice ?? '',
+      retailPrice: data.retailPrice ?? '',
+      quantity: data.quantity ?? 0,
+      ...(data.imageFileId ? { imageFileId: data.imageFileId } : {}),
+      ...(data.barcode ? { barcode: data.barcode } : {}),
+    });
+  }
+
+  // Sắp theo thứ tự trục / giá trị (tích Descartes) — bảng hiển thị theo bộ trục, không theo
+  // thứ tự dòng của template (có thể đã bị xáo bởi Bulk Update / import).
+  const position = (option: { name: string; value: string }) =>
+    variations.find((variation) => variation.name === option.name)?.values.indexOf(option.value) ?? 0;
+  skus.sort((left, right) => {
+    for (let index = 0; index < axisNames.length; index += 1) {
+      const diff = position(left.optionValues[index]) - position(right.optionValues[index]);
+      if (diff !== 0) return diff;
+    }
+    return 0;
   });
 
   return { variations, skus };
+}
+
+/**
+ * Trục / giá trị của một tổ hợp template, theo đúng thứ tự trục.
+ *
+ * Nguồn 1 — bảng nối `values[]` (`variantValue.variant.name` + `variantValue.value`): chính
+ * xác tuyệt đối. Nguồn 2 — tách `variantName` ("Black / S") theo thứ tự trục: chỉ cho bản ghi
+ * cũ không có bảng nối.
+ */
+function itemOptionValues(
+  item: PodSkuTemplateItem,
+  axisNames: string[],
+): ManualSku['optionValues'] {
+  const links = (item.values ?? [])
+    .map((link) => ({
+      name: link.variantValue.variant.name.trim(),
+      value: link.variantValue.value.trim(),
+    }))
+    .filter((option) => option.name !== '' && option.value !== '');
+
+  if (links.length > 0) {
+    const byAxis = new Map(links.map((option) => [option.name, option.value]));
+    return axisNames
+      .filter((name) => byAxis.has(name))
+      .map((name) => ({ name, value: byAxis.get(name) as string }));
+  }
+
+  return item.variantName
+    .split('/')
+    .map((part) => part.trim())
+    .map((value, index) => ({ name: axisNames[index] ?? `Option ${index + 1}`, value }))
+    .filter((option) => option.value !== '');
+}
+
+/**
+ * Dữ liệu SKU-level của một tổ hợp, đã rơi về mặc định template ở trường trống.
+ *
+ * Giá: `effectiveSalePrice` / `effectiveRetailPrice` là con số SERVER tính bằng đúng hàm
+ * engine dùng (`resolveSkuItemPrice`: giá bán khai tường minh → giá gốc trừ % → giá gốc) —
+ * dùng nó thay vì tự tính lại ở frontend. Không có (bản ghi từ API list cũ) thì đọc trường
+ * thô. Vẫn trống ⇒ mặc định template. Tồn: `quantity` của tổ hợp, `0` (chưa đặt) ⇒ mặc định.
+ */
+function itemToSkuData(item: PodSkuTemplateItem, template: PodSkuTemplate): Partial<ManualSku> {
+  const hasEffective = item.effectiveSalePrice !== undefined;
+  let salePrice = hasEffective ? item.effectiveSalePrice : item.salePrice;
+  let retailPrice = hasEffective ? item.effectiveRetailPrice : item.retailPrice;
+  if (!usable(salePrice)) {
+    const defaults = defaultPrices(template);
+    salePrice = defaults.salePrice;
+    retailPrice = defaults.retailPrice;
+  }
+
+  return {
+    sellerSku: item.skuCode?.trim() || undefined,
+    salePrice: salePrice ?? '',
+    retailPrice: usable(retailPrice) ? (retailPrice as string) : '',
+    quantity: item.quantity > 0 ? item.quantity : template.defaultQuantity,
+    ...(item.imageFileId ? { imageFileId: item.imageFileId } : {}),
+    ...(item.barcode ? { barcode: item.barcode } : {}),
+  };
+}
+
+/**
+ * Giá mặc định của template — cùng luật engine dùng khi tổ hợp không tự khai giá
+ * (`resolveVariants`: giá bán ← `defaultSalePrice`, giá gạch ← `defaultRetailPrice`). Chỉ có
+ * giá gốc ⇒ bán đúng giá gốc, không gạch ngang.
+ */
+function defaultPrices(template: PodSkuTemplate): { salePrice: string; retailPrice: string } {
+  const sale = usable(template.defaultSalePrice) ? (template.defaultSalePrice as string) : '';
+  const retail = usable(template.defaultRetailPrice) ? (template.defaultRetailPrice as string) : '';
+  if (sale) return { salePrice: sale, retailPrice: retail && Number(retail) > Number(sale) ? retail : '' };
+  return { salePrice: retail, retailPrice: '' };
+}
+
+function usable(value: string | null | undefined): boolean {
+  return value !== null && value !== undefined && value.trim() !== '' && Number(value) > 0;
 }
 
 /**

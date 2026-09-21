@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { History, Loader2, RefreshCw, Search } from 'lucide-react';
+import { Copy, History, Loader2, PauseCircle, RefreshCw, Search, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -18,14 +18,21 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { ImageLightbox } from '@/features/pod-tiktok/components/image-lightbox';
 import { ProductSyncHistoryDialog } from '@/features/pod-product/components/product-sync-history-dialog';
 import { EditProductDialog } from '@/features/pod-product/components/edit-product-dialog';
+import { CloneProductDialog } from '@/features/pod-product/components/clone-product-dialog';
+import {
+  ProductActionConfirmDialog,
+  type ProductLifecycleAction,
+} from '@/features/pod-product/components/product-action-confirm-dialog';
 import { ProductTable } from '@/features/pod-product/components/product-table';
 import {
+  useDeactivatePodProduct,
+  useDeletePodProduct,
   usePodProductFilters,
   usePodProducts,
   useSyncPodProducts,
 } from '@/features/pod-product/hooks/use-pod-products';
 import type { ProductGalleryImage } from '@/features/pod-product/product-images';
-import type { PodProductQuery } from '@/features/pod-product/types';
+import type { PodProductListItem, PodProductQuery } from '@/features/pod-product/types';
 
 export default function PodProductsPage() {
   const { t } = useTranslation('pod');
@@ -39,9 +46,13 @@ export default function PodProductsPage() {
 /**
  * Màn hình **POD → Products**.
  *
- * Sản phẩm ở đây là bản sao đọc từ TikTok Shop. **Sửa** được thực hiện ngược lên sàn qua
- * Partial Edit Product rồi đồng bộ lại (`EditProductDialog`) — vẫn không có Tạo/Xoá: tạo
- * sản phẩm là việc của Listing, còn xoá thì làm trên Seller Center.
+ * Sản phẩm ở đây là bản sao đọc từ TikTok Shop. Mọi thao tác ghi đều đi NGƯỢC LÊN SÀN trước,
+ * sàn nhận mới đổi dữ liệu ở đây:
+ *   - **Sửa** — Partial Edit Product rồi đồng bộ lại (`EditProductDialog`).
+ *   - **Ngừng bán** / **Xoá** — Deactivate / Delete Products, có hộp xác nhận, chạy được
+ *     hàng loạt trên các dòng đã tick (tuần tự từng sản phẩm, kết quả gộp vào một toast).
+ *   - **Nhân bản sản phẩm** — ĐÚNG MỘT sản phẩm nguồn → NHIỀU shop đích (`CloneProductDialog`):
+ *     backend tạo Listing Job type CLONE, dialog theo dõi kết quả từng shop.
  */
 function PodProductsView() {
   const { t } = useTranslation(['pod', 'common']);
@@ -51,6 +62,9 @@ function PodProductsView() {
   // 🔴 Chỉ để ẩn/hiện nút. Backend kiểm lại quyền này ở MỖI request PATCH — ẩn nút không
   // phải là biện pháp bảo vệ, nó chỉ tránh mời người dùng bấm một thứ chắc chắn bị từ chối.
   const canEdit = hasPermission('pod.product.update');
+  const canDeactivate = hasPermission('pod.product.deactivate');
+  const canDelete = hasPermission('pod.product.delete');
+  const canClone = hasPermission('pod.product.clone');
 
   const [query, setQuery] = useState<PodProductQuery>({
     page: 1,
@@ -63,6 +77,15 @@ function PodProductsView() {
   const [historyOpen, setHistoryOpen] = useState(false);
   /** Sản phẩm đang mở ở màn hình sửa. `null` = đóng. */
   const [editingId, setEditingId] = useState<string | null>(null);
+  /** Hộp xác nhận Ngừng bán / Xoá — một hoặc nhiều sản phẩm. `null` = đóng. */
+  const [confirm, setConfirm] = useState<{
+    action: ProductLifecycleAction;
+    products: PodProductListItem[];
+  } | null>(null);
+  /** Tiến độ của lượt hàng loạt đang chạy — hiện trên nút xác nhận. */
+  const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
+  /** Sản phẩm NGUỒN đang mở dialog nhân bản. `null` = đóng. */
+  const [cloning, setCloning] = useState<PodProductListItem | null>(null);
   /**
    * Các dòng đang được tick ở bảng.
    *
@@ -97,6 +120,8 @@ function PodProductsView() {
   const productsQuery = usePodProducts(query);
   const filtersQuery = usePodProductFilters();
   const syncMutation = useSyncPodProducts();
+  const deactivateMutation = useDeactivatePodProduct();
+  const deleteMutation = useDeletePodProduct();
 
   const patchQuery = (patch: Partial<PodProductQuery>) =>
     setQuery((prev) => ({ ...prev, ...patch, page: patch.page ?? 1 }));
@@ -115,6 +140,8 @@ function PodProductsView() {
 
   const items = productsQuery.data?.items ?? [];
   const meta = productsQuery.data?.meta;
+  // Lựa chọn chỉ sống trong trang hiện tại (xoá khi đổi trang/bộ lọc), nên tra ngay trong `items`.
+  const selectedProducts = items.filter((product) => selectedIds.includes(product.id));
   // Xoá nốt record cuối của trang cuối ⇒ lùi về trang còn dữ liệu,
   // không để giao diện kẹt ở "Trang 3 / 2" với một cái bảng trống.
   useClampedPage(meta, (next) => setQuery((prev) => ({ ...prev, page: next })));
@@ -155,6 +182,62 @@ function PodProductsView() {
     } catch (error) {
       toast.error(t('products.sync.failed'), { description: translateApiError(error) });
     }
+  };
+
+  /**
+   * Chạy Ngừng bán / Xoá cho danh sách trong hộp xác nhận — TUẦN TỰ từng sản phẩm.
+   *
+   * 🔴 Tuần tự có chủ ý: mỗi lời gọi là một request TikTok + (với ngừng bán) một lượt đồng bộ
+   * lại; bắn 20 request song song là tự đụng rate limit. Một sản phẩm hỏng KHÔNG dừng những
+   * sản phẩm còn lại — kết quả gộp thành một toast, lỗi từng sản phẩm liệt kê trong mô tả.
+   * Sản phẩm hỏng vẫn được giữ trong lựa chọn để người dùng thử lại; sản phẩm xong thì bỏ tick.
+   */
+  const runLifecycle = async () => {
+    if (!confirm || bulkProgress) return;
+    const { action, products } = confirm;
+    const mutation = action === 'DEACTIVATE' ? deactivateMutation : deleteMutation;
+    const failures: string[] = [];
+    const succeeded: string[] = [];
+    setBulkProgress({ done: 0, total: products.length });
+
+    for (const [index, product] of products.entries()) {
+      try {
+        await mutation.mutateAsync(product.id);
+        succeeded.push(product.id);
+      } catch (error) {
+        failures.push(
+          `${product.title?.trim() || product.tiktokProductId}: ${translateApiError(error)}`,
+        );
+      }
+      setBulkProgress({ done: index + 1, total: products.length });
+    }
+
+    setBulkProgress(null);
+    setConfirm(null);
+    setSelectedIds((prev) => prev.filter((id) => !succeeded.includes(id)));
+
+    const scope = action === 'DEACTIVATE' ? 'deactivate' : 'delete';
+    if (failures.length === 0) {
+      toast.success(t(`products.${scope}.success`, { count: succeeded.length }));
+    } else if (succeeded.length === 0) {
+      toast.error(t(`products.${scope}.failed`, { count: failures.length }), {
+        description: failures.join(' | '),
+      });
+    } else {
+      toast.warning(
+        t('products.bulk.partial', { success: succeeded.length, failed: failures.length }),
+        { description: failures.join(' | ') },
+      );
+    }
+  };
+
+  /** "Nhân bản" đòi ĐÚNG MỘT sản phẩm nguồn — nhiều hơn thì báo, không đoán. */
+  const openCloneFromSelection = () => {
+    if (selectedProducts.length !== 1) {
+      toast.error(t('products.clone.onlyOne'));
+      return;
+    }
+    setCloning(selectedProducts[0]);
   };
 
   return (
@@ -261,8 +344,43 @@ function PodProductsView() {
           ) : (
             <>
               {selectedIds.length > 0 && (
-                <div className="flex items-center gap-3 rounded-md border bg-muted/40 px-3 py-2 text-sm">
-                  <span>{t('products.selection.count', { count: selectedIds.length })}</span>
+                <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2 text-sm">
+                  <span className="mr-1">{t('products.selection.count', { count: selectedIds.length })}</span>
+                  {canClone && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={openCloneFromSelection}
+                      // Vẫn bấm được khi chọn nhiều để nhận thông báo "chỉ chọn một" — nút
+                      // chết lặng không nói cho người dùng biết vì sao.
+                      title={selectedProducts.length === 1 ? undefined : t('products.clone.onlyOne')}
+                      className={selectedProducts.length === 1 ? undefined : 'opacity-60'}
+                    >
+                      <Copy className="size-3.5" />
+                      {t('products.actions.clone')}
+                    </Button>
+                  )}
+                  {canDeactivate && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setConfirm({ action: 'DEACTIVATE', products: selectedProducts })}
+                    >
+                      <PauseCircle className="size-3.5" />
+                      {t('products.actions.deactivate')}
+                    </Button>
+                  )}
+                  {canDelete && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="text-destructive hover:text-destructive"
+                      onClick={() => setConfirm({ action: 'DELETE', products: selectedProducts })}
+                    >
+                      <Trash2 className="size-3.5" />
+                      {t('products.actions.delete')}
+                    </Button>
+                  )}
                   <Button variant="ghost" size="sm" onClick={() => setSelectedIds([])}>
                     {t('products.selection.clear')}
                   </Button>
@@ -275,6 +393,15 @@ function PodProductsView() {
                 onSelectionChange={setSelectedIds}
                 onOpenImages={openLightbox}
                 onEdit={canEdit ? setEditingId : undefined}
+                onClone={canClone ? setCloning : undefined}
+                onDeactivate={
+                  canDeactivate
+                    ? (product) => setConfirm({ action: 'DEACTIVATE', products: [product] })
+                    : undefined
+                }
+                onDelete={
+                  canDelete ? (product) => setConfirm({ action: 'DELETE', products: [product] }) : undefined
+                }
               />
             </>
           )}
@@ -296,6 +423,32 @@ function PodProductsView() {
           open
           productId={editingId}
           onClose={() => setEditingId(null)}
+        />
+      )}
+
+      {confirm && (
+        <ProductActionConfirmDialog
+          open
+          action={confirm.action}
+          products={confirm.products}
+          loading={bulkProgress !== null}
+          progress={bulkProgress}
+          onConfirm={() => void runLifecycle()}
+          onClose={() => setConfirm(null)}
+        />
+      )}
+
+      {/* Gắn vào cây khi mở: dialog tự tải danh sách shop và theo dõi lượt chạy bằng polling. */}
+      {cloning && (
+        <CloneProductDialog
+          open
+          product={cloning}
+          onClose={(hadResult) => {
+            setCloning(null);
+            // Sản phẩm mới về sau lượt đồng bộ được hẹn — nhưng làm mới ngay để danh sách
+            // không giữ ảnh chụp cũ nếu đồng bộ đã kịp chạy.
+            if (hadResult) void productsQuery.refetch();
+          }}
         />
       )}
 

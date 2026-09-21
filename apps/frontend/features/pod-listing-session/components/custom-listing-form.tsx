@@ -18,7 +18,9 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { cn } from '@/lib/utils';
 import { AttributeValuePicker } from '@/features/pod-listing/components/attribute-value-picker';
 import {
+  podTemplateDetailKey,
   useCategoryAttributes,
+  usePodTemplate,
   usePodTemplates,
   useSyncedBrands,
   useSyncedCategories,
@@ -27,7 +29,8 @@ import {
 import { podListingService } from '@/features/pod-listing/services/pod-listing.service';
 import { usePodProductFilters } from '@/features/pod-product/hooks/use-pod-products';
 import { BulkSkuBar, type BulkSkuPatch } from '@/features/pod-product/components/bulk-sku-bar';
-import { buildSkuCombinations, countCombinations } from '../manual-sku';
+import { useQueryClient } from '@tanstack/react-query';
+import { buildSkuCombinations, countCombinations, reconcileSkus } from '../manual-sku';
 import {
   useCreateCustomListing,
   useListingSession,
@@ -52,6 +55,7 @@ import {
   applyCategoryTemplate,
   applyImageTemplate,
   applySkuTemplate,
+  skuTemplateSeed,
 } from '../template-apply';
 import {
   buildCustomListingPayload,
@@ -266,6 +270,25 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
   const descriptionTemplates = usePodTemplates<PodDescriptionTemplate>('descriptions', { limit: 100 });
   const skuTemplates = usePodTemplates<PodSkuTemplate>('skus', { limit: 100 });
   const imageTemplates = usePodTemplates<PodImageTemplate>('images', { limit: 100 });
+  const queryClient = useQueryClient();
+
+  /**
+   * 🔴 SKU Template ĐANG CHỌN, bản CHI TIẾT (`GET /pod/templates/skus/:id`).
+   *
+   * API danh sách chỉ trả trục (`variants`) + số đếm — KHÔNG có `items` (bảng SKU đã sinh với
+   * Seller SKU / giá / tồn / ảnh của từng tổ hợp). Áp mẫu từ bản danh sách là lý do màn hình
+   * từng chỉ chép được tên trục và giá trị. Bản chi tiết còn là NGUỒN cho dòng SKU mới sinh
+   * khi người dùng thêm giá trị biến thể sau khi áp mẫu (kể cả khi mở lại nháp).
+   */
+  const skuTemplateDetail = usePodTemplate<PodSkuTemplate>('skus', form.templates.sku || undefined);
+  const skuSeed = useMemo(
+    () => (skuTemplateDetail.data ? skuTemplateSeed(skuTemplateDetail.data) : {}),
+    [skuTemplateDetail.data],
+  );
+  // Ref để handler đổi trục (chạy trong `setForm`) luôn đọc được bản seed mới nhất mà không
+  // phải tạo lại handler ở mỗi lần template đổi.
+  const skuSeedRef = useRef(skuSeed);
+  skuSeedRef.current = skuSeed;
 
   const setTemplate = (key: keyof FormState['templates'], id: string) =>
     setForm((prev) => ({ ...prev, templates: { ...prev.templates, [key]: id } }));
@@ -317,15 +340,48 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
     toast.success(t('listing.templatePicker.applied', { name: template.name }));
   };
 
-  const handleApplySkuTemplate = (id: string) => {
-    const template = skuTemplates.data?.items.find((item) => item.id === id);
-    if (!template) return;
+  /**
+   * Áp SKU Template — tải bản CHI TIẾT rồi mới áp: trục + bảng SKU với Seller SKU / giá bán /
+   * giá gạch / tồn / ảnh của TỪNG tổ hợp (`applySkuTemplate`). Mọi ô vẫn sửa được sau khi áp.
+   *
+   * Mẫu chưa sinh tổ hợp ⇒ chỉ điền trục; người dùng bấm "Tạo SKU" (dòng mới lấy giá / tồn mặc
+   * định của mẫu qua `skuSeed`) — không tự sinh thay họ vì số tổ hợp có thể rất lớn.
+   */
+  const handleApplySkuTemplate = async (id: string) => {
+    const summary = skuTemplates.data?.items.find((item) => item.id === id);
+    let template: PodSkuTemplate;
+    try {
+      template = await queryClient.fetchQuery({
+        queryKey: podTemplateDetailKey('skus', id),
+        queryFn: () => podListingService.skuTemplates.get(id),
+        staleTime: 0,
+      });
+    } catch (error) {
+      toast.error(t('listing.templatePicker.loadFailed'), { description: translateApiError(error) });
+      return;
+    }
     const applied = applySkuTemplate(template);
-    // Mẫu đã sinh tổ hợp thì lấy nguyên bảng giá của nó; chưa sinh thì để người dùng bấm
-    // "Tạo SKU" — không tự sinh thay họ, vì số tổ hợp có thể rất lớn.
-    patch({ variations: applied.variations, skus: applied.skus });
-    toast.success(t('listing.templatePicker.applied', { name: template.name }));
+    setForm((prev) => ({
+      ...prev,
+      templates: { ...prev.templates, sku: id },
+      variations: applied.variations,
+      skus: applied.skus,
+    }));
+    toast.success(t('listing.templatePicker.applied', { name: template.name ?? summary?.name ?? '' }));
   };
+
+  /**
+   * Trục / giá trị biến thể đổi ⇒ bảng SKU đồng bộ NGAY (`reconcileSkus`): xoá giá trị là dòng
+   * tương ứng biến mất, thêm giá trị là có dòng mới (lấy dữ liệu của mẫu nếu có), dòng còn lại
+   * giữ nguyên mọi thứ đã gõ. Chưa có bảng thì vẫn chờ nút "Tạo SKU".
+   */
+  const handleVariationsChange = useCallback((variations: FormState['variations']) => {
+    setForm((prev) => ({
+      ...prev,
+      variations,
+      skus: reconcileSkus(prev.variations, variations, prev.skus, skuSeedRef.current),
+    }));
+  }, []);
 
   const handleApplyImageTemplate = (id: string) => {
     const template = imageTemplates.data?.items.find((item) => item.id === id);
@@ -359,7 +415,10 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
     }
     // `skus` hiện tại được truyền vào để giữ giá/Seller SKU người dùng đã gõ — xem
     // `buildSkuCombinations`. Bấm "Tạo SKU" lần hai KHÔNG được xoá công đã làm.
-    setForm((prev) => ({ ...prev, skus: buildSkuCombinations(prev.variations, prev.skus) }));
+    setForm((prev) => ({
+      ...prev,
+      skus: buildSkuCombinations(prev.variations, prev.skus, skuSeedRef.current),
+    }));
   };
 
   /** Cập nhật hàng loạt — cùng thanh công cụ với màn hình Sửa sản phẩm. */
@@ -918,17 +977,14 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
             error={skuTemplates.isError}
             value={form.templates.sku}
             onChange={(id) => setTemplate('sku', id)}
-            onApply={handleApplySkuTemplate}
+            onApply={(id) => void handleApplySkuTemplate(id)}
             onRefresh={() => void skuTemplates.refetch()}
             refreshing={skuTemplates.isFetching}
             confirmMessage={form.skus.length > 0 ? t('listing.templatePicker.confirmSku') : undefined}
           />
         </div>
 
-        <VariationEditor
-          variations={form.variations}
-          onChange={(variations) => patch({ variations })}
-        />
+        <VariationEditor variations={form.variations} onChange={handleVariationsChange} />
 
         <div className="my-3 flex flex-wrap items-center gap-3">
           <Button variant="outline" size="sm" onClick={generateSkus} disabled={pendingSkuCount === 0}>

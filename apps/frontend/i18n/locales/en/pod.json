@@ -721,7 +721,8 @@
       "pickItem": "Pick a product to see what was sent and what TikTok returned.",
       "type": {
         "CREATE_DRAFT": "Create draft",
-        "PUBLISH": "Publish"
+        "PUBLISH": "Publish",
+        "CLONE": "Clone product"
       }
     },
     "scope": {
@@ -1482,6 +1483,69 @@
       "viewImage": "View image {{index}} of {{total}} for {{name}}",
       "moreHint": "{{count}} more images — open the product detail page to see them all"
     },
+      "actions": {
+        "menu": "More actions",
+        "clone": "Clone product",
+        "deactivate": "Deactivate",
+        "delete": "Delete"
+      },
+      "deactivate": {
+        "title": "Deactivate product",
+        "question": "Are you sure you want to deactivate {{count}} product(s)?",
+        "confirm": "Deactivate",
+        "warning": "A Deactivate request is sent to TikTok Shop and the product stops showing to buyers. It can be re-activated from Seller Center.",
+        "relatedData": "The record is kept in the system (marked as deactivated) so Draft Listings, product mappings and past orders keep their references.",
+        "success": "Deactivated {{count}} product(s) on TikTok Shop",
+        "failed": "Could not deactivate {{count}} product(s)"
+      },
+      "delete": {
+        "title": "Delete product",
+        "question": "Are you sure you want to delete {{count}} product(s)?",
+        "confirm": "Delete product",
+        "warning": "This DELETES the product: it is removed from TikTok Shop (TikTok keeps it 30 days for recovery) and from the product list in this system.",
+        "relatedData": "Draft Listings, listing runs, product mappings and orders referencing this product are KEPT — the system only soft-deletes the record, related data is not removed.",
+        "success": "Deleted {{count}} product(s)",
+        "failed": "Could not delete {{count}} product(s)"
+      },
+      "bulk": {
+        "progress": "Processing {{done}}/{{total}}…",
+        "more": "… and {{count}} more",
+        "partial": "{{success}} succeeded, {{failed}} failed"
+      },
+      "clone": {
+        "title": "Clone product",
+        "description": "Create this product on multiple TikTok shops at once. Each shop is an independent result — one failing shop does not affect the others.",
+        "source": "Source product",
+        "targets": "Target shops",
+        "needShop": "Please select at least one shop.",
+        "onlyOne": "Please select only one product to clone.",
+        "action": "Clone product",
+        "started": "Cloning to {{count}} shop(s) has started",
+        "failed": "Could not start the clone run",
+        "publishHint": "The product is listed on each target shop (pending TikTok review). Warehouse and currency follow the target shop.",
+        "copyHint": "Copies title, description, search terms, category, brand, attributes, images (in order), size chart, video, variations/SKUs, prices, stock and package. TikTok Product ID / SKU IDs of the source shop are not copied. Shops that already have this product are skipped.",
+        "result": {
+          "running": "Cloning product…",
+          "done": "Clone completed",
+          "total": "Shops: {{count}}",
+          "success": "Success: {{count}}",
+          "skipped": "Skipped: {{count}}",
+          "failed": "Failed: {{count}}",
+          "loading": "Loading results…",
+          "detail": "Details",
+          "remoteId": "TikTok Product ID",
+          "syncHint": "New products appear in the target shop’s Products list after the scheduled sync (~5 minutes). The run can be reviewed in Publish History."
+        },
+        "status": {
+          "PENDING": "Pending",
+          "PROCESSING": "Processing",
+          "RETRYING": "Retrying",
+          "SUCCESS": "Success",
+          "FAILED": "Failed",
+          "SKIPPED": "Skipped",
+          "CANCELLED": "Cancelled"
+        }
+      },
     "edit": {
       "title": "Edit product · {{id}}",
       "loading": "Loading product…",

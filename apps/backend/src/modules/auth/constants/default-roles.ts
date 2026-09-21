@@ -97,7 +97,7 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   // TikTok Accounts: xem + TỰ LIÊN KẾT gian hàng của mình. Không unlink, không sửa.
   'pod.tiktok.account.read',
   'pod.tiktok.account.create',
-  // Products: xem + ĐỒNG BỘ + SỬA sản phẩm của shop được gán. Vẫn KHÔNG xoá.
+  // Products: xem + ĐỒNG BỘ + SỬA + NGỪNG BÁN + XOÁ + NHÂN BẢN sản phẩm của shop được gán.
   // 🔴 `pod.product.sync` chỉ an toàn vì `triggerSync` đã đi qua `PodAccessScopeService`.
   //
   // 🔴 `pod.product.update` — sửa sản phẩm ĐANG BÁN (tiêu đề, mô tả, giá, tồn kho) qua
@@ -111,6 +111,13 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   'pod.product.read',
   'pod.product.sync',
   'pod.product.update',
+  // 🔴 Ba quyền dưới cùng mức tin cậy với `pod.product.update` / `pod.listing.publish`: Seller
+  // đã được đưa hàng lên sàn và sửa hàng đang bán, thì ngừng bán / xoá / nhân bản hàng CỦA SHOP
+  // ĐƯỢC GÁN là cùng một phạm vi. Cả ba đường đều lấy shop từ CHÍNH BẢN GHI sản phẩm (và từng
+  // shop đích khi nhân bản) rồi `assertShopAllowed` — shop lạ trong request là 403.
+  'pod.product.deactivate',
+  'pod.product.delete',
+  'pod.product.clone',
   // Template: thuộc Organization, KHÔNG theo shop ⇒ toàn quyền.
   'pod.template.read',
   'pod.template.write',

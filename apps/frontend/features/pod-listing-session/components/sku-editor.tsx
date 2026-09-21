@@ -5,6 +5,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
+import { combinationKey } from '../manual-sku';
 import type { ManualSku } from '../types';
 
 /**
@@ -65,7 +66,9 @@ export function SkuEditor({
           {skus.map((sku, index) => {
             const priceInvalid = !(Number(sku.salePrice) > 0);
             return (
-              <tr key={`${sku.sellerSku}-${index}`} className="border-b last:border-0">
+              // 🔴 Khoá theo TỔ HỢP, không theo Seller SKU: khoá đổi theo từng ký tự gõ vào ô SKU là
+              // React dựng lại cả dòng và ô đang gõ mất focus.
+              <tr key={combinationKey(sku.optionValues) || String(index)} className="border-b last:border-0">
                 <td className="whitespace-nowrap px-3 py-2 font-medium">
                   {sku.optionValues.map((option) => option.value).join(' / ')}
                 </td>

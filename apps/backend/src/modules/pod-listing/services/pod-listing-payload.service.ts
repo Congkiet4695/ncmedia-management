@@ -245,6 +245,32 @@ export class PodListingPayloadService {
     return { ...saved, resolved };
   }
 
+  /**
+   * Lưu payload của lượt **NHÂN BẢN** (sản phẩm nguồn × shop đích, KHÔNG có Listing Template).
+   *
+   * Đi qua đúng `persist` của mọi Draft Listing khác: khoá ghi đè là (shop đích, sản phẩm nguồn,
+   * `listingTemplateId = NULL`) — chạy lại lượt nhân bản cho cùng cặp thì ghi đè bản cũ, không
+   * đẻ thêm bản trùng; và Draft Listing / Publish History đọc được nó như mọi listing khác.
+   */
+  saveClone(
+    organizationId: string,
+    userId: string | null,
+    params: {
+      productId: string;
+      shop: { id: string; accountId: string };
+      resolved: ResolveResult;
+    },
+  ): Promise<{ id: string; created: boolean; errorCount: number; status: PodListingPayloadStatus }> {
+    return this.persist(organizationId, userId, {
+      productId: params.productId,
+      sessionProductId: null,
+      shop: params.shop,
+      template: { id: '' },
+      imageTemplateId: null,
+      resolved: params.resolved,
+    });
+  }
+
   async list(organizationId: string, query: PodListingPayloadQueryDto, scope: PodAccessScope) {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
