@@ -3,12 +3,12 @@
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { podFlashSaleService } from './service';
 import type {
-  PodFlashSaleProductQuery,
   AddFlashSaleItemPayload,
   ApplyFlashSaleTemplatePayload,
-  BatchUpdateFlashSaleItemsPayload,
   CreateFlashSalePayload,
   DuplicateFlashSalePayload,
+  PodFlashSaleChunkProgress,
+  PodFlashSaleProductQuery,
   PodFlashSaleQuery,
   PodFlashSaleTemplateQuery,
   SaveFlashSaleTemplatePayload,
@@ -174,16 +174,29 @@ export function useUpdateFlashSaleItem() {
   );
 }
 
+/**
+ * Batch Update — chia lượt phía client (xem `batchUpdateItemsInChunks`) và báo tiến độ để
+ * hộp thoại hiện "Đang cập nhật 2.000 / 3.107 SKU…" thay vì một vòng xoay câm suốt vài giây.
+ */
 export function useBatchUpdateFlashSaleItems() {
   return useWriteMutation(
-    ({ id, payload }: { id: string; payload: BatchUpdateFlashSaleItemsPayload }) =>
-      podFlashSaleService.batchUpdateItems(id, payload),
+    ({
+      id,
+      itemIds,
+      payload,
+      onProgress,
+    }: {
+      id: string;
+      itemIds: string[];
+      payload: UpdateFlashSaleItemPayload;
+      onProgress?: (progress: PodFlashSaleChunkProgress) => void;
+    }) => podFlashSaleService.batchUpdateItemsInChunks(id, itemIds, payload, onProgress),
   );
 }
 
 export function useDeleteFlashSaleItems() {
   return useWriteMutation(({ id, itemIds }: { id: string; itemIds: string[] }) =>
-    podFlashSaleService.deleteItems(id, itemIds),
+    podFlashSaleService.deleteItemsInChunks(id, itemIds),
   );
 }
 

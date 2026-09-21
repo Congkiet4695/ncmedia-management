@@ -1,8 +1,10 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Post, Query, UseGuards } from '@nestjs/common';
 import {
+  ApiAcceptedResponse,
   ApiBearerAuth,
   ApiConflictResponse,
   ApiForbiddenResponse,
+  ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
   ApiTags,
@@ -20,7 +22,7 @@ import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import {
   MasterDataLogQueryDto,
   MasterDataStatusDto,
-  MasterDataSyncResultDto,
+  MasterDataSyncStartedDto,
   SyncMasterDataDto,
 } from './dto/pod-master-data.dto';
 import { PodMasterDataSyncService } from './services/pod-master-data-sync.service';
@@ -84,24 +86,29 @@ export class PodMasterDataController {
   }
 
   @Post('sync')
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.ACCEPTED)
   @UseGuards(JwtAuthGuard, SuperAdminGuard, PermissionsGuard)
   @RequirePermissions('platform.masterdata.sync')
   @ApiOperation({
-    summary: 'Đồng bộ TikTok Master Data toàn cục (CHỈ Super Admin)',
+    summary: 'Đồng bộ TikTok Master Data toàn cục (CHỈ Super Admin) — chạy nền',
     description:
-      'Chạy CATEGORY → BRAND → CATEGORY_ATTRIBUTE vào bộ dữ liệu dùng chung cho mọi Organization. ' +
-      'Idempotent (upsert theo id TikTok) và chỉ một lượt được chạy tại một thời điểm. ' +
-      'Lượt hỏng KHÔNG xoá dữ liệu đang có.',
+      'Nhận lượt và chạy CATEGORY → BRAND → CATEGORY_ATTRIBUTE ở nền, ghi vào bộ dữ liệu dùng chung ' +
+      'cho mọi Organization. Trả về 202 ngay kèm `jobId`; theo dõi qua `GET /status` (polling khi ' +
+      'còn RUNNING, có `progress`) và đọc kết quả ở `GET /logs?jobId=`. Quét thương hiệu là hàng ' +
+      'chục nghìn lời gọi TikTok, có thể kéo dài hàng giờ. Idempotent (upsert theo id TikTok), ' +
+      'chỉ một lượt chạy tại một thời điểm, lượt hỏng KHÔNG xoá dữ liệu đang có.',
   })
-  @ApiOkResponse({ type: MasterDataSyncResultDto })
+  @ApiAcceptedResponse({ type: MasterDataSyncStartedDto })
   @ApiConflictResponse({
     description: 'Đang có lượt đồng bộ khác chạy (POD_MASTER_DATA_SYNC_IN_PROGRESS)',
+  })
+  @ApiNotFoundResponse({
+    description: 'Không có shop TikTok nào làm nguồn được (POD_MASTER_DATA_NO_SOURCE_SHOP)',
   })
   sync(
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: SyncMasterDataDto,
-  ): Promise<MasterDataSyncResultDto> {
+  ): Promise<MasterDataSyncStartedDto> {
     // Controller chỉ điều hướng — không chứa business logic (CLAUDE.md Mục 8).
     return this.service.sync(user.userId, dto ?? {});
   }

@@ -211,6 +211,18 @@ const imageTemplate = (items: Array<Record<string, unknown>>) =>
 
 check('bộ ảnh rỗng ⇒ không lỗi', applyImageTemplate(imageTemplate([])).images, []);
 
+{
+  const { images, skipped } = applyImageTemplate(
+    imageTemplate([
+      { id: 'a', title: 'Front', fileId: 'f1', imageUrl: 'https://cdn/a.png', displayOrder: 0, assetType: 'MAIN_FRONT' },
+      { id: 'c', title: 'Size Chart', fileId: 'f3', imageUrl: 'https://cdn/chart.png', displayOrder: 1, assetType: 'SIZE_CHART' },
+    ]),
+  );
+
+  check('🔴 tấm SIZE_CHART của bộ mẫu KHÔNG vào bộ ảnh sản phẩm (backend lấy làm bảng size)', images.map((image) => image.fileId), ['f1']);
+  check('bỏ SIZE_CHART không tính là "mục hỏng"', skipped, 0);
+}
+
 // ---------------------------------------------------------------------------
 console.log('');
 if (failed > 0) {

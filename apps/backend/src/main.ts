@@ -35,7 +35,11 @@ function validationExceptionFactory(errors: ValidationError[]): BadRequestExcept
 }
 
 async function bootstrap(): Promise<void> {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule, { bufferLogs: true });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+    // Tự cấu hình body-parser bên dưới để đặt trần JSON tường minh (xem `jsonBodyLimit`).
+    bodyParser: false,
+  });
 
   // Logger (pino) làm logger toàn cục
   app.useLogger(app.get(Logger));
@@ -43,6 +47,11 @@ async function bootstrap(): Promise<void> {
   const config = app.get(ConfigService);
   const apiPrefix = config.get<string>('apiPrefix', 'api/v1');
   const port = config.get<number>('port', 3000);
+
+  // Thân request JSON / urlencoded — trần đặt tường minh, không dựa vào 100 KB mặc định.
+  const jsonBodyLimit = config.get<string>('jsonBodyLimit', '1mb');
+  app.useBodyParser('json', { limit: jsonBodyLimit });
+  app.useBodyParser('urlencoded', { limit: jsonBodyLimit, extended: true });
 
   // Security
   app.use(helmet());

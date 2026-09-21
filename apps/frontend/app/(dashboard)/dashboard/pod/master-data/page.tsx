@@ -67,7 +67,10 @@ function MasterDataView() {
   const overview = status.data;
   const rows = overview?.resources ?? [];
   const canSync = overview?.canSync ?? false;
-  const failing = rows.filter((row) => row.status === 'FAILED' && row.lastError);
+  // PARTIAL cũng đáng được nhắc: thương hiệu thiếu vài prefix vẫn là dữ liệu chưa trọn vẹn.
+  const failing = rows.filter(
+    (row) => (row.status === 'FAILED' || row.status === 'PARTIAL') && row.lastError,
+  );
 
   return (
     <div className="space-y-6">
@@ -195,7 +198,24 @@ function MasterDataRow({
 
       <TableCell>
         <Badge variant={STATUS_VARIANT[row.status]}>{row.status}</Badge>
-        {row.lastError && (
+        {/* Lượt đang chạy nền hàng giờ: số thật của backend, không có thanh tiến trình tự chạy. */}
+        {row.status === 'RUNNING' && row.progress && (
+          <div className="mt-1 max-w-[320px] text-xs text-muted-foreground">
+            <p className="tabular-nums">
+              {t('masterData.progressLine', {
+                records: row.progress.records.toLocaleString(),
+                fetched: row.progress.fetched.toLocaleString(),
+                apiCalls: row.progress.apiCalls.toLocaleString(),
+              })}
+            </p>
+            {row.progress.detail && (
+              <p className="truncate" title={row.progress.detail}>
+                {row.progress.detail}
+              </p>
+            )}
+          </div>
+        )}
+        {row.lastError && row.status !== 'RUNNING' && (
           <p className="mt-1 max-w-[280px] truncate text-xs text-destructive" title={row.lastError}>
             {row.lastError}
           </p>

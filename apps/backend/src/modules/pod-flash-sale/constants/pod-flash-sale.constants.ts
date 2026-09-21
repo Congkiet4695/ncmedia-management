@@ -126,6 +126,19 @@ export const FLASH_SALE_MAX_ADD_PER_CALL = 1_000;
 export const FLASH_SALE_MAX_BATCH_ITEMS = 1_000;
 
 /**
+ * Số dòng tối đa trong MỘT câu `UPDATE … WHERE id IN (…)` của Batch Update.
+ *
+ * 🔴 Bài học 3.107 dòng (2026-09-21): bản cũ chạy 3.107 câu `UPDATE` tuần tự trong MỘT
+ * transaction tương tác không đặt `timeout` — Prisma mặc định 5 giây ⇒ `P2028` ⇒ 500. Nay các
+ * dòng cùng kết quả (cùng giá deal / % / giới hạn / trạng thái) gộp thành một `updateMany`;
+ * nhóm nào lớn hơn trần này thì chia thêm để danh sách `IN (…)` không phình vô hạn.
+ */
+export const FLASH_SALE_BATCH_UPDATE_CHUNK = 500;
+/** Transaction của Batch Update: trần thời gian và thời gian chờ mở transaction (ms). */
+export const FLASH_SALE_BATCH_TX_TIMEOUT_MS = 60_000;
+export const FLASH_SALE_BATCH_TX_MAX_WAIT_MS = 10_000;
+
+/**
  * Cỡ trang tối đa khi ĐỌC danh sách (dòng sản phẩm, nhật ký).
  *
  * 🔴 Tách khỏi `FLASH_SALE_MAX_ITEMS`. Trước đây cỡ trang dùng chung hằng số với trần số

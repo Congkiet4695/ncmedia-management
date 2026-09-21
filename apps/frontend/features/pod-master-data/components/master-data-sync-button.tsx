@@ -23,9 +23,10 @@ interface MasterDataSyncButtonProps {
  * `platform.masterdata.sync` ở backend. Ẩn nút chỉ để Admin tổ chức không bấm vào một thứ
  * chắc chắn trả 403.
  *
- * Trong lúc chạy: nút khoá và hiện spinner. Một lượt đồng bộ đầy đủ mất hàng chục giây
- * (12.000 danh mục + 15.000 brand + thuộc tính), không có phản hồi thì người dùng sẽ bấm
- * lại — và lần bấm thứ hai chỉ nhận 409.
+ * Trong lúc chạy: nút khoá và hiện spinner. Backend nhận yêu cầu rồi chạy NỀN (202) — quét
+ * thương hiệu là hàng chục nghìn lời gọi TikTok, kéo dài hàng giờ. Nút bám theo trạng thái
+ * RUNNING từ `status` (polling), nên vẫn khoá đúng kể cả khi người dùng tải lại trang giữa
+ * chừng hoặc lượt do người khác bấm; bấm thêm chỉ nhận 409.
  */
 export function MasterDataSyncButton({
   resources,

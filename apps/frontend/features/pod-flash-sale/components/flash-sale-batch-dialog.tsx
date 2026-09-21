@@ -8,7 +8,8 @@ import { CurrencyInput, PercentInput, QuantityInput } from '@/components/ui/curr
 import { Label } from '@/components/ui/label';
 import { Modal } from '@/components/ui/modal';
 import { parseAmount, parseQuantityLimit } from '../price-math';
-import type { UpdateFlashSaleItemPayload } from '../types';
+import { FLASH_SALE_MAX_BATCH_PER_CALL } from '../types';
+import type { PodFlashSaleChunkProgress, UpdateFlashSaleItemPayload } from '../types';
 
 interface FlashSaleBatchDialogProps {
   open: boolean;
@@ -17,6 +18,8 @@ interface FlashSaleBatchDialogProps {
   count: number;
   currency: string | null;
   submitting?: boolean;
+  /** Tiến độ khi thao tác được chia thành nhiều request (chọn > 1.000 dòng). */
+  progress?: PodFlashSaleChunkProgress | null;
   onSubmit: (payload: UpdateFlashSaleItemPayload) => void;
 }
 
@@ -43,6 +46,7 @@ export function FlashSaleBatchDialog({
   count,
   currency,
   submitting,
+  progress,
   onSubmit,
 }: FlashSaleBatchDialogProps) {
   const { t } = useTranslation(['pod', 'common']);
@@ -90,7 +94,12 @@ export function FlashSaleBatchDialog({
           </Button>
           <Button onClick={submit} disabled={!hasAnyChange || submitting}>
             {submitting && <Loader2 className="size-4 animate-spin" />}
-            {t('flashSale.batch.apply', { count })}
+            {submitting
+              ? t('flashSale.batch.updating', {
+                  done: Math.min(count, (progress?.done ?? 0) * FLASH_SALE_MAX_BATCH_PER_CALL),
+                  count,
+                })
+              : t('flashSale.batch.apply', { count })}
           </Button>
         </div>
       }

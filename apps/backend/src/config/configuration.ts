@@ -8,6 +8,17 @@ export default () => ({
   apiPrefix: process.env.API_PREFIX ?? 'api/v1',
   corsOrigin: process.env.CORS_ORIGIN ?? '*',
   logLevel: process.env.LOG_LEVEL ?? 'info',
+  /**
+   * Trần kích thước thân request JSON.
+   *
+   * 🔴 Mặc định của Express là 100 KB và trước đây chưa từng được đặt tường minh — trong khi
+   * hệ thống tự thiết kế các request "≤ 1.000 dòng" (Flash Sale add / batch, xem
+   * `FLASH_SALE_MAX_ADD_PER_CALL`, `FLASH_SALE_MAX_BATCH_ITEMS`) vốn đã ≈ 100–121 KB. Kết
+   * quả: chọn 3.107 SKU rồi Batch edit ⇒ 413 hiện ra như "Internal server error". 1 MB đủ
+   * chỗ cho trần 1.000 dòng của mọi endpoint hàng loạt mà vẫn chặn được body vô lý; upload
+   * file đi đường multipart riêng, không qua giới hạn này.
+   */
+  jsonBodyLimit: process.env.JSON_BODY_LIMIT ?? '1mb',
 
   app: {
     /**

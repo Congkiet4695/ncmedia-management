@@ -44,6 +44,7 @@ import type {
  *  - Create Product, Edit Product (Publish), Upload Image, Delete: **202309**
  *
  * Toàn bộ phân trang dùng `page_token` do TikTok cấp — hàm `*All` tự đi hết mọi trang.
+ * Riêng Get Brands KHÔNG đi hết được (cửa sổ 10.000/truy vấn) — xem `TiktokBrandCrawlerService`.
  */
 @Injectable()
 export class TiktokProductApiService {
@@ -392,7 +393,13 @@ export class TiktokProductApiService {
     return { data: result.data.attributes ?? [], requestId: result.requestId };
   }
 
-  /** Get Brands — MỘT trang. */
+  /**
+   * Get Brands — MỘT trang.
+   *
+   * 🔴 Không có hàm `getAllBrands` đi hết trang ở đây: TikTok kẹp mỗi truy vấn ở 10.000 bản ghi
+   * và thứ tự trang không ổn định, nên "đi hết page_token" KHÔNG lấy đủ. Muốn toàn bộ thương
+   * hiệu phải dùng `TiktokBrandCrawlerService` (chia theo prefix `brand_name`).
+   */
   async getBrands(
     ctx: TiktokShopContext,
     params: { pageSize?: number; pageToken?: string; categoryId?: string; brandName?: string } = {},
@@ -425,33 +432,6 @@ export class TiktokProductApiService {
       },
       requestId: result.requestId,
     };
-  }
-
-  /** Get Brands — đi HẾT mọi trang (cùng nguyên tắc dừng với `searchAllProducts`). */
-  async getAllBrands(
-    ctx: TiktokShopContext,
-    params: { categoryId?: string } = {},
-  ): Promise<TiktokBrand[]> {
-    const all: TiktokBrand[] = [];
-    let pageToken: string | undefined;
-
-    for (let page = 0; page < TIKTOK_PRODUCT_MAX_PAGES_PER_RUN; page++) {
-      const { data } = await this.getBrands(ctx, { pageToken, categoryId: params.categoryId });
-      if (data.items.length === 0) return all;
-
-      all.push(...data.items);
-      if (!data.nextPageToken) return all;
-      pageToken = data.nextPageToken;
-    }
-
-    this.logger.warn({
-      module: 'tiktok-sdk',
-      operation: 'brand.getAll',
-      organizationId: ctx.organizationId,
-      collected: all.length,
-      msg: 'Chạm trần số trang khi quét thương hiệu — dữ liệu có thể chưa đủ',
-    });
-    return all;
   }
 }
 

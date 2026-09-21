@@ -382,7 +382,9 @@ describe('PodListingResolverService', () => {
       expect(payload.brand.name).toBe('Comfort Colors');
       expect(payload.attributes[0].name).toBe('Material');
       expect(payload.attributes[0].values).toEqual([{ id: 'v1', name: 'Cotton' }]);
-      expect(payload.images).toHaveLength(2);
+      // Tấm SIZE_CHART của bộ ảnh KHÔNG nằm trong bộ ảnh sản phẩm — nó đi sang `sizeChart`.
+      expect(payload.images).toHaveLength(1);
+      expect(payload.sizeChart).toEqual({ fileId: 'file-size', url: 'https://cdn/size.jpg', tiktokImageUri: null });
       expect(payload.package.weight).toBe('0.3');
       expect(payload.warehouse.tiktokWarehouseId).toBe('TT-WH-1');
       expect(payload.shipping).toEqual({ shippingTemplateId: 'ship-1', handlingDays: 2 });
@@ -491,14 +493,10 @@ describe('PodListingResolverService', () => {
       );
 
       // Hai sản phẩm khác nhau ⇒ VẪN đúng bộ mockup của phôi, không đổi theo sản phẩm.
-      expect(first.payload.images.map((image) => image.url)).toEqual([
-        'https://cdn/front.jpg',
-        'https://cdn/size.jpg',
-      ]);
-      expect(second.payload.images.map((image) => image.url)).toEqual([
-        'https://cdn/front.jpg',
-        'https://cdn/size.jpg',
-      ]);
+      // (Tấm SIZE_CHART của bộ ảnh đi sang trường `sizeChart`, không phải ảnh sản phẩm.)
+      expect(first.payload.images.map((image) => image.url)).toEqual(['https://cdn/front.jpg']);
+      expect(second.payload.images.map((image) => image.url)).toEqual(['https://cdn/front.jpg']);
+      expect(first.payload.sizeChart?.url).toBe('https://cdn/size.jpg');
       // Ảnh của sản phẩm KHÔNG lọt vào bộ ảnh listing.
       expect(JSON.stringify(second.payload.images)).not.toContain('hoodie-0');
     });
@@ -506,8 +504,8 @@ describe('PodListingResolverService', () => {
     it('bộ ảnh giữ đúng thứ tự đã kéo thả và mang theo tiêu đề của từng tấm', () => {
       const { payload } = service.resolveFromContext(buildContext());
 
-      expect(payload.images.map((image) => image.title)).toEqual(['Front Mockup', 'Size Chart']);
-      expect(payload.images.map((image) => image.sortOrder)).toEqual([0, 1]);
+      expect(payload.images.map((image) => image.title)).toEqual(['Front Mockup']);
+      expect(payload.images.map((image) => image.sortOrder)).toEqual([0]);
       expect(payload.images[0].assetType).toBe(PodImageAssetType.MAIN_FRONT);
     });
 

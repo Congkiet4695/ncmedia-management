@@ -39,6 +39,10 @@ import { FlashSaleLogPanel } from '@/features/pod-flash-sale/components/flash-sa
 import { PublishProgressCard } from '@/features/pod-flash-sale/components/publish-progress-card';
 import { groupIssues, type GroupedIssue } from '@/features/pod-flash-sale/issue-grouping';
 import { FLASH_SALE_MAX_ITEMS } from '@/features/pod-flash-sale/types';
+import type {
+  PodFlashSaleBatchResult,
+  PodFlashSaleChunkProgress,
+} from '@/features/pod-flash-sale/types';
 import { ProductSelectorDialog } from '@/features/pod-flash-sale/components/product-selector-dialog';
 import { SaveTemplateDialog } from '@/features/pod-flash-sale/components/save-template-dialog';
 import {
@@ -115,6 +119,7 @@ function FlashSaleDetailView() {
 
   const [form, setForm] = useState<FlashSaleFormValue | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [batchProgress, setBatchProgress] = useState<PodFlashSaleChunkProgress | null>(null);
 
   // ---------------------------------------------------------------- Bảng sản phẩm
   //
@@ -212,6 +217,35 @@ function FlashSaleDetailView() {
 
   const onError = (error: unknown): void => {
     toast.error(translateApiError(error));
+  };
+
+  /**
+   * Kết quả Batch Update: nói ĐÚNG số dòng đã cập nhật và số dòng bị bỏ qua kèm lý do —
+   * "Cập nhật 3.080 / 3.107 · 27 dòng bỏ qua", không phải một câu chung chung.
+   */
+  const announceBatchResult = (result: PodFlashSaleBatchResult): void => {
+    if (result.skipped === 0) {
+      toast.success(
+        t('flashSale.toast.batchAppliedAll', { updated: result.updated, requested: result.requested }),
+      );
+      return;
+    }
+    // Gom lý do theo thông điệp để 27 dòng cùng một lỗi không thành 27 dòng chữ.
+    const reasons = new Map<string, number>();
+    for (const failure of result.failures) {
+      reasons.set(failure.message, (reasons.get(failure.message) ?? 0) + 1);
+    }
+    const description = t('flashSale.toast.batchSkippedReasons', {
+      reasons: [...reasons.entries()].map(([message, count]) => `${message} (×${count})`).join(' · '),
+    });
+    toast.warning(
+      t('flashSale.toast.batchAppliedPartial', {
+        updated: result.updated,
+        requested: result.requested,
+        skipped: result.skipped,
+      }),
+      { description },
+    );
   };
 
   if (detail.isLoading || !data || !form) {
@@ -627,14 +661,17 @@ function FlashSaleDetailView() {
         count={selectedIds.length}
         currency={data.currency}
         submitting={batchUpdate.isPending}
+        progress={batchProgress}
         onSubmit={(payload) => {
+          setBatchProgress(null);
           void batchUpdate
-            .mutateAsync({ id, payload: { ...payload, itemIds: selectedIds } })
-            .then(() => {
+            .mutateAsync({ id, itemIds: selectedIds, payload, onProgress: setBatchProgress })
+            .then((response) => {
               setBatchOpen(false);
-              toast.success(t('flashSale.toast.batchApplied', { count: selectedIds.length }));
+              announceBatchResult(response.batchResult);
             })
-            .catch(onError);
+            .catch(onError)
+            .finally(() => setBatchProgress(null));
         }}
       />
 

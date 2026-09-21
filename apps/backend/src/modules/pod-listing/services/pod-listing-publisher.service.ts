@@ -652,6 +652,12 @@ export class PodListingPublisherService {
     ];
 
     await this.seedCacheFromDatabase(organizationId, cache, selected, variantFileIds);
+    // Bảng size của Draft Product đã từng upload (`remote_uri`) ⇒ nạp sẵn theo ĐÚNG use case
+    // SIZE_CHART_IMAGE; không nạp thì mỗi lượt / mỗi shop lại upload cùng một tấm.
+    if (payload.sizeChart?.tiktokImageUri) {
+      const key = this.cacheKey(TIKTOK_IMAGE_USE_CASE.SIZE_CHART_IMAGE, payload.sizeChart);
+      if (!cache.has(key)) cache.set(key, Promise.resolve(payload.sizeChart.tiktokImageUri));
+    }
 
     let uploaded = 0;
     let reused = 0;
@@ -750,7 +756,13 @@ export class PodListingPublisherService {
           PodListingLogLevel.WARN,
           PodListingStep.UPLOAD_IMAGE,
           'Không tải được bảng size — bỏ qua, sản phẩm vẫn được đăng',
-          { error: error instanceof Error ? error.message : String(error) },
+          {
+            useCase: TIKTOK_IMAGE_USE_CASE.SIZE_CHART_IMAGE,
+            fileId: payload.sizeChart?.fileId ?? null,
+            url: payload.sizeChart?.url ?? null,
+            shopId: ctx.shopId ?? null,
+            error: error instanceof Error ? error.message : String(error),
+          },
         );
         return null;
       })

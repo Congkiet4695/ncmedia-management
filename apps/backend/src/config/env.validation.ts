@@ -8,6 +8,8 @@ export const envValidationSchema = Joi.object({
   NODE_ENV: Joi.string().valid('development', 'test', 'production').default('development'),
   PORT: Joi.number().port().default(3000),
   API_PREFIX: Joi.string().default('api/v1'),
+  /** Trần thân request JSON (cú pháp `bytes`: `1mb`, `512kb`). */
+  JSON_BODY_LIMIT: Joi.string().pattern(/^\d+(\.\d+)?\s*(b|kb|mb)?$/i).default('1mb'),
   CORS_ORIGIN: Joi.string().default('*'),
   LOG_LEVEL: Joi.string()
     .valid('trace', 'debug', 'info', 'warn', 'error', 'fatal')

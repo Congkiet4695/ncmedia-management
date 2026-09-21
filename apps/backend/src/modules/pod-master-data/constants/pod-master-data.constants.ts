@@ -31,11 +31,28 @@ export const POD_MASTER_DATA_RESOURCES: PodResourceType[] = [
 export const POD_MASTER_DATA_SYNC_LOCK = 'pod:master-data:sync:lock';
 
 /**
- * TTL của khoá (ms). Phải LỚN hơn thời gian chạy thực tế của lượt dài nhất — lấy thuộc
- * tính là hàng trăm lời gọi TikTok — nhưng vẫn hữu hạn để một tiến trình chết không khoá
- * vĩnh viễn chức năng đồng bộ.
+ * TTL của khoá (ms). Hữu hạn để một tiến trình chết không khoá vĩnh viễn chức năng đồng bộ.
+ *
+ * 🔴 TTL này KHÔNG phải trần thời gian chạy: quét thương hiệu là hàng chục nghìn lời gọi
+ * TikTok và kéo dài hàng giờ. Lượt đang chạy tự gia hạn khoá theo nhịp
+ * `POD_MASTER_DATA_SYNC_LOCK_RENEW_MS` (watchdog); TTL chỉ cần lớn hơn nhịp gia hạn đủ xa
+ * để một lần gia hạn trượt (Redis chập chờn) chưa làm mất khoá.
  */
 export const POD_MASTER_DATA_SYNC_LOCK_TTL_MS = 30 * 60 * 1000;
+
+/** Nhịp gia hạn khoá trong lúc lượt đang chạy (ms). */
+export const POD_MASTER_DATA_SYNC_LOCK_RENEW_MS = 5 * 60 * 1000;
+
+/**
+ * Khoá Redis giữ tiến độ của lượt ĐANG chạy (JSON `MasterDataSyncProgressDto`).
+ *
+ * Để ở Redis chứ không phải cột database: tiến độ là dữ liệu tạm, đổi mỗi vài giây trong
+ * suốt lượt và vô nghĩa khi lượt kết thúc. Ghi vào bảng là hàng nghìn UPDATE chỉ để hiển thị.
+ */
+export const POD_MASTER_DATA_SYNC_PROGRESS_KEY = 'pod:master-data:sync:progress';
+
+/** TTL của tiến độ (ms) — dài hơn khoảng cách giữa hai lần báo tiến độ thật xa. */
+export const POD_MASTER_DATA_SYNC_PROGRESS_TTL_MS = 60 * 60 * 1000;
 
 /** Số dòng nhật ký trả về tối đa trong một lần đọc. */
 export const POD_MASTER_DATA_LOG_MAX_ITEMS = 100;

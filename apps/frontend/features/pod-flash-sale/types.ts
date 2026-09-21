@@ -58,6 +58,14 @@ export const FLASH_SALE_MIN_ITEMS = 1;
  * thành nhiều lượt gọi (xem `addItemsInChunks`).
  */
 export const FLASH_SALE_MAX_ADD_PER_CALL = 1_000;
+/**
+ * Số dòng tối đa gửi trong MỘT request Batch Update / Batch Delete.
+ *
+ * 🔴 Bài học 3.107 dòng: gửi cả 3.107 id trong một request là ~121 KB JSON, vượt trần body
+ * 100 KB của backend ⇒ lỗi 413 hiện ra như "Internal server error". Khớp với
+ * `FLASH_SALE_MAX_BATCH_ITEMS` phía backend; chọn nhiều hơn thì giao diện tự chia lượt.
+ */
+export const FLASH_SALE_MAX_BATCH_PER_CALL = 1_000;
 
 export interface PodFlashSaleShopRef {
   id: string;
@@ -282,6 +290,32 @@ export interface UpdateFlashSaleItemPayload {
 
 export interface BatchUpdateFlashSaleItemsPayload extends UpdateFlashSaleItemPayload {
   itemIds: string[];
+}
+
+/** Một dòng bị bỏ qua trong Batch Update, kèm lý do (backend `PodFlashSaleBatchFailureDto`). */
+export interface PodFlashSaleBatchFailure {
+  itemId: string;
+  code: 'ITEM_NOT_FOUND' | 'PRICE_NOT_RESOLVABLE' | string;
+  message: string;
+}
+
+/** Kết quả gộp của (các) request Batch Update. */
+export interface PodFlashSaleBatchResult {
+  requested: number;
+  updated: number;
+  skipped: number;
+  failures: PodFlashSaleBatchFailure[];
+}
+
+/** Response của `PATCH /:id/items/batch`: bản chi tiết + kết quả của chính request đó. */
+export interface PodFlashSaleBatchUpdateResponse extends PodFlashSaleDetail {
+  batchResult: PodFlashSaleBatchResult;
+}
+
+/** Tiến độ khi giao diện chia một thao tác lớn thành nhiều request. */
+export interface PodFlashSaleChunkProgress {
+  done: number;
+  total: number;
 }
 
 export interface SaveFlashSaleTemplatePayload {

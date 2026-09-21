@@ -1,27 +1,30 @@
 import { apiClient } from '@/services/api-client';
-import { FLASH_SALE_MAX_ADD_PER_CALL } from './types';
+import { FLASH_SALE_MAX_ADD_PER_CALL, FLASH_SALE_MAX_BATCH_PER_CALL } from './types';
 import type { ApiResponse } from '@/types/api';
 import type {
-  PodFlashSaleProductResult,
-  PodFlashSaleProductQuery,
-  PodFlashSalePublishStatus,
   AddFlashSaleItemPayload,
   ApplyFlashSaleTemplatePayload,
   BatchUpdateFlashSaleItemsPayload,
   CreateFlashSalePayload,
   DuplicateFlashSalePayload,
+  PodFlashSaleBatchResult,
+  PodFlashSaleBatchUpdateResponse,
+  PodFlashSaleChunkProgress,
   PodFlashSaleDetail,
   PodFlashSaleListResult,
   PodFlashSaleLogResult,
+  PodFlashSaleProductQuery,
+  PodFlashSaleProductResult,
   PodFlashSalePublishResult,
+  PodFlashSalePublishStatus,
   PodFlashSaleQuery,
   PodFlashSaleTemplate,
   PodFlashSaleTemplateQuery,
   PodFlashSaleTemplateResult,
   PodFlashSaleValidation,
   SaveFlashSaleTemplatePayload,
-  UpdateFlashSalePayload,
   UpdateFlashSaleItemPayload,
+  UpdateFlashSalePayload,
 } from './types';
 
 const BASE = '/pod/flash-sales';
@@ -173,12 +176,46 @@ export const podFlashSaleService = {
   async batchUpdateItems(
     id: string,
     payload: BatchUpdateFlashSaleItemsPayload,
-  ): Promise<PodFlashSaleDetail> {
-    const res = await apiClient.patch<ApiResponse<PodFlashSaleDetail>>(
+  ): Promise<PodFlashSaleBatchUpdateResponse> {
+    const res = await apiClient.patch<ApiResponse<PodFlashSaleBatchUpdateResponse>>(
       `${BASE}/${id}/items/batch`,
       payload,
     );
     return res.data.data;
+  },
+
+  /**
+   * Batch Update, tự chia thành nhiều request khi chọn nhiều dòng — cùng lý do và cùng cách
+   * làm với `addItemsInChunks`. Tuần tự, và gộp kết quả của mọi lượt để giao diện nói được
+   * "Cập nhật 3.080 / 3.107 · 27 dòng bỏ qua" thay vì một con số của lượt cuối.
+   *
+   * Trả về bản chi tiết của lượt CUỐI (mới nhất) kèm kết quả gộp.
+   */
+  async batchUpdateItemsInChunks(
+    id: string,
+    itemIds: string[],
+    payload: UpdateFlashSaleItemPayload,
+    onProgress?: (progress: PodFlashSaleChunkProgress) => void,
+  ): Promise<PodFlashSaleBatchUpdateResponse> {
+    const total = Math.ceil(itemIds.length / FLASH_SALE_MAX_BATCH_PER_CALL);
+    const merged: PodFlashSaleBatchResult = { requested: 0, updated: 0, skipped: 0, failures: [] };
+    let last: PodFlashSaleBatchUpdateResponse | null = null;
+
+    for (let index = 0; index < itemIds.length; index += FLASH_SALE_MAX_BATCH_PER_CALL) {
+      onProgress?.({ done: index / FLASH_SALE_MAX_BATCH_PER_CALL, total });
+      last = await podFlashSaleService.batchUpdateItems(id, {
+        ...payload,
+        itemIds: itemIds.slice(index, index + FLASH_SALE_MAX_BATCH_PER_CALL),
+      });
+      merged.requested += last.batchResult.requested;
+      merged.updated += last.batchResult.updated;
+      merged.skipped += last.batchResult.skipped;
+      merged.failures.push(...last.batchResult.failures);
+    }
+    onProgress?.({ done: total, total });
+
+    if (!last) throw new Error('Chưa chọn dòng nào');
+    return { ...last, batchResult: merged };
   },
 
   async deleteItems(id: string, itemIds: string[]): Promise<PodFlashSaleDetail> {
@@ -187,6 +224,19 @@ export const podFlashSaleService = {
       data: { itemIds },
     });
     return res.data.data;
+  },
+
+  /** Batch Delete chia lượt — cùng giới hạn body với Batch Update. */
+  async deleteItemsInChunks(id: string, itemIds: string[]): Promise<PodFlashSaleDetail> {
+    let detail: PodFlashSaleDetail | null = null;
+    for (let index = 0; index < itemIds.length; index += FLASH_SALE_MAX_BATCH_PER_CALL) {
+      detail = await podFlashSaleService.deleteItems(
+        id,
+        itemIds.slice(index, index + FLASH_SALE_MAX_BATCH_PER_CALL),
+      );
+    }
+    if (!detail) throw new Error('Chưa chọn dòng nào');
+    return detail;
   },
 
   // --- Chạm tới sàn ---

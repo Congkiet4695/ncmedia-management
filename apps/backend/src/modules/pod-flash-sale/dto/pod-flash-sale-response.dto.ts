@@ -145,6 +145,27 @@ export class PodFlashSaleLogDto {
   @ApiProperty() createdAt!: string;
 }
 
+/** Một dòng bị bỏ qua trong Batch Update, kèm lý do. */
+export class PodFlashSaleBatchFailureDto {
+  @ApiProperty() itemId!: string;
+  @ApiProperty({ enum: ['ITEM_NOT_FOUND', 'PRICE_NOT_RESOLVABLE'] }) code!: string;
+  @ApiProperty() message!: string;
+}
+
+/**
+ * Kết quả MỘT request Batch Update.
+ *
+ * 🔴 Vì sao không chỉ trả bản chi tiết: chọn 3.107 SKU rồi "giảm 30%" mà 27 dòng không có giá
+ * gốc thì người dùng phải biết đúng 27 dòng đó và vì sao — không phải "Internal server error",
+ * cũng không phải một bản chi tiết im lặng không nói dòng nào bị bỏ.
+ */
+export class PodFlashSaleBatchResultDto {
+  @ApiProperty({ description: 'Số id duy nhất trong request' }) requested!: number;
+  @ApiProperty() updated!: number;
+  @ApiProperty() skipped!: number;
+  @ApiProperty({ type: [PodFlashSaleBatchFailureDto] }) failures!: PodFlashSaleBatchFailureDto[];
+}
+
 /** Chi tiết một đợt sale (danh sách + dòng sản phẩm + kiểm tra + số đếm). */
 export class PodFlashSaleDetailDto extends PodFlashSaleListItemDto {
   /**
@@ -329,4 +350,10 @@ export class PaginatedPodFlashSaleProductDto {
   meta!: { total: number; page: number; limit: number; totalPages: number };
   @ApiProperty({ description: 'Tổng số dòng SKU của cả đợt sale (mọi trang)' })
   totalItems!: number;
+}
+
+/** Response của Batch Update: bản chi tiết (như mọi endpoint ghi) + kết quả của chính request này. */
+export class PodFlashSaleBatchUpdateResponseDto extends PodFlashSaleDetailDto {
+  @ApiProperty({ type: PodFlashSaleBatchResultDto })
+  batchResult!: PodFlashSaleBatchResultDto;
 }

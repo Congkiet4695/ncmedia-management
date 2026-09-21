@@ -4,7 +4,7 @@ import type {
   PodMasterDataOverview,
   PodMasterDataResource,
   PodMasterDataSyncLog,
-  PodMasterDataSyncResult,
+  PodMasterDataSyncStarted,
 } from './types';
 
 const BASE = '/pod/master-data';
@@ -32,11 +32,15 @@ export const podMasterDataService = {
     return res.data.data;
   },
 
-  /** Chỉ Super Admin. 409 ⇒ đang có lượt khác chạy. */
+  /**
+   * Chỉ Super Admin. 409 ⇒ đang có lượt khác chạy.
+   *
+   * Trả về 202 NGAY khi lượt được nhận — lượt chạy ở nền, theo dõi qua `status()`.
+   */
   async sync(
     payload: { resources?: PodMasterDataResource[]; sourceShopId?: string } = {},
-  ): Promise<PodMasterDataSyncResult> {
-    const res = await apiClient.post<ApiResponse<PodMasterDataSyncResult>>(`${BASE}/sync`, payload);
+  ): Promise<PodMasterDataSyncStarted> {
+    const res = await apiClient.post<ApiResponse<PodMasterDataSyncStarted>>(`${BASE}/sync`, payload);
     return res.data.data;
   },
 };

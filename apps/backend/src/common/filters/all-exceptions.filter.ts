@@ -41,6 +41,14 @@ export class AllExceptionsFilter implements ExceptionFilter {
         else if (Array.isArray(body.message)) message = (body.message as string[]).join(', ');
         if (Array.isArray(body.errors)) errors = body.errors as ApiErrorItem[];
       }
+    } else if (isHttpLibraryError(exception)) {
+      // Lỗi do tầng HTTP của Express ném ra TRƯỚC khi tới controller (body-parser: body quá
+      // 100 KB ⇒ 413 `entity.too.large`, JSON hỏng ⇒ 400…). Chúng không phải `HttpException`
+      // của Nest nhưng mang `status` chuẩn `http-errors` — báo đúng mã thay vì 500 INTERNAL_ERROR
+      // ("Batch edit 3.107 SKU ⇒ Internal server error" chính là ca này).
+      status = exception.status;
+      code = this.defaultCodeFor(status);
+      message = exception.expose === false ? this.defaultMessageFor(status) : exception.message;
     } else if (exception instanceof Error) {
       message =
         process.env.NODE_ENV === 'production' ? 'Internal server error' : exception.message;
@@ -66,6 +74,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
     response.status(status).json(payload);
   }
 
+  private defaultMessageFor(status: number): string {
+    const payloadTooLarge: number = HttpStatus.PAYLOAD_TOO_LARGE;
+    return status === payloadTooLarge ? 'Request body too large' : 'Request error';
+  }
+
   private defaultCodeFor(status: number): string {
     const map: Record<number, string> = {
       [HttpStatus.BAD_REQUEST]: 'BAD_REQUEST',
@@ -80,4 +93,13 @@ export class AllExceptionsFilter implements ExceptionFilter {
     };
     return map[status] ?? (status >= 500 ? 'INTERNAL_ERROR' : 'ERROR');
   }
+}
+
+/** Lỗi kiểu `http-errors` (body-parser, raw-body…): `Error` có `status` 4xx/5xx hợp lệ. */
+function isHttpLibraryError(
+  exception: unknown,
+): exception is Error & { status: number; expose?: boolean; type?: string } {
+  if (!(exception instanceof Error)) return false;
+  const status = (exception as { status?: unknown }).status;
+  return typeof status === 'number' && Number.isInteger(status) && status >= 400 && status < 600;
 }

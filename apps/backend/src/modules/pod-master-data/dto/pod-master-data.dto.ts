@@ -77,6 +77,27 @@ export class MasterDataLogQueryDto {
   limit?: number;
 }
 
+/**
+ * Tiến độ của lượt ĐANG chạy — chỉ có khi tài nguyên ở trạng thái RUNNING.
+ *
+ * 🔴 Quét thương hiệu là hàng chục nghìn lời gọi TikTok kéo dài hàng giờ. Không có con số
+ * này, người vận hành nhìn badge RUNNING suốt hai tiếng sẽ tưởng lượt đã treo và bấm lại.
+ */
+export class MasterDataSyncProgressDto {
+  @ApiProperty() jobId!: string;
+  @ApiProperty({ enum: PodResourceType }) resource!: PodResourceType;
+  @ApiProperty({ description: 'Số lời gọi TikTok đã thực hiện' }) apiCalls!: number;
+  @ApiProperty({ description: 'Số bản ghi thô đã nhận từ TikTok' }) fetched!: number;
+  @ApiProperty({ description: 'Số bản ghi MỚI đã ghi vào database' }) records!: number;
+  @ApiPropertyOptional({
+    type: String,
+    nullable: true,
+    description: 'Vị trí đang xử lý, vd prefix thương hiệu đang quét và số prefix còn chờ',
+  })
+  detail!: string | null;
+  @ApiProperty({ type: String }) updatedAt!: Date;
+}
+
 /** Trạng thái MỘT tài nguyên master toàn cục. */
 export class MasterDataResourceStatusDto {
   @ApiProperty({ enum: PodResourceType })
@@ -103,6 +124,37 @@ export class MasterDataResourceStatusDto {
 
   @ApiProperty({ description: '`false` ⇒ khoá nút Sync vì phụ thuộc chưa có dữ liệu' })
   ready!: boolean;
+
+  @ApiPropertyOptional({
+    type: MasterDataSyncProgressDto,
+    nullable: true,
+    description: 'Tiến độ lượt đang chạy — chỉ khác null khi `status = RUNNING`',
+  })
+  progress!: MasterDataSyncProgressDto | null;
+}
+
+/**
+ * Xác nhận đã NHẬN lượt đồng bộ (HTTP 202).
+ *
+ * 🔴 `POST /sync` không còn đợi lượt chạy xong: quét thương hiệu kéo dài hàng giờ, không
+ * HTTP request nào sống được tới lúc đó (Nginx, trình duyệt, lock TTL đều cắt trước). Client
+ * theo dõi qua `GET /status` (polling khi còn RUNNING) và đọc kết quả ở `GET /logs?jobId=`.
+ */
+export class MasterDataSyncStartedDto {
+  @ApiProperty({ description: 'Mã lượt chạy — dùng để đối chiếu `status.jobId` và mở nhật ký' })
+  jobId!: string;
+
+  @ApiProperty({ enum: PodResourceSyncStatus, description: 'Luôn là RUNNING tại thời điểm trả về' })
+  status!: PodResourceSyncStatus;
+
+  @ApiProperty({ enum: PodResourceType, isArray: true, description: 'Tài nguyên sẽ chạy, đúng thứ tự' })
+  resources!: PodResourceType[];
+
+  @ApiProperty({ description: 'Shop đã mượn token để gọi TikTok' })
+  sourceShopId!: string;
+
+  @ApiProperty({ type: String })
+  startedAt!: Date;
 }
 
 /**

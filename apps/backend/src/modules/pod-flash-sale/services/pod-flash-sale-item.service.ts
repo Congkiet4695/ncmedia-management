@@ -3,6 +3,9 @@ import { PodFlashSaleItemStatus, PodFlashSaleProductLevel, Prisma } from '@prism
 import { PrismaService } from '../../../database/prisma.service';
 import type { PodAccessScope } from '../../pod-tiktok/services/pod-access-scope.service';
 import {
+  FLASH_SALE_BATCH_TX_MAX_WAIT_MS,
+  FLASH_SALE_BATCH_TX_TIMEOUT_MS,
+  FLASH_SALE_BATCH_UPDATE_CHUNK,
   FLASH_SALE_DEFAULT_DISCOUNT_PERCENT,
   FLASH_SALE_MAX_ITEMS,
   FLASH_SALE_UNLIMITED,
@@ -50,6 +53,22 @@ type ProductWithVariants = Prisma.PodProductGetPayload<{
     };
   };
 }>;
+
+/** Một dòng bị bỏ qua trong Batch Update — kèm lý do để giao diện nói rõ với người dùng. */
+export interface FlashSaleBatchFailure {
+  itemId: string;
+  code: 'ITEM_NOT_FOUND' | 'PRICE_NOT_RESOLVABLE';
+  message: string;
+}
+
+/** Kết quả của MỘT request Batch Update. */
+export interface FlashSaleBatchUpdateResult {
+  /** Số id DUY NHẤT trong request. */
+  requested: number;
+  updated: number;
+  skipped: number;
+  failures: FlashSaleBatchFailure[];
+}
 
 /** Không dựng được dòng vì sản phẩm thiếu dữ liệu bắt buộc. */
 class PodFlashSaleItemNotResolvableException extends BadRequestException {
@@ -275,70 +294,168 @@ export class PodFlashSaleItemService {
     flashSaleId: string,
     dto: BatchUpdateFlashSaleItemsDto,
     scope: PodAccessScope,
-  ): Promise<FlashSaleDetailRow> {
+  ): Promise<{ flashSale: FlashSaleDetailRow; result: FlashSaleBatchUpdateResult }> {
+    const startedAt = Date.now();
     const flashSale = await this.flashSales.get(organizationId, flashSaleId, scope);
     this.flashSales.assertEditable(flashSale.status, 'sửa hàng loạt');
 
-    const selected = new Set(dto.itemIds);
-    const targets = flashSale.items.filter((item) => selected.has(item.id));
-    if (targets.length === 0) throw new PodFlashSaleItemNotFoundException();
+    // Request bị gửi lại / người dùng chọn trùng ⇒ mỗi dòng chỉ xét một lần.
+    const requestedIds = [...new Set(dto.itemIds)];
+    const byId = new Map(flashSale.items.map((item) => [item.id, item]));
+    const failures: FlashSaleBatchFailure[] = [];
+    const changesPricing = dto.flashSalePrice !== undefined || dto.discountPercent !== undefined;
 
-    const updates = targets.map((item) => {
-      const pricing =
-        dto.flashSalePrice === undefined && dto.discountPercent === undefined
-          ? { originalPrice: item.originalPrice, flashSalePrice: item.flashSalePrice, discountPercent: item.discountPercent }
-          : computeFlashSalePricing({
-              originalPrice: item.originalPrice,
-              flashSalePrice: dto.flashSalePrice ?? null,
-              discountPercent: dto.discountPercent ?? null,
-            });
+    const updates: Array<{ id: string; data: Prisma.PodFlashSaleItemUpdateManyMutationInput }> = [];
+    for (const itemId of requestedIds) {
+      const item = byId.get(itemId);
+      if (!item) {
+        failures.push({
+          itemId,
+          code: 'ITEM_NOT_FOUND',
+          message: 'Dòng không thuộc đợt sale này hoặc đã bị xoá.',
+        });
+        continue;
+      }
+
+      const pricing = changesPricing
+        ? computeFlashSalePricing({
+            originalPrice: item.originalPrice,
+            flashSalePrice: dto.flashSalePrice ?? null,
+            discountPercent: dto.discountPercent ?? null,
+          })
+        : {
+            originalPrice: item.originalPrice,
+            flashSalePrice: item.flashSalePrice,
+            discountPercent: item.discountPercent,
+          };
+      // 🔴 Một SKU thiếu giá gốc KHÔNG được kéo cả 3.000 dòng còn lại xuống: bỏ qua dòng đó,
+      // ghi lý do, áp phần còn lại. Người dùng thấy "Cập nhật 3.080 / 3.107 · 27 dòng bỏ qua".
+      if (pricing === null) {
+        failures.push({
+          itemId,
+          code: 'PRICE_NOT_RESOLVABLE',
+          message: `Giá gốc không hợp lệ (${item.originalPrice?.toString() ?? 'trống'}) — không tính được giá Flash Sale.`,
+        });
+        continue;
+      }
 
       const totalPurchaseLimit = dto.totalPurchaseLimit ?? item.totalPurchaseLimit;
       const customerPurchaseLimit = dto.customerPurchaseLimit ?? item.customerPurchaseLimit;
-
-      return { item, pricing, totalPurchaseLimit, customerPurchaseLimit };
-    });
-
-    if (updates.some((update) => update.pricing === null)) {
-      throw new PodFlashSaleItemNotResolvableException([
-        'Giá Flash Sale hoặc % giảm không phải một số hợp lệ.',
-      ]);
+      updates.push({
+        id: item.id,
+        data: {
+          // Chỉ đổi giới hạn ⇒ không ghi lại giá: mọi dòng cùng một `data` ⇒ MỘT câu UPDATE.
+          ...(changesPricing
+            ? { flashSalePrice: pricing.flashSalePrice, discountPercent: pricing.discountPercent }
+            : {}),
+          totalPurchaseLimit,
+          customerPurchaseLimit,
+          status: this.resolveItemStatus(pricing, totalPurchaseLimit, customerPurchaseLimit),
+          errorCode: null,
+          error: null,
+        },
+      });
     }
 
-    await this.prisma.$transaction(async (tx) => {
-      // Mỗi dòng một giá deal khác nhau ⇒ không gộp được thành một `updateMany`. Cả lô nằm
-      // trong MỘT transaction để không bao giờ có trạng thái "một nửa đã giảm giá".
-      for (const update of updates) {
-        const pricing = update.pricing as FlashSalePricing;
-        await tx.podFlashSaleItem.update({
-          where: { id: update.item.id },
-          data: {
-            flashSalePrice: pricing.flashSalePrice,
-            discountPercent: pricing.discountPercent,
-            totalPurchaseLimit: update.totalPurchaseLimit,
-            customerPurchaseLimit: update.customerPurchaseLimit,
-            status: this.resolveItemStatus(
-              pricing,
-              update.totalPurchaseLimit,
-              update.customerPurchaseLimit,
-            ),
-            errorCode: null,
-            error: null,
+    // Không một dòng nào thuộc đợt sale ⇒ đây là request sai đích, không phải "0 dòng cập nhật".
+    if (updates.length === 0 && failures.every((failure) => failure.code === 'ITEM_NOT_FOUND')) {
+      throw new PodFlashSaleItemNotFoundException();
+    }
+
+    // 🔴 "Giảm 30%" cho 3.107 SKU thường chỉ có vài chục mức giá gốc khác nhau ⇒ gộp các dòng
+    // cùng kết quả thành MỘT `updateMany` thay vì 3.107 câu UPDATE tuần tự (bản cũ: chạm trần
+    // 5 giây của transaction ⇒ 500). Nhóm quá lớn chia theo `FLASH_SALE_BATCH_UPDATE_CHUNK`.
+    const groups = this.groupBatchUpdates(updates);
+    const statements = groups.reduce(
+      (sum, group) => sum + Math.ceil(group.ids.length / FLASH_SALE_BATCH_UPDATE_CHUNK),
+      0,
+    );
+
+    try {
+      if (updates.length > 0) {
+        await this.prisma.$transaction(
+          async (tx) => {
+            for (const group of groups) {
+              for (let offset = 0; offset < group.ids.length; offset += FLASH_SALE_BATCH_UPDATE_CHUNK) {
+                const ids = group.ids.slice(offset, offset + FLASH_SALE_BATCH_UPDATE_CHUNK);
+                await tx.podFlashSaleItem.updateMany({
+                  where: { id: { in: ids }, flashSaleId },
+                  data: group.data,
+                });
+              }
+            }
+            await tx.podFlashSale.update({ where: { id: flashSaleId }, data: { updatedBy: userId } });
           },
-        });
+          { timeout: FLASH_SALE_BATCH_TX_TIMEOUT_MS, maxWait: FLASH_SALE_BATCH_TX_MAX_WAIT_MS },
+        );
       }
-      await tx.podFlashSale.update({ where: { id: flashSaleId }, data: { updatedBy: userId } });
-    });
+    } catch (error) {
+      // Ghi ĐỦ ngữ cảnh trước khi lỗi lên filter chung (filter chỉ biết path + stack).
+      this.logger.error({
+        module: 'pod-flash-sale',
+        operation: 'item.batchUpdate.fail',
+        organizationId,
+        flashSaleId,
+        shopId: flashSale.shopId,
+        selectedSkuCount: requestedIds.length,
+        updates: updates.length,
+        groups: groups.length,
+        statements,
+        batchSize: FLASH_SALE_BATCH_UPDATE_CHUNK,
+        durationMs: Date.now() - startedAt,
+        error: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+        msg: 'Batch Update thất bại — đã rollback, không dòng nào bị đổi',
+      });
+      throw error;
+    }
+
+    const result: FlashSaleBatchUpdateResult = {
+      requested: requestedIds.length,
+      updated: updates.length,
+      skipped: failures.length,
+      failures,
+    };
 
     this.logger.log({
       module: 'pod-flash-sale',
       operation: 'item.batchUpdate',
       organizationId,
       flashSaleId,
-      items: updates.length,
+      shopId: flashSale.shopId,
+      selectedSkuCount: requestedIds.length,
+      updated: result.updated,
+      skipped: result.skipped,
+      groups: groups.length,
+      statements,
+      batchSize: FLASH_SALE_BATCH_UPDATE_CHUNK,
+      durationMs: Date.now() - startedAt,
       msg: 'Đã áp thay đổi hàng loạt cho các dòng được chọn',
     });
-    return this.flashSales.get(organizationId, flashSaleId, scope);
+
+    return { flashSale: await this.flashSales.get(organizationId, flashSaleId, scope), result };
+  }
+
+  /** Gộp các dòng có CÙNG dữ liệu ghi thành một nhóm — mỗi nhóm là một (hoặc vài) `updateMany`. */
+  private groupBatchUpdates(
+    updates: Array<{ id: string; data: Prisma.PodFlashSaleItemUpdateManyMutationInput }>,
+  ): Array<{ data: Prisma.PodFlashSaleItemUpdateManyMutationInput; ids: string[] }> {
+    const groups = new Map<string, { data: Prisma.PodFlashSaleItemUpdateManyMutationInput; ids: string[] }>();
+    const decimalKey = (value: Prisma.PodFlashSaleItemUpdateManyMutationInput['flashSalePrice']) =>
+      value instanceof Prisma.Decimal ? value.toString() : JSON.stringify(value ?? null);
+    for (const update of updates) {
+      const key = JSON.stringify([
+        decimalKey(update.data.flashSalePrice),
+        decimalKey(update.data.discountPercent),
+        update.data.totalPurchaseLimit,
+        update.data.customerPurchaseLimit,
+        update.data.status,
+      ]);
+      const group = groups.get(key);
+      if (group) group.ids.push(update.id);
+      else groups.set(key, { data: update.data, ids: [update.id] });
+    }
+    return [...groups.values()];
   }
 
   /** Xoá dòng (một hoặc nhiều). Xoá CỨNG — dòng chưa lên sàn không có gì phải giữ lại. */

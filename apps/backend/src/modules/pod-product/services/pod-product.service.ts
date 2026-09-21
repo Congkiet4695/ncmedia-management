@@ -441,15 +441,19 @@ export class PodProductService {
     const pageSize = Math.min(200, Math.max(1, params.limit ?? 50));
     const keyword = params.keyword?.trim();
 
+    // 🔴 Bảng có ~2,1 triệu thương hiệu. `name ILIKE '%kw%'` đi qua chỉ mục trigram (~3 ms);
+    // nhưng OR thêm `tiktok_brand_id LIKE '%kw%'` là PostgreSQL bỏ chỉ mục và quét tuần tự cả
+    // bảng (~750 ms mỗi lần gõ). Id TikTok là chuỗi số, nên chỉ ghép điều kiện id khi từ khoá
+    // toàn chữ số — tìm theo tên (trường hợp thường gặp) luôn đi qua chỉ mục.
+    const nameMatch: Prisma.PodProductBrandWhereInput = {
+      name: { contains: keyword, mode: 'insensitive' },
+    };
     const where: Prisma.PodProductBrandWhereInput = {
       deletedAt: null,
       ...(keyword
-        ? {
-            OR: [
-              { name: { contains: keyword, mode: 'insensitive' } },
-              { tiktokBrandId: { contains: keyword } },
-            ],
-          }
+        ? /^\d+$/.test(keyword)
+          ? { OR: [nameMatch, { tiktokBrandId: { contains: keyword } }] }
+          : nameMatch
         : {}),
     };
 

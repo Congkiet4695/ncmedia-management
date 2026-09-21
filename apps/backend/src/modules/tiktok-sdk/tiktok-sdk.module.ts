@@ -1,4 +1,5 @@
 import { Global, Module } from '@nestjs/common';
+import { TiktokBrandCrawlerService } from './tiktok-brand-crawler.service';
 import { TiktokProductApiService } from './tiktok-product-api.service';
 import { TiktokPromotionApiService } from './tiktok-promotion-api.service';
 import { TikTokSdkService } from './tiktok-sdk.service';
@@ -23,7 +24,17 @@ import { TikTokSdkService } from './tiktok-sdk.service';
  */
 @Global()
 @Module({
-  providers: [TikTokSdkService, TiktokProductApiService, TiktokPromotionApiService],
-  exports: [TikTokSdkService, TiktokProductApiService, TiktokPromotionApiService],
+  providers: [
+    TikTokSdkService,
+    TiktokProductApiService,
+    TiktokPromotionApiService,
+    TiktokBrandCrawlerService,
+  ],
+  exports: [
+    TikTokSdkService,
+    TiktokProductApiService,
+    TiktokPromotionApiService,
+    TiktokBrandCrawlerService,
+  ],
 })
 export class TikTokSdkModule {}

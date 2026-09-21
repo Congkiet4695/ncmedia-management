@@ -51,6 +51,7 @@ import {
   PodFlashSalePublishStatusDto,
   PaginatedPodFlashSaleDto,
   PaginatedPodFlashSaleLogDto,
+  PodFlashSaleBatchUpdateResponseDto,
   PodFlashSaleDetailDto,
   PodFlashSalePublishResultDto,
   PodFlashSaleTemplateDto,
@@ -311,15 +312,21 @@ export class PodFlashSaleController {
       '`discountPercent` được tính lại trên giá gốc RIÊNG của từng dòng; `flashSalePrice` ' +
       'đặt cùng một con số cho mọi dòng.',
   })
-  @ApiOkResponse({ type: PodFlashSaleDetailDto })
+  @ApiOkResponse({ type: PodFlashSaleBatchUpdateResponseDto })
   async batchUpdate(
     @CurrentUser() user: AuthenticatedUser,
     @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
     @Body() dto: BatchUpdateFlashSaleItemsDto,
-  ): Promise<PodFlashSaleDetailDto> {
-    const updated = await this.items.batchUpdate(user.organizationId, user.userId, id, dto, scope);
-    return this.service.toDetail(updated);
+  ): Promise<PodFlashSaleBatchUpdateResponseDto> {
+    const { flashSale, result } = await this.items.batchUpdate(
+      user.organizationId,
+      user.userId,
+      id,
+      dto,
+      scope,
+    );
+    return { ...this.service.toDetail(flashSale), batchResult: result };
   }
 
   /**

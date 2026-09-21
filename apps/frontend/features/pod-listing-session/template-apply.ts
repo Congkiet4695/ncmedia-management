@@ -168,6 +168,10 @@ export function applyImageTemplate(template: PodImageTemplate): {
   let skipped = 0;
 
   for (const item of items) {
+    // 🔴 Tấm SIZE_CHART của bộ mẫu KHÔNG phải ảnh sản phẩm: TikTok nhận bảng size ở trường
+    // riêng (use case SIZE_CHART_IMAGE). Backend tự lấy nó làm bảng size dự phòng khi form
+    // không chọn tấm nào; dán vào bộ ảnh là bảng số đo hiện giữa gallery bán hàng.
+    if (item.assetType === 'SIZE_CHART') continue;
     const url = item.imageUrl ?? '';
     if (!url) {
       skipped += 1;

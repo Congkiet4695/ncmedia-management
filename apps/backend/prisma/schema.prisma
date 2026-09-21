@@ -25,7 +25,7 @@ generator client {
 datasource db {
   provider   = "postgresql"
   url        = env("DATABASE_URL")
-  extensions = [citext] // so sánh email không phân biệt hoa/thường
+  extensions = [citext, pg_trgm] // citext: so sánh email không phân biệt hoa/thường · pg_trgm: tìm thương hiệu theo tên (ILIKE '%…%') trên 2 triệu dòng
 }
 
 // ---------------------------------------------------------------------------
@@ -3271,6 +3271,11 @@ model PodProductBrand {
   @@unique([provider, tiktokBrandId])
   @@index([name])
   @@index([provider, isNoBrand])
+  /// 🔴 TikTok có ~2,06 triệu thương hiệu (đo 2026-09-18). Bộ chọn brand tìm `ILIKE '%từ khoá%'`
+  /// — không có trigram thì mỗi lần gõ là một lần quét tuần tự cả bảng (~1,5 giây).
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "pod_product_brands_name_trgm_idx")
+  /// Thứ tự mặc định của danh sách: "No brand" đứng đầu rồi theo tên — đúng khoá của ORDER BY.
+  @@index([isNoBrand(sort: Desc), name], map: "pod_product_brands_no_brand_name_idx")
   @@map("pod_product_brands")
 }
 

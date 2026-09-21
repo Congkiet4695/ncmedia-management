@@ -3,8 +3,12 @@ import { PodMasterDataProvider, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { PodTiktokTokenService } from '../../pod-tiktok/services/pod-tiktok-token.service';
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
+import {
+  TiktokBrandCrawlerService,
+  type TiktokBrandCrawlProgress,
+} from '../../tiktok-sdk/tiktok-brand-crawler.service';
 import { TiktokProductApiService } from '../../tiktok-sdk/tiktok-product-api.service';
-import type { TiktokCategoryNode } from '../../tiktok-sdk/types/tiktok-product.types';
+import type { TiktokBrand, TiktokCategoryNode } from '../../tiktok-sdk/types/tiktok-product.types';
 import type { TiktokShopContext } from '../../tiktok-sdk/types/tiktok-shop-context.type';
 import { isNoBrandName } from '../constants/pod-product.constants';
 import { PodProductMapper } from '../mappers/pod-product.mapper';
@@ -19,6 +23,41 @@ import type { ProductSyncTarget } from '../repositories/pod-product-sync.reposit
  * danh sách.
  */
 export const CATEGORY_ATTRIBUTE_BATCH = 200;
+
+/**
+ * Số thương hiệu ghi trong MỘT câu `INSERT … ON CONFLICT`. 500 dòng × 10 tham số nằm xa trần
+ * 65.535 tham số của PostgreSQL; nhỏ hơn nữa chỉ thêm round-trip.
+ */
+export const BRAND_UPSERT_BATCH = 500;
+
+/** Tiến độ đồng bộ thương hiệu — phát định kỳ để giao diện biết lượt chạy còn sống. */
+export interface BrandSyncProgress extends TiktokBrandCrawlProgress {
+  /** Bản ghi MỚI đã chèn vào database tính tới lúc này. */
+  inserted: number;
+}
+
+/**
+ * Kết quả đồng bộ thương hiệu — đủ số liệu để đối chiếu "TikTok có bao nhiêu / lấy được bao
+ * nhiêu / database có bao nhiêu" (xem BRAND_SYNC_FIX_REPORT.md).
+ */
+export interface BrandSyncSummary {
+  /** Bản ghi DUY NHẤT được ghi trong lượt này (chèn mới + cập nhật). */
+  records: number;
+  inserted: number;
+  updated: number;
+  /** Tổng số thương hiệu đang có trong database sau lượt. */
+  databaseTotal: number;
+  apiCalls: number;
+  fetched: number;
+  prefixes: number;
+  cappedPrefixes: number;
+  refinedPrefixes: number;
+  incomplete: Array<{ prefix: string; total: number; unique: number }>;
+  failed: Array<{ prefix: string; error: string }>;
+  durationMs: number;
+  /** Tổng hợp prefix hỏng / thiếu — `null` khi lượt sạch. Master data dùng để đánh dấu PARTIAL. */
+  warning: string | null;
+}
 
 /**
  * PodProductCatalogService — nạp **dữ liệu master TOÀN CỤC** của TikTok: cây Category,
@@ -42,6 +81,7 @@ export class PodProductCatalogService {
     private readonly prisma: PrismaService,
     private readonly mapper: PodProductMapper,
     private readonly productApi: TiktokProductApiService,
+    private readonly brandCrawler: TiktokBrandCrawlerService,
     private readonly tokenService: PodTiktokTokenService,
     private readonly encryption: TiktokEncryptionService,
   ) {}
@@ -126,49 +166,168 @@ export class PodProductCatalogService {
   /**
    * Đồng bộ thương hiệu TOÀN CỤC. Idempotent theo (provider, tiktokBrandId).
    *
+   * 🔴 Vì sao KHÔNG phải "gọi Get Brands rồi đi hết page_token": TikTok kẹp MỖI truy vấn ở
+   * 10.000 bản ghi (trang 101 bị từ chối, `total_count` cũng bị kẹp) và thứ tự trang đổi giữa
+   * các lần gọi. Cách cũ vì thế chỉ lấy được 10.000 thương hiệu đầu bảng — đúng hiện tượng
+   * "chỉ đồng bộ tới chữ F". `TiktokBrandCrawlerService` chia không gian theo prefix
+   * `brand_name` và đi lại cho tới khi khớp `total_count` từng prefix.
+   *
+   * Ghi database **theo từng prefix** (batch `INSERT … ON CONFLICT`), không gói cả lượt trong
+   * một transaction: lượt quét kéo dài hàng giờ, prefix cuối hỏng thì hàng trăm nghìn bản ghi
+   * trước đó vẫn nằm yên trong bảng.
+   *
    * 🔴 Bảng này chỉ chứa thương hiệu **TikTok thật sự trả về**. Trước đây có thêm bước
    * `ensureNoBrand()` tự tạo một bản ghi "No brand" quanh một `brand_id` viết cứng khi
    * `Get Brands` không liệt kê nó — và chính bản ghi bịa đó đã khiến sản phẩm lên sàn mang
    * thương hiệu người dùng không chọn. "No brand" nay là một TRẠNG THÁI của template
    * (`PodBrandMode.NONE`), không phải một dòng trong bảng thương hiệu.
    */
-  async syncGlobalBrands(ctx: TiktokShopContext): Promise<number> {
-    const brands = await this.productApi.getAllBrands(ctx);
-    let count = 0;
+  async syncGlobalBrands(
+    ctx: TiktokShopContext,
+    options: { onProgress?: (progress: BrandSyncProgress) => void | Promise<void> } = {},
+  ): Promise<BrandSyncSummary> {
+    const startedAt = new Date();
+    let inserted = 0;
 
+    this.logger.log({
+      module: 'pod-product',
+      operation: 'catalog.brands.sync.start',
+      sourceShopId: ctx.shopId,
+      msg: 'Bắt đầu đồng bộ thương hiệu TikTok toàn cục',
+    });
+
+    const { onProgress } = options;
+    const report = await this.brandCrawler.crawl(ctx, {
+      onBatch: async (brands) => {
+        inserted += await this.upsertBrands(brands);
+      },
+      onProgress: onProgress ? (progress) => onProgress({ ...progress, inserted }) : undefined,
+    });
+
+    const [records, databaseTotal] = await Promise.all([
+      this.prisma.podProductBrand.count({
+        where: { provider: PodMasterDataProvider.TIKTOK, syncedAt: { gte: startedAt } },
+      }),
+      this.prisma.podProductBrand.count({
+        where: { provider: PodMasterDataProvider.TIKTOK, deletedAt: null },
+      }),
+    ]);
+
+    const summary: BrandSyncSummary = {
+      records,
+      inserted,
+      updated: Math.max(records - inserted, 0),
+      databaseTotal,
+      apiCalls: report.apiCalls,
+      fetched: report.fetched,
+      prefixes: report.prefixesDone,
+      cappedPrefixes: report.cappedPrefixes,
+      refinedPrefixes: report.refinedPrefixes,
+      incomplete: report.incomplete,
+      failed: report.failed,
+      durationMs: report.durationMs,
+      warning: this.brandSyncWarning(report.incomplete, report.failed),
+    };
+
+    this.logger.log({
+      module: 'pod-product',
+      operation: 'catalog.brands.sync.done',
+      sourceShopId: ctx.shopId,
+      ...summary,
+      incomplete: summary.incomplete.length,
+      failed: summary.failed.length,
+      msg: summary.warning ?? 'Đã đồng bộ thương hiệu TikTok toàn cục',
+    });
+
+    return summary;
+  }
+
+  /**
+   * Ghi một lô thương hiệu bằng MỘT câu `INSERT … ON CONFLICT` cho mỗi 500 dòng. Trả về số
+   * bản ghi MỚI (`xmax = 0` ⇒ dòng vừa chèn, ngược lại là cập nhật).
+   *
+   * Khoá tự nhiên (provider, tiktok_brand_id) — không dùng tên: tên đổi theo lần đồng bộ và
+   * TikTok có nhiều thương hiệu trùng tên với id khác nhau.
+   */
+  private async upsertBrands(brands: TiktokBrand[]): Promise<number> {
+    // Khử trùng trong lô: cùng một id xuất hiện hai lần trong một VALUES là PostgreSQL từ chối
+    // cả câu ("cannot affect row a second time").
+    const byId = new Map<string, TiktokBrand>();
     for (const brand of brands) {
-      if (!brand.id) continue;
-      const noBrand = isNoBrandName(brand.name);
-      await this.prisma.podProductBrand.upsert({
-        where: {
-          provider_tiktokBrandId: {
-            provider: PodMasterDataProvider.TIKTOK,
-            tiktokBrandId: brand.id,
-          },
-        },
-        create: {
-          provider: PodMasterDataProvider.TIKTOK,
-          tiktokBrandId: brand.id,
-          name: brand.name ?? null,
-          authorizedStatus: brand.authorizedStatus ?? null,
-          brandStatus: brand.brandStatus ?? null,
-          isNoBrand: noBrand,
-        },
-        update: {
-          name: brand.name ?? null,
-          authorizedStatus: brand.authorizedStatus ?? null,
-          brandStatus: brand.brandStatus ?? null,
-          isNoBrand: noBrand,
-          // TikTok đã trả về thật ⇒ đây không còn là bản ghi hệ thống tự tạo.
-          ...(noBrand ? { isSystem: false } : {}),
-          syncedAt: new Date(),
-          deletedAt: null,
-        },
-      });
-      count += 1;
+      if (brand.id) byId.set(brand.id, brand);
+    }
+    const rows = [...byId.values()];
+    let inserted = 0;
+
+    for (let offset = 0; offset < rows.length; offset += BRAND_UPSERT_BATCH) {
+      const batch = rows.slice(offset, offset + BRAND_UPSERT_BATCH);
+      const syncedAt = new Date();
+      const values = batch.map(
+        (brand) => Prisma.sql`(
+          gen_random_uuid(),
+          ${PodMasterDataProvider.TIKTOK}::"pod_master_data_provider",
+          ${brand.id},
+          ${brand.name?.slice(0, 255) ?? null},
+          ${brand.authorizedStatus?.slice(0, 40) ?? null},
+          ${brand.brandStatus?.slice(0, 40) ?? null},
+          ${isNoBrandName(brand.name)},
+          false,
+          ${syncedAt},
+          ${syncedAt},
+          ${syncedAt},
+          NULL
+        )`,
+      );
+
+      const result = await this.prisma.$queryRaw<Array<{ inserted: boolean }>>`
+        INSERT INTO "pod_product_brands"
+          ("id", "provider", "tiktok_brand_id", "name", "authorized_status", "brand_status",
+           "is_no_brand", "is_system", "synced_at", "created_at", "updated_at", "deleted_at")
+        VALUES ${Prisma.join(values)}
+        ON CONFLICT ("provider", "tiktok_brand_id") DO UPDATE SET
+          "name"              = EXCLUDED."name",
+          "authorized_status" = EXCLUDED."authorized_status",
+          "brand_status"      = EXCLUDED."brand_status",
+          "is_no_brand"       = EXCLUDED."is_no_brand",
+          -- TikTok đã trả về thật ⇒ bản ghi "No brand" không còn là do hệ thống tự tạo.
+          "is_system"         = CASE WHEN EXCLUDED."is_no_brand" THEN false
+                                     ELSE "pod_product_brands"."is_system" END,
+          "synced_at"         = EXCLUDED."synced_at",
+          "updated_at"        = EXCLUDED."updated_at",
+          -- Thương hiệu quay lại sau khi từng bị ẩn ⇒ sống lại, không tạo bản ghi thứ hai.
+          "deleted_at"        = NULL
+        RETURNING (xmax = 0) AS "inserted"`;
+
+      inserted += result.filter((row) => row.inserted).length;
     }
 
-    return count;
+    return inserted;
+  }
+
+  /** Gộp prefix hỏng/thiếu thành một câu cảnh báo ngắn — đủ để người vận hành biết chạy lại. */
+  private brandSyncWarning(
+    incomplete: BrandSyncSummary['incomplete'],
+    failed: BrandSyncSummary['failed'],
+  ): string | null {
+    const parts: string[] = [];
+
+    if (failed.length > 0) {
+      const sample = failed
+        .slice(0, 3)
+        .map((item) => `"${item.prefix}": ${item.error}`)
+        .join('; ');
+      parts.push(`${failed.length} prefix hỏng (${sample})`);
+    }
+    if (incomplete.length > 0) {
+      const missing = incomplete.reduce((sum, item) => sum + (item.total - item.unique), 0);
+      const sample = incomplete
+        .slice(0, 3)
+        .map((item) => `"${item.prefix}" ${item.unique}/${item.total}`)
+        .join('; ');
+      parts.push(`${incomplete.length} prefix thiếu ~${missing} bản ghi (${sample})`);
+    }
+
+    return parts.length > 0 ? `Đồng bộ thương hiệu chưa trọn vẹn: ${parts.join(' · ')}` : null;
   }
 
   /**

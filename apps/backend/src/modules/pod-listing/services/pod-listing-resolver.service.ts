@@ -9,7 +9,7 @@ import {
 import { createHash } from 'node:crypto';
 import { PrismaService } from '../../../database/prisma.service';
 import { POD_TIKTOK_NO_BRAND_NAME } from '../../pod-product/constants/pod-product.constants';
-import { POD_DRAFT_ISSUE_CODES } from '../constants/pod-listing.constants';
+import { POD_DRAFT_ISSUE_CODES, POD_LISTING_MAX_IMAGES } from '../constants/pod-listing.constants';
 import { calculatePricing } from './pod-pricing.calculator';
 import { resolveSkuItemPrice } from './pod-sku-price';
 import { applyTokens } from './pod-token.engine';
@@ -393,7 +393,7 @@ export class PodListingResolverService {
         customValues: attribute.customValues.map((custom) => custom.value),
       })),
       images,
-      sizeChart: this.resolveSizeChart(sessionProduct ?? null),
+      sizeChart: this.resolveSizeChart(sessionProduct ?? null, category, imageTemplate),
       // Video chỉ đến từ dữ liệu NHẬP TAY (xem `applyManualOverride`): template chưa có khái
       // niệm video, còn sản phẩm đã đồng bộ thì video thuộc về shop nguồn, không mang sang.
       video: null,
@@ -552,19 +552,32 @@ export class PodListingResolverService {
     return { mode: PodBrandMode.UNSET, tiktokBrandId: null, name: null };
   }
 
+  /**
+   * Bộ ảnh sản phẩm = ảnh RIÊNG của Draft Product (giữ nguyên thứ tự) + ảnh của Image Template
+   * **bổ sung vào sau** cho đủ `POD_LISTING_MAX_IMAGES`.
+   *
+   * 🔴 Trước đây là "hoặc/hoặc": có một tấm ảnh riêng là bộ mockup bị bỏ hẳn, sản phẩm nhập
+   * từ file với 3 ảnh lên sàn với đúng 3 ảnh dù người vận hành đã dựng sẵn bộ 6 mockup. Nay:
+   *
+   *   - Ảnh người dùng đưa lên KHÔNG bao giờ bị ghi đè hay đổi chỗ — chúng đứng đầu.
+   *   - Chỉ lấy đúng số ảnh mẫu còn thiếu; đủ `POD_LISTING_MAX_IMAGES` thì không thêm gì.
+   *   - Một tấm đã có (cùng `fileId` hoặc cùng URL) không được đưa vào lần hai — Custom
+   *     Listing đã dán sẵn bộ mockup vào ảnh sản phẩm nên bước này phải idempotent.
+   *   - Bảng size và ảnh trong mô tả KHÔNG thuộc bộ ảnh (`main_images`): tấm `SIZE_CHART` của
+   *     Image Template đi sang `resolveSizeChart`, không chen vào giữa bộ ảnh bán hàng.
+   *
+   * Ảnh riêng KHÔNG bị cắt ở đây (validator vẫn cảnh báo "quá 9 tấm" và publisher cắt đúng
+   * thứ tự) — chỉ phần bổ sung là được tính cho vừa chỗ trống.
+   */
   private resolveImages(
     imageTemplate: ListingTemplateFull['imageTemplate'],
     sessionProduct: SessionProductSource | null,
     issues: ResolveIssue[],
   ): ResolvedListing['images'] {
-    // Draft Product mang ảnh riêng (import từ file) ⇒ dùng ảnh đó, bộ mockup chỉ là phương án
-    // dự bị. Người vận hành đã chỉ đích danh ảnh cho sản phẩm này thì không có lý do gì đè lên.
-    // 🔴 Bảng size và ảnh trong mô tả KHÔNG thuộc bộ ảnh sản phẩm — lọc ra trước.
-    const ownImages = (sessionProduct?.images ?? []).filter(
-      (image) => image.imageUrl && !NON_GALLERY_IMAGE_TYPES.has(image.imageType),
-    );
-    if (ownImages.length > 0) {
-      return ownImages.map((image, index) => ({
+    const ownImages = (sessionProduct?.images ?? [])
+      .filter((image) => image.imageUrl && !NON_GALLERY_IMAGE_TYPES.has(image.imageType))
+      .sort((left, right) => (left.sortOrder ?? 0) - (right.sortOrder ?? 0))
+      .map((image, index) => ({
         title: `${image.imageType} #${index + 1}`,
         assetType: SESSION_IMAGE_ASSET_TYPE[image.imageType],
         fileId: image.fileId ?? '',
@@ -574,31 +587,59 @@ export class PodListingResolverService {
         height: null,
         isRequired: index === 0,
         tiktokImageUri: image.remoteUri,
-        sortOrder: image.sortOrder ?? index,
+        sortOrder: index,
       }));
+
+    const templateImages = (imageTemplate?.items ?? [])
+      .filter((item) => item.assetType !== PodImageAssetType.SIZE_CHART)
+      .sort((left, right) => left.displayOrder - right.displayOrder)
+      .map((item) => ({
+        title: item.title,
+        assetType: item.assetType,
+        fileId: item.fileId,
+        url: item.imageUrl,
+        imageKey: item.imageKey,
+        width: item.width,
+        height: item.height,
+        isRequired: item.isRequired,
+        tiktokImageUri: item.tiktokImageUri,
+        sortOrder: 0,
+      }));
+
+    const seen = new Set<string>();
+    const images: ResolvedListing['images'] = [];
+    const remember = (image: { fileId: string; url: string }) => {
+      if (image.fileId) seen.add(`file:${image.fileId}`);
+      if (image.url) seen.add(`url:${canonicalImageUrl(image.url)}`);
+    };
+    const isDuplicate = (image: { fileId: string; url: string }) =>
+      (image.fileId !== '' && seen.has(`file:${image.fileId}`)) ||
+      (image.url !== '' && seen.has(`url:${canonicalImageUrl(image.url)}`));
+
+    for (const image of ownImages) {
+      // Ảnh riêng trùng nhau (người dùng dán hai lần) cũng chỉ giữ một — TikTok không nhận
+      // hai tấm giống hệt và đó cũng không phải điều người dùng muốn.
+      if (isDuplicate(image)) continue;
+      remember(image);
+      images.push(image);
     }
 
-    const items = imageTemplate?.items ?? [];
+    for (const image of templateImages) {
+      if (images.length >= POD_LISTING_MAX_IMAGES) break;
+      if (isDuplicate(image)) continue;
+      remember(image);
+      images.push(image);
+    }
 
-    if (items.length === 0) {
+    if (images.length === 0) {
       issues.push(
         this.error('images', POD_DRAFT_ISSUE_CODES.MISSING_IMAGE, 'Bộ ảnh chưa có tấm nào'),
       );
       return [];
     }
 
-    return items.map((item, index) => ({
-      title: item.title,
-      assetType: item.assetType,
-      fileId: item.fileId,
-      url: item.imageUrl,
-      imageKey: item.imageKey,
-      width: item.width,
-      height: item.height,
-      isRequired: item.isRequired,
-      tiktokImageUri: item.tiktokImageUri,
-      sortOrder: item.displayOrder ?? index,
-    }));
+    // Đánh lại thứ tự liên tiếp: ảnh riêng giữ nguyên thứ tự người dùng, ảnh mẫu nối tiếp sau.
+    return images.map((image, index) => ({ ...image, sortOrder: index, isRequired: index === 0 }));
   }
 
   /** Giá từ Pricing Strategy. Không có strategy ⇒ dùng giá nhập tay ở SKU Template. */
@@ -632,19 +673,42 @@ export class PodListingResolverService {
    * sản phẩm, còn "XXL giá 26.99" thì chỉ đúng với đúng một sản phẩm.
    */
   /**
-   * Bảng size của Draft Product.
+   * Bảng size — TikTok nhận ĐÚNG MỘT tấm, ở trường riêng `size_chart.image.uri`.
    *
-   * Lấy tấm ĐẦU TIÊN có `imageType = SIZE_CHART` — TikTok chỉ nhận một. Nhiều hơn thì tấm
-   * sau bị bỏ qua chứ không báo lỗi: đó là dữ liệu thừa, không phải dữ liệu sai.
+   * Thứ tự ưu tiên (dữ liệu cụ thể hơn thắng):
+   *   1. Tấm `SIZE_CHART` của chính Draft Product (Custom Listing chọn tay / file import).
+   *   2. `sizeChartFileId` của Category Template — chỗ người vận hành cấu hình bảng size cho
+   *      cả danh mục. 🔴 Trước đây trường này được LƯU nhưng không ai ĐỌC: Auto Listing từ
+   *      CSV/XLSX (chỉ có ảnh `MAIN`) lên sàn mà không có bảng size dù template có.
+   *   3. Tấm `SIZE_CHART` trong Image Template (mockup kèm bảng size của phôi).
+   *
+   * Nhiều hơn một tấm ở cùng một nguồn ⇒ lấy tấm đầu; phần sau là dữ liệu thừa, không phải sai.
    */
   private resolveSizeChart(
     sessionProduct: SessionProductSource | null,
+    category: ListingTemplateFull['categoryTemplate'],
+    imageTemplate: ListingTemplateFull['imageTemplate'],
   ): ResolvedListing['sizeChart'] {
-    const chart = (sessionProduct?.images ?? []).find(
+    const own = (sessionProduct?.images ?? []).find(
       (image) => image.imageType === PodListingSessionImageType.SIZE_CHART && image.imageUrl,
     );
-    if (!chart) return null;
-    return { fileId: chart.fileId, url: chart.imageUrl, tiktokImageUri: chart.remoteUri };
+    if (own) return { fileId: own.fileId, url: own.imageUrl, tiktokImageUri: own.remoteUri };
+
+    if (category?.sizeChartFileId) {
+      // File nằm trong Storage Module: publisher tải bytes theo `fileId`, không cần URL.
+      return { fileId: category.sizeChartFileId, url: null, tiktokImageUri: null };
+    }
+
+    const templateChart = (imageTemplate?.items ?? [])
+      .filter((item) => item.assetType === PodImageAssetType.SIZE_CHART)
+      .sort((left, right) => left.displayOrder - right.displayOrder)[0];
+    if (templateChart) {
+      // `tiktokImageUri` của item là uri theo use case MAIN_IMAGE — KHÔNG dùng được cho bảng
+      // size (khác use case ⇒ khác uri). Để null cho publisher upload đúng SIZE_CHART_IMAGE.
+      return { fileId: templateChart.fileId, url: templateChart.imageUrl, tiktokImageUri: null };
+    }
+
+    return null;
   }
 
   private resolveVariants(
@@ -815,6 +879,16 @@ const NON_GALLERY_IMAGE_TYPES = new Set<PodListingSessionImageType>([
   PodListingSessionImageType.SIZE_CHART,
   PodListingSessionImageType.DESCRIPTION,
 ]);
+
+/**
+ * Khoá so trùng theo URL: bỏ khoảng trắng thừa và phân mảnh (`#…`) — hai URL chỉ khác vậy là
+ * cùng một tấm. KHÔNG hạ chữ thường phần đường dẫn: object key trên R2 phân biệt hoa/thường.
+ */
+function canonicalImageUrl(url: string): string {
+  const trimmed = url.trim();
+  const hashIndex = trimmed.indexOf('#');
+  return hashIndex === -1 ? trimmed : trimmed.slice(0, hashIndex);
+}
 
 /** Ảnh của Draft Product ánh xạ sang vai trò ảnh của listing. */
 const SESSION_IMAGE_ASSET_TYPE: Record<PodListingSessionImageType, PodImageAssetType> = {

@@ -2,6 +2,7 @@ import {
   POD_TIKTOK_LEGACY_FAKE_NO_BRAND_ID,
   isNoBrandName,
 } from '../constants/pod-product.constants';
+import type { TiktokBrandCrawlReport } from '../../tiktok-sdk/tiktok-brand-crawler.service';
 import { PodProductCatalogService } from './pod-product-catalog.service';
 
 /**
@@ -26,42 +27,83 @@ interface BrandRow {
 /** Ngữ cảnh gọi TikTok — shop nguồn chỉ cho mượn token, không để lại dấu vết trong dữ liệu. */
 const CTX = { accessToken: 'token', shopCipher: 'cipher', shopId: 'shop-1' } as never;
 
-/** Prisma giả: giữ bảng brand trong bộ nhớ, đủ để quan sát upsert. */
+/** Số tham số của MỘT dòng trong câu `INSERT … VALUES` của `upsertBrands`. */
+const BRAND_ROW_PARAMS = 9;
+
+/**
+ * Prisma giả: giữ bảng brand trong bộ nhớ và "thực thi" câu `INSERT … ON CONFLICT` bằng cách
+ * đọc tham số của `Prisma.Sql` — đủ để quan sát chèn / cập nhật / khử trùng.
+ */
 function buildService(apiBrands: Array<{ id?: string; name?: string }>) {
   const rows: BrandRow[] = [];
 
   const prisma = {
-    podProductBrand: {
-      upsert: jest.fn(({ where, create, update }: never) => {
-        const key = (where as { provider_tiktokBrandId: { tiktokBrandId: string } })
-          .provider_tiktokBrandId.tiktokBrandId;
-        const existing = rows.find((row) => row.tiktokBrandId === key);
-        if (existing) Object.assign(existing, update);
-        else {
-          const row = create as unknown as Partial<BrandRow>;
-          rows.push({
-            ...row,
-            isNoBrand: row.isNoBrand ?? false,
-            isSystem: row.isSystem ?? false,
-          } as BrandRow);
+    // `$queryRaw` là tagged template: nhận (strings, ...values); giá trị đầu là `Prisma.join(rows)`.
+    $queryRaw: jest.fn((_strings: TemplateStringsArray, rowsSql: { values: unknown[] }) => {
+      const result: Array<{ inserted: boolean }> = [];
+      for (let offset = 0; offset < rowsSql.values.length; offset += BRAND_ROW_PARAMS) {
+        const [, id, name, , , isNoBrand] = rowsSql.values.slice(offset, offset + BRAND_ROW_PARAMS) as [
+          string,
+          string,
+          string | null,
+          string | null,
+          string | null,
+          boolean,
+        ];
+        const existing = rows.find((row) => row.tiktokBrandId === id);
+        if (existing) {
+          existing.name = name;
+          existing.isNoBrand = isNoBrand;
+          if (isNoBrand) existing.isSystem = false;
+          result.push({ inserted: false });
+        } else {
+          rows.push({ tiktokBrandId: id, name, isNoBrand, isSystem: false });
+          result.push({ inserted: true });
         }
-        return Promise.resolve({});
-      }),
-      findFirst: jest.fn(() => Promise.resolve(null)),
+      }
+      return Promise.resolve(result);
+    }),
+    podProductBrand: {
+      count: jest.fn(() => Promise.resolve(rows.length)),
     },
   };
 
-  const productApi = { getAllBrands: jest.fn().mockResolvedValue(apiBrands) };
+  // Crawler giả: giao toàn bộ danh sách trong MỘT lô — thuật toán chia prefix có bộ test riêng.
+  const brandCrawler = {
+    crawl: jest.fn(
+      async (
+        _ctx: unknown,
+        handlers: { onBatch: (brands: unknown[]) => Promise<void> },
+      ) => {
+        await handlers.onBatch(apiBrands);
+        const report: TiktokBrandCrawlReport = {
+          apiCalls: 1,
+          fetched: apiBrands.length,
+          emitted: apiBrands.length,
+          skippedWithoutId: 0,
+          prefixesDone: 1,
+          cappedPrefixes: 0,
+          refinedPrefixes: 0,
+          incomplete: [],
+          failed: [],
+          recovered: 0,
+          durationMs: 1,
+        };
+        return report;
+      },
+    ),
+  };
 
   const service = new PodProductCatalogService(
     prisma as never,
     {} as never,
-    productApi as never,
+    {} as never,
+    brandCrawler as never,
     {} as never,
     {} as never,
   );
 
-  return { service, rows, prisma };
+  return { service, rows, prisma, brandCrawler };
 }
 
 describe('isNoBrandName', () => {
@@ -114,24 +156,84 @@ describe('PodProductCatalogService — đồng bộ Brand toàn cục', () => {
   });
 
   it('brand thiếu id bị bỏ qua, không tạo bản ghi rác', async () => {
-    const { service, rows } = buildService([{ name: 'Không có id' }]);
+    const { service, rows, prisma } = buildService([{ name: 'Không có id' }]);
 
     await service.syncGlobalBrands(CTX);
 
     expect(rows).toHaveLength(0);
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
   });
 
-  it('idempotent: chạy hai lượt liên tiếp KHÔNG nhân đôi bản ghi', async () => {
+  it('idempotent: chạy hai lượt liên tiếp KHÔNG nhân đôi bản ghi, lượt sau là cập nhật', async () => {
     const { service, rows } = buildService([
       { id: '111', name: 'Nike' },
       { id: '222', name: 'Adidas' },
     ]);
 
-    await service.syncGlobalBrands(CTX);
-    await service.syncGlobalBrands(CTX);
+    const first = await service.syncGlobalBrands(CTX);
+    const second = await service.syncGlobalBrands(CTX);
 
     expect(rows).toHaveLength(2);
     expect(rows.filter((row) => row.tiktokBrandId === '111')).toHaveLength(1);
+    expect(first.inserted).toBe(2);
+    expect(second.inserted).toBe(0);
+  });
+
+  it('🔴 cùng một id lặp trong một lô (prefix cha/con chồng nhau) ⇒ khử trùng trước khi ghi', async () => {
+    const { service, rows, prisma } = buildService([
+      { id: '111', name: 'Nike' },
+      { id: '111', name: 'NIKE' },
+    ]);
+
+    await service.syncGlobalBrands(CTX);
+
+    // PostgreSQL từ chối câu INSERT … ON CONFLICT có hai dòng cùng khoá — nên chỉ được gửi một.
+    const rowsSql = (prisma.$queryRaw.mock.calls[0] as [unknown, { values: unknown[] }])[1];
+    expect(rowsSql.values.length / BRAND_ROW_PARAMS).toBe(1);
+    expect(rows).toHaveLength(1);
+    expect(rows[0].name).toBe('NIKE');
+  });
+
+  it('ghi theo lô 500 dòng — 1.200 thương hiệu là 3 câu INSERT, không phải 1.200 upsert lẻ', async () => {
+    const brands = Array.from({ length: 1200 }, (_, index) => ({
+      id: String(index + 1),
+      name: `Brand ${index + 1}`,
+    }));
+    const { service, rows, prisma } = buildService(brands);
+
+    const summary = await service.syncGlobalBrands(CTX);
+
+    expect(prisma.$queryRaw).toHaveBeenCalledTimes(3);
+    expect(rows).toHaveLength(1200);
+    expect(summary.inserted).toBe(1200);
+  });
+
+  it('🔴 prefix hỏng / thiếu ⇒ `warning` nói rõ để lượt được đánh dấu PARTIAL, không im lặng', async () => {
+    const { service, brandCrawler } = buildService([{ id: '111', name: 'Nike' }]);
+    brandCrawler.crawl.mockImplementationOnce(
+      async (_ctx: unknown, handlers: { onBatch: (brands: unknown[]) => Promise<void> }) => {
+        await handlers.onBatch([{ id: '111', name: 'Nike' }]);
+        return {
+          apiCalls: 10,
+          fetched: 1,
+          emitted: 1,
+          skippedWithoutId: 0,
+          prefixesDone: 3,
+          cappedPrefixes: 1,
+          refinedPrefixes: 0,
+          incomplete: [{ prefix: 'zz', total: 120, unique: 118 }],
+          failed: [{ prefix: 'qx', error: 'TikTok 500' }],
+          recovered: 0,
+          durationMs: 5,
+        };
+      },
+    );
+
+    const summary = await service.syncGlobalBrands(CTX);
+
+    expect(summary.warning).toContain('1 prefix hỏng');
+    expect(summary.warning).toContain('"qx": TikTok 500');
+    expect(summary.warning).toContain('1 prefix thiếu ~2 bản ghi');
   });
 });
 
@@ -198,6 +300,7 @@ function buildAttributeService(attributesByCategory: Record<string, Array<{ id: 
     prisma as never,
     mapper as never,
     productApi as never,
+    {} as never,
     {} as never,
     {} as never,
   );
