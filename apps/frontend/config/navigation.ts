@@ -13,6 +13,7 @@ import {
   BarChart3,
   BadgeCheck,
   ClipboardList,
+  Copy,
   Factory,
   FileStack,
   Globe,
@@ -148,6 +149,14 @@ export const NAVIGATION: NavItemConfig[] = [
         href: '/dashboard/pod/products',
         icon: Package,
         permission: 'pod.product.read',
+      },
+      // Clone Products: sản phẩm đang được nhân bản + lịch sử các lượt (Seller thấy của mình,
+      // Admin thấy cả tổ chức). Cùng quyền với nút Nhân bản ở màn Sản phẩm.
+      {
+        labelKey: 'podCloneProducts',
+        href: '/dashboard/pod/clone-products',
+        icon: Copy,
+        permission: 'pod.product.clone',
       },
       {
         labelKey: 'podCategories',

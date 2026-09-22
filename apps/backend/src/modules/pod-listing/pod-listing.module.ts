@@ -6,6 +6,7 @@ import { PodTiktokModule } from '../pod-tiktok/pod-tiktok.module';
 import { PodListingController } from './pod-listing.controller';
 import { PodListingJobController } from './pod-listing-job.controller';
 import { PodProductCloneController } from './pod-product-clone.controller';
+import { PodProductCloneHistoryController } from './pod-product-clone-history.controller';
 import { PodTemplateController } from './pod-template.controller';
 import { PodListingPayloadService } from './services/pod-listing-payload.service';
 import { PodListingJobService } from './services/pod-listing-job.service';
@@ -22,6 +23,7 @@ import { PodTemplateService } from './services/pod-template.service';
 import { PodTemplateTransferService } from './services/pod-template-transfer.service';
 import { PodWarehouseService } from './services/pod-warehouse.service';
 import { PodProductCloneResolverService } from './services/pod-product-clone-resolver.service';
+import { PodProductCloneHistoryService } from './services/pod-product-clone-history.service';
 
 /**
  * PodListingModule — Template Engine (Sprint 3) + **Bulk Listing Engine** (Sprint 4)
@@ -54,6 +56,8 @@ import { PodProductCloneResolverService } from './services/pod-product-clone-res
     PodListingJobController,
     // Nhân bản sản phẩm (POST /pod/products/:id/clone) — tạo Listing Job type CLONE.
     PodProductCloneController,
+    // Clone Products / Clone History (GET /pod/product-clones, retry FAILED).
+    PodProductCloneHistoryController,
   ],
   providers: [
     PodTemplateService,
@@ -71,6 +75,7 @@ import { PodProductCloneResolverService } from './services/pod-product-clone-res
     PodListingPayloadService,
     PodWarehouseService,
     PodProductCloneResolverService,
+    PodProductCloneHistoryService,
   ],
   exports: [
     // Sprint sau (Generate Draft + Bulk Publish) đọc ba thứ này và KHÔNG cần gì thêm:

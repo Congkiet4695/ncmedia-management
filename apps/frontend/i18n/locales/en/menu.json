@@ -35,5 +35,6 @@
   "reportSellerRanking": "Seller ranking",
   "reportWarehouse": "Warehouse performance",
   "reports": "Reports",
-  "superAdminOrganizations": "Organizations"
+  "superAdminOrganizations": "Organizations",
+  "podCloneProducts": "Clone Products"
 }

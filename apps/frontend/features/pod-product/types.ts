@@ -318,3 +318,85 @@ export interface PodProductDeleteResult {
 export interface CloneProductPayload {
   targetShopIds: string[];
 }
+
+// ---------------------------------------------------------------------------
+// Clone Products / Clone History
+// ---------------------------------------------------------------------------
+
+/** Trạng thái TỔNG của một lượt nhân bản (backend suy từ Listing Job type CLONE). */
+export const POD_PRODUCT_CLONE_STATUSES = ['PENDING', 'PROCESSING', 'SUCCESS', 'PARTIAL', 'FAILED'] as const;
+export type PodProductCloneStatus = (typeof POD_PRODUCT_CLONE_STATUSES)[number];
+
+/** Trạng thái của MỘT shop đích (= Listing Job Item). */
+export type PodProductCloneTargetStatus =
+  | 'PENDING'
+  | 'PROCESSING'
+  | 'RETRYING'
+  | 'SUCCESS'
+  | 'FAILED'
+  | 'SKIPPED'
+  | 'CANCELLED';
+
+export interface PodProductCloneShop {
+  id: string;
+  name: string;
+  region: string | null;
+  connectionName: string;
+}
+
+export interface PodProductCloneTarget {
+  id: string;
+  shop: PodProductCloneShop;
+  status: PodProductCloneTargetStatus;
+  remoteProductId: string | null;
+  /** Product Mapping (`pod_listing_payloads`): sản phẩm đích trên TikTok. */
+  tiktokProductId: string | null;
+  tiktokDraftId: string | null;
+  reviewStatus: string | null;
+  payloadId: string | null;
+  error: string | null;
+  errorCode: string | null;
+  /** Dòng log ERROR gần nhất của shop (mã TikTok, request id…) — chỉ có ở màn chi tiết. */
+  errorDetail: Record<string, unknown> | null;
+  retryCount: number;
+  nextAttemptAt: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface PodProductCloneBatch {
+  id: string;
+  name: string;
+  status: PodProductCloneStatus;
+  jobStatus: string;
+  market: string;
+  product: { id: string; title: string | null; tiktokProductId: string; thumbnailUrl: string | null } | null;
+  sourceShop: PodProductCloneShop | null;
+  counts: { total: number; success: number; failed: number; skipped: number; processing: number; pending: number; cancelled: number };
+  progress: { completed: number; total: number };
+  running: boolean;
+  createdBy: { id: string; name: string; email: string } | null;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  lastError: string | null;
+  targets: PodProductCloneTarget[];
+}
+
+export interface PodProductCloneQuery extends PaginationParams {
+  search?: string;
+  sourceShopId?: string;
+  targetShopId?: string;
+  status?: PodProductCloneStatus;
+  createdBy?: string;
+  from?: string;
+  to?: string;
+}
+
+export interface PodProductCloneListResult extends Paginated<PodProductCloneBatch> {
+  /** Người đã tạo lượt trong tổ chức — chỉ Admin nhận (bộ lọc "Người tạo"). */
+  creators: Array<{ id: string; name: string }>;
+}

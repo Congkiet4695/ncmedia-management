@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
+import Link from 'next/link';
 import { useTranslation } from 'react-i18next';
 import {
   AlertCircle,
@@ -8,6 +9,7 @@ import {
   ChevronDown,
   ChevronRight,
   Copy,
+  ExternalLink,
   ImageOff,
   Loader2,
   MinusCircle,
@@ -119,7 +121,14 @@ export function CloneProductDialog({ open, product, onClose }: CloneProductDialo
       className="max-w-2xl"
       footer={
         jobId ? (
-          <div className="flex justify-end">
+          <div className="flex items-center justify-between gap-3">
+            {/* Lượt chạy tiếp tục ở server — theo dõi & chạy lại shop lỗi ở màn Clone Products. */}
+            <Button variant="outline" asChild>
+              <Link href="/dashboard/pod/clone-products" onClick={close}>
+                <ExternalLink className="size-4" />
+                {t('products.clone.result.track')}
+              </Link>
+            </Button>
             <Button onClick={close}>{t('common:action.close')}</Button>
           </div>
         ) : (
