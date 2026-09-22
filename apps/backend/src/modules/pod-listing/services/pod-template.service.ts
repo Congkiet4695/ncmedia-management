@@ -285,6 +285,10 @@ export class PodTemplateService {
           // Chỉ đụng tới brand khi request CÓ gửi lên — request đổi mỗi tên template không
           // được âm thầm reset lựa chọn "No brand" về UNSET.
           ...(hasBrandSelection(dto) ? normalizeBrandSelection(dto) : {}),
+          // Đổi tấm bảng size ⇒ `uri` TikTok đã cache là của tấm cũ, phải quên đi.
+          ...(dto.sizeChartFileId !== undefined && dto.sizeChartFileId !== existing.sizeChartFileId
+            ? { sizeChartTiktokImageUri: null, sizeChartImageUploadedAt: null }
+            : {}),
           isActive: dto.isActive ?? true,
           updatedBy: userId,
         },

@@ -3834,6 +3834,10 @@ model PodCategoryTemplate {
   /// Size chart & product video mặc định — trỏ tới file trong Storage Module (R2).
   sizeChartFileId String? @map("size_chart_file_id") @db.Uuid
   videoFileId     String? @map("video_file_id") @db.Uuid
+  /// `uri` TikTok của bảng size sau lần upload đầu (use case SIZE_CHART_IMAGE) — listing sau dùng
+  /// lại, không upload lại. Đổi `sizeChartFileId` thì service reset về NULL.
+  sizeChartTiktokImageUri  String?   @map("size_chart_tiktok_image_uri") @db.VarChar(512)
+  sizeChartImageUploadedAt DateTime? @map("size_chart_image_uploaded_at") @db.Timestamptz(6)
 
   /// Kho mặc định của template (kho đã đồng bộ từ TikTok — không tự nhập, không hardcode).
   warehouseId String? @map("warehouse_id") @db.Uuid
@@ -5094,6 +5098,10 @@ enum PodListingJobType {
   /// shop đích), nội dung giải từ chính sản phẩm (không qua template), gửi Create Product
   /// `save_mode = LISTING`. Cùng hàng đợi / retry / log với hai loại trên.
   CLONE
+  /// **Publish Live** từ Listing Session (Add Custom Listing → "Publish Live TikTok"): cùng đường
+  /// Load Template → Merge → Validate → Upload ảnh với CREATE_DRAFT, nhưng gửi Create Product
+  /// `save_mode = LISTING` — sản phẩm vào thẳng hàng chờ duyệt, KHÔNG dừng ở Draft trên sàn.
+  LIVE_LISTING
 
   @@map("pod_listing_job_type")
 }

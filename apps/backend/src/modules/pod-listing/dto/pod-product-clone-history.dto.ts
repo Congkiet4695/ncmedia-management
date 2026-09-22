@@ -6,18 +6,20 @@ const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
 
 /**
- * Trạng thái TỔNG của một lượt nhân bản — suy từ trạng thái Listing Job (`type = CLONE`).
+ * Trạng thái TỔNG của một lượt nhân bản — **đếm từ item** (từng shop đích), không phải từ
+ * trạng thái Listing Job (job gộp SKIPPED vào "có lỗi", còn ở đây SKIPPED = đã có sản phẩm).
  *
  * ```
- *   PENDING     job PENDING                — chưa shop nào được xử lý
- *   PROCESSING  job PROCESSING             — ít nhất một shop đang chạy
- *   SUCCESS     job COMPLETED              — mọi shop SUCCESS
- *   PARTIAL     job COMPLETED_WITH_ERRORS  — có SUCCESS và có FAILED/SKIPPED
- *   FAILED      job FAILED / CANCELLED     — không shop nào SUCCESS
+ *   PENDING     job chưa bắt đầu           — chưa shop nào được xử lý
+ *   PROCESSING  còn shop đang chạy         — PENDING / PROCESSING / RETRYING
+ *   SUCCESS     mọi shop SUCCESS
+ *   PARTIAL     có SUCCESS và có shop không SUCCESS (FAILED / SKIPPED / CANCELLED)
+ *   FAILED      không shop nào SUCCESS, có ít nhất một FAILED / CANCELLED
+ *   SKIPPED     mọi shop đều bị bỏ qua (đã có sản phẩm ở mọi shop đích) — không phải lỗi
  * ```
  * Trạng thái từng shop nằm ở item, KHÔNG suy ngược từ trạng thái tổng.
  */
-export const POD_PRODUCT_CLONE_STATUSES = ['PENDING', 'PROCESSING', 'SUCCESS', 'PARTIAL', 'FAILED'] as const;
+export const POD_PRODUCT_CLONE_STATUSES = ['PENDING', 'PROCESSING', 'SUCCESS', 'PARTIAL', 'FAILED', 'SKIPPED'] as const;
 export type PodProductCloneStatus = (typeof POD_PRODUCT_CLONE_STATUSES)[number];
 
 /** Bộ lọc màn hình **Clone Products**. */

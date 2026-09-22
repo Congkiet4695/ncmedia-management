@@ -219,6 +219,20 @@ export interface TiktokBrand {
   brandStatus?: string;
 }
 
+/**
+ * Luật của một danh mục từ **Get Category Rules** (`/product/202309/categories/{id}/rules`).
+ *
+ * Chỉ ánh xạ phần hệ thống dùng. `sizeChart.isSupported = false` nghĩa là (theo tài liệu
+ * TikTok) "even if you provide a size chart when creating or editing a product, the size chart
+ * will not be saved" — gửi cũng vô ích, và `isRequired = true` thì thiếu là bị từ chối.
+ */
+export interface TiktokCategoryRules {
+  sizeChart: { isSupported: boolean; isRequired: boolean } | null;
+  packageDimension: { isRequired: boolean } | null;
+  /** Danh sách phí/chứng nhận… để nguyên dạng thô cho log; không suy diễn ở đây. */
+  raw: Record<string, unknown>;
+}
+
 /** Thuộc tính của một danh mục từ Get Category Attributes. */
 export interface TiktokCategoryAttribute {
   id?: string;

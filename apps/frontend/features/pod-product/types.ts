@@ -135,6 +135,13 @@ export const POD_PRODUCT_SORT_FIELDS = [
 ] as const;
 export type PodProductSortField = (typeof POD_PRODUCT_SORT_FIELDS)[number];
 
+/**
+ * Lọc theo Flash Sale trong khoảng thời gian (bộ chọn sản phẩm cho đợt sale):
+ * RUNNING = có đợt đang lên sàn giao với khoảng chọn · NOT_RUNNING = không có.
+ */
+export const POD_PRODUCT_FLASH_SALE_FILTERS = ['ALL', 'RUNNING', 'NOT_RUNNING'] as const;
+export type PodProductFlashSaleFilter = (typeof POD_PRODUCT_FLASH_SALE_FILTERS)[number];
+
 export interface PodProductQuery extends PaginationParams {
   /** Khớp Tên sản phẩm · TikTok Product ID · Seller SKU. */
   search?: string;
@@ -143,6 +150,12 @@ export interface PodProductQuery extends PaginationParams {
   status?: string;
   categoryId?: string;
   brandId?: string;
+  flashSale?: PodProductFlashSaleFilter;
+  /** Mốc ISO/UTC — đã quy đổi từ giờ treo tường theo múi giờ của đợt sale. */
+  flashSaleFrom?: string;
+  flashSaleTo?: string;
+  /** Đợt sale đang mở — không tính chính nó. */
+  excludeFlashSaleId?: string;
   sortBy?: PodProductSortField;
   sortOrder?: 'asc' | 'desc';
 }
@@ -323,8 +336,12 @@ export interface CloneProductPayload {
 // Clone Products / Clone History
 // ---------------------------------------------------------------------------
 
-/** Trạng thái TỔNG của một lượt nhân bản (backend suy từ Listing Job type CLONE). */
-export const POD_PRODUCT_CLONE_STATUSES = ['PENDING', 'PROCESSING', 'SUCCESS', 'PARTIAL', 'FAILED'] as const;
+/**
+ * Trạng thái TỔNG của một lượt nhân bản — backend ĐẾM TỪ từng shop đích: SUCCESS (mọi shop),
+ * PARTIAL (có SUCCESS lẫn không), FAILED (không SUCCESS, có hỏng), SKIPPED (mọi shop đã có sản
+ * phẩm — không phải lỗi), PROCESSING / PENDING.
+ */
+export const POD_PRODUCT_CLONE_STATUSES = ['PENDING', 'PROCESSING', 'SUCCESS', 'PARTIAL', 'FAILED', 'SKIPPED'] as const;
 export type PodProductCloneStatus = (typeof POD_PRODUCT_CLONE_STATUSES)[number];
 
 /** Trạng thái của MỘT shop đích (= Listing Job Item). */

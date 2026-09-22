@@ -19,24 +19,72 @@ import {
 import type { PodProductCloneQueryDto, PodProductCloneStatus } from '../dto/pod-product-clone-history.dto';
 import { PodListingJobService } from './pod-listing-job.service';
 
-/** Trạng thái tổng của lượt nhân bản, suy từ trạng thái Listing Job — xem DTO. */
-const CLONE_STATUS_BY_JOB: Record<PodListingJobStatus, PodProductCloneStatus> = {
-  [PodListingJobStatus.PENDING]: 'PENDING',
-  [PodListingJobStatus.PROCESSING]: 'PROCESSING',
-  [PodListingJobStatus.COMPLETED]: 'SUCCESS',
-  [PodListingJobStatus.COMPLETED_WITH_ERRORS]: 'PARTIAL',
-  [PodListingJobStatus.FAILED]: 'FAILED',
-  [PodListingJobStatus.CANCELLED]: 'FAILED',
+/** Trạng thái job đã đóng sổ — mọi item đều ở trạng thái cuối. */
+const FINAL_JOB_STATUSES: PodListingJobStatus[] = [
+  PodListingJobStatus.COMPLETED,
+  PodListingJobStatus.COMPLETED_WITH_ERRORS,
+  PodListingJobStatus.FAILED,
+  PodListingJobStatus.CANCELLED,
+];
+
+/**
+ * Lọc theo trạng thái tổng ⇒ điều kiện Prisma tương đương với `cloneStatusOf` (đếm từ item).
+ *
+ * 🔴 Không lọc bằng trạng thái job cho các trạng thái cuối: job gộp SKIPPED vào "có lỗi"
+ * (COMPLETED_WITH_ERRORS / FAILED), còn màn hình này phân biệt "đã có sản phẩm" với "hỏng".
+ */
+const WHERE_BY_CLONE_STATUS: Record<PodProductCloneStatus, Prisma.PodListingJobWhereInput> = {
+  PENDING: { status: PodListingJobStatus.PENDING },
+  PROCESSING: { status: PodListingJobStatus.PROCESSING },
+  SUCCESS: {
+    status: { in: FINAL_JOB_STATUSES },
+    items: { none: { status: { not: PodListingJobItemStatus.SUCCESS } } },
+  },
+  SKIPPED: {
+    status: { in: FINAL_JOB_STATUSES },
+    items: { none: { status: { not: PodListingJobItemStatus.SKIPPED } } },
+  },
+  FAILED: {
+    status: { in: FINAL_JOB_STATUSES },
+    AND: [
+      { items: { none: { status: PodListingJobItemStatus.SUCCESS } } },
+      { items: { some: { status: { in: [PodListingJobItemStatus.FAILED, PodListingJobItemStatus.CANCELLED] } } } },
+    ],
+  },
+  PARTIAL: {
+    status: { in: FINAL_JOB_STATUSES },
+    AND: [
+      { items: { some: { status: PodListingJobItemStatus.SUCCESS } } },
+      { items: { some: { status: { not: PodListingJobItemStatus.SUCCESS } } } },
+    ],
+  },
 };
 
-/** Lọc theo trạng thái tổng ⇒ những trạng thái job tương ứng (một-nhiều với FAILED). */
-const JOB_STATUSES_BY_CLONE: Record<PodProductCloneStatus, PodListingJobStatus[]> = {
-  PENDING: [PodListingJobStatus.PENDING],
-  PROCESSING: [PodListingJobStatus.PROCESSING],
-  SUCCESS: [PodListingJobStatus.COMPLETED],
-  PARTIAL: [PodListingJobStatus.COMPLETED_WITH_ERRORS],
-  FAILED: [PodListingJobStatus.FAILED, PodListingJobStatus.CANCELLED],
-};
+export interface CloneCounts {
+  total: number;
+  success: number;
+  failed: number;
+  skipped: number;
+  processing: number;
+  pending: number;
+  cancelled: number;
+}
+
+/**
+ * Trạng thái tổng của lượt — **đếm từ item**, xem DTO.
+ *
+ * SKIPPED chỉ xuất hiện khi shop đích ĐÃ CÓ sản phẩm (chống trùng — lý do cuối cùng), không
+ * phải lỗi ⇒ lượt toàn SKIPPED là `SKIPPED`, không phải `FAILED`. Lượt có SUCCESS lẫn SKIPPED
+ * là `PARTIAL`: không phải shop nào cũng được lượt này tạo.
+ */
+export function cloneStatusOf(jobStatus: PodListingJobStatus, counts: CloneCounts): PodProductCloneStatus {
+  if (jobStatus === PodListingJobStatus.PENDING) return 'PENDING';
+  if (jobStatus === PodListingJobStatus.PROCESSING || counts.pending + counts.processing > 0) return 'PROCESSING';
+  if (counts.total > 0 && counts.success === counts.total) return 'SUCCESS';
+  if (counts.success > 0) return 'PARTIAL';
+  if (counts.failed + counts.cancelled > 0) return 'FAILED';
+  return counts.skipped > 0 ? 'SKIPPED' : 'FAILED';
+}
 
 /** Trạng thái item còn "đang chạy" — thanh tiến độ và polling dựa vào đây. */
 const RUNNING_ITEM_STATUSES: ReadonlySet<PodListingJobItemStatus> = new Set([
@@ -109,7 +157,6 @@ export class PodProductCloneHistoryService {
       type: PodListingJobType.CLONE,
       ...this.ownershipFilter(userId, scope),
       ...(query.createdBy && scope.allShops ? { createdBy: query.createdBy } : {}),
-      ...(query.status ? { status: { in: JOB_STATUSES_BY_CLONE[query.status] } } : {}),
       ...(query.from || query.to
         ? {
             createdAt: {
@@ -122,6 +169,7 @@ export class PodProductCloneHistoryService {
       // là một điều kiện `items.some` RIÊNG (AND): gộp vào một khoá `items` là bộ lọc sau đè
       // bộ lọc trước.
       AND: [
+        ...(query.status ? [WHERE_BY_CLONE_STATUS[query.status]] : []),
         ...(query.search
           ? [
               {
@@ -269,7 +317,7 @@ export class PodProductCloneHistoryService {
     creators: Map<string, { id: string; fullName: string; email: string }>,
     errorDetails: Map<string, Prisma.JsonValue> = new Map(),
   ) {
-    const counts = { total: row.items.length, success: 0, failed: 0, skipped: 0, processing: 0, pending: 0, cancelled: 0 };
+    const counts: CloneCounts = { total: row.items.length, success: 0, failed: 0, skipped: 0, processing: 0, pending: 0, cancelled: 0 };
     for (const item of row.items) {
       if (item.status === PodListingJobItemStatus.SUCCESS) counts.success += 1;
       else if (item.status === PodListingJobItemStatus.FAILED) counts.failed += 1;
@@ -287,7 +335,7 @@ export class PodProductCloneHistoryService {
     return {
       id: row.id,
       name: row.name,
-      status: CLONE_STATUS_BY_JOB[row.status],
+      status: cloneStatusOf(row.status, counts),
       jobStatus: row.status,
       market: row.market,
       product: source

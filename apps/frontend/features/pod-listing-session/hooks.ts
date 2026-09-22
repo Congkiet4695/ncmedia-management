@@ -191,3 +191,13 @@ export function useStartSessionListing() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [KEY] }),
   });
 }
+
+/** Publish Live TikTok — xem `podListingSessionService.publishLive`. */
+export function usePublishLiveSession() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, name }: { id: string; name?: string }) =>
+      podListingSessionService.publishLive(id, name),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [KEY] }),
+  });
+}

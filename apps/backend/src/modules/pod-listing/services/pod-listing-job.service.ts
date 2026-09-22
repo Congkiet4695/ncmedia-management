@@ -46,6 +46,7 @@ import {
   POD_LISTING_SWEEP_INTERVAL_MS,
   POD_LISTING_BLOCKER_CODES,
   POD_PRODUCT_CLONE_LOCK_MS,
+  POD_PRODUCT_CLONE_WAIT_MS,
   POD_PUBLISH_BLOCKER_CODES,
   POD_PUBLISHABLE_PAYLOAD_STATUSES,
 } from '../constants/pod-listing.constants';
@@ -66,6 +67,7 @@ import {
   type ListingTemplateFull,
 } from './pod-listing-template.service';
 import {
+  PodCategoryRuleException,
   PodImageUploadException,
   PodListingPublisherService,
   PodPublishPayloadException,
@@ -77,6 +79,7 @@ import { humanizeTiktokListingError } from './pod-tiktok-error-message';
 import {
   PodProductCloneResolverService,
   marketOfRegion,
+  type CloneInProgress,
 } from './pod-product-clone-resolver.service';
 import { PodProductSyncService } from '../../pod-product/services/pod-product-sync.service';
 import { PodListingValidatorService } from './pod-listing-validator.service';
@@ -127,6 +130,24 @@ export class PodCloneMarketUnknownException extends BadRequestException {
       code: 'POD_PRODUCT_CLONE_MARKET_UNKNOWN',
       message: `Không xác định được thị trường của shop nguồn (vùng "${region ?? '?'}") — không nhân bản được.`,
     });
+  }
+}
+
+/**
+ * Lỗi **tạm thời** trong pipeline CLONE: một lượt KHÁC đang tạo đúng sản phẩm này lên đúng shop
+ * này. Không phải lỗi nghiệp vụ ⇒ item chờ rồi thử lại (`POD_PRODUCT_CLONE_WAIT_MS`), hết lượt
+ * chờ mới FAILED — với lý do nêu rõ lượt nào đang chặn, để người dùng Retry sau khi lượt kia xong.
+ */
+export class PodCloneInProgressException extends Error {
+  readonly code = 'CLONE_IN_PROGRESS';
+
+  constructor(readonly blocking: CloneInProgress) {
+    const startedAt = blocking.startedAt ? blocking.startedAt.toISOString() : 'chưa bắt đầu';
+    super(
+      `Shop đích đang được một lượt nhân bản khác xử lý cho chính sản phẩm này ` +
+        `(lượt #${blocking.jobId.slice(0, 8)}, bắt đầu ${startedAt}). Chờ lượt đó kết thúc rồi chạy lại.`,
+    );
+    this.name = 'PodCloneInProgressException';
   }
 }
 
@@ -240,6 +261,11 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
       /** Cặp (Draft Product, shop) — sản phẩm nào lên shop nào. */
       targets: Array<{ sessionProductId: string; shopId: string }>;
       products: number;
+      /**
+       * `CREATE_DRAFT` (mặc định — Draft trên sàn, `save_mode = AS_DRAFT`) hoặc `LIVE_LISTING`
+       * (Publish Live TikTok — Create Product `save_mode = LISTING`, vào thẳng hàng chờ duyệt).
+       */
+      type?: typeof PodListingJobType.CREATE_DRAFT | typeof PodListingJobType.LIVE_LISTING;
     },
   ) {
     if (input.targets.length === 0) {
@@ -262,6 +288,7 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
           sessionId: input.sessionId,
           name: input.name,
           market: input.market,
+          type: input.type ?? PodListingJobType.CREATE_DRAFT,
           totalItems: input.targets.length,
           concurrency: POD_LISTING_JOB_CONCURRENCY,
           maxRetries: POD_LISTING_JOB_MAX_RETRIES,
@@ -279,14 +306,15 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
         })),
       });
 
+      const live = input.type === PodListingJobType.LIVE_LISTING;
       await tx.podListingLog.create({
         data: {
           organizationId,
           jobId: created.id,
           level: PodListingLogLevel.INFO,
           step: PodListingStep.LOAD_TEMPLATE,
-          message: `Start Listing: ${input.products} sản phẩm × ${input.targets.length} lượt đăng`,
-          payload: toJson({ market: input.market, sessionId: input.sessionId }),
+          message: `${live ? 'Publish Live' : 'Start Listing'}: ${input.products} sản phẩm × ${input.targets.length} lượt đăng`,
+          payload: toJson({ market: input.market, sessionId: input.sessionId, saveMode: live ? 'LISTING' : 'AS_DRAFT' }),
         },
       });
 
@@ -578,7 +606,8 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
    * ```
    *   1. Nạp sản phẩm nguồn (404 nếu không thuộc tổ chức)  →  kiểm shop NGUỒN trong phạm vi
    *   2. Từng shop đích: assertShopAllowed (một shop lạ ⇒ 403 CẢ request, không tạo gì)
-   *   3. Từng shop đích: đã có sản phẩm này? ⇒ item SKIPPED ngay lúc tạo, kèm lý do
+   *   3. Từng shop đích: đã có sản phẩm này (chống trùng, lý do CUỐI CÙNG)? ⇒ item SKIPPED
+   *      ngay lúc tạo, kèm lý do
    *   4. Job type = CLONE, một item cho mỗi shop đích còn lại → chạy nền
    * ```
    *
@@ -586,9 +615,14 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
    * bước 2 chặn TRƯỚC khi bất kỳ bản ghi nào được tạo — không có chuyện "chạy phần hợp lệ,
    * lặng lẽ bỏ phần còn lại": người dùng phải biết request của họ có shop không được phép.
    *
-   * 🔴 **Chống bấm đúp ở server**: khoá Redis theo sản phẩm nguồn quanh bước tạo job, và
-   * `findSkipReason` coi item CLONE đang chạy cho cùng (sản phẩm, shop) là lý do bỏ qua.
-   * Disable nút ở trình duyệt chỉ là lớp đầu tiên.
+   * 🔴 **Chống bấm đúp ở server**: khoá Redis theo sản phẩm nguồn quanh bước tạo job
+   * (`pod:product-clone:{productId}`, TTL `POD_PRODUCT_CLONE_LOCK_MS`, tự hết hạn nếu tiến
+   * trình chết). Disable nút ở trình duyệt chỉ là lớp đầu tiên.
+   *
+   * 🔴 "Đang có lượt khác chạy cho cặp (sản phẩm, shop)" là chuyện **tạm thời** và KHÔNG
+   * được quyết ở đây: item vẫn được tạo PENDING, pipeline (`processCloneItem`) sẽ chờ lượt
+   * kia xong — rồi hoặc thấy sản phẩm đã có (SKIPPED đúng nghĩa chống trùng), hoặc tự tạo
+   * nếu lượt kia hỏng. Đánh SKIPPED ngay lúc tạo là biến một cái chờ thành một cái kết luận sai.
    */
   async createCloneJob(
     organizationId: string,
@@ -623,7 +657,8 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
       `pod:product-clone:${product.id}`,
       POD_PRODUCT_CLONE_LOCK_MS,
       async () => {
-        // Kiểm "đã có" cho từng shop TRONG khoá: hai request song song không cùng thấy "chưa có".
+        // Kiểm "đã có" (chống trùng — lý do cuối cùng) cho từng shop TRONG khoá: hai request
+        // song song không cùng thấy "chưa có".
         const skips = new Map<string, string>();
         for (const shop of shops) {
           const reason = await this.cloneResolver.findSkipReason(organizationId, product, shop.id);
@@ -859,6 +894,8 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
     return this.processCreateDraftItem({
       ...params,
       template: params.template as ListingTemplateFull,
+      // Publish Live: cùng pipeline chuẩn bị, chỉ khác lời gọi cuối (LISTING thay vì AS_DRAFT).
+      live: params.jobType === PodListingJobType.LIVE_LISTING,
     });
   }
 
@@ -1088,8 +1125,13 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
    *      → Create Product (save_mode = LISTING) → PUBLISHED · UNDER_REVIEW → hẹn đồng bộ shop đích
    * ```
    *
-   * 🔴 Hai chốt chống trùng NGAY TRONG pipeline (ngoài các chốt lúc tạo job):
-   *   - `findSkipReason` chạy lại: shop đích đã có sản phẩm này (do lượt khác vừa xong) ⇒ SKIPPED.
+   * 🔴 Ba chốt NGAY TRONG pipeline (ngoài các chốt lúc tạo job):
+   *   - `findSkipReason` chạy lại: shop đích đã có sản phẩm này (do lượt khác vừa xong) ⇒ SKIPPED
+   *     (chống trùng — lý do cuối cùng).
+   *   - `findInProgress` — item của lượt KHÁC đang chạy cho đúng cặp (sản phẩm, shop) ⇒ lỗi
+   *     tạm thời `PodCloneInProgressException` ⇒ RETRYING, chờ `POD_PRODUCT_CLONE_WAIT_MS` rồi
+   *     thử lại; hết số lần chờ mới FAILED kèm lượt đang chặn. **Loại chính item này ra** khỏi
+   *     query — hàng đợi đã đánh nó PROCESSING trước khi vào đây, không loại thì nó tự chặn mình.
    *   - payload của cặp (nguồn, đích) đã mang `tiktokProductId` ⇒ SUCCESS, không gọi TikTok —
    *     đó là item mồ côi được bộ quét nhặt lại sau khi Create đã xong.
    *
@@ -1129,7 +1171,7 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
         targetShop: shop.name,
       });
 
-      // ---- Chốt 1: đã có trên shop đích (lượt khác vừa xong) ----
+      // ---- Chốt 1: đã có trên shop đích (lượt khác vừa xong) — chống trùng, lý do cuối cùng ----
       const skip = await this.cloneResolver.findSkipReason(organizationId, product, shop.id);
       if (skip) {
         await log(PodListingLogLevel.WARN, PodListingStep.VALIDATE, `Bỏ qua: ${skip.message}`, {
@@ -1146,6 +1188,10 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
         });
         return;
       }
+
+      // ---- Chốt 2: lượt KHÁC đang tạo đúng sản phẩm này lên đúng shop này — tạm thời, chờ ----
+      const busy = await this.cloneResolver.findInProgress(organizationId, product.id, shop.id, item.id);
+      if (busy) throw new PodCloneInProgressException(busy);
 
       // ---- Resolve từ sản phẩm nguồn (danh mục tra trong cây master toàn cục) ----
       const job = await this.prisma.podListingJob.findUnique({
@@ -1333,11 +1379,18 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
   }
 
   /**
-   * Pipeline **CREATE_DRAFT** của MỘT item — đây là chỗ mọi thứ thực sự xảy ra.
+   * Pipeline **CREATE_DRAFT** / **LIVE_LISTING** của MỘT item — đây là chỗ mọi thứ thực sự xảy ra.
    *
    * Load Product → Load Template → Merge → Validate → Upload Images → Create Draft → Save ID.
    * Mỗi bước ghi một dòng log gắn với item, nên khi 3/500 sản phẩm hỏng thì mở đúng ba dòng
    * đó ra đọc, không phải mò trong log ứng dụng.
+   *
+   * 🔴 `live = true` (Publish Live TikTok): y hệt tới bước Upload Images, rồi gửi Create Product
+   * `save_mode = LISTING` — không dừng ở Draft trên sàn. Bản ghi `pod_listing_payloads` vẫn được
+   * ghi (đó là Product Mapping: Draft Product ↔ shop ↔ TikTok Product ID) nhưng đi thẳng
+   * `PUBLISHED`, không sinh một Draft Listing chờ publish. Chống trùng: (Draft Product, shop) đã
+   * PUBLISHED ⇒ SUCCESS không gọi TikTok; đã có Draft trên sàn ⇒ Edit Product LISTING đúng draft
+   * đó (không tạo sản phẩm thứ hai).
    */
   private async processCreateDraftItem(params: {
     organizationId: string;
@@ -1351,8 +1404,11 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
     shopContexts: Map<string, TiktokShopContext>;
     /** Chứa Promise để năm luồng không cùng upload một tấm ảnh (xem publisher). */
     imageUriCache: Map<string, Promise<string>>;
+    /** Publish Live TikTok (`save_mode = LISTING`) thay vì Draft (`AS_DRAFT`). */
+    live?: boolean;
   }): Promise<void> {
     const { organizationId, jobId, item } = params;
+    const live = params.live === true;
     const startedAt = Date.now();
     const log = this.itemLogger(organizationId, jobId, item.id);
 
@@ -1362,6 +1418,35 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
         select: { id: true, accountId: true, name: true },
       });
       if (!shop) throw new PodShopContextException('Shop đã bị xoá khỏi hệ thống');
+
+      // ---- Publish Live: chốt chống trùng ĐỌC TRƯỚC khi sinh lại payload (persist ghi đè status) ----
+      const priorMapping =
+        live && item.sessionProductId
+          ? await this.prisma.podListingPayload.findFirst({
+              where: { organizationId, shopId: item.shopId, sessionProductId: item.sessionProductId, deletedAt: null },
+              select: { id: true, status: true, tiktokProductId: true, tiktokDraftId: true },
+            })
+          : null;
+      if (priorMapping?.status === PodListingPayloadStatus.PUBLISHED && priorMapping.tiktokProductId) {
+        await log(
+          PodListingLogLevel.INFO,
+          PodListingStep.PUBLISH,
+          `Đã publish lên shop này trước đó (TikTok Product ID ${priorMapping.tiktokProductId}) — không tạo lại`,
+          { payloadId: priorMapping.id, tiktokProductId: priorMapping.tiktokProductId },
+        );
+        await this.prisma.podListingJobItem.update({ where: { id: item.id }, data: { payloadId: priorMapping.id } });
+        await this.settleItem({
+          organizationId,
+          jobId,
+          itemId: item.id,
+          status: PodListingJobItemStatus.SUCCESS,
+          remoteProductId: priorMapping.tiktokProductId,
+          error: null,
+          errorCode: null,
+          durationMs: Date.now() - startedAt,
+        });
+        return;
+      }
 
       await log(PodListingLogLevel.DEBUG, PodListingStep.MERGE, 'Ghép Product với Template');
 
@@ -1416,6 +1501,33 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
       if (!ctx) {
         ctx = await this.publisher.shopContext(organizationId, item.shopId);
         params.shopContexts.set(item.shopId, ctx);
+      }
+
+      if (live) {
+        // Draft đã có trên sàn từ lượt Start Listing trước ⇒ Edit Product LISTING đúng draft đó.
+        const tiktokDraftId = priorMapping?.tiktokDraftId ?? priorMapping?.tiktokProductId ?? null;
+        const outcome = await this.publisher.publishListing({
+          organizationId,
+          ctx,
+          payload: payload.resolved.payload,
+          tiktokDraftId,
+          imageUriCache: params.imageUriCache,
+          log,
+        });
+        await this.recordLiveListing({ organizationId, payloadId: payload.id, item, outcome });
+        await this.settleItem({
+          organizationId,
+          jobId,
+          itemId: item.id,
+          status: PodListingJobItemStatus.SUCCESS,
+          remoteProductId: outcome.remoteProductId,
+          error: null,
+          errorCode: null,
+          durationMs: Date.now() - startedAt,
+        });
+        // Sản phẩm mới về màn hình Products của shop sau lượt đồng bộ được hẹn.
+        await this.productSync.scheduleShopSync(item.shopId);
+        return;
       }
 
       const outcome = await this.publisher.publishDraft({
@@ -1476,7 +1588,7 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
       await this.handleItemFailure({
         organizationId,
         jobId,
-        jobType: PodListingJobType.CREATE_DRAFT,
+        jobType: live ? PodListingJobType.LIVE_LISTING : PodListingJobType.CREATE_DRAFT,
         item,
         error,
         maxRetries: params.maxRetries,
@@ -1484,6 +1596,63 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
         log,
       });
     }
+  }
+
+  /**
+   * Ghi kết quả **Publish Live** của một Draft Product: payload đi thẳng PUBLISHED (Product Mapping
+   * mang TikTok Product ID, request/response đã gửi, trạng thái duyệt), SKU id theo seller_sku,
+   * Draft Product của session ⇒ PUBLISHED. Cùng khuôn với lượt nhân bản.
+   */
+  private async recordLiveListing(params: {
+    organizationId: string;
+    payloadId: string;
+    item: RunnableItem;
+    outcome: Awaited<ReturnType<PodListingPublisherService['publishListing']>>;
+  }): Promise<void> {
+    const { item, outcome } = params;
+    const publishedAt = new Date();
+    const reviewStatus =
+      mapReviewStatus(undefined, outcome.auditStatus) ?? PodListingReviewStatus.UNDER_REVIEW;
+    await this.prisma.$transaction(async (tx) => {
+      await tx.podListingPayload.update({
+        where: { id: params.payloadId },
+        data: {
+          status: PodListingPayloadStatus.PUBLISHED,
+          tiktokProductId: outcome.remoteProductId,
+          tiktokDraftId: outcome.remoteProductId,
+          publishedAt,
+          publishError: null,
+          publishRetryCount: item.retryCount,
+          publishRequest: toJson(outcome.request as unknown as Record<string, unknown>),
+          publishResponse: toJson({
+            ...outcome.response,
+            mode: outcome.mode,
+            tiktokRequestId: outcome.tiktokRequestId,
+          }),
+          reviewStatus,
+          reviewStatusRaw: null,
+          reviewReason: null,
+          reviewCheckedAt: null,
+        },
+      });
+      for (const sku of outcome.skuIds) {
+        await tx.podListingPayloadItem.updateMany({
+          where: { payloadId: params.payloadId, sellerSku: sku.sellerSku },
+          data: { tiktokSkuId: sku.tiktokSkuId },
+        });
+      }
+      if (item.sessionProductId) {
+        await tx.podListingSessionProduct.update({
+          where: { id: item.sessionProductId },
+          data: {
+            status: PodListingSessionProductStatus.PUBLISHED,
+            uploadedAt: publishedAt,
+            publishedAt,
+            uploadError: null,
+          },
+        });
+      }
+    });
   }
 
   /**
@@ -1521,10 +1690,13 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
       uploadError?.message ??
       (tiktokError ? humanizeTiktokListingError(tiktokError.tiktokCode, rawMessage) : null) ??
       rawMessage;
-    const errorCode = tiktokError ? String(tiktokError.tiktokCode) : null;
+    const inProgress = error instanceof PodCloneInProgressException ? error : null;
+    const errorCode = tiktokError ? String(tiktokError.tiktokCode) : (inProgress?.code ?? null);
 
     const permanent =
       error instanceof PodShopContextException ||
+      // Vi phạm luật danh mục (vd bắt buộc bảng size): sửa cấu hình rồi chạy lại, thử lại vô ích.
+      error instanceof PodCategoryRuleException ||
       // Thiếu cấu hình kho là lỗi CẤU HÌNH: thử lại vẫn thiếu y hệt, chỉ tốn quota và làm
       // người dùng chờ. Hỏng ngay, và chỉ hỏng đúng item của shop đó.
       error instanceof PodWarehouseResolutionException ||
@@ -1548,15 +1720,26 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
         tiktokRequestId: tiktokError?.requestId,
         errorClass: tiktokError?.errorClass ?? TiktokErrorClass.NETWORK,
         ...(uploadError ? { imageType: uploadError.imageUseCase, imageLabel: uploadError.imageLabel } : {}),
+        ...(inProgress
+          ? {
+              blockingJobId: inProgress.blocking.jobId,
+              blockingItemId: inProgress.blocking.itemId,
+              blockingStartedAt: inProgress.blocking.startedAt?.toISOString() ?? null,
+            }
+          : {}),
       },
     );
 
     if (canRetry) {
-      const delayMs = computeRetryDelayMs(
-        retryCount,
-        POD_LISTING_RETRY_BASE_DELAY_MS,
-        POD_LISTING_RETRY_MAX_DELAY_MS,
-      );
+      // Chờ lượt khác xong là chờ theo NHỊP của lượt đó (upload ảnh + Create ≈ vài chục giây),
+      // không phải backoff lỗi mạng 2s/4s/8s — nếu không thì luôn hết lượt chờ trước khi kịp.
+      const delayMs = inProgress
+        ? POD_PRODUCT_CLONE_WAIT_MS
+        : computeRetryDelayMs(
+            retryCount,
+            POD_LISTING_RETRY_BASE_DELAY_MS,
+            POD_LISTING_RETRY_MAX_DELAY_MS,
+          );
       await this.prisma.podListingJobItem.update({
         where: { id: item.id },
         data: {
@@ -2234,7 +2417,7 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
     if (job?.type === PodListingJobType.PUBLISH) {
       await this.finalizePublishedProducts(jobId, finishedAt);
     } else if (job?.sessionId) {
-      await this.finalizeSession(job.sessionId, jobId, status, finishedAt);
+      await this.finalizeSession(job.sessionId, jobId, status, finishedAt, job.type === PodListingJobType.LIVE_LISTING);
     }
 
     this.logger.log({
@@ -2297,6 +2480,8 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
     jobId: string,
     jobStatus: PodListingJobStatus,
     finishedAt: Date,
+    /** Lượt Publish Live: item SUCCESS ⇒ Draft Product PUBLISHED (không phải UPLOADED). */
+    live = false,
   ): Promise<void> {
     const items = await this.prisma.podListingJobItem.findMany({
       where: { jobId, sessionProductId: { not: null } },
@@ -2313,7 +2498,9 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
       const status = statuses.includes(PodListingJobItemStatus.FAILED)
         ? PodListingSessionProductStatus.FAILED
         : statuses.includes(PodListingJobItemStatus.SUCCESS)
-          ? PodListingSessionProductStatus.UPLOADED
+          ? live
+            ? PodListingSessionProductStatus.PUBLISHED
+            : PodListingSessionProductStatus.UPLOADED
           : PodListingSessionProductStatus.SKIPPED;
 
       await this.prisma.podListingSessionProduct.updateMany({
@@ -2322,7 +2509,9 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
           status,
           ...(status === PodListingSessionProductStatus.UPLOADED
             ? { uploadError: null, uploadedAt: finishedAt }
-            : {}),
+            : status === PodListingSessionProductStatus.PUBLISHED
+              ? { uploadError: null, uploadedAt: finishedAt, publishedAt: finishedAt }
+              : {}),
         },
       });
     }
@@ -2336,28 +2525,78 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
   /**
    * Bộ quét định kỳ.
    *
-   * Hai việc: (1) trả item "mồ côi" (PROCESSING quá lâu vì tiến trình chết) về hàng đợi;
-   * (2) khởi động lại job chưa xong mà không có vòng chạy nào trong tiến trình này.
+   * Hai việc: (1) xử lý item "mồ côi" (PROCESSING quá `POD_LISTING_STALE_ITEM_MS` vì tiến trình
+   * chết giữa chừng); (2) khởi động lại job chưa xong mà không có vòng chạy nào trong tiến trình này.
+   *
+   * 🔴 Item treo được **trả về hàng đợi có đếm**: mỗi lần khôi phục tính là một lần thử
+   * (`retryCount + 1`); hết `maxRetries` của job thì FAILED với mã `JOB_TIMEOUT` và lý do rõ —
+   * không được treo PROCESSING vĩnh viễn (khoá cặp sản phẩm/shop của lượt clone khác), cũng
+   * không được tự coi là SUCCESS: TikTok có thể đã hoặc chưa nhận request, chỉ payload
+   * (Product Mapping) mới biết — pipeline kiểm lại khi chạy lại.
    */
   private async sweep(): Promise<void> {
     if (this.stopping) return;
 
     try {
       const staleBefore = new Date(Date.now() - POD_LISTING_STALE_ITEM_MS);
-      const revived = await this.prisma.podListingJobItem.updateMany({
+      const stale = await this.prisma.podListingJobItem.findMany({
         where: {
           status: PodListingJobItemStatus.PROCESSING,
           startedAt: { lt: staleBefore },
           job: { deletedAt: null, status: { not: PodListingJobStatus.CANCELLED } },
         },
-        data: { status: PodListingJobItemStatus.PENDING, startedAt: null },
+        select: {
+          id: true,
+          jobId: true,
+          organizationId: true,
+          retryCount: true,
+          startedAt: true,
+          job: { select: { maxRetries: true } },
+        },
+        take: 200,
       });
-      if (revived.count > 0) {
+      for (const item of stale) {
+        const staleMinutes = Math.round(POD_LISTING_STALE_ITEM_MS / 60_000);
+        const message =
+          `Quá thời gian xử lý: item treo ở PROCESSING hơn ${staleMinutes} phút ` +
+          `(bắt đầu ${item.startedAt?.toISOString() ?? '?'}) — tiến trình trước đã dừng giữa chừng.`;
+        const log = this.itemLogger(item.organizationId, item.jobId, item.id);
+        if (item.retryCount >= item.job.maxRetries) {
+          await log(PodListingLogLevel.ERROR, PodListingStep.RETRY, `Thất bại: ${message} Đã hết số lần khôi phục.`, {
+            code: 'JOB_TIMEOUT',
+            retryCount: item.retryCount,
+          });
+          await this.settleItem({
+            organizationId: item.organizationId,
+            jobId: item.jobId,
+            itemId: item.id,
+            status: PodListingJobItemStatus.FAILED,
+            error: `${message} Đã hết số lần khôi phục — bấm Chạy lại để thử lại.`,
+            errorCode: 'JOB_TIMEOUT',
+            durationMs: item.startedAt ? Date.now() - item.startedAt.getTime() : 0,
+          });
+          continue;
+        }
+        await log(PodListingLogLevel.WARN, PodListingStep.RETRY, `${message} Trả về hàng đợi (lần ${item.retryCount + 1}/${item.job.maxRetries}).`, {
+          code: 'JOB_TIMEOUT',
+        });
+        await this.prisma.podListingJobItem.update({
+          where: { id: item.id },
+          data: {
+            status: PodListingJobItemStatus.PENDING,
+            startedAt: null,
+            retryCount: item.retryCount + 1,
+            error: message,
+            errorCode: 'JOB_TIMEOUT',
+          },
+        });
+      }
+      if (stale.length > 0) {
         this.logger.warn({
           module: 'pod-listing',
           operation: 'job.sweep.revive',
-          items: revived.count,
-          msg: 'Trả item đang treo về hàng đợi (tiến trình trước đã chết giữa chừng)',
+          items: stale.length,
+          msg: 'Xử lý item đang treo (tiến trình trước đã chết giữa chừng): trả về hàng đợi hoặc FAILED nếu hết lượt',
         });
       }
 

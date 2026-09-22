@@ -17,10 +17,12 @@ import {
 } from '../../tiktok-sdk/tiktok-sdk.constants';
 import type { TiktokShopContext } from '../../tiktok-sdk/types/tiktok-shop-context.type';
 import type {
+  TiktokCategoryRules,
   TiktokCreateProductRequest,
   TiktokCreateProductSku,
 } from '../../tiktok-sdk/types/tiktok-product.types';
 import {
+  POD_CATEGORY_RULES_CACHE_MS,
   POD_LISTING_MAX_IMAGES,
 } from '../constants/pod-listing.constants';
 import { POD_TIKTOK_LEGACY_FAKE_NO_BRAND_ID } from '../../pod-product/constants/pod-product.constants';
@@ -196,6 +198,17 @@ export class PodWarehouseResolutionException extends Error {
 }
 
 /**
+ * Listing vi phạm LUẬT DANH MỤC của TikTok (Get Category Rules) — vd danh mục bắt buộc bảng size
+ * mà listing không có. Lỗi cấu hình/nội dung: thử lại vẫn y hệt ⇒ hàng đợi coi là vĩnh viễn.
+ */
+export class PodCategoryRuleException extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'PodCategoryRuleException';
+  }
+}
+
+/**
  * PodListingPublisherService — **nơi duy nhất** đưa một listing lên TikTok.
  *
  * Hai pipeline, dùng chung mọi bước chuẩn bị:
@@ -217,6 +230,9 @@ export class PodWarehouseResolutionException extends Error {
  */
 @Injectable()
 export class PodListingPublisherService {
+  /** Luật danh mục theo (shop, danh mục) — Promise để 5 luồng cùng lượt không hỏi TikTok 5 lần. */
+  private readonly categoryRulesCache = new Map<string, { at: number; rules: Promise<TiktokCategoryRules | null> }>();
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly productApi: TiktokProductApiService,
@@ -288,7 +304,11 @@ export class PodListingPublisherService {
 
     // 🔴 Ảnh trong MÔ TẢ đi trước cả bộ ảnh sản phẩm: đây là bước hay hỏng nhất (tải URL ngoài,
     // upload từng tấm) và nếu hỏng thì KHÔNG được tốn lượt upload ảnh sản phẩm rồi mới biết.
-    const payload = await this.ensureDescriptionImages(params.organizationId, ctx, params.payload, log);
+    const payload = await this.applyCategoryRules(
+      ctx,
+      await this.ensureDescriptionImages(params.organizationId, ctx, params.payload, log),
+      log,
+    );
 
     const images = await this.ensureImageUris(
       params.organizationId,
@@ -402,7 +422,11 @@ export class PodListingPublisherService {
 
     // Edit Product là full edit ⇒ mô tả gửi lại toàn bộ, nên ảnh mô tả cũng phải là URL
     // DESCRIPTION_IMAGE. Ảnh đã upload ở lượt tạo Draft nằm sẵn trong bảng mapping ⇒ dùng lại.
-    const payload = await this.ensureDescriptionImages(params.organizationId, ctx, params.payload, log);
+    const payload = await this.applyCategoryRules(
+      ctx,
+      await this.ensureDescriptionImages(params.organizationId, ctx, params.payload, log),
+      log,
+    );
 
     const images = await this.ensureImageUris(
       params.organizationId,
@@ -652,6 +676,82 @@ export class PodListingPublisherService {
    * Upload xong thì ghi ngược vào **mọi dòng dùng chung file đó** (clone bộ ảnh dùng chung
    * `file_id`), nên nhân bản bộ ảnh không sinh thêm lần upload nào.
    */
+  /**
+   * Áp **luật danh mục** (Get Category Rules) lên listing TRƯỚC khi upload ảnh / gửi request.
+   *
+   * Bảng size:
+   *   - `isSupported = false` ⇒ BỎ `size_chart` (TikTok: "even if you provide a size chart…
+   *     the size chart will not be saved") và không tốn một lượt upload vô ích — log WARN để
+   *     người vận hành biết vì sao sản phẩm lên sàn không có bảng size dù template có.
+   *   - `isRequired = true` mà listing không có ⇒ lỗi VĨNH VIỄN với câu chỉ rõ phải cấu hình bảng
+   *     size ở Category Template / form — không gửi để TikTok từ chối bằng mã khó hiểu.
+   *
+   * 🔴 Không lấy được luật (mạng, quota) ⇒ giữ nguyên listing và log WARN: luật chỉ là bộ lọc
+   * phụ, TikTok vẫn là trọng tài cuối cùng; chặn cả lượt đăng vì một lời gọi phụ hỏng là sai.
+   */
+  private async applyCategoryRules(
+    ctx: TiktokShopContext,
+    payload: ResolvedListing,
+    log: ListingLogger,
+  ): Promise<ResolvedListing> {
+    const categoryId = payload.category.tiktokCategoryId;
+    if (!categoryId) return payload;
+    const rules = await this.categoryRules(ctx, categoryId, log);
+    const sizeChart = rules?.sizeChart;
+    if (!sizeChart) return payload;
+
+    if (!sizeChart.isSupported && payload.sizeChart) {
+      await log(
+        PodListingLogLevel.WARN,
+        PodListingStep.VALIDATE,
+        `Danh mục ${categoryId} không hỗ trợ bảng size — bỏ qua bảng size của listing (TikTok sẽ không lưu)`,
+        { categoryId, sizeChartSupported: false },
+      );
+      return { ...payload, sizeChart: null };
+    }
+    if (sizeChart.isRequired && !payload.sizeChart) {
+      throw new PodCategoryRuleException(
+        `Danh mục ${payload.category.name ?? categoryId} bắt buộc có bảng size (size chart) — thêm ảnh bảng size vào ` +
+          'Category Template hoặc mục Media của listing rồi chạy lại.',
+      );
+    }
+    return payload;
+  }
+
+  /** Luật danh mục theo (shop, danh mục), nhớ `POD_CATEGORY_RULES_CACHE_MS`; lỗi ⇒ `null` + WARN. */
+  private categoryRules(
+    ctx: TiktokShopContext,
+    categoryId: string,
+    log: ListingLogger,
+  ): Promise<TiktokCategoryRules | null> {
+    const key = `${ctx.shopId ?? 'shop'}:${categoryId}`;
+    const cached = this.categoryRulesCache.get(key);
+    if (cached && Date.now() - cached.at < POD_CATEGORY_RULES_CACHE_MS) return cached.rules;
+
+    const rules = Promise.resolve()
+      .then(() => this.productApi.getCategoryRules(ctx, categoryId))
+      .then((result) => result.data)
+      .catch(async (error: unknown) => {
+        // Không nhớ kết quả hỏng: lượt sau hỏi lại.
+        this.categoryRulesCache.delete(key);
+        const detail = error as { tiktokCode?: number; requestId?: string };
+        await log(
+          PodListingLogLevel.WARN,
+          PodListingStep.VALIDATE,
+          `Không lấy được luật danh mục ${categoryId} — gửi listing như cấu hình, TikTok tự kiểm`,
+          {
+            categoryId,
+            tiktokCode: detail?.tiktokCode ?? null,
+            tiktokRequestId: detail?.requestId ?? null,
+            error: error instanceof Error ? error.message : String(error),
+          },
+        );
+        return null;
+      });
+    this.categoryRulesCache.set(key, { at: Date.now(), rules });
+    return rules;
+  }
+
   private async ensureImageUris(
     organizationId: string,
     ctx: TiktokShopContext,
@@ -689,7 +789,7 @@ export class PodListingPublisherService {
       ),
     ];
 
-    await this.seedCacheFromDatabase(organizationId, cache, selected, variantFileIds);
+    await this.seedCacheFromDatabase(organizationId, cache, selected, variantFileIds, payload.sizeChart?.fileId ?? null);
     // Bảng size của Draft Product đã từng upload (`remote_uri`) ⇒ nạp sẵn theo ĐÚNG use case
     // SIZE_CHART_IMAGE; không nạp thì mỗi lượt / mỗi shop lại upload cùng một tấm.
     if (payload.sizeChart?.tiktokImageUri) {
@@ -820,19 +920,12 @@ export class PodListingPublisherService {
      * phẩm lên sàn không có bảng size — đúng lỗi người dùng đã báo.
      */
     const sizeChartUri = payload.sizeChart
-      ? await uriOf({ fileId: payload.sizeChart.fileId, url: payload.sizeChart.url }, 'bảng size', (uri) =>
-          this.prisma.podListingSessionProductImage.updateMany({
-            where: {
-              organizationId,
-              imageType: PodListingSessionImageType.SIZE_CHART,
-              ...(payload.sizeChart?.fileId
-                ? { fileId: payload.sizeChart.fileId }
-                : { imageUrl: payload.sizeChart?.url ?? '' }),
-            },
-            data: { remoteUri: uri, uploadedAt: new Date() },
-          }),
-        TIKTOK_IMAGE_USE_CASE.SIZE_CHART_IMAGE,
-      )
+      ? await uriOf(
+          { fileId: payload.sizeChart.fileId, url: payload.sizeChart.url },
+          'bảng size',
+          (uri) => this.persistSizeChartUri(organizationId, payload.sizeChart, uri),
+          TIKTOK_IMAGE_USE_CASE.SIZE_CHART_IMAGE,
+        )
       : null;
 
     /**
@@ -920,6 +1013,8 @@ export class PodListingPublisherService {
     cache: Map<string, Promise<string>>,
     images: ResolvedListing['images'],
     variantFileIds: string[],
+    /** File bảng size (Storage) — nạp `uri` SIZE_CHART_IMAGE đã ghi ở Category Template / Draft Product. */
+    sizeChartFileId: string | null = null,
   ): Promise<void> {
     // Bộ ảnh sản phẩm ⇒ MAIN_IMAGE; ảnh biến thể ⇒ ATTRIBUTE_IMAGE (uri KHÁC nhau phía TikTok).
     const main = TIKTOK_IMAGE_USE_CASE.MAIN_IMAGE;
@@ -939,7 +1034,11 @@ export class PodListingPublisherService {
       (fileId) => !cache.has(this.cacheKey(attribute, { fileId })),
     );
 
-    const [imageRows, variantRows, valueRows] = await Promise.all([
+    const sizeChartKey = sizeChartFileId
+      ? this.cacheKey(TIKTOK_IMAGE_USE_CASE.SIZE_CHART_IMAGE, { fileId: sizeChartFileId })
+      : null;
+
+    const [imageRows, variantRows, valueRows, sizeChartRows] = await Promise.all([
       missingImages.length === 0
         ? Promise.resolve([])
         : this.prisma.podImageTemplateItem.findMany({
@@ -971,8 +1070,31 @@ export class PodListingPublisherService {
             },
             select: { imageFileId: true, tiktokImageUri: true },
           }),
+      // Bảng size đã upload cho file này (Category Template hoặc Draft Product) ⇒ dùng lại.
+      !sizeChartFileId || !sizeChartKey || cache.has(sizeChartKey)
+        ? Promise.resolve([] as Array<{ uri: string | null }>)
+        : Promise.all([
+            this.prisma.podCategoryTemplate.findFirst({
+              where: { organizationId, sizeChartFileId, sizeChartTiktokImageUri: { not: null } },
+              select: { sizeChartTiktokImageUri: true },
+            }),
+            this.prisma.podListingSessionProductImage.findFirst({
+              where: {
+                organizationId,
+                fileId: sizeChartFileId,
+                imageType: PodListingSessionImageType.SIZE_CHART,
+                remoteUri: { not: null },
+              },
+              select: { remoteUri: true },
+            }),
+          ]).then(([template, image]) => [
+            { uri: template?.sizeChartTiktokImageUri ?? image?.remoteUri ?? null },
+          ]),
     ]);
 
+    for (const row of sizeChartRows) {
+      if (row.uri && sizeChartKey) cache.set(sizeChartKey, Promise.resolve(row.uri));
+    }
     for (const row of imageRows) {
       if (row.tiktokImageUri) {
         cache.set(this.cacheKey(main, { fileId: row.fileId }), Promise.resolve(row.tiktokImageUri));
@@ -986,6 +1108,37 @@ export class PodListingPublisherService {
         );
       }
     }
+  }
+
+  /**
+   * Ghi `uri` SIZE_CHART_IMAGE ngược vào MỌI chỗ đang trỏ tới tấm bảng size đó: ảnh SIZE_CHART của
+   * Draft Product (`remote_uri`) và **Category Template** (`size_chart_tiktok_image_uri`) — lần
+   * listing sau (kể cả Auto Listing chỉ có template, không có Draft Product) dùng lại, không
+   * upload lại. Bảng size theo URL ngoài (nhân bản sản phẩm) chỉ có cache của lượt job.
+   */
+  private async persistSizeChartUri(
+    organizationId: string,
+    sizeChart: ResolvedListing['sizeChart'],
+    uri: string,
+  ): Promise<void> {
+    if (!sizeChart) return;
+    const uploadedAt = new Date();
+    await Promise.all([
+      this.prisma.podListingSessionProductImage.updateMany({
+        where: {
+          organizationId,
+          imageType: PodListingSessionImageType.SIZE_CHART,
+          ...(sizeChart.fileId ? { fileId: sizeChart.fileId } : { imageUrl: sizeChart.url ?? '' }),
+        },
+        data: { remoteUri: uri, uploadedAt },
+      }),
+      sizeChart.fileId
+        ? this.prisma.podCategoryTemplate.updateMany({
+            where: { organizationId, sizeChartFileId: sizeChart.fileId },
+            data: { sizeChartTiktokImageUri: uri, sizeChartImageUploadedAt: uploadedAt },
+          })
+        : Promise.resolve(),
+    ]);
   }
 
   /** Ghi `uri` ATTRIBUTE_IMAGE ngược vào mọi dòng dùng chung file — tổ hợp lẫn giá trị trục. */

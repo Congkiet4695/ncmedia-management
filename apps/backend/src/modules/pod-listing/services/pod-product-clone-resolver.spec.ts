@@ -1,6 +1,7 @@
 import { PodBrandMode, PodListingMarket, Prisma } from '@prisma/client';
 import { POD_DRAFT_ISSUE_CODES } from '../constants/pod-listing.constants';
 import {
+  PodProductCloneResolverService,
   marketOfRegion,
   resolveCloneListing,
   type CloneCategory,
@@ -254,5 +255,58 @@ describe('marketOfRegion', () => {
     expect(marketOfRegion('us')).toBe('US');
     expect(marketOfRegion('XX')).toBeNull();
     expect(marketOfRegion(null)).toBeNull();
+  });
+});
+
+/**
+ * **Chống trùng ≠ concurrency.** `findSkipReason` chỉ trả lý do CUỐI CÙNG (shop nguồn / đã có
+ * sản phẩm) và KHÔNG nhìn vào item đang chạy; `findInProgress` mới hỏi "lượt khác đang chạy?" —
+ * và phải loại chính item đang xử lý ra khỏi câu hỏi (nó đã được đánh PROCESSING trước khi hỏi).
+ */
+describe('PodProductCloneResolverService.findSkipReason / findInProgress', () => {
+  function build(itemRow: unknown = null) {
+    const prisma = {
+      podListingPayload: { findFirst: jest.fn().mockResolvedValue(null) },
+      podProduct: { findFirst: jest.fn().mockResolvedValue(null) },
+      podListingJobItem: { findFirst: jest.fn().mockResolvedValue(itemRow) },
+    };
+    return { service: new PodProductCloneResolverService(prisma as never), prisma };
+  }
+
+  it('findSkipReason: không có sản phẩm ở shop đích ⇒ null, và KHÔNG hỏi bảng item (không trộn concurrency vào chống trùng)', async () => {
+    const { service, prisma } = build({ id: 'item-self', jobId: 'job-1', startedAt: new Date() });
+    await expect(service.findSkipReason('org-1', buildProduct(), 'shop-b')).resolves.toBeNull();
+    expect(prisma.podListingJobItem.findFirst).not.toHaveBeenCalled();
+  });
+
+  it('findSkipReason: shop nguồn ⇒ SOURCE_SHOP; payload đã có tiktokProductId ⇒ ALREADY_CLONED', async () => {
+    const { service, prisma } = build();
+    await expect(service.findSkipReason('org-1', buildProduct(), 'shop-src')).resolves.toMatchObject({ code: 'SOURCE_SHOP' });
+    prisma.podListingPayload.findFirst.mockResolvedValue({ tiktokProductId: 'TT-B' });
+    await expect(service.findSkipReason('org-1', buildProduct(), 'shop-b')).resolves.toMatchObject({ code: 'ALREADY_CLONED' });
+  });
+
+  it('CASE 10: findInProgress LOẠI chính item đang xử lý khỏi query (id not) và chỉ nhìn cặp (sản phẩm, shop) đang chạy của job CLONE', async () => {
+    const { service, prisma } = build();
+    await service.findInProgress('org-1', 'prod-1', 'shop-b', 'item-self');
+    const where = ((prisma.podListingJobItem.findFirst.mock.calls as unknown[][])[0][0] as { where: Record<string, unknown> }).where;
+    expect(where).toMatchObject({
+      organizationId: 'org-1',
+      productId: 'prod-1',
+      shopId: 'shop-b',
+      id: { not: 'item-self' },
+      status: { in: ['PENDING', 'PROCESSING', 'RETRYING'] },
+      job: { type: 'CLONE', deletedAt: null },
+    });
+  });
+
+  it('findInProgress: có item của lượt KHÁC ⇒ trả về jobId/itemId/startedAt để báo lỗi có ngữ cảnh', async () => {
+    const startedAt = new Date('2026-09-22T09:20:00Z');
+    const { service } = build({ id: 'item-other', jobId: 'job-other', startedAt });
+    await expect(service.findInProgress('org-1', 'prod-1', 'shop-b', 'item-self')).resolves.toEqual({
+      jobId: 'job-other',
+      itemId: 'item-other',
+      startedAt,
+    });
   });
 });

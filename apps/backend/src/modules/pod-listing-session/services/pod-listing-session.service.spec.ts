@@ -101,6 +101,7 @@ function buildService(session: ReturnType<typeof buildSession>, products: Produc
   };
   const templates = { getForSession: jest.fn().mockResolvedValue({ id: '', name: 'x' }) };
   const jobs = { createFromSession: jest.fn() };
+  const lock = { withLock: jest.fn((_key: string, _ttl: number, task: () => Promise<unknown>) => task()) };
 
   const service = new PodListingSessionService(
     prisma as never,
@@ -109,6 +110,7 @@ function buildService(session: ReturnType<typeof buildSession>, products: Produc
     validator as never,
     templates as never,
     jobs as never,
+    lock as never,
   );
 
   return { service, productUpdates, sessionUpdates, resolver, validator };

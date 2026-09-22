@@ -640,6 +640,13 @@ function FlashSaleDetailView() {
         open={selectorOpen}
         onClose={() => setSelectorOpen(false)}
         shopId={data.shop.id}
+        // Khoảng Starts → Ends ĐANG trên form (kể cả chưa lưu), quy đổi theo múi giờ của đợt
+        // sale — đúng cách `saveInfo` gửi lên; không dùng múi giờ trình duyệt.
+        range={{
+          from: localToUtcIso(form.startLocal, form.timezone),
+          to: localToUtcIso(form.endLocal, form.timezone),
+        }}
+        flashSaleId={id}
         // 🔴 Sản phẩm đã có trong đợt sale (ở CẢ hai mức áp dụng): bộ chọn đánh dấu "đã
         // thêm" và khoá dòng lại, nên không tạo được bản ghi trùng.
         existingProductIds={data.productIds}

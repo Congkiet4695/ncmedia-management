@@ -268,7 +268,14 @@
       "sku": "SKU",
       "price": "Giá",
       "status": "Trạng thái",
-      "alreadyAdded": "Đã có trong đợt sale"
+      "alreadyAdded": "Đã có trong đợt sale",
+      "flashSaleFilter": {
+        "ALL": "Tất cả sản phẩm",
+        "RUNNING": "Sản phẩm đang chạy flash sale",
+        "NOT_RUNNING": "Sản phẩm chưa chạy flash sale"
+      },
+      "flashSaleFilterNeedsRange": "Nhập Bắt đầu / Kết thúc hợp lệ trên form để lọc theo Flash Sale đang chạy.",
+      "flashSaleFilterRange": "Xét các đợt Flash Sale đang lên sàn (không tính đợt này) giao với khoảng {{from}} → {{to}}."
     },
     "batch": {
       "title": "Sửa hàng loạt {{count}} dòng",
@@ -722,7 +729,8 @@
       "type": {
         "CREATE_DRAFT": "Tạo Draft",
         "PUBLISH": "Publish",
-        "CLONE": "Nhân bản sản phẩm"
+        "CLONE": "Nhân bản sản phẩm",
+        "LIVE_LISTING": "Publish Live"
       }
     },
     "scope": {
@@ -1089,7 +1097,12 @@
       "currencyHint": "Suy từ thị trường; backend tra lại theo shop đích lúc đăng.",
       "currencyRequired": "Giá sản phẩm cần có tiền tệ — chọn thị trường được hỗ trợ.",
       "descriptionImageInvalid": "Mô tả chứa ảnh chưa được tải lên — chèn ảnh bằng nút tải ảnh của trình soạn thảo.",
-      "descriptionImageHint": "Ảnh trong mô tả sẽ được upload lên TikTok Shop (DESCRIPTION_IMAGE) lúc đăng."
+      "descriptionImageHint": "Ảnh trong mô tả sẽ được upload lên TikTok Shop (DESCRIPTION_IMAGE) lúc đăng.",
+      "publishLive": "Publish Live TikTok",
+      "publishLiveHint": "Đăng thẳng lên sàn (save_mode = LISTING) — không tạo Draft. Sản phẩm vào hàng chờ duyệt của TikTok.",
+      "confirmPublishLive": "Publish LIVE sản phẩm này lên {{count}} shop TikTok ngay bây giờ (không qua Draft)?",
+      "publishLiveStarted": "Đã gửi Publish Live: {{products}} sản phẩm × {{targets}} shop. Theo dõi kết quả từng shop ở màn hình lượt đăng.",
+      "publishLiveFailed": "Không gửi được Publish Live"
     },
     "media": {
       "section": "Hình ảnh & Video",

@@ -134,3 +134,16 @@ export const POD_TIKTOK_NO_BRAND_NAME = 'No brand';
 export function isNoBrandName(name: string | null | undefined): boolean {
   return (name ?? '').replace(/\s+/g, '').toLowerCase() === 'nobrand';
 }
+
+/**
+ * Bộ lọc "sản phẩm đang chạy Flash Sale" của màn hình chọn sản phẩm cho đợt sale.
+ *
+ * `RUNNING`     = có ít nhất một đợt Flash Sale ĐANG LÊN SÀN (`FLASH_SALE_LIVE_STATUSES`) mà
+ *               khoảng thời gian GIAO với khoảng người dùng chọn.
+ * `NOT_RUNNING` = không có đợt nào như thế.
+ *
+ * Giao nhau tính theo luật nửa mở: `sale.startAt < to AND sale.endAt > from` — đợt kết thúc
+ * đúng lúc khoảng chọn bắt đầu thì KHÔNG giao.
+ */
+export const POD_PRODUCT_FLASH_SALE_FILTERS = ['ALL', 'RUNNING', 'NOT_RUNNING'] as const;
+export type PodProductFlashSaleFilter = (typeof POD_PRODUCT_FLASH_SALE_FILTERS)[number];

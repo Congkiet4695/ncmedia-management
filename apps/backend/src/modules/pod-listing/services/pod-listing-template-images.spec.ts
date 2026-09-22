@@ -2,7 +2,7 @@ import { PodBrandMode, PodImageAssetType, PodListingSessionImageType } from '@pr
 import { TIKTOK_IMAGE_USE_CASE } from '../../tiktok-sdk/tiktok-sdk.constants';
 import type { TiktokCreateProductRequest } from '../../tiktok-sdk/types/tiktok-product.types';
 import type { TiktokShopContext } from '../../tiktok-sdk/types/tiktok-shop-context.type';
-import { PodListingPublisherService } from './pod-listing-publisher.service';
+import { PodCategoryRuleException, PodListingPublisherService } from './pod-listing-publisher.service';
 import { PodListingResolverService, type ResolveContext } from './pod-listing-resolver.service';
 
 /**
@@ -19,6 +19,9 @@ import { PodListingResolverService, type ResolveContext } from './pod-listing-re
  *   - ảnh biến thể   → Upload `ATTRIBUTE_IMAGE`   → `skus[].sales_attributes[0].sku_img.uri`
  *   - bảng size      → Upload `SIZE_CHART_IMAGE`  → `size_chart.image.uri`
  * Upload hỏng ⇒ KHÔNG gửi Create Product, lỗi nói rõ ảnh nào.
+ *
+ * Bảng size còn đi qua **Get Category Rules**: danh mục không hỗ trợ ⇒ bỏ (không upload, không
+ * gửi); bắt buộc mà thiếu ⇒ lỗi vĩnh viễn rõ ràng; `uri` đã cache ở Category Template ⇒ dùng lại.
  */
 
 const ORG = 'org-1';
@@ -81,11 +84,28 @@ function sessionProduct(manualData: unknown, images: Array<{ imageType: PodListi
   } as never;
 }
 
-function buildPublisher(options: { failUseCase?: string; failFile?: string } = {}) {
+interface PublisherOptions {
+  failUseCase?: string;
+  failFile?: string;
+  /** Luật danh mục TikTok trả về; `'ERROR'` = lời gọi hỏng. Mặc định: hỗ trợ, không bắt buộc. */
+  rules?: { isSupported: boolean; isRequired: boolean } | 'ERROR';
+  /** `uri` bảng size đã cache ở Category Template cho file này. */
+  cachedSizeChartUri?: string;
+}
+
+function buildPublisher(options: PublisherOptions = {}) {
   const productApi = {
     createProduct: jest
       .fn<Promise<{ data: { productId: string; skus: never[] }; requestId: string }>, [unknown, TiktokCreateProductRequest]>()
       .mockResolvedValue({ data: { productId: 'TT-NEW', skus: [] }, requestId: 'req-1' }),
+    getCategoryRules: jest.fn(() =>
+      options.rules === 'ERROR'
+        ? Promise.reject(new Error('rules unavailable'))
+        : Promise.resolve({
+            data: { sizeChart: options.rules ?? { isSupported: true, isRequired: false }, packageDimension: null, raw: {} },
+            requestId: 'rules-1',
+          }),
+    ),
     uploadImage: jest.fn((_ctx: unknown, file: { fileName: string }, useCase: string) =>
       useCase === options.failUseCase || file.fileName === options.failFile
         ? Promise.reject(new Error(`TikTok từ chối ${file.fileName}`))
@@ -99,7 +119,11 @@ function buildPublisher(options: { failUseCase?: string; failFile?: string } = {
     podImageTemplateItem: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({}) },
     podSkuTemplateItem: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({}) },
     podSkuTemplateVariantValue: { findMany: jest.fn().mockResolvedValue([]), updateMany: jest.fn().mockResolvedValue({}) },
-    podListingSessionProductImage: { updateMany: jest.fn().mockResolvedValue({}) },
+    podListingSessionProductImage: { updateMany: jest.fn().mockResolvedValue({}), findFirst: jest.fn().mockResolvedValue(null) },
+    podCategoryTemplate: {
+      findFirst: jest.fn().mockResolvedValue(options.cachedSizeChartUri ? { sizeChartTiktokImageUri: options.cachedSizeChartUri } : null),
+      updateMany: jest.fn().mockResolvedValue({}),
+    },
   };
   const storage = {
     download: jest.fn((_org: string, fileId: string) =>
@@ -119,19 +143,19 @@ function buildPublisher(options: { failUseCase?: string; failFile?: string } = {
 
 const resolver = new PodListingResolverService({} as never);
 
-async function publish(ctx: ResolveContext, options: { failUseCase?: string; failFile?: string } = {}) {
+async function publish(ctx: ResolveContext, options: PublisherOptions = {}) {
   const { payload, issues } = resolver.resolveFromContext(ctx);
   const errors = issues.filter((issue) => issue.level === 'ERROR');
-  const { service, productApi, storage } = buildPublisher(options);
+  const { service, productApi, storage, prisma } = buildPublisher(options);
   const log = jest.fn().mockResolvedValue(undefined);
   const outcome = await service.publishDraft({ organizationId: ORG, ctx: CTX, payload, imageUriCache: new Map(), log });
   const request = productApi.createProduct.mock.calls[0]?.[1];
   const uploads = productApi.uploadImage.mock.calls.map((call) => `${call[2]}:${call[1].fileName}`);
-  return { payload, errors, outcome, request, uploads, storage, log };
+  return { payload, errors, outcome, request, uploads, storage, log, prisma, productApi, service };
 }
 
 /** Như `publish` nhưng giữ lại mock SDK để kiểm "Create Product KHÔNG được gọi". */
-function publishWithApi(ctx: ResolveContext, options: { failUseCase?: string; failFile?: string }) {
+function publishWithApi(ctx: ResolveContext, options: PublisherOptions) {
   const { payload } = resolver.resolveFromContext(ctx);
   const { service, productApi } = buildPublisher(options);
   const result = service.publishDraft({ organizationId: ORG, ctx: CTX, payload, imageUriCache: new Map(), log: jest.fn().mockResolvedValue(undefined) });
@@ -336,5 +360,86 @@ describe('Auto Listing — SKU Template + Category Template', () => {
       'uri:ATTRIBUTE_IMAGE:file-black.png',
       undefined,
     ]);
+  });
+});
+
+describe('Bảng size × Get Category Rules × cache uri', () => {
+  const withSizeChart = (): ResolveContext => ({
+    template: template({ categoryTemplate: categoryTemplate('file-size-chart') }),
+    product: null,
+    sessionProduct: sessionProduct(
+      manual([sku('Black', 'S')], [{ name: 'Color', values: ['Black'] }, { name: 'Size', values: ['S'] }]),
+      [{ imageType: PodListingSessionImageType.MAIN, imageUrl: 'https://cdn/front.png', fileId: 'file-front' }],
+    ),
+    shop: { id: 'shop-1', name: 'Shop A', region: 'US' },
+  });
+  const withoutSizeChart = (): ResolveContext => ({
+    template: template({ categoryTemplate: categoryTemplate(null) }),
+    product: null,
+    sessionProduct: sessionProduct(
+      manual([sku('Black', 'S')], [{ name: 'Color', values: ['Black'] }, { name: 'Size', values: ['S'] }]),
+      [{ imageType: PodListingSessionImageType.MAIN, imageUrl: 'https://cdn/front.png', fileId: 'file-front' }],
+    ),
+    shop: { id: 'shop-1', name: 'Shop A', region: 'US' },
+  });
+
+  it('danh mục hỗ trợ ⇒ upload SIZE_CHART_IMAGE, gửi size_chart, ghi uri ngược vào Category Template + ảnh nháp', async () => {
+    const { request, uploads, prisma, productApi } = await publish(withSizeChart(), { rules: { isSupported: true, isRequired: false } });
+    expect(productApi.getCategoryRules).toHaveBeenCalledWith(CTX, '601226');
+    expect(uploads).toContain('SIZE_CHART_IMAGE:file-size-chart.png');
+    expect(request?.sizeChart).toEqual({ image: { uri: 'uri:SIZE_CHART_IMAGE:file-size-chart.png' } });
+    expect(prisma.podCategoryTemplate.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        where: { organizationId: ORG, sizeChartFileId: 'file-size-chart' },
+        data: expect.objectContaining({ sizeChartTiktokImageUri: 'uri:SIZE_CHART_IMAGE:file-size-chart.png' }) as unknown,
+      }),
+    );
+    expect(prisma.podListingSessionProductImage.updateMany).toHaveBeenCalledWith(
+      expect.objectContaining({ where: expect.objectContaining({ fileId: 'file-size-chart' }) as unknown }),
+    );
+  });
+
+  it('danh mục KHÔNG hỗ trợ bảng size ⇒ không upload, không gửi size_chart, log WARN; ảnh khác không đổi', async () => {
+    const { request, uploads, log } = await publish(withSizeChart(), { rules: { isSupported: false, isRequired: false } });
+    expect(uploads).toEqual(['MAIN_IMAGE:file-front.png']);
+    expect(request?.sizeChart).toBeUndefined();
+    expect(request?.mainImages).toEqual([{ uri: 'uri:MAIN_IMAGE:file-front.png' }]);
+    expect(log).toHaveBeenCalledWith('WARN', expect.anything(), expect.stringContaining('không hỗ trợ bảng size'), expect.objectContaining({ sizeChartSupported: false }));
+  });
+
+  it('danh mục BẮT BUỘC bảng size mà template/nháp không có ⇒ PodCategoryRuleException rõ ràng, KHÔNG gọi TikTok', async () => {
+    const { result, productApi } = publishWithApi(withoutSizeChart(), { rules: { isSupported: true, isRequired: true } });
+    await expect(result).rejects.toBeInstanceOf(PodCategoryRuleException);
+    await expect(result).rejects.toThrow(/bắt buộc có bảng size/);
+    expect(productApi.uploadImage).not.toHaveBeenCalled();
+    expect(productApi.createProduct).not.toHaveBeenCalled();
+  });
+
+  it('template không có bảng size, danh mục không bắt buộc ⇒ như trước: không size_chart', async () => {
+    const { request, uploads } = await publish(withoutSizeChart(), { rules: { isSupported: true, isRequired: false } });
+    expect(uploads).toEqual(['MAIN_IMAGE:file-front.png']);
+    expect(request?.sizeChart).toBeUndefined();
+  });
+
+  it('uri bảng size đã cache ở Category Template ⇒ KHÔNG upload lại, dùng lại đúng uri', async () => {
+    const { request, uploads } = await publish(withSizeChart(), { cachedSizeChartUri: 'uri:cached-size-chart' });
+    expect(uploads).toEqual(['MAIN_IMAGE:file-front.png']);
+    expect(request?.sizeChart).toEqual({ image: { uri: 'uri:cached-size-chart' } });
+  });
+
+  it('không lấy được luật danh mục ⇒ fail-soft: vẫn upload + gửi bảng size, log WARN (TikTok tự kiểm)', async () => {
+    const { request, uploads, log } = await publish(withSizeChart(), { rules: 'ERROR' });
+    expect(uploads).toContain('SIZE_CHART_IMAGE:file-size-chart.png');
+    expect(request?.sizeChart).toEqual({ image: { uri: 'uri:SIZE_CHART_IMAGE:file-size-chart.png' } });
+    expect(log).toHaveBeenCalledWith('WARN', expect.anything(), expect.stringContaining('Không lấy được luật danh mục'), expect.anything());
+  });
+
+  it('luật danh mục được nhớ theo (shop, danh mục): hai listing cùng danh mục ⇒ hỏi TikTok MỘT lần', async () => {
+    const { payload } = resolver.resolveFromContext(withSizeChart());
+    const { service, productApi } = buildPublisher();
+    const log = jest.fn().mockResolvedValue(undefined);
+    await service.publishDraft({ organizationId: ORG, ctx: CTX, payload, imageUriCache: new Map(), log });
+    await service.publishDraft({ organizationId: ORG, ctx: CTX, payload, imageUriCache: new Map(), log });
+    expect(productApi.getCategoryRules).toHaveBeenCalledTimes(1);
   });
 });

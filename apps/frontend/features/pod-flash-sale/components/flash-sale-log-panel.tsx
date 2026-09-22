@@ -5,7 +5,6 @@ import { ChevronDown, ChevronRight, Loader2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { DataPagination } from '@/components/ui/data-pagination';
-import { Button } from '@/components/ui/button';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { useFlashSaleLogs } from '../hooks';
 

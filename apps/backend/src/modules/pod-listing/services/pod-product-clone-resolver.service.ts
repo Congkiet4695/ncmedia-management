@@ -486,10 +486,24 @@ function asString(value: unknown): string | null {
   return typeof value === 'string' && value.trim() !== '' ? value.trim() : null;
 }
 
-/** Lý do một shop đích bị BỎ QUA (không tạo listing) — trả về cho màn hình kết quả. */
+/**
+ * Lý do một shop đích bị BỎ QUA (không tạo listing) — trả về cho màn hình kết quả.
+ *
+ * 🔴 Đây đều là lý do **cuối cùng** theo nghiệp vụ (chống trùng sản phẩm): thử lại cũng
+ * không đổi. Chuyện "đang có lượt khác chạy" là **tạm thời** và là việc của `findInProgress` —
+ * hai thứ không được trộn: chống trùng không dùng để xử lý concurrency, và concurrency không
+ * được dùng để kết luận "đã nhân bản".
+ */
 export interface CloneSkipReason {
-  code: 'SOURCE_SHOP' | 'ALREADY_CLONED' | 'ALREADY_EXISTS' | 'IN_PROGRESS';
+  code: 'SOURCE_SHOP' | 'ALREADY_CLONED' | 'ALREADY_EXISTS';
   message: string;
+}
+
+/** Item CLONE của một lượt KHÁC đang chạy cho cùng cặp (sản phẩm nguồn, shop đích). */
+export interface CloneInProgress {
+  jobId: string;
+  itemId: string;
+  startedAt: Date | null;
 }
 
 /**
@@ -541,9 +555,9 @@ export class PodProductCloneResolverService {
    *  2. Đã có Draft Listing (payload) của cặp (sản phẩm nguồn, shop đích) mang `tiktokProductId`
    *     ⇒ lượt trước đã tạo xong trên sàn.
    *  3. Shop đích có sản phẩm ĐANG BÁN mang cùng Seller SKU với sản phẩm nguồn ⇒ coi là đã có.
-   *  4. Đang có item CLONE chưa xong cho đúng cặp này ⇒ hai lần bấm liên tiếp, không chạy đôi.
    *
    * 🔴 Không tự ghi đè sản phẩm đang bán — quy tắc của yêu cầu: SKIPPED, nói rõ vì sao.
+   * 🔴 KHÔNG kiểm "đang có lượt khác chạy" ở đây — xem `findInProgress`.
    */
   async findSkipReason(
     organizationId: string,
@@ -596,11 +610,33 @@ export class PodProductCloneResolverService {
       }
     }
 
-    const inProgress = await this.prisma.podListingJobItem.findFirst({
+    return null;
+  }
+
+  /**
+   * Có item CLONE của lượt KHÁC đang chạy cho cùng cặp (sản phẩm nguồn, shop đích) không?
+   *
+   * Phạm vi khoá = **sản phẩm nguồn + shop đích** — đúng một cặp. Shop A đang chạy không ảnh
+   * hưởng shop B; sản phẩm B chạy vào shop A cũng không ảnh hưởng sản phẩm A. Chỉ chặn đúng
+   * trường hợp hai lượt cùng tạo MỘT sản phẩm lên MỘT shop (bấm hai lần qua cửa sổ khoá Redis,
+   * hoặc retry khi lượt cũ chưa xong).
+   *
+   * 🔴 `excludeItemId` — item ĐANG được xử lý phải loại chính nó ra: hàng đợi đã đánh nó
+   * PROCESSING trước khi vào pipeline, nên không loại thì query luôn thấy chính nó và mọi item
+   * đều tự chặn mình (lỗi "Đang có một lượt nhân bản khác chạy cho shop này" ở cả 2/2 shop).
+   */
+  async findInProgress(
+    organizationId: string,
+    productId: string,
+    targetShopId: string,
+    excludeItemId?: string,
+  ): Promise<CloneInProgress | null> {
+    const other = await this.prisma.podListingJobItem.findFirst({
       where: {
         organizationId,
-        productId: product.id,
+        productId,
         shopId: targetShopId,
+        ...(excludeItemId ? { id: { not: excludeItemId } } : {}),
         status: {
           in: [
             PodListingJobItemStatus.PENDING,
@@ -610,15 +646,9 @@ export class PodProductCloneResolverService {
         },
         job: { type: PodListingJobType.CLONE, deletedAt: null },
       },
-      select: { jobId: true },
+      select: { id: true, jobId: true, startedAt: true },
+      orderBy: { createdAt: 'asc' },
     });
-    if (inProgress) {
-      return {
-        code: 'IN_PROGRESS',
-        message: 'Đang có một lượt nhân bản khác chạy cho shop này — không chạy trùng.',
-      };
-    }
-
-    return null;
+    return other ? { jobId: other.jobId, itemId: other.id, startedAt: other.startedAt } : null;
   }
 }

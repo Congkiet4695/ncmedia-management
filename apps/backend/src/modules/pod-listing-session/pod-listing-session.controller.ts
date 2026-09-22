@@ -390,4 +390,24 @@ export class PodListingSessionController {
   ) {
     return this.sessions.startListing(user.organizationId, user.userId, id, dto ?? {}, scope);
   }
+
+  @Post(':id/publish-live')
+  @HttpCode(HttpStatus.OK)
+  // Đưa hàng lên sàn THẬT ⇒ cần cả quyền chạy listing lẫn quyền publish (cùng mức với Publish Draft).
+  @RequirePermissions('pod.listing.run', 'pod.listing.publish')
+  @ApiOperation({
+    summary: 'Publish Live TikTok — đăng thẳng Draft Product của lượt lên sàn (save_mode = LISTING)',
+    description:
+      'Cùng cổng validate và hàng đợi với Start Listing, nhưng gửi Create Product save_mode = LISTING: ' +
+      'sản phẩm vào thẳng hàng chờ duyệt, KHÔNG tạo Draft Listing chờ publish. Kết quả theo từng shop ' +
+      'nằm ở Listing Job của lượt (Product Mapping ghi TikTok Product ID).',
+  })
+  publishLive(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: StartSessionListingDto,
+  ) {
+    return this.sessions.startListing(user.organizationId, user.userId, id, dto ?? {}, scope, 'LISTING');
+  }
 }

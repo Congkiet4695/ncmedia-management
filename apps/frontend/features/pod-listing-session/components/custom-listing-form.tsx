@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { CheckCircle2, Loader2, RefreshCw, Rocket, Save } from 'lucide-react';
+import { CheckCircle2, Loader2, RefreshCw, Rocket, Save, Send } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
@@ -35,6 +35,7 @@ import {
   useCreateCustomListing,
   useListingSession,
   useSessionProducts,
+  usePublishLiveSession,
   useStartSessionListing,
   useUpdateCustomListing,
   useValidateSession,
@@ -110,8 +111,9 @@ const CHECK_MESSAGE: Record<CustomListingCheck, string> = {
  *         →  PATCH /pod/listing-sessions/:id/custom     (sửa: CÙNG lượt, CÙNG Draft Product)
  *              ├─ "Lưu nháp"      dừng ở đây
  *              ├─ "Kiểm tra"      POST /:id/validate
- *              └─ "Đăng sản phẩm" POST /:id/start → fan-out 1 sản phẩm × N shop
- *                                    ↓ Bulk Listing Engine (5 luồng · retry 3 · backoff)
+ *              ├─ "Đăng sản phẩm" POST /:id/start        → Draft trên sàn (save_mode = AS_DRAFT)
+ *              └─ "Publish Live"  POST /:id/publish-live → lên sàn thật (save_mode = LISTING)
+ *                                    ↓ cùng Bulk Listing Engine (5 luồng · retry 3 · backoff)
  *                                  kết quả + lỗi theo TỪNG shop, retry riêng từng shop
  * ```
  *
@@ -134,12 +136,15 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
   const translateApiError = useApiError();
   const { hasPermission } = useAuth();
   const canRun = hasPermission('pod.listing.run');
+  // Publish Live = đưa hàng lên sàn THẬT ⇒ cần thêm quyền publish (backend kiểm lại cả hai).
+  const canPublishLive = canRun && hasPermission('pod.listing.publish');
   const editing = Boolean(sessionId);
 
   const createCustom = useCreateCustomListing();
   const updateCustom = useUpdateCustomListing();
   const validate = useValidateSession();
   const start = useStartSessionListing();
+  const publishLive = usePublishLiveSession();
 
   const [form, setForm] = useState<FormState>(emptyCustomListingForm);
   const patch = useCallback(
@@ -400,6 +405,7 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
     updateCustom.isPending ||
     validate.isPending ||
     start.isPending ||
+    publishLive.isPending ||
     descriptionUploading;
 
   const generateSkus = () => {
@@ -545,6 +551,29 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
       router.push(`/dashboard/pod/auto-listing/${id}`);
     } catch (error) {
       toast.error(translateApiError(error));
+    }
+  };
+
+  /**
+   * **Publish Live TikTok** — không tạo Draft trên sàn, không chờ Publish Draft: validate → lưu
+   * form (đúng lượt đang mở, không đẻ bản nháp thứ hai) → backend gửi Create Product LISTING.
+   * Lỗi ⇒ toast + ở lại form (dữ liệu còn nguyên, sửa rồi bấm lại); thành công ⇒ sang màn chi
+   * tiết lượt đăng để theo dõi TikTok Product ID / trạng thái duyệt theo từng shop.
+   */
+  const handlePublishLive = async () => {
+    if (publishLive.isPending) return;
+    if (!precheck('SUBMIT')) return;
+    if (!window.confirm(t('listing.custom.confirmPublishLive', { count: form.shopIds.length }))) return;
+    const id = await persist('SUBMIT');
+    if (!id) return;
+    try {
+      const result = await publishLive.mutateAsync({ id });
+      toast.success(
+        t('listing.custom.publishLiveStarted', { products: result.started, targets: result.targets }),
+      );
+      router.push(`/dashboard/pod/auto-listing/${id}`);
+    } catch (error) {
+      toast.error(t('listing.custom.publishLiveFailed'), { description: translateApiError(error) });
     }
   };
 
@@ -1082,6 +1111,22 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
                 <Rocket className="size-4" />
               )}
               {t('listing.custom.submit')}
+            </Button>
+          )}
+          {/* Publish Live: lên sàn thật, không qua Draft — cần thêm quyền publish. */}
+          {canPublishLive && (
+            <Button
+              variant="destructive"
+              onClick={() => void handlePublishLive()}
+              disabled={busy || sessionLocked}
+              title={t('listing.custom.publishLiveHint')}
+            >
+              {publishLive.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Send className="size-4" />
+              )}
+              {t('listing.custom.publishLive')}
             </Button>
           )}
         </div>

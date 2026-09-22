@@ -6,6 +6,7 @@
     "dist",
     "**/*spec.ts",
     "prisma/seed.ts",
+    "scripts",
     "src/testing",
     "vendor"
   ]

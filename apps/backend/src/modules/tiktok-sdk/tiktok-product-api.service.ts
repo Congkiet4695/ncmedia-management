@@ -14,6 +14,7 @@ import type {
   TiktokBrand,
   TiktokCategoryAttribute,
   TiktokCategoryNode,
+  TiktokCategoryRules,
   TiktokCreateProductRequest,
   TiktokCreateProductResult,
   TiktokEditProductRequest,
@@ -395,6 +396,46 @@ export class TiktokProductApiService {
         ),
     });
     return { data: result.data.categories ?? [], requestId: result.requestId };
+  }
+
+  /**
+   * Get Category Rules — luật của MỘT danh mục theo shop: bảng size có hỗ trợ / bắt buộc không,
+   * kiện hàng có bắt buộc không… (`GET /product/202309/categories/{category_id}/rules`).
+   *
+   * Người gọi tự cache (luật đổi hiếm, còn mỗi lượt đăng 500 sản phẩm cùng danh mục thì không
+   * được hỏi 500 lần).
+   */
+  async getCategoryRules(
+    ctx: TiktokShopContext,
+    categoryId: string,
+    options: { locale?: string; categoryVersion?: string } = {},
+  ): Promise<TiktokSdkResult<TiktokCategoryRules>> {
+    const result = await this.sdk.execute<{
+      sizeChart?: { isSupported?: boolean; isRequired?: boolean };
+      packageDimension?: { isRequired?: boolean };
+    }>({
+      endpoint: 'PRODUCT_CATEGORY_RULES_GET',
+      invoke: () =>
+        this.sdk.api.ProductV202309Api.CategoriesCategoryIdRulesGet(
+          categoryId,
+          ctx.accessToken,
+          TIKTOK_SDK_CONTENT_TYPE,
+          options.categoryVersion ?? TIKTOK_CATEGORY_VERSION,
+          options.locale,
+          ctx.shopCipher,
+        ),
+    });
+    const data = result.data;
+    return {
+      data: {
+        sizeChart: data.sizeChart
+          ? { isSupported: data.sizeChart.isSupported === true, isRequired: data.sizeChart.isRequired === true }
+          : null,
+        packageDimension: data.packageDimension ? { isRequired: data.packageDimension.isRequired === true } : null,
+        raw: data,
+      },
+      requestId: result.requestId,
+    };
   }
 
   /** Get Category Attributes — bộ thuộc tính (và giá trị hợp lệ) của MỘT danh mục. */

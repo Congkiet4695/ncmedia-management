@@ -1,4 +1,4 @@
-import { Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PodProductSyncStatus, PodProductSyncTrigger, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { DistributedLockService } from '../../pod-tiktok/infra/distributed-lock.service';
@@ -23,7 +23,7 @@ import {
   type PodAccessScope,
 } from '../../pod-tiktok/services/pod-access-scope.service';
 import { PodProductResponseMapper } from '../mappers/pod-product-response.mapper';
-import { PodProductRepository } from '../repositories/pod-product.repository';
+import { PodProductRepository, type PodProductFindManyParams } from '../repositories/pod-product.repository';
 import { PodProductSyncRepository } from '../repositories/pod-product-sync.repository';
 import { PodProductCatalogService } from './pod-product-catalog.service';
 import { PodProductSyncService } from './pod-product-sync.service';
@@ -95,6 +95,7 @@ export class PodProductService {
       includeInactive: query.includeInactive,
       categoryId: query.categoryId,
       brandId: query.brandId,
+      flashSale: this.flashSaleFilterOf(query),
       sortBy: query.sortBy ?? 'createdAt',
       sortOrder: query.sortOrder ?? 'desc',
     });
@@ -103,6 +104,23 @@ export class PodProductService {
       items: items.map((item) => this.mapper.toListItem(item)),
       meta: { total, page, limit, totalPages: total === 0 ? 0 : Math.ceil(total / limit) },
     };
+  }
+
+  /**
+   * Bộ lọc Flash Sale theo khoảng thời gian — DTO đã bắt buộc `from`/`to` khi mode ≠ ALL;
+   * ở đây chỉ còn kiểm `from < to` (khoảng rỗng thì "đang chạy" luôn rỗng, lọc vô nghĩa).
+   */
+  private flashSaleFilterOf(query: PodProductQueryDto): PodProductFindManyParams['flashSale'] {
+    if (!query.flashSale || query.flashSale === 'ALL') return undefined;
+    const from = new Date(query.flashSaleFrom ?? '');
+    const to = new Date(query.flashSaleTo ?? '');
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || from >= to) {
+      throw new BadRequestException({
+        code: 'POD_PRODUCT_FLASH_SALE_RANGE_INVALID',
+        message: 'Khoảng thời gian Flash Sale không hợp lệ: cần flashSaleFrom < flashSaleTo.',
+      });
+    }
+    return { mode: query.flashSale, from, to, excludeFlashSaleId: query.excludeFlashSaleId };
   }
 
   async findOne(

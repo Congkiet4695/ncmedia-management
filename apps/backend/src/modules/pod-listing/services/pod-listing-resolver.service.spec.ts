@@ -141,6 +141,10 @@ function buildTemplate(over: Partial<ListingTemplateFull> = {}): ListingTemplate
       packageHeight: '4',
       dimensionUnit: 'CENTIMETER',
       sizeChartFileId: null,
+
+      sizeChartTiktokImageUri: null,
+
+      sizeChartImageUploadedAt: null,
       videoFileId: null,
       isDefault: false,
       isActive: true,

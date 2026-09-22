@@ -1,5 +1,6 @@
 import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import {
+  PodListingJobType,
   PodListingSessionProductStatus,
   PodListingSessionSource,
   PodListingSessionStatus,
@@ -7,6 +8,8 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { DistributedLockService } from '../../pod-tiktok/infra/distributed-lock.service';
+import { POD_SESSION_START_LOCK_MS } from '../../pod-listing/constants/pod-listing.constants';
 import {
   PodAccessScopeService,
   type PodAccessScope,
@@ -119,6 +122,7 @@ export class PodListingSessionService {
     private readonly validator: PodListingValidatorService,
     private readonly listingTemplates: PodListingTemplateService,
     private readonly jobs: PodListingJobService,
+    private readonly lock: DistributedLockService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -507,6 +511,34 @@ export class PodListingSessionService {
     id: string,
     dto: StartSessionListingDto,
     scope: PodAccessScope,
+    /**
+     * `LISTING` = **Publish Live TikTok**: Create Product `save_mode = LISTING`, vào thẳng hàng chờ
+     * duyệt — KHÔNG dừng ở Draft trên sàn. Mặc định `AS_DRAFT` (Start Listing).
+     */
+    saveMode: 'AS_DRAFT' | 'LISTING' = 'AS_DRAFT',
+  ) {
+    // 🔴 Khoá theo session quanh "kiểm trạng thái → tạo job": hai cú bấm gần như đồng thời (nút
+    // disable ở trình duyệt chỉ là lớp đầu) không được cùng thấy "chưa chạy" rồi tạo hai job —
+    // với Publish Live đó là hai sản phẩm trùng trên sàn.
+    const started = await this.lock.withLock(`pod:session-start:${id}`, POD_SESSION_START_LOCK_MS, () =>
+      this.startListingLocked(organizationId, userId, id, dto, scope, saveMode),
+    );
+    if (!started) {
+      throw new BadRequestException({
+        code: 'POD_SESSION_ALREADY_LISTING',
+        message: 'Lượt đăng vừa được gửi ở một yêu cầu khác — chờ xong rồi chạy tiếp.',
+      });
+    }
+    return started;
+  }
+
+  private async startListingLocked(
+    organizationId: string,
+    userId: string,
+    id: string,
+    dto: StartSessionListingDto,
+    scope: PodAccessScope,
+    saveMode: 'AS_DRAFT' | 'LISTING',
   ) {
     const session = await this.get(organizationId, id, scope);
     if (session.status === PodListingSessionStatus.LISTING) {
@@ -537,6 +569,7 @@ export class PodListingSessionService {
       market: session.market,
       targets,
       products: ready.length,
+      type: saveMode === 'LISTING' ? PodListingJobType.LIVE_LISTING : PodListingJobType.CREATE_DRAFT,
     });
 
     await this.prisma.$transaction([
@@ -562,6 +595,7 @@ export class PodListingSessionService {
       organizationId,
       sessionId: id,
       jobId: job.id,
+      saveMode,
       products: ready.length,
       targets: targets.length,
       msg: 'Đã đưa Listing Session vào hàng đợi',

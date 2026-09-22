@@ -214,10 +214,22 @@ export const podListingSessionService = {
     return res.data.data;
   },
 
-  /** 🔴 Đường DUY NHẤT dẫn tới sàn — và cũng chỉ tạo Listing Job (`save_mode = AS_DRAFT`). */
+  /** Đường dẫn tới sàn dưới dạng DRAFT — tạo Listing Job (`save_mode = AS_DRAFT`). */
   async start(id: string, name?: string): Promise<StartSessionListingResult> {
     const res = await apiClient.post<ApiResponse<StartSessionListingResult>>(
       `${BASE}/${id}/start`,
+      clean({ name }),
+    );
+    return res.data.data;
+  },
+
+  /**
+   * **Publish Live TikTok** — cùng cổng validate và hàng đợi với `start`, nhưng backend gửi Create
+   * Product `save_mode = LISTING`: sản phẩm vào thẳng hàng chờ duyệt, không dừng ở Draft.
+   */
+  async publishLive(id: string, name?: string): Promise<StartSessionListingResult> {
+    const res = await apiClient.post<ApiResponse<StartSessionListingResult>>(
+      `${BASE}/${id}/publish-live`,
       clean({ name }),
     );
     return res.data.data;

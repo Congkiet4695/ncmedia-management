@@ -2,7 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { PodMasterDataProvider, PodProductRawSource, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { POD_PRODUCT_ACTIVE_STATUS } from '../constants/pod-product.constants';
-import type { PodProductSortField } from '../constants/pod-product.constants';
+import type { PodProductFlashSaleFilter, PodProductSortField } from '../constants/pod-product.constants';
+import { FLASH_SALE_LIVE_STATUSES } from '../../pod-flash-sale/constants/pod-flash-sale.constants';
 import type { MappedProduct } from '../mappers/pod-product.mapper';
 import { accountScopeFilter, shopScopeFilter } from '../../pod-tiktok/shared/shop-scope';
 
@@ -22,6 +23,16 @@ export interface PodProductFindManyParams {
   status?: string;
   categoryId?: string;
   brandId?: string;
+  /**
+   * Lọc theo Flash Sale giao với khoảng [`from`, `to`) — xem `flashSaleOverlapWhere`.
+   * `excludeFlashSaleId`: đợt sale đang mở, không tính chính nó.
+   */
+  flashSale?: {
+    mode: PodProductFlashSaleFilter;
+    from: Date;
+    to: Date;
+    excludeFlashSaleId?: string;
+  };
   sortBy: PodProductSortField;
   sortOrder: 'asc' | 'desc';
   /**
@@ -81,6 +92,32 @@ export type PodProductListRow = Prisma.PodProductGetPayload<{
 export type PodProductDetailRow = Prisma.PodProductGetPayload<{
   include: typeof POD_PRODUCT_DETAIL_INCLUDE;
 }>;
+
+/**
+ * Điều kiện "item thuộc một đợt Flash Sale ĐANG LÊN SÀN có thời gian GIAO với [from, to)".
+ *
+ * Giao nhau: `sale.startAt < to AND sale.endAt > from` (nửa mở) — đợt 10:00→14:00 và khoảng
+ * chọn 14:00→18:00 KHÔNG giao; 10:00→20:00 và 15:00→ngày sau CÓ giao. Mọi mốc đều là UTC
+ * (`timestamptz`), múi giờ của đợt sale chỉ dùng để hiển thị — không quy đổi ở đây.
+ *
+ * Chỉ tính đợt `FLASH_SALE_LIVE_STATUSES` (PUBLISHING / RUNNING): đó là những đợt TikTok đang
+ * giữ sản phẩm; DRAFT / READY chưa lên sàn, ENDED / CANCELLED không còn chiếm. Đợt đang mở
+ * (`excludeFlashSaleId`) không tính chính nó — sản phẩm của nó đã được đánh dấu "đã thêm".
+ */
+export function flashSaleOverlapWhere(
+  filter: PodProductFindManyParams['flashSale'],
+): Prisma.PodFlashSaleItemWhereInput | null {
+  if (!filter || filter.mode === 'ALL') return null;
+  return {
+    flashSale: {
+      deletedAt: null,
+      status: { in: FLASH_SALE_LIVE_STATUSES },
+      startAt: { lt: filter.to },
+      endAt: { gt: filter.from },
+      ...(filter.excludeFlashSaleId ? { id: { not: filter.excludeFlashSaleId } } : {}),
+    },
+  };
+}
 
 /**
  * PodProductRepository — data access cho aggregate Sản phẩm.
@@ -425,6 +462,12 @@ export class PodProductRepository {
     if (params.status && params.includeInactive === true) where.status = params.status;
     if (params.categoryId) where.categoryId = params.categoryId;
     if (params.brandId) where.brandId = params.brandId;
+
+    // Flash Sale giao khoảng thời gian: lọc ở DATABASE (EXISTS trên pod_flash_sale_items ⋈
+    // pod_flash_sales) — phân trang và tổng số vẫn đúng, không kéo hàng nghìn sản phẩm về lọc tay.
+    const overlap = flashSaleOverlapWhere(params.flashSale);
+    if (overlap && params.flashSale?.mode === 'RUNNING') where.flashSaleItems = { some: overlap };
+    if (overlap && params.flashSale?.mode === 'NOT_RUNNING') where.flashSaleItems = { none: overlap };
 
     const search = params.search?.trim();
     if (search) {

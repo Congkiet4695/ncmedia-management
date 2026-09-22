@@ -796,7 +796,7 @@ export const POD_LISTING_JOB_STATUSES = [
 export type PodListingJobStatus = (typeof POD_LISTING_JOB_STATUSES)[number];
 
 /** Lượt chạy làm gì với TikTok. */
-export const POD_LISTING_JOB_TYPES = ['CREATE_DRAFT', 'PUBLISH', 'CLONE'] as const;
+export const POD_LISTING_JOB_TYPES = ['CREATE_DRAFT', 'PUBLISH', 'CLONE', 'LIVE_LISTING'] as const;
 export type PodListingJobType = (typeof POD_LISTING_JOB_TYPES)[number];
 
 export const POD_LISTING_ITEM_STATUSES = [

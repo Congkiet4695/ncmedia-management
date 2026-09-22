@@ -5,7 +5,8 @@ import {
   PodListingPayloadStatus,
 } from '@prisma/client';
 import { PodShopForbiddenException } from '../../pod-tiktok/services/pod-access-scope.service';
-import { PodListingJobService } from './pod-listing-job.service';
+import { POD_PRODUCT_CLONE_WAIT_MS } from '../constants/pod-listing.constants';
+import { PodCloneInProgressException, PodListingJobService } from './pod-listing-job.service';
 
 /**
  * **Nhân bản sản phẩm → nhiều shop** — hai ranh giới cần khoá lại bằng test:
@@ -15,6 +16,9 @@ import { PodListingJobService } from './pod-listing-job.service';
  *  2. `processCloneItem`: đi đúng đường `publishListing` (Create ở chế độ LISTING, không có
  *     draft id), yêu cầu bảng size khi nguồn có; validate hỏng ⇒ FAILED không gọi TikTok;
  *     TikTok hỏng ⇒ `handleItemFailure`, KHÔNG hẹn đồng bộ.
+ *  3. **Concurrency ≠ chống trùng**: item đang xử lý phải LOẠI CHÍNH NÓ khi hỏi "có lượt khác
+ *     đang chạy không" (hàng đợi đã đánh nó PROCESSING) — không thì mọi item tự chặn mình và
+ *     2/2 shop đều SKIPPED. Lượt khác thật sự đang chạy ⇒ CHỜ rồi thử lại (RETRYING), không SKIPPED.
  */
 
 const ORG = 'org-1';
@@ -37,6 +41,8 @@ const SOURCE = {
 function buildService(overrides: {
   source?: typeof SOURCE | null;
   skipReasons?: Record<string, { code: string; message: string } | null>;
+  /** Item của lượt KHÁC đang chạy cho cặp (sản phẩm, shop) — `findInProgress` trả về. */
+  inProgress?: { jobId: string; itemId: string; startedAt: Date | null } | null;
   lockBusy?: boolean;
   validationOk?: boolean;
   resolveErrors?: boolean;
@@ -94,6 +100,7 @@ function buildService(overrides: {
     findSkipReason: jest.fn((_org: string, _product: unknown, shopId: string) =>
       Promise.resolve(overrides.skipReasons?.[shopId] ?? null),
     ),
+    findInProgress: jest.fn().mockResolvedValue(overrides.inProgress ?? null),
     resolveCategory: jest.fn().mockResolvedValue({ tiktokCategoryId: '600001', localName: 'Tees', path: null }),
     resolve: jest.fn().mockReturnValue({
       payload: {
@@ -364,5 +371,101 @@ describe('PodListingJobService.processCloneItem', () => {
     );
     expect(productSync.scheduleShopSync).not.toHaveBeenCalled();
     expect(settleItem).not.toHaveBeenCalled();
+  });
+
+  it('CASE 10 (tự chặn): hỏi "lượt khác đang chạy?" phải LOẠI chính item này; không có lượt khác ⇒ chạy bình thường', async () => {
+    const { service, cloneResolver, publisher, settleItem } = buildService();
+
+    await runItem(service);
+
+    expect(cloneResolver.findInProgress).toHaveBeenCalledWith(ORG, PRODUCT, SHOP_A, ITEM.id);
+    expect(publisher.publishListing).toHaveBeenCalled();
+    expect(settleItem).toHaveBeenCalledWith(expect.objectContaining({ status: PodListingJobItemStatus.SUCCESS }));
+    expect(settleItem).not.toHaveBeenCalledWith(expect.objectContaining({ status: PodListingJobItemStatus.SKIPPED }));
+  });
+
+  it('CASE 4/7: lượt KHÁC đang tạo đúng sản phẩm này lên đúng shop này ⇒ lỗi tạm thời (chờ), KHÔNG SKIPPED, không gọi TikTok', async () => {
+    const { service, handleItemFailure, publisher, settleItem } = buildService({
+      inProgress: { jobId: 'job-other', itemId: 'item-other', startedAt: new Date('2026-09-22T09:20:00Z') },
+    });
+
+    await runItem(service);
+
+    expect(publisher.publishListing).not.toHaveBeenCalled();
+    expect(settleItem).not.toHaveBeenCalled();
+    const call = (handleItemFailure.mock.calls as unknown as Array<[{ error: unknown }]>)[0]?.[0];
+    expect(call?.error).toBeInstanceOf(PodCloneInProgressException);
+    expect((call?.error as Error).message).toContain('#job-othe');
+    expect((call?.error as Error).message).toContain('2026-09-22T09:20:00');
+  });
+});
+
+/**
+ * `handleItemFailure` THẬT với lỗi tạm thời "lượt khác đang chạy": chờ theo nhịp clone
+ * (`POD_PRODUCT_CLONE_WAIT_MS`, không phải backoff 2s), mã `CLONE_IN_PROGRESS`; hết số lần chờ ⇒
+ * FAILED với lý do nêu rõ lượt đang chặn (người dùng Retry sau) — không bao giờ SKIPPED/SUCCESS.
+ */
+describe('PodListingJobService.handleItemFailure — CLONE_IN_PROGRESS', () => {
+  function buildFailureHarness() {
+    const prisma = {
+      podListingJobItem: { update: jest.fn().mockResolvedValue({}) },
+      podListingPayload: { updateMany: jest.fn().mockResolvedValue({ count: 0 }) },
+    };
+    const settleItem = jest.fn().mockResolvedValue(undefined);
+    const service = Object.create(PodListingJobService.prototype) as PodListingJobService;
+    Object.assign(service, { prisma, settleItem, logger: { log: jest.fn(), warn: jest.fn(), error: jest.fn() } });
+    const log = jest.fn().mockResolvedValue(undefined);
+    const fail = (retryCount: number) =>
+      (service as unknown as { handleItemFailure(params: unknown): Promise<void> }).handleItemFailure({
+        organizationId: ORG,
+        jobId: 'job-1',
+        jobType: PodListingJobType.CLONE,
+        item: { ...ITEM, retryCount },
+        error: new PodCloneInProgressException({ jobId: 'job-other', itemId: 'item-other', startedAt: null }),
+        maxRetries: 3,
+        durationMs: 10,
+        log,
+      });
+    return { prisma, settleItem, log, fail };
+  }
+
+  it('còn lượt chờ ⇒ RETRYING, nextAttemptAt ≈ now + POD_PRODUCT_CLONE_WAIT_MS, errorCode CLONE_IN_PROGRESS, log kèm lượt chặn', async () => {
+    const { prisma, settleItem, log, fail } = buildFailureHarness();
+    const before = Date.now();
+
+    await fail(0);
+
+    expect(settleItem).not.toHaveBeenCalled();
+    const update = (prisma.podListingJobItem.update.mock.calls as unknown[][])[0][0] as {
+      data: { status: string; retryCount: number; nextAttemptAt: Date; errorCode: string; error: string };
+    };
+    expect(update.data.status).toBe(PodListingJobItemStatus.RETRYING);
+    expect(update.data.retryCount).toBe(1);
+    expect(update.data.errorCode).toBe('CLONE_IN_PROGRESS');
+    expect(update.data.error).toContain('lượt nhân bản khác');
+    const delay = update.data.nextAttemptAt.getTime() - before;
+    expect(delay).toBeGreaterThanOrEqual(POD_PRODUCT_CLONE_WAIT_MS - 50);
+    expect(delay).toBeLessThanOrEqual(POD_PRODUCT_CLONE_WAIT_MS + 5_000);
+    expect(log).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      expect.stringContaining('thử lại'),
+      expect.objectContaining({ blockingJobId: 'job-other', blockingItemId: 'item-other' }),
+    );
+  });
+
+  it('hết lượt chờ ⇒ FAILED (không SKIPPED, không SUCCESS) với mã CLONE_IN_PROGRESS và lý do rõ', async () => {
+    const { prisma, settleItem, fail } = buildFailureHarness();
+
+    await fail(3);
+
+    expect(prisma.podListingJobItem.update).not.toHaveBeenCalled();
+    expect(settleItem).toHaveBeenCalledWith(
+      expect.objectContaining({
+        status: PodListingJobItemStatus.FAILED,
+        errorCode: 'CLONE_IN_PROGRESS',
+        error: expect.stringContaining('#job-othe') as unknown,
+      }),
+    );
   });
 });

@@ -330,5 +330,25 @@ export const POD_PUBLISH_BLOCKER_CODES = {
  */
 export const POD_PRODUCT_CLONE_MAX_SHOPS = 50;
 
+/**
+ * Khoá chống bấm "Đăng sản phẩm" / "Publish Live TikTok" hai lần liên tiếp cho cùng Listing
+ * Session (ms). Bọc bước kiểm trạng thái + tạo job; TTL để tiến trình chết không khoá vĩnh viễn.
+ */
+export const POD_SESSION_START_LOCK_MS = 30_000;
+
 /** Khoá chống bấm "Nhân bản" hai lần liên tiếp cho cùng sản phẩm nguồn (ms). */
 export const POD_PRODUCT_CLONE_LOCK_MS = 30_000;
+
+/**
+ * Item CLONE chờ bao lâu rồi thử lại khi một lượt KHÁC đang tạo đúng sản phẩm đó lên đúng shop
+ * đó (ms). Chờ theo nhịp của một lượt clone (upload ảnh + Create Product ≈ vài chục giây), không
+ * phải backoff lỗi mạng; số lần chờ = `POD_LISTING_JOB_MAX_RETRIES`, hết thì FAILED kèm lượt chặn.
+ */
+export const POD_PRODUCT_CLONE_WAIT_MS = 30_000;
+
+/**
+ * Luật danh mục (Get Category Rules: bảng size có hỗ trợ / bắt buộc…) được nhớ theo cặp
+ * (shop, danh mục) trong bấy nhiêu ms. Luật đổi hiếm; một lượt đăng 500 sản phẩm cùng danh mục
+ * chỉ hỏi TikTok một lần.
+ */
+export const POD_CATEGORY_RULES_CACHE_MS = 6 * 60 * 60_000;

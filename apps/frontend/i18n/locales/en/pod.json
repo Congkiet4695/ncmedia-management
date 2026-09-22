@@ -268,7 +268,14 @@
       "sku": "SKUs",
       "price": "Price",
       "status": "Status",
-      "alreadyAdded": "Already in this sale"
+      "alreadyAdded": "Already in this sale",
+      "flashSaleFilter": {
+        "ALL": "All products",
+        "RUNNING": "Products in a running flash sale",
+        "NOT_RUNNING": "Products not in a flash sale"
+      },
+      "flashSaleFilterNeedsRange": "Enter a valid Starts / Ends on the form to filter by running flash sales.",
+      "flashSaleFilterRange": "Considers live flash sales (excluding this one) overlapping {{from}} → {{to}}."
     },
     "batch": {
       "title": "Batch edit {{count}} rows",
@@ -722,7 +729,8 @@
       "type": {
         "CREATE_DRAFT": "Create draft",
         "PUBLISH": "Publish",
-        "CLONE": "Clone product"
+        "CLONE": "Clone product",
+        "LIVE_LISTING": "Publish Live"
       }
     },
     "scope": {
@@ -1089,7 +1097,12 @@
       "currencyHint": "Derived from the market; the backend re-checks it against the target shop when listing.",
       "currencyRequired": "Currency is required for product prices — pick a supported market.",
       "descriptionImageInvalid": "The description contains an image that has not been uploaded — insert images with the editor upload button.",
-      "descriptionImageHint": "Images in the description are re-uploaded to TikTok Shop (DESCRIPTION_IMAGE) when listing."
+      "descriptionImageHint": "Images in the description are re-uploaded to TikTok Shop (DESCRIPTION_IMAGE) when listing.",
+      "publishLive": "Publish Live TikTok",
+      "publishLiveHint": "List directly on TikTok (save_mode = LISTING) — no draft. The product goes to TikTok review.",
+      "confirmPublishLive": "Publish this product LIVE to {{count}} TikTok shop(s) now (skipping Draft)?",
+      "publishLiveStarted": "Publish Live sent: {{products}} product(s) × {{targets}} shop(s). Track each shop on the listing run screen.",
+      "publishLiveFailed": "Could not send Publish Live"
     },
     "media": {
       "section": "Images & Video",

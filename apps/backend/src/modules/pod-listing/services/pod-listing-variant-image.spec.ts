@@ -70,6 +70,8 @@ function resolverContext(items: unknown[]): ResolveContext {
         dimensionUnit: null,
         warehouse: null,
         sizeChartFileId: null,
+        sizeChartTiktokImageUri: null,
+        sizeChartImageUploadedAt: null,
         brandMode: PodBrandMode.NONE,
         tiktokBrandId: null,
         brandName: null,

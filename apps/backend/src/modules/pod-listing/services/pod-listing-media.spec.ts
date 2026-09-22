@@ -61,6 +61,10 @@ function context(
         dimensionUnit: null,
         warehouse: null,
         sizeChartFileId: options.categorySizeChartFileId ?? null,
+
+        sizeChartTiktokImageUri: null,
+
+        sizeChartImageUploadedAt: null,
       },
       descriptionTemplate: { contentHtml: '<p>Mô tả</p>', tokens: [] },
       imageTemplate: { id: 'img-1', items: templateItems },

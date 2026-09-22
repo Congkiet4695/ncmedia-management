@@ -2,6 +2,7 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
+  IsDateString,
   IsIn,
   IsInt,
   IsOptional,
@@ -10,9 +11,12 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
 } from 'class-validator';
 import {
+  POD_PRODUCT_FLASH_SALE_FILTERS,
   POD_PRODUCT_SORT_FIELDS,
+  type PodProductFlashSaleFilter,
   type PodProductSortField,
 } from '../constants/pod-product.constants';
 
@@ -86,6 +90,34 @@ export class PodProductQueryDto {
   @IsOptional()
   @IsUUID()
   brandId?: string;
+
+  /**
+   * Lọc theo Flash Sale trong một KHOẢNG THỜI GIAN (màn hình chọn sản phẩm cho đợt sale).
+   *
+   * `RUNNING` / `NOT_RUNNING` bắt buộc kèm `flashSaleFrom` + `flashSaleTo` (mốc ISO/UTC —
+   * frontend đã quy đổi từ giờ treo tường theo múi giờ của đợt sale, backend KHÔNG đổi múi giờ).
+   */
+  @ApiPropertyOptional({ enum: POD_PRODUCT_FLASH_SALE_FILTERS, default: 'ALL' })
+  @IsOptional()
+  @IsIn(POD_PRODUCT_FLASH_SALE_FILTERS)
+  flashSale?: PodProductFlashSaleFilter;
+
+  @ApiPropertyOptional({ description: 'Đầu khoảng thời gian (ISO 8601) — bắt buộc khi flashSale ≠ ALL' })
+  @ValidateIf((dto: PodProductQueryDto) => dto.flashSale !== undefined && dto.flashSale !== 'ALL')
+  @IsDateString()
+  flashSaleFrom?: string;
+
+  @ApiPropertyOptional({ description: 'Cuối khoảng thời gian (ISO 8601) — bắt buộc khi flashSale ≠ ALL' })
+  @ValidateIf((dto: PodProductQueryDto) => dto.flashSale !== undefined && dto.flashSale !== 'ALL')
+  @IsDateString()
+  flashSaleTo?: string;
+
+  @ApiPropertyOptional({
+    description: 'Đợt sale đang mở — KHÔNG tính chính nó khi xét "đang chạy Flash Sale khác"',
+  })
+  @IsOptional()
+  @IsUUID()
+  excludeFlashSaleId?: string;
 
   @ApiPropertyOptional({ enum: POD_PRODUCT_SORT_FIELDS, default: 'createdAt' })
   @IsOptional()

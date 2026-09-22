@@ -26,6 +26,10 @@ import {
   usePodProducts,
 } from '@/features/pod-product/hooks/use-pod-products';
 import {
+  POD_PRODUCT_FLASH_SALE_FILTERS,
+  type PodProductFlashSaleFilter,
+} from '@/features/pod-product/types';
+import {
   isPageFullySelected,
   togglePage,
   toggleRow,
@@ -44,6 +48,14 @@ interface ProductSelectorDialogProps {
   shopId: string;
   /** Sản phẩm đã có trong đợt sale — hiển thị "đã thêm" và không cho chọn lại. */
   existingProductIds: string[];
+  /**
+   * Khoảng thời gian Starts → Ends ĐANG chọn trên form (mốc ISO/UTC đã quy đổi theo múi giờ
+   * của đợt sale). Bộ lọc "đang / chưa chạy Flash Sale" tính theo đúng khoảng này — đổi giờ
+   * trên form là bộ lọc tính lại. `null` khi giờ chưa hợp lệ ⇒ hai lựa chọn lọc bị khoá.
+   */
+  range: { from: string | null; to: string | null };
+  /** Đợt sale đang mở — không tính chính nó là "Flash Sale khác". */
+  flashSaleId: string;
   submitting?: boolean;
   onSubmit: (items: AddFlashSaleItemPayload[]) => void;
 }
@@ -71,16 +83,20 @@ export function ProductSelectorDialog({
   onClose,
   shopId,
   existingProductIds,
+  range,
+  flashSaleId,
   submitting,
   onSubmit,
 }: ProductSelectorDialogProps) {
   const { t } = useTranslation(['pod', 'common']);
-  const { formatCurrency } = useLocaleFormat();
+  const { formatCurrency, formatDateTime } = useLocaleFormat();
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [searchInput, setSearchInput] = useState('');
   const [status, setStatus] = useState('');
+  /** Lọc theo Flash Sale giao với `range` — mặc định "Tất cả sản phẩm". */
+  const [flashSaleFilter, setFlashSaleFilter] = useState<PodProductFlashSaleFilter>('ALL');
   /**
    * 🔴 Lựa chọn sống NGOÀI trang hiện tại, và là MỘT cấu trúc duy nhất.
    *
@@ -102,19 +118,29 @@ export function ProductSelectorDialog({
     setPage(1);
     setSearchInput('');
     setStatus('');
+    setFlashSaleFilter('ALL');
   }, [open]);
 
-  // Đổi từ khoá / bộ lọc thì về trang 1, nếu không người dùng đứng ở trang 7 của một kết
-  // quả chỉ có 2 trang và thấy bảng trống.
-  useEffect(() => setPage(1), [search, status]);
+  // Khoảng thời gian hợp lệ mới lọc được; thiếu giờ thì lọc Flash Sale tự quay về "Tất cả".
+  const rangeReady = Boolean(range.from && range.to && range.from < range.to);
+  const effectiveFilter: PodProductFlashSaleFilter = rangeReady ? flashSaleFilter : 'ALL';
+
+  // Đổi từ khoá / bộ lọc / KHOẢNG THỜI GIAN thì về trang 1, nếu không người dùng đứng ở trang
+  // 7 của một kết quả chỉ có 2 trang và thấy bảng trống.
+  useEffect(() => setPage(1), [search, status, effectiveFilter, range.from, range.to]);
 
   const filters = usePodProductFilters();
+  // `range` nằm trong query key ⇒ đổi Starts/Ends là một truy vấn MỚI, không dùng lại kết quả
+  // cũ; request cũ về sau bị TanStack Query bỏ qua (không có race giữa hai lần đổi liên tiếp).
   const query = usePodProducts({
     page,
     limit,
     shopId,
     search: search || undefined,
     status: status || undefined,
+    ...(effectiveFilter !== 'ALL' && range.from && range.to
+      ? { flashSale: effectiveFilter, flashSaleFrom: range.from, flashSaleTo: range.to, excludeFlashSaleId: flashSaleId }
+      : {}),
   });
   const meta = query.data?.meta;
 
@@ -215,7 +241,30 @@ export function ProductSelectorDialog({
             ]}
             className="w-[180px]"
           />
+          <Combobox
+            value={effectiveFilter}
+            onChange={(value) => setFlashSaleFilter(value as PodProductFlashSaleFilter)}
+            disabled={!rangeReady}
+            options={POD_PRODUCT_FLASH_SALE_FILTERS.map((value) => ({
+              value,
+              label: t(`flashSale.selector.flashSaleFilter.${value}`),
+            }))}
+            className="w-[240px]"
+          />
         </div>
+        {!rangeReady ? (
+          <p className="text-xs text-muted-foreground">{t('flashSale.selector.flashSaleFilterNeedsRange')}</p>
+        ) : (
+          effectiveFilter !== 'ALL' && (
+            <p className="text-xs text-muted-foreground">
+              {t('flashSale.selector.flashSaleFilterRange', {
+                from: formatDateTime(range.from ?? ''),
+                to: formatDateTime(range.to ?? ''),
+              })}
+              {query.isFetching && <Loader2 className="ml-1 inline size-3 animate-spin" />}
+            </p>
+          )
+        )}
 
         {query.isLoading ? (
           <div className="flex items-center justify-center py-10 text-muted-foreground">
