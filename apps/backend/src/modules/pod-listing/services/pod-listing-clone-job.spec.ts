@@ -270,14 +270,14 @@ async function runItem(service: PodListingJobService) {
 }
 
 describe('PodListingJobService.processCloneItem', () => {
-  it('thành công: Create ở chế độ LISTING (không draft id), bắt buộc bảng size, ghi PUBLISHED, hẹn đồng bộ shop đích', async () => {
+  it('thành công: Create ở chế độ LISTING (không draft id), ghi PUBLISHED, hẹn đồng bộ shop đích', async () => {
     const { service, publisher, payloads, tx, settleItem, productSync } = buildService();
 
     await runItem(service);
 
     expect(payloads.saveClone).toHaveBeenCalledWith(ORG, USER, expect.objectContaining({ productId: PRODUCT }));
     expect(publisher.publishListing).toHaveBeenCalledWith(
-      expect.objectContaining({ tiktokDraftId: null, sizeChartRequired: true }),
+      expect.objectContaining({ tiktokDraftId: null }),
     );
     expect(tx.podListingPayload.update).toHaveBeenCalledWith(
       expect.objectContaining({

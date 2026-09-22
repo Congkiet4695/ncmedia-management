@@ -145,6 +145,34 @@ export class PodPublishPayloadException extends Error {
   }
 }
 
+/**
+ * Một ảnh KHÔNG đưa lên TikTok được — item hỏng TRƯỚC khi gọi Create/Edit Product.
+ *
+ * 🔴 Không có chuyện gửi Create Product với ảnh thiếu: bộ ảnh / ảnh biến thể / bảng size là
+ * mảng THAY TOÀN BỘ phía TikTok, gửi thiếu một tấm là đăng một sản phẩm khác thứ người dùng
+ * đã cấu hình. Thông điệp nêu rõ ảnh nào (`ảnh biến thể Color=Black`, `bảng size`, `ảnh sản
+ * phẩm #2`) và vì sao; lỗi gốc giữ ở `cause` để hàng đợi quyết định thử lại hay bỏ cuộc theo
+ * đúng mã lỗi TikTok.
+ */
+export class PodImageUploadException extends Error {
+  constructor(
+    /** `ảnh biến thể Color=Black` · `bảng size` · `ảnh sản phẩm "Front" (#1)`. */
+    readonly imageLabel: string,
+    readonly imageUseCase: TiktokImageUseCase,
+    readonly cause: unknown,
+  ) {
+    super(`Không tải được ${imageLabel} lên TikTok: ${describeUploadError(cause)}`);
+    this.name = 'PodImageUploadException';
+  }
+}
+
+/** Câu lỗi TikTok (có mã) nếu là lỗi sàn, còn lại là message thường. */
+function describeUploadError(error: unknown): string {
+  const candidate = error as { tiktokMessage?: string; tiktokCode?: number; message?: string };
+  if (candidate?.tiktokMessage) return `${candidate.tiktokMessage} (TikTok ${candidate.tiktokCode ?? '?'})`;
+  return candidate?.message ?? String(error);
+}
+
 /** Không lấy được token/shop_cipher của shop — item hỏng trước khi chạm TikTok. */
 export class PodShopContextException extends Error {
   constructor(message: string) {
@@ -363,14 +391,6 @@ export class PodListingPublisherService {
     tiktokDraftId: string | null;
     imageUriCache: Map<string, Promise<string>>;
     log: ListingLogger;
-    /**
-     * Bảng size upload hỏng ⇒ HỎNG cả listing (thay vì cảnh báo rồi đăng tiếp).
-     *
-     * Mặc định `false` — giữ nguyên hành vi fail-soft của Bulk Listing / Publish. Lượt NHÂN BẢN
-     * bật cờ này: sản phẩm nguồn CÓ bảng size thì bản sao thiếu bảng size là một bản sao sai,
-     * không phải một bản sao "kém đẹp".
-     */
-    sizeChartRequired?: boolean;
   }): Promise<PublishListingOutcome> {
     const { ctx, log, imageUriCache, tiktokDraftId } = params;
 
@@ -390,7 +410,6 @@ export class PodListingPublisherService {
       payload,
       imageUriCache,
       log,
-      { sizeChartRequired: params.sizeChartRequired === true },
     );
     // Kho vẫn được quyết theo SHOP, y như lúc tạo Draft — yêu cầu sprint nói rõ: không
     // validate kho ở cổng trước, kho được resolve tại thời điểm publish.
@@ -639,7 +658,6 @@ export class PodListingPublisherService {
     payload: ResolvedListing,
     cache: Map<string, Promise<string>>,
     log: ListingLogger,
-    options: { sizeChartRequired?: boolean } = {},
   ): Promise<{
     uris: string[];
     /** Khoá là `imageFileId` (Storage) hoặc `imageUrl` (URL ngoài — lượt nhân bản). */
@@ -715,13 +733,32 @@ export class PodListingPublisherService {
         return await promise;
       } catch (error) {
         cache.delete(key);
-        throw error;
+        // 🔴 Ghi log ĐỦ ngữ cảnh để tra: loại ảnh, nhãn (giá trị biến thể), file, mã TikTok.
+        // Không log URL đầy đủ (query TikTok mang khoá ký) và không bao giờ log token.
+        const detail = error as { tiktokCode?: number; requestId?: string };
+        await log(PodListingLogLevel.ERROR, PodListingStep.UPLOAD_IMAGE, `Không tải được ${label} lên TikTok`, {
+          imageType: useCase,
+          label,
+          fileId: source.fileId ?? null,
+          sourceHost: source.url ? hostnameOf(source.url) : null,
+          shopId: ctx.shopId ?? null,
+          tiktokCode: detail?.tiktokCode ?? null,
+          tiktokRequestId: detail?.requestId ?? null,
+          error: error instanceof Error ? error.message : String(error),
+        });
+        throw new PodImageUploadException(label, useCase, error);
       }
     };
 
+    // Nhãn ảnh biến thể theo giá trị của trục ĐẦU (Color=Black) — người dùng biết ảnh nào hỏng.
+    const variantLabelOf = (matcher: (variant: ResolvedListing['variants'][number]) => boolean): string => {
+      const option = payload.variants.find(matcher)?.optionValues[0];
+      return option ? `ảnh biến thể ${option.name}=${option.value}` : 'ảnh biến thể';
+    };
+
     const uris = await Promise.all(
-      selected.map((image) =>
-        uriOf({ fileId: image.fileId, url: image.url }, image.title, (uri) =>
+      selected.map((image, index) =>
+        uriOf({ fileId: image.fileId, url: image.url }, `ảnh sản phẩm "${image.title}" (#${index + 1})`, (uri) =>
           image.fileId
             ? this.prisma.podImageTemplateItem.updateMany({
                 where: { organizationId, fileId: image.fileId },
@@ -752,7 +789,7 @@ export class PodListingPublisherService {
           fileId,
           await uriOf(
             { fileId },
-            'ảnh biến thể',
+            variantLabelOf((variant) => variant.imageFileId === fileId),
             (uri) => this.persistVariantImageUri(organizationId, fileId, uri),
             attribute,
           ),
@@ -761,7 +798,12 @@ export class PodListingPublisherService {
         // biến thể của sản phẩm nguồn chỉ upload một lần cho cả N shop đích.
         ...variantUrls.map(async (url): Promise<[string, string]> => [
           url,
-          await uriOf({ url }, 'ảnh biến thể', () => Promise.resolve(), attribute),
+          await uriOf(
+            { url },
+            variantLabelOf((variant) => !variant.imageFileId && variant.imageUrl === url),
+            () => Promise.resolve(),
+            attribute,
+          ),
         ]),
       ]),
     );
@@ -771,6 +813,11 @@ export class PodListingPublisherService {
      *
      * 🔴 Dùng nhầm use case thì TikTok xếp tấm ảnh vào sai chỗ và bảng size không hiện ở mục
      * "Size guide" của trang sản phẩm. Đi qua `uriOf` nên vẫn chỉ upload một lần cho cả lượt.
+     *
+     * 🔴 Upload hỏng ⇒ item HỎNG với lý do rõ (`PodImageUploadException`), KHÔNG âm thầm đăng
+     * sản phẩm thiếu bảng size. Trước đây chỗ này "fail-soft": TikTok từ chối tấm bảng size
+     * (vd ảnh nhỏ hơn 1024px cạnh ngắn) thì listing vẫn xanh và không ai biết vì sao sản
+     * phẩm lên sàn không có bảng size — đúng lỗi người dùng đã báo.
      */
     const sizeChartUri = payload.sizeChart
       ? await uriOf({ fileId: payload.sizeChart.fileId, url: payload.sizeChart.url }, 'bảng size', (uri) =>
@@ -785,30 +832,7 @@ export class PodListingPublisherService {
             data: { remoteUri: uri, uploadedAt: new Date() },
           }),
         TIKTOK_IMAGE_USE_CASE.SIZE_CHART_IMAGE,
-      ).catch(async (error: unknown) => {
-        // 🔴 Lượt NHÂN BẢN: sản phẩm nguồn có bảng size thì bản sao PHẢI có — hỏng là hỏng
-        // cả item, với lý do rõ ràng, không báo thành công giả.
-        if (options.sizeChartRequired) {
-          throw new PodPublishPayloadException(
-            `Không tải được bảng size lên TikTok: ${error instanceof Error ? error.message : String(error)}`,
-          );
-        }
-        // 🔴 Bảng size hỏng KHÔNG được làm hỏng cả listing: nó là thông tin phụ trợ, còn
-        // sản phẩm thì vẫn đăng được. Ghi cảnh báo rồi đi tiếp.
-        await log(
-          PodListingLogLevel.WARN,
-          PodListingStep.UPLOAD_IMAGE,
-          'Không tải được bảng size — bỏ qua, sản phẩm vẫn được đăng',
-          {
-            useCase: TIKTOK_IMAGE_USE_CASE.SIZE_CHART_IMAGE,
-            fileId: payload.sizeChart?.fileId ?? null,
-            url: payload.sizeChart?.url ?? null,
-            shopId: ctx.shopId ?? null,
-            error: error instanceof Error ? error.message : String(error),
-          },
-        );
-        return null;
-      })
+      )
       : null;
 
     /**

@@ -16,6 +16,7 @@ import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
+import { usePodAsset } from '@/features/pod-listing/hooks/use-pod-listing';
 import { podListingService } from '@/features/pod-listing/services/pod-listing.service';
 import type { ManualVideo, SessionImageInput } from '../types';
 
@@ -84,6 +85,11 @@ export function MediaEditor({
 }) {
   const { t } = useTranslation('pod');
   const [busy, setBusy] = useState<'IMAGES' | 'SIZE_CHART' | 'VIDEO' | null>(null);
+  // Bảng size áp từ Category Template chỉ mang `fileId` (template không lưu URL) — tra Storage
+  // để xem trước. State/payload không đổi: thứ gửi đi vẫn là `fileId`, backend upload theo file.
+  const chartAsset = usePodAsset(sizeChart && !sizeChart.imageUrl ? sizeChart.fileId : undefined);
+  const sizeChartPreview = sizeChart?.imageUrl || chartAsset.data?.publicUrl || null;
+  const sizeChartName = sizeChart?.fileName ?? chartAsset.data?.originalName ?? '';
   const imageInput = useRef<HTMLInputElement>(null);
   const chartInput = useRef<HTMLInputElement>(null);
   const videoInput = useRef<HTMLInputElement>(null);
@@ -326,13 +332,15 @@ export function MediaEditor({
           />
           {sizeChart ? (
             <div className="flex items-center gap-2 rounded-md border p-2">
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
-                src={sizeChart.imageUrl}
-                alt={sizeChart.fileName ?? ''}
-                className="size-16 rounded border object-cover"
-              />
-              <span className="min-w-0 flex-1 truncate text-sm">{sizeChart.fileName}</span>
+              {sizeChartPreview ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={sizeChartPreview} alt={sizeChartName} className="size-16 rounded border object-cover" />
+              ) : (
+                <span className="flex size-16 items-center justify-center rounded border bg-muted">
+                  <Loader2 className="size-4 animate-spin text-muted-foreground" />
+                </span>
+              )}
+              <span className="min-w-0 flex-1 truncate text-sm">{sizeChartName}</span>
               {removable?.sizeChart !== false && (
                 <Button
                   variant="ghost"

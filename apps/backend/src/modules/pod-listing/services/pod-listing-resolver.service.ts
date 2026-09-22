@@ -695,10 +695,16 @@ export class PodListingResolverService {
     category: ListingTemplateFull['categoryTemplate'],
     imageTemplate: ListingTemplateFull['imageTemplate'],
   ): ResolvedListing['sizeChart'] {
+    // 🔴 Nhận cả tấm CHỈ có `fileId` (không URL): form Custom Listing áp Category Template ghi
+    // bảng size của template vào nháp bằng đúng file trong Storage, chưa có URL xem trước.
+    // Đòi `imageUrl` ở đây là bỏ rơi chính tấm bảng size mà template đã cấu hình.
     const own = (sessionProduct?.images ?? []).find(
-      (image) => image.imageType === PodListingSessionImageType.SIZE_CHART && image.imageUrl,
+      (image) =>
+        image.imageType === PodListingSessionImageType.SIZE_CHART && (image.fileId || image.imageUrl),
     );
-    if (own) return { fileId: own.fileId, url: own.imageUrl, tiktokImageUri: own.remoteUri };
+    if (own) {
+      return { fileId: own.fileId, url: own.imageUrl || null, tiktokImageUri: own.remoteUri };
+    }
 
     if (category?.sizeChartFileId) {
       // File nằm trong Storage Module: publisher tải bytes theo `fileId`, không cần URL.

@@ -66,6 +66,7 @@ import {
   type ListingTemplateFull,
 } from './pod-listing-template.service';
 import {
+  PodImageUploadException,
   PodListingPublisherService,
   PodPublishPayloadException,
   PodShopContextException,
@@ -1268,8 +1269,6 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
         tiktokDraftId: null,
         imageUriCache: params.imageUriCache,
         log,
-        // Nguồn có bảng size ⇒ bản sao PHẢI có bảng size.
-        sizeChartRequired: resolved.payload.sizeChart !== null,
       });
 
       // ---- Ghi kết quả ----
@@ -1506,11 +1505,20 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
   }): Promise<void> {
     const { organizationId, jobId, item, error } = params;
     const publishing = params.jobType === PodListingJobType.PUBLISH;
-    const tiktokError = error instanceof TiktokClientError ? error : null;
+    // Ảnh upload hỏng: lỗi gốc TikTok nằm ở `cause` — quyết định thử lại theo mã đó, nhưng câu
+    // hiển thị là câu đã có ngữ cảnh ("Không tải được ảnh biến thể Color=Black lên TikTok: …").
+    const uploadError = error instanceof PodImageUploadException ? error : null;
+    const tiktokError =
+      error instanceof TiktokClientError
+        ? error
+        : uploadError?.cause instanceof TiktokClientError
+          ? uploadError.cause
+          : null;
     const rawMessage = error instanceof Error ? error.message : 'Lỗi không xác định';
     // Cột `error` của item là thứ hiện trên màn hình ⇒ dịch lỗi TikTok đã biết sang câu chỉ rõ
     // phải sửa gì. Câu gốc vẫn ghi vào log ngay dưới (`message`) để truy vết.
     const message =
+      uploadError?.message ??
       (tiktokError ? humanizeTiktokListingError(tiktokError.tiktokCode, rawMessage) : null) ??
       rawMessage;
     const errorCode = tiktokError ? String(tiktokError.tiktokCode) : null;
@@ -1539,6 +1547,7 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
         tiktokCode: tiktokError?.tiktokCode,
         tiktokRequestId: tiktokError?.requestId,
         errorClass: tiktokError?.errorClass ?? TiktokErrorClass.NETWORK,
+        ...(uploadError ? { imageType: uploadError.imageUseCase, imageLabel: uploadError.imageLabel } : {}),
       },
     );
 

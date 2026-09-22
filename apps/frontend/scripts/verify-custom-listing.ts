@@ -337,5 +337,22 @@ console.log('Ảnh trong mô tả — chỉ ảnh đã tải lên (http) mới �
   check('precheck SUBMIT ⇒ DESCRIPTION_IMAGE_INVALID', checkCustomListingForm(form, 'SUBMIT', 'USD'), ['DESCRIPTION_IMAGE_INVALID']);
 }
 
+// ---------------------------------------------------------------------------
+console.log('Bảng size từ Category Template (chỉ có fileId) — giữ xuyên suốt lưu nháp → mở lại → payload');
+{
+  const form = fullForm();
+  // Form áp Category Template: bảng size chỉ mang fileId, chưa có URL xem trước (template không lưu URL).
+  form.sizeChart = { imageUrl: '', fileId: 'file-template-chart', imageType: 'SIZE_CHART' };
+  const payload = buildCustomListingPayload(form, { definitions });
+  const chart = payload.product.images?.find((image) => image.imageType === 'SIZE_CHART');
+  check('payload mang bảng size với fileId (imageUrl rỗng vẫn gửi — backend upload theo file)', [chart?.fileId, chart?.imageUrl], ['file-template-chart', '']);
+  check('bảng size KHÔNG lẫn vào ảnh sản phẩm', payload.product.images?.filter((image) => image.imageType === 'MAIN').length, 2);
+
+  const { session, product } = persist(form);
+  const restored = restoreCustomListingForm(session, product);
+  check('mở lại nháp: bảng size còn nguyên fileId', restored.sizeChart, { imageUrl: '', fileId: 'file-template-chart', imageType: 'SIZE_CHART' });
+  check('mở lại nháp: ảnh sản phẩm không đổi', restored.images, form.images);
+}
+
 console.log(`\n${passed} đạt · ${failed} lỗi`);
 if (failed > 0) process.exit(1);
