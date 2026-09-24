@@ -2125,6 +2125,14 @@ model FulfillmentAccount {
   /// Chỉ MỘT tài khoản mặc định cho mỗi (organization, provider) — xem partial unique index.
   isDefault Boolean @default(false) @map("is_default")
   isActive  Boolean @default(true) @map("is_active")
+  /// 🔴 Tài khoản DÙNG CHUNG toàn nền tảng.
+  ///
+  /// `true` ⇒ Super Admin (Organization `is_platform`) sở hữu tài khoản này, và **mọi
+  /// Organization** đều đọc được danh mục của nó để khai ánh xạ + gửi đơn. Danh mục chỉ có
+  /// MỘT bản (khoá theo `account_id`), không nhân bản cho từng tổ chức.
+  ///
+  /// `false` ⇒ tài khoản riêng của tổ chức, y như trước (tương thích ngược hoàn toàn).
+  isGlobal  Boolean @default(false) @map("is_global")
 
   /// API key đã MÃ HOÁ AES-256-GCM (Mango dùng header `X-API-Key`). KHÔNG expose qua API.
   ///

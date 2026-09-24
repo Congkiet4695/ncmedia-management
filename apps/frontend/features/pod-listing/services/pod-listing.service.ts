@@ -1,3 +1,4 @@
+import { env } from '@/lib/env';
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse, Paginated } from '@/types/api';
 import type {
@@ -198,7 +199,7 @@ export const podListingService = {
     const res = await apiClient.post<ApiResponse<PodSkuImportResult>>(
       `${TEMPLATES}/skus/${templateId}/items/import`,
       form,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: env.uploadTimeoutMs },
     );
     return res.data.data;
   },
@@ -257,7 +258,7 @@ export const podListingService = {
     const res = await apiClient.post<ApiResponse<PodImageTemplate>>(
       `${TEMPLATES}/images/${templateId}/items`,
       form,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: env.uploadTimeoutMs },
     );
     return res.data.data;
   },
@@ -286,7 +287,7 @@ export const podListingService = {
     const res = await apiClient.put<ApiResponse<PodImageTemplate>>(
       `${TEMPLATES}/images/${templateId}/items/${itemId}/file`,
       form,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: env.uploadTimeoutMs },
     );
     return res.data.data;
   },

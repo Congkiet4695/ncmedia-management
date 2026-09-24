@@ -247,6 +247,11 @@ export class MangoOrderMapper {
     address: NormalizedAddress;
     items: ResolvedItem[];
     shippingMethod: MangoShippingMethod;
+    /**
+     * Xưởng sản xuất người vận hành đã chọn (`id` của Mango). `null` ⇒ để Mango tự quyết
+     * như trước. Đây là **một nơi duy nhất** ánh xạ nội bộ → trường của nhà cung cấp.
+     */
+    productionLineId?: string | null;
     facility?: string | null;
     speedType?: string | null;
     /** Nhãn vận chuyển do TikTok cấp (đơn 4PL) — Mango dùng thay vì tự mua nhãn. */
@@ -276,6 +281,8 @@ export class MangoOrderMapper {
     };
 
     // Chỉ gửi field khi thực sự có giá trị — gửi null thừa dễ bị VALIDATION_ERROR.
+    // 🔴 Line sản xuất: người dùng chọn gì thì gửi đúng cái đó, KHÔNG để nhà cung cấp tự gán.
+    if (params.productionLineId) request.production_line_id = params.productionLineId;
     if (params.buyerEmail) request.email = params.buyerEmail;
     if (params.facility) request.facility = params.facility;
     if (params.speedType) request.speed_type = params.speedType as never;

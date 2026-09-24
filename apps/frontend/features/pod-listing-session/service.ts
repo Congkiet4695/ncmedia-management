@@ -1,3 +1,4 @@
+import { env } from '@/lib/env';
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse, Paginated } from '@/types/api';
 import type { PreviewResult } from '@/features/pod-listing/types';
@@ -98,7 +99,7 @@ export const podListingSessionService = {
     const res = await apiClient.post<ApiResponse<PodSessionImportResult>>(
       `${BASE}/${id}/import`,
       form,
-      { headers: { 'Content-Type': 'multipart/form-data' } },
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: env.uploadTimeoutMs },
     );
     return res.data.data;
   },

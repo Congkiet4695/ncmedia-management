@@ -156,6 +156,12 @@ export class FulfillmentAccountDto {
   apiKeyHint!: string | null;
   @ApiProperty() isActive!: boolean;
   @ApiProperty() isDefault!: boolean;
+  @ApiProperty({
+    description:
+      'Tài khoản DÙNG CHUNG toàn nền tảng (Super Admin khai và đồng bộ danh mục). Tổ chức đọc ' +
+      'được danh mục của nó nhưng KHÔNG sửa/xoá được.',
+  })
+  isGlobal!: boolean;
   @ApiProperty({ nullable: true, type: String }) defaultProductionLine!: string | null;
   @ApiProperty() defaultShippingMethod!: string;
   @ApiProperty({ nullable: true, type: String }) defaultFacility!: string | null;
@@ -742,6 +748,18 @@ export class FulfillPodOrderDto {
   @IsIn(MANGO_PREFERRED_CARRIERS)
   preferredCarrier?: (typeof MANGO_PREFERRED_CARRIERS)[number];
 
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Nhà cung cấp fulfillment dùng cho lần gửi này (`fulfillment_accounts.id`). ' +
+      'Bỏ trống ⇒ dùng nhà cung cấp đã gán cho kết nối TikTok của đơn (dữ liệu cũ), hoặc nhà ' +
+      'cung cấp DUY NHẤT đang khả dụng. Backend luôn kiểm tra tài khoản thuộc tổ chức hoặc là ' +
+      'tài khoản dùng chung, và đang ACTIVE.',
+  })
+  @IsOptional()
+  @IsUUID('4')
+  fulfillmentAccountId?: string;
+
   @ApiPropertyOptional({ description: 'Bật scan label (chỉ production line TIKTOK).' })
   @IsOptional()
   @IsBoolean()
@@ -995,6 +1013,52 @@ export class FulfillmentStateItemDto {
   mapping!: ProductMappingDto | null;
 }
 
+/** Body bật/tắt chế độ dùng chung của một nhà cung cấp (Super Admin). */
+export class SetGlobalProviderDto {
+  @ApiProperty({
+    description:
+      '`true` = chia sẻ nhà cung cấp cho MỌI tổ chức (danh mục dùng chung, không nhân bản). ' +
+      '`false` = chỉ tổ chức sở hữu dùng được.',
+  })
+  @IsBoolean()
+  isGlobal!: boolean;
+}
+
+/** Một nhà cung cấp nhìn từ khu vực quản trị NỀN TẢNG, kèm số liệu danh mục đếm thật. */
+export class PlatformProviderDto {
+  @ApiProperty({ format: 'uuid' }) id!: string;
+  @ApiProperty() name!: string;
+  @ApiProperty({ enum: FulfillmentProvider }) provider!: FulfillmentProvider;
+  @ApiProperty() isActive!: boolean;
+  @ApiProperty({ description: 'Đang chia sẻ cho mọi tổ chức hay chưa.' }) isGlobal!: boolean;
+  @ApiProperty({ nullable: true, type: String, description: 'Tổ chức sở hữu tài khoản/khoá API.' })
+  ownerOrganizationName!: string | null;
+  @ApiProperty() catalogues!: number;
+  @ApiProperty() products!: number;
+  @ApiProperty() variants!: number;
+  @ApiProperty({ nullable: true, type: String, description: 'Lần ghi danh mục gần nhất.' })
+  lastSyncedAt!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'Trạng thái lượt đồng bộ gần nhất.' })
+  lastSyncStatus!: string | null;
+  @ApiProperty({ nullable: true, type: String }) lastSyncMessage!: string | null;
+  @ApiProperty({ nullable: true, type: String }) lastSyncAt!: string | null;
+}
+
+/** Một nhà cung cấp mà tổ chức được chọn khi gửi đơn (ô chọn ở màn hình Fulfill). */
+export class FulfillmentAvailableProviderDto {
+  @ApiProperty({ format: 'uuid' }) id!: string;
+  @ApiProperty() name!: string;
+  @ApiProperty({ enum: FulfillmentProvider }) provider!: FulfillmentProvider;
+  @ApiProperty() isActive!: boolean;
+  @ApiProperty({
+    description:
+      'Tài khoản DÙNG CHUNG do Super Admin khai (mọi tổ chức đọc cùng một danh mục sản phẩm).',
+  })
+  isGlobal!: boolean;
+  @ApiProperty({ description: 'Nhà cung cấp mặc định của kết nối TikTok của đơn.' })
+  isAssignedToAccount!: boolean;
+}
+
 /** Trạng thái fulfillment kèm đánh giá "gửi được chưa" — dùng cho màn hình đơn. */
 export class FulfillmentStateDto {
   @ApiProperty({ nullable: true, type: FulfillmentOrderDto })
@@ -1036,6 +1100,15 @@ export class FulfillmentStateDto {
       'với "không gửi được": hệ thống vẫn có thể đang giữ bản sao địa chỉ chụp trước đó.',
   })
   recipientMasked!: boolean;
+  @ApiProperty({
+    type: FulfillmentAvailableProviderDto,
+    isArray: true,
+    description:
+      'Những nhà cung cấp tổ chức được chọn khi gửi đơn này: tài khoản riêng của tổ chức + ' +
+      'tài khoản dùng chung của nền tảng, chỉ những cái đang ACTIVE. Giao diện dựng ô chọn ' +
+      'từ mảng này — KHÔNG suy ra nhà cung cấp từ TikTok Account nữa.',
+  })
+  availableProviders!: FulfillmentAvailableProviderDto[];
 }
 
 export class FulfillmentHistoryDto {

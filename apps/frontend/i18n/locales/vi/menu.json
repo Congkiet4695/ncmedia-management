@@ -10,6 +10,7 @@
   "podBrands": "Thương hiệu",
   "podCategories": "Danh mục",
   "podCategoryTemplates": "Category Template",
+  "podCloneProducts": "Nhân bản sản phẩm",
   "podDescriptionTemplates": "Description Template",
   "podDraftListings": "Draft Listing",
   "podFlashSales": "Flash Sale",
@@ -35,6 +36,6 @@
   "reportSellerRanking": "Xếp hạng Seller",
   "reportWarehouse": "Hiệu suất Kho",
   "reports": "Báo cáo",
-  "superAdminOrganizations": "Organizations",
-  "podCloneProducts": "Nhân bản sản phẩm"
+  "superAdminFulfillmentProviders": "Fulfillment Providers",
+  "superAdminOrganizations": "Organizations"
 }

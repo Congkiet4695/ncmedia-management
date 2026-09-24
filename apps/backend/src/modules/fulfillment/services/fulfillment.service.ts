@@ -143,7 +143,10 @@ export class FulfillmentService {
     id: string,
     dto: UpdateFulfillmentAccountDto,
   ): Promise<FulfillmentAccountDto> {
-    const existing = await this.repo.findAccountById(organizationId, id);
+    // 🔴 Đường GHI dùng `findOwnedAccountById`: tài khoản DÙNG CHUNG (`is_global`) chỉ Super
+    // Admin mới được sửa. Tổ chức đọc được nó, nhưng không được đổi khoá API hay tắt nó đi
+    // cho tất cả những tổ chức còn lại.
+    const existing = await this.repo.findOwnedAccountById(organizationId, id);
     if (!existing) throw new FulfillmentAccountNotFoundException();
 
     const account = await this.repo.updateAccount(id, {
@@ -178,7 +181,8 @@ export class FulfillmentService {
     actorUserId: string,
     id: string,
   ): Promise<{ id: string; unlinkedTiktokAccounts: number; submittedOrders: number }> {
-    const existing = await this.repo.findAccountById(organizationId, id);
+    // Xoá cũng là đường ghi — xem chú thích ở `updateAccount`.
+    const existing = await this.repo.findOwnedAccountById(organizationId, id);
     if (!existing) throw new FulfillmentAccountNotFoundException();
 
     const unlinkedTiktokAccounts = await this.repo.countTiktokAccountsByProvider(
@@ -567,11 +571,20 @@ export class FulfillmentService {
     this.accessScope.assertShopAllowed(scope, order.shopId);
   }
 
+  /**
+   * Trạng thái fulfillment của MỘT đơn.
+   *
+   * 🔴 `selectedAccountId` là nhà cung cấp người dùng đang chọn trên màn hình. Trạng thái phải
+   * được tính theo ĐÚNG nhà cung cấp đó (ánh xạ sản phẩm khai cho nhà cung cấp khác sẽ bị
+   * `MAPPING_PROVIDER_MISMATCH` chặn), nếu không thì màn hình báo sẵn sàng cho một nhà cung
+   * cấp mà lúc gửi lại dùng nhà cung cấp khác.
+   */
   async getState(
     organizationId: string,
     podOrderId: string,
     scope: PodAccessScope,
     provider: FulfillmentProvider = FulfillmentProvider.MANGO,
+    selectedAccountId?: string,
   ): Promise<FulfillmentStateDto> {
     const order = await this.podOrderRepo.findById(organizationId, podOrderId);
     if (!order) throw new FulfillmentOrderNotFoundException();
@@ -582,8 +595,32 @@ export class FulfillmentService {
 
     // Nhà cung cấp lấy TỪ TIKTOK ACCOUNT của đơn — cùng một nguồn với luồng gửi thật,
     // nên màn hình không bao giờ báo "sẵn sàng" cho một đơn mà submit sẽ từ chối.
+    // 🔴 Thứ tự ưu tiên GIỐNG HỆT `MangoFulfillmentService.resolveProviderAccount`: người
+    // dùng chọn → nhà cung cấp gán cho kết nối TikTok (dữ liệu cũ) → nhà cung cấp DUY NHẤT
+    // khả dụng. Hai nơi lệch nhau là màn hình đánh giá một nhà cung cấp còn luồng gửi dùng
+    // nhà cung cấp khác.
     const assignedId = order.account?.fulfillmentAccountId ?? null;
-    const account = assignedId ? await this.repo.findAccountById(organizationId, assignedId) : null;
+    const usable = (await this.repo.listAccounts(organizationId)).filter(
+      (entry) => entry.isActive && entry.provider === provider,
+    );
+    const availableProviders = usable.map((entry) => ({
+      id: entry.id,
+      name: entry.name,
+      provider: entry.provider,
+      isActive: entry.isActive,
+      isGlobal: entry.isGlobal,
+      isAssignedToAccount: entry.id === assignedId,
+    }));
+
+    const selected = selectedAccountId?.trim();
+    const account = selected
+      ? await this.repo.findAccountById(organizationId, selected)
+      : assignedId
+        ? ((await this.repo.findAccountById(organizationId, assignedId)) ??
+          (usable.length === 1 ? usable[0] : null))
+        : usable.length === 1
+          ? usable[0]
+          : null;
 
     // Chưa cấu hình nhà cung cấp ⇒ không thể kiểm tra ánh xạ, báo rõ thay vì báo "thiếu design".
     if (!account || !account.isActive) {
@@ -593,10 +630,14 @@ export class FulfillmentService {
         issues: [
           {
             section: 'PROVIDER' as const,
-            code: account ? 'PROVIDER_INACTIVE' : 'PROVIDER_NOT_ASSIGNED',
+            code: account ? 'PROVIDER_INACTIVE' : 'PROVIDER_NOT_SELECTED',
             message: account
               ? `Nhà cung cấp "${account.name}" đang INACTIVE.`
-              : 'Kết nối TikTok của đơn này chưa được gán nhà cung cấp fulfillment.',
+              : availableProviders.length > 1
+                ? 'Đơn này có nhiều nhà cung cấp fulfillment dùng được — chọn một cái ở ô ' +
+                  '"Nhà cung cấp" rồi gửi.'
+                : 'Chưa có nhà cung cấp fulfillment nào dùng được. Thêm nhà cung cấp ở POD → ' +
+                  'Fulfillment Providers, hoặc nhờ Super Admin bật nhà cung cấp dùng chung.',
             podOrderItemId: null,
           },
         ],
@@ -605,6 +646,7 @@ export class FulfillmentService {
         provider: account
           ? { id: account.id, name: account.name, type: account.provider, isActive: false }
           : null,
+        availableProviders,
         // Chưa có nhà cung cấp thì chưa tra ánh xạ được, nhưng danh sách dòng hàng vẫn phải
         // có — giao diện dựng khối cấu hình theo đúng mảng này.
         items: order.items.map((item) => ({
@@ -661,6 +703,7 @@ export class FulfillmentService {
       shippingLabel: check.shippingLabel ?? null,
       shippingMode: check.shippingMode ?? 'ADDRESS',
       recipientMasked: order.recipientMasked,
+      availableProviders,
     };
   }
 
@@ -822,7 +865,11 @@ export class FulfillmentService {
   }
 
   /** DTO tài khoản — KHÔNG BAO GIỜ trả API key hay secret đã lưu. */
-  private toAccountDto(
+  /**
+   * `public` vì khu vực quản trị NỀN TẢNG (`PlatformFulfillmentService`) trả về cùng một
+   * hình dạng DTO — dựng bản sao thứ hai là mở đường cho hai hình dạng trôi khỏi nhau.
+   */
+  toAccountDto(
     account: FulfillmentAccount,
     /** Secret vừa sinh: chỉ hiện MỘT LẦN ngay sau khi tạo để người dùng đăng ký webhook. */
     plainWebhookSecret?: string,
@@ -837,6 +884,7 @@ export class FulfillmentService {
       apiKeyHint: account.apiKeyHint,
       isActive: account.isActive,
       isDefault: account.isDefault,
+      isGlobal: account.isGlobal,
       defaultProductionLine: account.defaultProductionLine,
       defaultShippingMethod: account.defaultShippingMethod,
       defaultFacility: account.defaultFacility,

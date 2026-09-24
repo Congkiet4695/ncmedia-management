@@ -19,6 +19,7 @@ import {
   providerVariantLabel,
   submitBlockers,
 } from '../features/fulfillment/product-config.ts';
+import { providerErrorText, providerFieldErrors } from '../features/fulfillment/provider-error.ts';
 import type {
   FulfillmentState,
   ProviderCatalogProduct,
@@ -178,6 +179,9 @@ const state = (over: Partial<FulfillmentState> = {}): FulfillmentState => ({
   canCancel: false,
   provider: { id: 'acc-1', name: 'Mango US', type: 'MANGO', isActive: true },
   items: [],
+  shippingLabel: null,
+  shippingMode: 'ADDRESS',
+  recipientMasked: false,
   ...over,
 });
 
@@ -228,6 +232,49 @@ check(
   'chưa sẵn sàng ⇒ canSubmit = false',
   canSubmitFulfillment({ state: state({ canFulfill: false }), status: 'DRAFT' }),
   false,
+);
+
+// ---------------------------------------------------------------------------
+// Lỗi nhà cung cấp: chi tiết theo field phải tới được người dùng
+// ---------------------------------------------------------------------------
+console.log('lỗi nhà cung cấp');
+
+const providerError = (body: unknown): unknown => ({ response: { data: body } });
+
+check(
+  '🔴 VALIDATION_ERROR có `errors[]` ⇒ ghép đủ field vào câu hiển thị',
+  providerErrorText(
+    providerError({
+      code: 'FULFILLMENT_PROVIDER_VALIDATION',
+      message: 'Request validation failed',
+      errors: [
+        { field: 'items.0.item_id', message: 'String should have at most 26 characters' },
+        { field: 'production_line_id', message: 'Invalid uuid' },
+      ],
+    }),
+    'Lỗi hệ thống',
+  ),
+  'Request validation failed · items.0.item_id: String should have at most 26 characters · production_line_id: Invalid uuid',
+);
+check(
+  'không có `errors[]` ⇒ giữ nguyên thông điệp, KHÔNG bịa thêm',
+  providerErrorText(
+    providerError({ code: 'FULFILLMENT_PROVIDER_VALIDATION', message: 'Request validation failed' }),
+    'Lỗi hệ thống',
+  ),
+  'Request validation failed',
+);
+check(
+  'lỗi không có envelope ⇒ dùng câu dự phòng',
+  providerErrorText(new Error('socket hang up'), 'Lỗi hệ thống'),
+  'Lỗi hệ thống',
+);
+check(
+  'danh sách field bóc riêng được (để render từng dòng)',
+  providerFieldErrors(
+    providerError({ errors: [{ field: 'label_url', message: 'must be a public URL' }] }),
+  ),
+  ['label_url: must be a public URL'],
 );
 
 // ---------------------------------------------------------------------------

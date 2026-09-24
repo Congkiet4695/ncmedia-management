@@ -115,7 +115,12 @@ export class FulfillmentCatalogSyncService {
     trigger: FulfillmentTrigger,
     actorUserId?: string,
   ): Promise<CatalogSyncResult> {
-    const account = await this.repo.findAccountById(organizationId, accountId);
+    // 🔴 GHI vào danh mục ⇒ chỉ tài khoản của CHÍNH tổ chức. Tài khoản DÙNG CHUNG
+    // (`is_global`) là dữ liệu của mọi tổ chức: một tổ chức bấm Sync là ghi đè danh mục của
+    // tất cả những tổ chức còn lại — đúng thứ mà khu vực quản trị nền tảng sinh ra để tránh.
+    // Super Admin đồng bộ qua `PlatformFulfillmentService`, nơi truyền organizationId của
+    // chính tài khoản.
+    const account = await this.repo.findOwnedAccountById(organizationId, accountId);
     if (!account) throw new FulfillmentAccountNotFoundException();
 
     const startedAt = new Date();

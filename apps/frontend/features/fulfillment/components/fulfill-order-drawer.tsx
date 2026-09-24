@@ -41,6 +41,7 @@ import {
   SUBMITTABLE_STATUSES,
   submitBlockers,
 } from '../product-config';
+import { providerErrorText } from '../provider-error';
 import {
   FULFILL_FACILITIES,
   FULFILL_PREFERRED_CARRIERS,
@@ -127,7 +128,15 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
   const translateApiError = useApiError();
   const { formatCurrency, formatDateTime } = useLocaleFormat();
 
-  const stateQuery = useFulfillmentState(podOrderId, open);
+  /**
+   * Nhà cung cấp fulfillment người dùng CHỌN cho đơn này.
+   *
+   * 🔴 Trước đây nhà cung cấp được suy ra từ TikTok Account của đơn, nên muốn đổi xưởng in
+   * phải đi sửa cấu hình kết nối. Nay nó là một lựa chọn ngay trên màn hình gửi đơn, và
+   * chính giá trị này đi kèm request gửi — backend lấy nhà cung cấp từ đây.
+   */
+  const [providerId, setProviderId] = useState('');
+  const stateQuery = useFulfillmentState(podOrderId, open, providerId || undefined);
   const state = stateQuery.data;
   const orderQuery = usePodOrder(open ? podOrderId : undefined);
   const actions = useFulfillmentActions(podOrderId);
@@ -179,6 +188,21 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
    * Nhãn đã lưu → ô nhập. Chỉ chạy khi GIÁ TRỊ ĐÃ LƯU đổi (mở drawer, lấy nhãn xong, lưu
    * xong), nên không giẫm lên thứ người dùng đang gõ dở.
    */
+  /**
+   * Chọn sẵn nhà cung cấp mà BACKEND đang dùng cho đơn (gán theo kết nối TikTok, hoặc nhà
+   * cung cấp duy nhất khả dụng). Chỉ đặt khi người dùng chưa tự chọn — không giẫm lên lựa
+   * chọn của họ ở những lần render sau.
+   */
+  const effectiveProviderId = stateQuery.data?.provider?.id ?? '';
+  useEffect(() => {
+    if (!providerId && effectiveProviderId) setProviderId(effectiveProviderId);
+  }, [effectiveProviderId, providerId]);
+
+  // Đóng drawer ⇒ quên lựa chọn, lần mở sau bắt đầu lại từ trạng thái của backend.
+  useEffect(() => {
+    if (!open) setProviderId('');
+  }, [open]);
+
   const savedLabelUrl = stateQuery.data?.shippingLabel?.labelUrl ?? '';
   useEffect(() => {
     setLabelInput(savedLabelUrl);
@@ -232,7 +256,9 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
           : undefined,
       );
     } catch (error) {
-      toast.error(t('fulfill.label.fetchFailed'), { description: translateApiError(error) });
+      toast.error(t('fulfill.label.fetchFailed'), {
+        description: providerErrorText(error, translateApiError(error)),
+      });
     }
   };
 
@@ -282,6 +308,9 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
     setLabelError(null);
     try {
       const payload: FulfillPayload = {
+        // 🔴 Nhà cung cấp người dùng chọn — backend ưu tiên giá trị này (và vẫn tự kiểm tra
+        // tài khoản thuộc tổ chức / dùng chung / đang ACTIVE).
+        ...(providerId ? { fulfillmentAccountId: providerId } : {}),
         ...(form.shippingMethod ? { shippingMethod: form.shippingMethod } : {}),
         ...(form.facility ? { facility: form.facility } : {}),
         ...(form.speedType ? { speedType: form.speedType } : {}),
@@ -297,7 +326,11 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
       toast.success(t('fulfill.succeeded'));
     } catch (error) {
       // Chi tiết lỗi vẫn nằm trong drawer (khối "Kết quả") — toast chỉ là tín hiệu nhanh.
-      toast.error(t('fulfill.failed'), { description: translateApiError(error) });
+      // 🔴 Kèm CHI TIẾT theo field nếu nhà cung cấp có nêu: "Request validation failed" một
+      // mình không cho người vận hành biết phải sửa ô nào.
+      toast.error(t('fulfill.failed'), {
+        description: providerErrorText(error, translateApiError(error)),
+      });
       void stateQuery.refetch();
     } finally {
       submittingRef.current = false;
@@ -464,6 +497,29 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
 
             {/* ------------------------------------------------------------- Loại fulfillment */}
             <DrawerSection title={t('fulfill.section.type')} issues={messagesOf('PROVIDER')}>
+              {/* --------------------------------------------- Nhà cung cấp fulfillment */}
+              <div className="space-y-1">
+                <Label>{t('fulfill.providerLabel')}</Label>
+                <Combobox
+                  value={providerId}
+                  onChange={setProviderId}
+                  options={(state?.availableProviders ?? []).map((provider) => ({
+                    value: provider.id,
+                    // Nhãn chỉ có TÊN (+ ghi chú "dùng chung") — không bao giờ là UUID.
+                    label: provider.isGlobal
+                      ? `${provider.name} · ${t('fulfill.providerShared')}`
+                      : provider.name,
+                  }))}
+                  placeholder={t('fulfill.providerPlaceholder')}
+                  disabled={!SUBMITTABLE.has(status) || submitting}
+                />
+                <p className="text-[11px] text-muted-foreground">
+                  {(state?.availableProviders ?? []).length === 0
+                    ? t('fulfill.providerEmpty')
+                    : t('fulfill.providerHint')}
+                </p>
+              </div>
+
               <div className="flex gap-2">
                 <Badge variant="default">POD</Badge>
                 {/* Dropship chưa có nhà cung cấp nào trong hệ thống ⇒ nói thẳng, không dựng tab giả. */}
@@ -657,7 +713,7 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                     <ProductConfigPanel
                       key={item.id}
                       item={item}
-                      accountId={state?.provider?.id ?? order?.fulfillmentAccountId ?? null}
+                      accountId={providerId || state?.provider?.id || order?.fulfillmentAccountId || null}
                       mapping={mappingByItemId.get(item.id) ?? null}
                       designs={item.designs}
                       issues={(issuesBySection.get('MAPPING') ?? [])

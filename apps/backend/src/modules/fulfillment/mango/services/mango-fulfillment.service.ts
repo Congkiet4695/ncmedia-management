@@ -16,6 +16,7 @@ import {
   FulfillmentAccountNotFoundException,
   FulfillmentProviderInactiveException,
   FulfillmentProviderNotAssignedException,
+  FulfillmentProviderNotSelectedException,
   FulfillmentAlreadySubmittedException,
   FulfillmentCannotCancelException,
   FulfillmentCannotUpdateException,
@@ -40,6 +41,7 @@ import {
 import { mappingKeyOf } from '../../shared/mapping-match';
 import { MangoApiClient, MangoCallContext } from '../clients/mango-api.client';
 import { MangoCredentialService } from './mango-credential.service';
+import { FulfillmentOptionsService } from '../../services/fulfillment-options.service';
 import { MangoOrderMapper, type ResolvedItem } from '../mappers/mango-order.mapper';
 import type {
   MangoPreferredCarrier,
@@ -94,6 +96,14 @@ const FULFILL_LOCK_MS = 60_000;
  * Bỏ trống ⇒ lấy mặc định của tài khoản nhà cung cấp (hành vi cũ, không đổi).
  */
 export interface MangoFulfillOptionsInput {
+  /**
+   * Nhà cung cấp fulfillment người dùng CHỌN cho lần gửi này (`fulfillment_accounts.id`).
+   *
+   * 🔴 Đây là nguồn ưu tiên số một — thay cho việc suy ra nhà cung cấp từ TikTok Account.
+   * Bỏ trống thì hệ thống lùi về nhà cung cấp đã gán cho kết nối TikTok (dữ liệu cũ), rồi tới
+   * "chỉ có đúng một nhà cung cấp khả dụng". Xem `resolveProviderAccount`.
+   */
+  fulfillmentAccountId?: string | null;
   shippingMethod?: MangoShippingMethod | null;
   facility?: string | null;
   speedType?: MangoSpeedType | null;
@@ -131,6 +141,8 @@ export class MangoFulfillmentService {
     private readonly mapper: MangoOrderMapper,
     private readonly credentials: MangoCredentialService,
     private readonly lock: DistributedLockService,
+    /** Nguồn tên production line (đã nhớ 10 phút) — dùng cho phép kiểm phụ thuộc xưởng. */
+    private readonly options: FulfillmentOptionsService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -181,7 +193,11 @@ export class MangoFulfillmentService {
     // Nhà cung cấp được suy ra TỪ TIKTOK ACCOUNT sở hữu đơn, không phải "tài khoản mặc định
     // của tổ chức". Nhờ vậy mỗi shop gửi đúng xưởng in của mình, và không tồn tại đường nào
     // để một đơn âm thầm đi nhầm nhà cung cấp.
-    const account = await this.requireProviderForOrder(organizationId, order);
+    const account = await this.requireProviderForOrder(
+      organizationId,
+      order,
+      options.fulfillmentAccountId,
+    );
 
     // Phạm vi TỔ CHỨC — xem chú thích ở `FulfillmentService.getState`. Ánh xạ khai cho nhà
     // cung cấp khác sẽ bị `check()` chặn bằng MAPPING_PROVIDER_MISMATCH, không lọt xuống đây.
@@ -267,11 +283,24 @@ export class MangoFulfillmentService {
       itemId: itemIdByPodItem.get(item.podOrderItemId) ?? null,
     }));
 
+    // 🔴 Kiểm tra TRƯỚC khi gọi nhà cung cấp: mọi thứ bắt lỗi được tại đây đều rẻ hơn và nói
+    // rõ hơn một câu "VALIDATION_ERROR — Request validation failed" trả về từ Mango.
+    await this.assertProviderPayloadValid({
+      account,
+      items: itemsWithId,
+      productionLine,
+      facility,
+      speedType: options.speedType ?? null,
+      isScanLabel: options.isScanLabel === true,
+      labelUrl,
+    });
+
     const request = this.mapper.buildCreateOrderRequest({
       externalOrderId,
       address: check.address,
       items: itemsWithId,
       shippingMethod,
+      productionLineId: productionLine,
       facility,
       speedType: options.speedType ?? null,
       preferredCarrier: options.preferredCarrier ?? null,
@@ -854,22 +883,61 @@ export class MangoFulfillmentService {
   private async requireProviderForOrder(
     organizationId: string,
     order: PodOrderWithRelations,
+    /** Nhà cung cấp người dùng CHỌN cho chính lần gửi này (ưu tiên cao nhất). */
+    selectedAccountId?: string | null,
   ): Promise<FulfillmentAccount> {
-    const assignedId = order.account?.fulfillmentAccountId;
-    if (!assignedId) {
-      throw new FulfillmentProviderNotAssignedException(order.account?.accountName);
-    }
-
-    const account = await this.repo.findAccountById(organizationId, assignedId);
-    if (!account) {
-      // Nhà cung cấp đã bị xoá sau khi gán ⇒ coi như chưa gán, hướng dẫn gán lại.
-      throw new FulfillmentProviderNotAssignedException(order.account?.accountName);
-    }
+    const account = await this.resolveProviderAccount(organizationId, order, selectedAccountId);
     if (!account.isActive) throw new FulfillmentProviderInactiveException(account.name);
 
     // Ném sớm nếu thiếu API key / Base URL, thay vì để lộ ra ở giữa luồng gửi đơn.
     this.credentials.buildContext(account);
     return account;
+  }
+
+  /**
+   * Nhà cung cấp dùng cho MỘT lần gửi, theo thứ tự ưu tiên:
+   *
+   * ```
+   *   1. người dùng CHỌN ở màn hình Fulfill   (fulfillmentAccountId trong body)
+   *   2. nhà cung cấp gán cho kết nối TikTok  (dữ liệu cũ — vẫn chạy, không phải gán lại)
+   *   3. đúng MỘT nhà cung cấp khả dụng       (riêng của tổ chức hoặc dùng chung)
+   * ```
+   *
+   * 🔴 Bước 1 KHÔNG tin tưởng frontend: `findAccountById` chỉ trả về tài khoản của chính tổ
+   * chức hoặc tài khoản dùng chung (`FulfillmentRepository.usableAccountWhere`), nên một
+   * `accountId` của tổ chức khác không bao giờ đi qua được.
+   *
+   * 🔴 Bước 3 là thứ khiến "không cần gán nhà cung cấp cho từng TikTok Account" thành sự thật:
+   * hệ thống chỉ có một nhà cung cấp khả dụng thì không có gì để chọn. Nhiều hơn một mà người
+   * dùng không chọn ⇒ hỏi thẳng, không tự đoán hộ.
+   */
+  private async resolveProviderAccount(
+    organizationId: string,
+    order: PodOrderWithRelations,
+    selectedAccountId?: string | null,
+  ): Promise<FulfillmentAccount> {
+    const selected = selectedAccountId?.trim();
+    if (selected) {
+      const account = await this.repo.findAccountById(organizationId, selected);
+      if (!account) throw new FulfillmentAccountNotFoundException();
+      return account;
+    }
+
+    const assignedId = order.account?.fulfillmentAccountId;
+    if (assignedId) {
+      const account = await this.repo.findAccountById(organizationId, assignedId);
+      if (account) return account;
+      // Nhà cung cấp đã bị xoá sau khi gán ⇒ rơi xuống bước 3, không bắt gán lại.
+    }
+
+    const usable = (await this.repo.listAccounts(organizationId)).filter(
+      (account) => account.isActive && account.provider === MangoFulfillmentService.PROVIDER,
+    );
+    if (usable.length === 1) return usable[0];
+    if (usable.length === 0) {
+      throw new FulfillmentProviderNotAssignedException(order.account?.accountName);
+    }
+    throw new FulfillmentProviderNotSelectedException(usable.map((account) => account.name));
   }
 
   private async requireAccountById(
@@ -924,6 +992,116 @@ export class MangoFulfillmentService {
     return this.config.get<string>('storage.local.publicBaseUrl') || undefined;
   }
 
+  /**
+   * Tên của một production line (`GET /production-lines`) — `null` khi không tra được.
+   *
+   * Dùng để kiểm tra những tuỳ chọn CHỈ hợp lệ với một xưởng nhất định (`facility`/
+   * `is_scan_label` cho TIKTOK, `speed_type` cho FASTUS — theo tài liệu MangoV3). Danh sách
+   * đã được `FulfillmentOptionsService` nhớ 10 phút nên đây không phải một lời gọi mỗi đơn.
+   */
+  private async productionLineName(
+    account: FulfillmentAccount,
+    productionLineId: string | null,
+  ): Promise<string | null> {
+    if (!productionLineId) return null;
+    try {
+      const options = await this.options.forAccount(account);
+      const line = options.productionLines.find(
+        (entry: { value: string; label: string }) => entry.value === productionLineId,
+      );
+      return line?.label ?? null;
+    } catch {
+      // Không hỏi được nhà cung cấp ⇒ bỏ qua phép kiểm phụ thuộc tên, KHÔNG chặn đơn.
+      return null;
+    }
+  }
+
+  /**
+   * Chặn những payload mà **chính hệ thống biết là sai** trước khi tốn một lời gọi API.
+   *
+   * 🔴 Vì sao cần: Mango trả `VALIDATION_ERROR — Request validation failed` không kèm field,
+   * nên mỗi lỗi lọt xuống đó là một vòng đoán mò. Những gì kiểm được ở đây thì phải kiểm ở
+   * đây, và thông điệp phải chỉ đúng ô cần sửa trên màn hình.
+   */
+  private async assertProviderPayloadValid(params: {
+    account: FulfillmentAccount;
+    items: ResolvedItem[];
+    productionLine: string | null;
+    facility: string | null;
+    speedType: string | null;
+    isScanLabel: boolean;
+    labelUrl: string | null;
+  }): Promise<void> {
+    const errors: Array<{ field: string; message: string }> = [];
+
+    params.items.forEach((item, index) => {
+      if (!item.providerSku?.trim()) {
+        errors.push({
+          field: `items[${index}].sku`,
+          message: 'Dòng hàng chưa có SKU của nhà cung cấp — sửa ở Cấu hình sản phẩm.',
+        });
+      }
+      if (!Number.isInteger(item.quantity) || item.quantity <= 0) {
+        errors.push({
+          field: `items[${index}].quantity`,
+          message: `Số lượng không hợp lệ (${item.quantity}).`,
+        });
+      }
+      if (item.printFiles.length === 0) {
+        errors.push({
+          field: `items[${index}].print_files`,
+          message: 'Dòng hàng chưa có file in nào.',
+        });
+      }
+      item.printFiles.forEach((file, fileIndex) => {
+        if (!/^https?:\/\//i.test(file.url ?? '')) {
+          errors.push({
+            field: `items[${index}].print_files[${fileIndex}].url`,
+            message: 'File in phải là URL http(s) công khai để xưởng in tải được.',
+          });
+        }
+      });
+    });
+
+    if (params.labelUrl && !/^https?:\/\//i.test(params.labelUrl)) {
+      errors.push({
+        field: 'label_url',
+        message: 'Nhãn vận chuyển phải là URL http(s) công khai.',
+      });
+    }
+
+    // Tuỳ chọn phụ thuộc XƯỞNG (tài liệu MangoV3): gửi sai xưởng là VALIDATION_ERROR.
+    const lineName = (await this.productionLineName(params.account, params.productionLine))
+      ?.trim()
+      .toUpperCase();
+    if (lineName) {
+      if (params.speedType && lineName !== 'FASTUS') {
+        errors.push({
+          field: 'speed_type',
+          message: `Speed type chỉ dùng cho xưởng FASTUS, còn đơn này đang gửi xưởng "${lineName}". Bỏ Speed type hoặc đổi Line sản xuất.`,
+        });
+      }
+      if (params.facility && lineName !== 'TIKTOK') {
+        errors.push({
+          field: 'facility',
+          message: `Facility chỉ dùng cho xưởng TIKTOK, còn đơn này đang gửi xưởng "${lineName}". Bỏ Facility hoặc đổi Line sản xuất.`,
+        });
+      }
+      if (params.isScanLabel && lineName !== 'TIKTOK') {
+        errors.push({
+          field: 'is_scan_label',
+          message: `Scan label chỉ dùng cho xưởng TIKTOK, còn đơn này đang gửi xưởng "${lineName}".`,
+        });
+      }
+    }
+
+    if (errors.length === 0) return;
+    throw new FulfillmentValidationException(
+      `Dữ liệu gửi nhà cung cấp chưa hợp lệ: ${errors.map((error) => `${error.field} — ${error.message}`).join(' · ')}`,
+      errors,
+    );
+  }
+
   /** Ghi nhật ký + error log cho một lần thất bại, rồi cập nhật tóm tắt lỗi lên bản ghi. */
   private async recordFailure(
     organizationId: string,
@@ -975,17 +1153,29 @@ export class MangoFulfillmentService {
 
     // Chỉ luồng TẠO đơn mới hạ trạng thái xuống FAILED; sync/cancel lỗi thì giữ nguyên
     // trạng thái thật của đơn ở xưởng in.
+    // 🔴 Giữ CHI TIẾT theo field ngay trên bản ghi: màn hình Fulfill đọc `lastErrorMessage`,
+    // nên nếu chỉ lưu "Request validation failed" thì người vận hành không có cách nào biết
+    // field nào sai — chi tiết nằm ở bảng error log mà họ không mở tới.
+    const detail = (clientError.validationErrors ?? [])
+      .map((error) => `${error.field ?? 'unknown'}: ${error.message ?? ''}`.trim())
+      .filter((line) => line.length > 1)
+      .join(' · ');
+    const fullMessage = (detail ? `${clientError.message} · ${detail}` : clientError.message).slice(
+      0,
+      2000,
+    );
+
     if (eventType === FulfillmentEventType.CREATE_FAILED) {
       await this.repo.updateOrder(fulfillmentOrderId, {
         status: FulfillmentStatus.FAILED,
         lastErrorCode: clientError.providerCode ?? clientError.errorClass,
-        lastErrorMessage: clientError.message.slice(0, 2000),
+        lastErrorMessage: fullMessage,
         lastRequestId: clientError.requestId ?? null,
       });
     } else {
       await this.repo.updateOrder(fulfillmentOrderId, {
         lastErrorCode: clientError.providerCode ?? clientError.errorClass,
-        lastErrorMessage: clientError.message.slice(0, 2000),
+        lastErrorMessage: fullMessage,
         lastRequestId: clientError.requestId ?? null,
       });
     }

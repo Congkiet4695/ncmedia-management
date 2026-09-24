@@ -56,7 +56,9 @@ export const envValidationSchema = Joi.object({
   // ở tầng proxy mà ứng dụng không hề biết lý do.
   STORAGE_MAX_FILE_BYTES: Joi.number().integer().min(1024).max(104857600).default(104857600),
   // Đủ dài cho file 100MB trên đường truyền chậm; tối đa 10 phút.
-  STORAGE_TIMEOUT_MS: Joi.number().integer().min(1000).max(600000).default(120000),
+  STORAGE_TIMEOUT_MS: Joi.number().integer().min(1000).max(600000).default(180000),
+  /** Ngân sách thời gian của một lần upload (ms) — xem `configuration.ts`. */
+  UPLOAD_TIMEOUT_MS: Joi.number().integer().min(1000).max(600000).default(180000),
 
   // Cloudflare R2 — BẮT BUỘC khi STORAGE_PROVIDER=CLOUDFLARE_R2, bỏ qua khi dùng LOCAL_DISK.
   R2_ACCOUNT_ID: Joi.string().when('STORAGE_PROVIDER', {

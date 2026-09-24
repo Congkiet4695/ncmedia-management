@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { FulfillmentOptionsService } from '../../services/fulfillment-options.service';
 import { FulfillmentStatus } from '@prisma/client';
 import {
   FulfillmentProviderInactiveException,
@@ -17,8 +18,12 @@ import { MangoCredentialService } from './mango-credential.service';
 import { MangoFulfillmentService } from './mango-fulfillment.service';
 
 /**
- * Mục 6 + Mục 7: nhà cung cấp phải được suy ra TỪ TIKTOK ACCOUNT của đơn, và bốn điều kiện
- * chặn submit phải hỏng TRƯỚC khi bất kỳ request nào rời khỏi hệ thống.
+ * Chọn nhà cung cấp khi gửi đơn — và mọi điều kiện chặn phải hỏng TRƯỚC khi bất kỳ request
+ * nào rời khỏi hệ thống.
+ *
+ * 🔴 LUẬT ĐÃ ĐỔI: nhà cung cấp KHÔNG còn bắt buộc suy ra từ TikTok Account. Thứ tự nay là
+ * "người dùng chọn → nhà cung cấp gán sẵn (dữ liệu cũ) → nhà cung cấp DUY NHẤT khả dụng".
+ * Không còn nhà cung cấp nào khả dụng mới là lỗi cấu hình thật sự.
  */
 const encryption = {
   decrypt: (value: string) => value.replace(/^enc:/, ''),
@@ -33,13 +38,21 @@ function lockStub(): DistributedLockService {
 
 function buildService(overrides: {
   findAccountById?: jest.Mock;
+  listAccounts?: jest.Mock;
   order?: Partial<PodOrderWithRelations>;
 }) {
   const findByPodOrder = jest.fn().mockResolvedValue(null);
   const findAccountById = overrides.findAccountById ?? jest.fn().mockResolvedValue(null);
   const createOrder = jest.fn();
 
-  const repo = { findByPodOrder, findAccountById, createOrder } as unknown as FulfillmentRepository;
+  const repo = {
+    findByPodOrder,
+    findAccountById,
+    createOrder,
+    // Danh sách nhà cung cấp khả dụng của tổ chức (riêng + dùng chung) — mặc định RỖNG để
+    // các bài kiểm "chưa cấu hình gì" giữ nguyên ý nghĩa.
+    listAccounts: overrides.listAccounts ?? jest.fn().mockResolvedValue([]),
+  } as unknown as FulfillmentRepository;
 
   const order = {
     id: 'order-1',
@@ -60,6 +73,8 @@ function buildService(overrides: {
     new MangoOrderMapper(),
     new MangoCredentialService(encryption),
     lockStub(),
+    // Danh sách production line — spec không kiểm phần phụ thuộc xưởng nên trả rỗng.
+    { forAccount: () => Promise.resolve({ productionLines: [] }) } as unknown as FulfillmentOptionsService,
   );
 
   return { service, findAccountById, createOrder };
@@ -78,7 +93,7 @@ function providerRecord(over: Record<string, unknown> = {}) {
 }
 
 describe('MangoFulfillmentService.fulfill — chọn nhà cung cấp', () => {
-  it('chặn khi TikTok Account chưa được gán nhà cung cấp', async () => {
+  it('KHÔNG có nhà cung cấp nào khả dụng ⇒ chặn (đây mới là lỗi cấu hình thật)', async () => {
     const { service, createOrder } = buildService({});
 
     await expect(service.fulfill('org-1', 'user-1', 'order-1')).rejects.toBeInstanceOf(
@@ -101,7 +116,7 @@ describe('MangoFulfillmentService.fulfill — chọn nhà cung cấp', () => {
     });
   });
 
-  it('chặn khi nhà cung cấp đã bị xoá sau lúc gán', async () => {
+  it('nhà cung cấp gán sẵn đã bị xoá VÀ không còn lựa chọn nào ⇒ chặn', async () => {
     const { service } = buildService({
       order: {
         account: { id: 'tt-1', accountName: 'NCMedia US', fulfillmentAccountId: 'prov-1' },
@@ -186,6 +201,8 @@ describe('MangoFulfillmentService.fulfill — chống gửi trùng', () => {
       new MangoOrderMapper(),
       new MangoCredentialService(encryption),
       lockStub(),
+    // Danh sách production line — spec không kiểm phần phụ thuộc xưởng nên trả rỗng.
+    { forAccount: () => Promise.resolve({ productionLines: [] }) } as unknown as FulfillmentOptionsService,
     );
 
     await expect(service.fulfill('org-1', 'user-1', 'order-1')).rejects.toThrow();

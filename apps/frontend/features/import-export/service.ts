@@ -1,3 +1,4 @@
+import { env } from '@/lib/env';
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse } from '@/types/api';
 import type { ImportResult, ImportRowError } from './types';
@@ -44,6 +45,7 @@ export async function uploadXlsx(
   form.append('file', file);
   const res = await apiClient.post<ApiResponse<ImportResult>>(path, form, {
     headers: { 'Content-Type': 'multipart/form-data' },
+    timeout: env.uploadTimeoutMs,
     onUploadProgress: (e) => {
       if (onProgress && e.total) onProgress(Math.round((e.loaded / e.total) * 100));
     },

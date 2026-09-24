@@ -190,6 +190,12 @@ const PERMISSIONS: Array<{
   // nhóm `platform.*` chứ không phải `pod.*`. Org admin chỉ ĐỌC (qua `pod.product.read`).
   { code: 'platform.masterdata.read',      module: 'PLATFORM', resource: 'platform.masterdata',    action: 'read',    description: 'Super Admin: xem nhật ký đồng bộ TikTok Master Data toàn cục' },
   { code: 'platform.masterdata.sync',      module: 'PLATFORM', resource: 'platform.masterdata',    action: 'sync',    description: 'Super Admin: đồng bộ TikTok Master Data toàn cục (Categories / Brands / Attributes)' },
+
+  // Nhà cung cấp fulfillment DÙNG CHUNG — danh mục sản phẩm của nhà cung cấp là dữ liệu của
+  // NHÀ CUNG CẤP, không phải của từng tổ chức: Super Admin đồng bộ một lần, mọi tổ chức đọc.
+  { code: 'platform.fulfillment.read',     module: 'PLATFORM', resource: 'platform.fulfillment',   action: 'read',    description: 'Super Admin: xem nhà cung cấp fulfillment toàn nền tảng + số liệu danh mục' },
+  { code: 'platform.fulfillment.manage',   module: 'PLATFORM', resource: 'platform.fulfillment',   action: 'manage',  description: 'Super Admin: bật/tắt chế độ dùng chung của nhà cung cấp fulfillment' },
+  { code: 'platform.fulfillment.sync',     module: 'PLATFORM', resource: 'platform.fulfillment',   action: 'sync',    description: 'Super Admin: đồng bộ danh mục nhà cung cấp fulfillment dùng chung' },
 ];
 
 /** Permission mặc định cho Role EMPLOYEE — dùng chung với register.service (default-roles.ts). */

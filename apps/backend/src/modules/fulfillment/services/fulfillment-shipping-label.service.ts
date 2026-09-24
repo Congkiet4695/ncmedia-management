@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { HttpException, Injectable, Logger } from '@nestjs/common';
 import { ConflictException, UnprocessableEntityException } from '@nestjs/common';
 import { PrismaService } from '../../../database/prisma.service';
 import { DistributedLockService } from '../../pod-tiktok/infra/distributed-lock.service';
@@ -133,17 +133,64 @@ export class FulfillmentShippingLabelService {
     userId: string,
     podOrderId: string,
   ): Promise<ShippingLabelState> {
-    const result = await this.lock.withLock(
-      `fulfillment:label:${podOrderId}`,
-      LABEL_LOCK_MS,
-      () => this.fetchLocked(organizationId, userId, podOrderId),
+    const result = await this.guard('label.tiktok.fetch', { organizationId, podOrderId }, () =>
+      this.lock.withLock(`fulfillment:label:${podOrderId}`, LABEL_LOCK_MS, () =>
+        this.fetchLocked(organizationId, userId, podOrderId),
+      ),
     );
     if (!result) throw new ShippingLabelBusyException();
     return result;
   }
 
+  /**
+   * Hàng rào cuối: **không một lỗi nào được rơi ra ngoài dưới dạng `Error` thường.**
+   *
+   * 🔴 `Error` thường đi tới `AllExceptionsFilter` là thành `500 INTERNAL_ERROR`, và giao diện
+   * chỉ còn câu "System error, please try again later" — người vận hành không biết gì, còn
+   * nguyên nhân thật (mất kết nối Redis, Prisma client cũ chưa có cột mới, TikTok đổi payload…)
+   * thì nằm im. Ở đây lỗi được GHI LẠI kèm stack ở phía máy chủ và trả ra một thông điệp có mã
+   * riêng cùng nguyên nhân kỹ thuật ngắn gọn — đủ để báo lỗi mà không lộ token/PII.
+   */
+  private async guard<T>(
+    operation: string,
+    context: { organizationId: string; podOrderId: string },
+    task: () => Promise<T>,
+  ): Promise<T> {
+    try {
+      return await task();
+    } catch (error) {
+      // Lỗi nghiệp vụ đã có mã + thông điệp ⇒ giữ nguyên, đừng bọc thêm một lớp mơ hồ.
+      if (error instanceof HttpException) throw error;
+      const reason = error instanceof Error ? error.message : String(error);
+      this.logger.error({
+        module: 'fulfillment',
+        operation,
+        organizationId: context.organizationId,
+        podOrderId: context.podOrderId,
+        errorName: error instanceof Error ? error.name : typeof error,
+        msg: reason,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      throw new ShippingLabelUnavailableException(
+        `Lỗi hệ thống khi xử lý nhãn vận chuyển: ${reason}`,
+        'SHIPPING_LABEL_INTERNAL_ERROR',
+      );
+    }
+  }
+
   /** Người vận hành tự dán URL nhãn — lưu XUỐNG DATABASE, không chỉ giữ ở giao diện. */
   async saveManualLabel(
+    organizationId: string,
+    userId: string,
+    podOrderId: string,
+    labelUrl: string,
+  ): Promise<ShippingLabelState> {
+    return this.guard('label.manual.save', { organizationId, podOrderId }, () =>
+      this.saveManualLabelUnguarded(organizationId, userId, podOrderId, labelUrl),
+    );
+  }
+
+  private async saveManualLabelUnguarded(
     organizationId: string,
     userId: string,
     podOrderId: string,

@@ -99,6 +99,23 @@ export class FulfillmentProviderNotAssignedException extends UnprocessableEntity
   }
 }
 
+/**
+ * Có NHIỀU nhà cung cấp khả dụng nhưng lần gửi này không nói rõ dùng cái nào.
+ *
+ * 🔴 Không tự đoán hộ: gửi nhầm xưởng in là in ra một sản phẩm khác và tốn tiền thật. Thông
+ * điệp liệt kê đúng những lựa chọn đang có để người vận hành chọn lại ngay trên màn hình.
+ */
+export class FulfillmentProviderNotSelectedException extends UnprocessableEntityException {
+  constructor(names: string[]) {
+    super({
+      code: 'FULFILLMENT_PROVIDER_NOT_SELECTED',
+      message:
+        'Đơn này có nhiều nhà cung cấp fulfillment dùng được ' +
+        `(${names.join(' · ')}). Chọn nhà cung cấp ở màn hình Fulfill rồi gửi lại.`,
+    });
+  }
+}
+
 /** Nhà cung cấp tồn tại nhưng đang bị tắt ⇒ không được dùng để gửi đơn. */
 export class FulfillmentProviderInactiveException extends UnprocessableEntityException {
   constructor(name: string) {

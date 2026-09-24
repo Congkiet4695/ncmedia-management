@@ -22,6 +22,8 @@ export interface FulfillmentProviderAccount {
   updatedAt: string;
   /** Chỉ có NGAY SAU khi tạo — chứa secret, hiện một lần rồi thôi. */
   webhookUrl: string | null;
+  /** Tài khoản DÙNG CHUNG toàn nền tảng — tổ chức đọc được nhưng không sửa/xoá được. */
+  isGlobal: boolean;
 }
 
 /** Mục trong dropdown chọn nhà cung cấp ở màn hình TikTok Account. */
@@ -123,6 +125,13 @@ export const FULFILL_SPEED_TYPES = ['rush', 'expedite'] as const;
 export const FULFILL_PREFERRED_CARRIERS = ['auto', 'usps'] as const;
 
 export interface FulfillPayload {
+  /**
+   * Nhà cung cấp người dùng CHỌN cho lần gửi này (`fulfillment_accounts.id`).
+   *
+   * 🔴 Đây là nguồn ưu tiên số một ở backend; bỏ trống mới lùi về nhà cung cấp gán cho kết
+   * nối TikTok (dữ liệu cũ) hoặc nhà cung cấp duy nhất khả dụng.
+   */
+  fulfillmentAccountId?: string;
   shippingMethod?: FulfillShippingMethod;
   facility?: (typeof FULFILL_FACILITIES)[number];
   speedType?: (typeof FULFILL_SPEED_TYPES)[number];
@@ -282,6 +291,35 @@ export interface ShippingLabel {
   reusedPackage?: boolean;
 }
 
+/** Một nhà cung cấp tổ chức được chọn khi gửi đơn. */
+export interface FulfillmentAvailableProvider {
+  id: string;
+  name: string;
+  provider: FulfillmentProviderType;
+  isActive: boolean;
+  /** Tài khoản DÙNG CHUNG do Super Admin khai — mọi tổ chức đọc cùng một danh mục. */
+  isGlobal: boolean;
+  /** Đang là nhà cung cấp gán sẵn cho kết nối TikTok của đơn (dữ liệu cũ). */
+  isAssignedToAccount: boolean;
+}
+
+/** Nhà cung cấp nhìn từ khu vực quản trị NỀN TẢNG. */
+export interface PlatformProvider {
+  id: string;
+  name: string;
+  provider: FulfillmentProviderType;
+  isActive: boolean;
+  isGlobal: boolean;
+  ownerOrganizationName: string | null;
+  catalogues: number;
+  products: number;
+  variants: number;
+  lastSyncedAt: string | null;
+  lastSyncStatus: string | null;
+  lastSyncMessage: string | null;
+  lastSyncAt: string | null;
+}
+
 export interface FulfillmentState {
   fulfillment: FulfillmentOrder | null;
   ready: boolean;
@@ -292,6 +330,12 @@ export interface FulfillmentState {
   provider: FulfillmentStateProvider | null;
   /** Từng dòng hàng kèm ánh xạ đang áp dụng. */
   items: FulfillmentStateItem[];
+  /**
+   * Nhà cung cấp tổ chức được chọn cho đơn này (riêng của tổ chức + dùng chung, đang ACTIVE).
+   *
+   * 🔴 Giao diện dựng ô chọn từ đây — KHÔNG suy ra nhà cung cấp từ TikTok Account nữa.
+   */
+  availableProviders: FulfillmentAvailableProvider[];
   /** Nhãn vận chuyển đã lưu của đơn. `null` = chưa có. */
   shippingLabel: ShippingLabel | null;
   /**

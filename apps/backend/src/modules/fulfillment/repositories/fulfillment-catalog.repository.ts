@@ -299,11 +299,21 @@ export class FulfillmentCatalogRepository {
   // ---------------------------------------------------------------------------
 
   /** Danh mục của một tài khoản. `includeArchived` chỉ dùng cho màn hình đối soát. */
-  listCatalogues(accountId: string, organizationId: string, includeArchived = false) {
+  /**
+   * 🔴 `organizationId` KHÔNG còn nằm trong điều kiện lọc.
+   *
+   * Danh mục thuộc về TÀI KHOẢN NHÀ CUNG CẤP (khoá `(account_id, external_*)`), không thuộc
+   * về tổ chức. Tài khoản dùng chung của Super Admin được mọi tổ chức đọc, nên lọc thêm theo
+   * `organization_id` (= tổ chức đã tạo ra bản ghi) sẽ khiến mọi tổ chức khác thấy danh mục
+   * RỖNG. Hàng rào tenant nằm ở bước trước: service chỉ đi tiếp khi tài khoản thuộc tổ chức
+   * hoặc là tài khoản dùng chung — xem `FulfillmentRepository.usableAccountWhere`.
+   *
+   * Tham số `organizationId` giữ lại để không phải sửa mọi nơi gọi, và để log/đối soát.
+   */
+  listCatalogues(accountId: string, _organizationId: string, includeArchived = false) {
     return this.prisma.fulfillmentCatalogue.findMany({
       where: {
         accountId,
-        organizationId,
         deletedAt: null,
         ...(includeArchived ? {} : { status: FulfillmentCatalogItemStatus.ACTIVE }),
       },
@@ -337,7 +347,7 @@ export class FulfillmentCatalogRepository {
     const keyword = params.search?.trim();
     const exactId = params.externalProductId?.trim();
     const where: Prisma.FulfillmentProductWhereInput = {
-      organizationId: params.organizationId,
+      // Xem chú thích ở `listCatalogues`: danh mục khoá theo TÀI KHOẢN, không theo tổ chức.
       accountId: params.accountId,
       deletedAt: null,
       status: FulfillmentCatalogItemStatus.ACTIVE,
@@ -378,10 +388,9 @@ export class FulfillmentCatalogRepository {
   }
 
   /** Biến thể của một sản phẩm (đọc theo id nội bộ, đã kiểm tenant ở tầng service). */
-  listVariants(organizationId: string, productId: string) {
+  listVariants(_organizationId: string, productId: string) {
     return this.prisma.fulfillmentVariant.findMany({
       where: {
-        organizationId,
         productId,
         deletedAt: null,
         status: FulfillmentCatalogItemStatus.ACTIVE,

@@ -83,6 +83,13 @@ export const NAVIGATION: NavItemConfig[] = [
     permission: 'platform.organization.read',
   },
   {
+    // Nhà cung cấp fulfillment DÙNG CHUNG — cùng nhóm quản trị nền tảng với Organizations.
+    labelKey: 'superAdminFulfillmentProviders',
+    href: '/dashboard/super-admin/fulfillment-providers',
+    icon: Factory,
+    permission: 'platform.fulfillment.read',
+  },
+  {
     labelKey: 'employees',
     href: '/dashboard/employees',
     icon: Users,

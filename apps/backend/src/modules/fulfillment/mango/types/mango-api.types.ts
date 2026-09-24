@@ -78,6 +78,17 @@ export interface MangoOrderItemRequest {
 export interface MangoCreateOrderRequest {
   /** Mã do NCMedia sinh, DUY NHẤT, tối đa 40 ký tự — Mango báo lỗi nếu trùng. */
   order_id: string;
+  /**
+   * Xưởng sản xuất (`id` từ `GET /production-lines`).
+   *
+   * 🔴 Không gửi trường này thì Mango TỰ CHỌN xưởng của họ — đó là lý do đơn chọn "TIKTOK"
+   * lại về "FASTUS" trong đơn phía nhà cung cấp (`production_line_id` trong response của
+   * Create Order là bằng chứng: hệ thống không gửi gì, Mango vẫn điền một giá trị).
+   *
+   * ⚠️ Chỉ gửi khi người vận hành THỰC SỰ chọn một line (ánh xạ sản phẩm hoặc mặc định của
+   * tài khoản). Không chọn ⇒ bỏ hẳn trường, giữ nguyên hành vi cũ.
+   */
+  production_line_id?: string;
   /** Chỉ dùng cho production line TIKTOK. Mặc định AUTO. */
   facility?: string | null;
   /** Chỉ dùng cho production line FASTUS. */

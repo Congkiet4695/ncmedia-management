@@ -1,9 +1,11 @@
+import { env } from '@/lib/env';
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse, Paginated } from '@/types/api';
 import type { PodDesign, PodDesignPlacement } from '@/features/pod-tiktok/order-types';
 import type {
   CreateFulfillmentProviderInput,
   FulfillPayload,
+  PlatformProvider,
   FulfillmentError,
   FulfillmentProviderAccount,
   FulfillmentProviderOption,
@@ -30,6 +32,8 @@ import type {
 } from '../types';
 
 const BASE_PATH = '/fulfillment';
+/** Khu vực quản trị NỀN TẢNG — tách đường dẫn để không lẫn với API của tổ chức. */
+const PLATFORM_PATH = '/platform/fulfillment/providers';
 
 /**
  * API gửi đơn sang xưởng in.
@@ -37,10 +41,17 @@ const BASE_PATH = '/fulfillment';
  * không tự đoán đơn nào gửi được để tránh lệch với luồng gửi thật.
  */
 export const fulfillmentService = {
-  /** Trạng thái + lý do chưa gửi được của một đơn POD. */
-  async getState(podOrderId: string): Promise<FulfillmentState> {
+  /**
+   * Trạng thái + lý do chưa gửi được của một đơn POD.
+   *
+   * `providerId` = nhà cung cấp người dùng đang chọn. Trạng thái được tính theo ĐÚNG nhà cung
+   * cấp đó (ánh xạ khai cho nhà cung cấp khác sẽ bị chặn), nên màn hình và luồng gửi không
+   * bao giờ đánh giá hai nhà cung cấp khác nhau.
+   */
+  async getState(podOrderId: string, providerId?: string): Promise<FulfillmentState> {
     const res = await apiClient.get<ApiResponse<FulfillmentState>>(
       `${BASE_PATH}/orders/${podOrderId}`,
+      providerId ? { params: { providerId } } : undefined,
     );
     return res.data.data;
   },
@@ -193,6 +204,37 @@ export const fulfillmentProviderService = {
  * Danh mục sản phẩm/biến thể KHÔNG nằm ở frontend — luôn đọc qua backend, backend đọc
  * trực tiếp từ API nhà cung cấp và cache 5 phút. Không có danh sách cứng ở đâu cả.
  */
+/**
+ * Nhà cung cấp fulfillment ở cấp NỀN TẢNG — chỉ Super Admin gọi được (backend chặn bằng
+ * `SuperAdminGuard` + quyền `platform.fulfillment.*`).
+ */
+export const platformFulfillmentService = {
+  async list(): Promise<PlatformProvider[]> {
+    const res = await apiClient.get<ApiResponse<PlatformProvider[]>>(PLATFORM_PATH);
+    return res.data.data;
+  },
+
+  /** Bật/tắt chế độ dùng chung cho mọi tổ chức. */
+  async setGlobal(id: string, isGlobal: boolean): Promise<FulfillmentProviderAccount> {
+    const res = await apiClient.patch<ApiResponse<FulfillmentProviderAccount>>(
+      `${PLATFORM_PATH}/${id}/global`,
+      { isGlobal },
+    );
+    return res.data.data;
+  },
+
+  /** Đồng bộ danh mục về MỘT bản dùng chung. Tác vụ dài — giao diện phải hiện trạng thái. */
+  async syncCatalog(id: string): Promise<CatalogSyncResult> {
+    const res = await apiClient.post<ApiResponse<CatalogSyncResult>>(
+      `${PLATFORM_PATH}/${id}/catalog/sync`,
+      undefined,
+      // Đồng bộ danh mục vài nghìn sản phẩm chạy lâu hơn hẳn một request thường.
+      { timeout: env.uploadTimeoutMs },
+    );
+    return res.data.data;
+  },
+};
+
 export const productMappingService = {
   async list(query: ProductMappingQuery): Promise<Paginated<ProductMapping>> {
     const res = await apiClient.get<ApiResponse<Paginated<ProductMapping>>>(
@@ -341,6 +383,8 @@ export const productMappingService = {
       {
         params: key,
         headers: { 'Content-Type': undefined },
+        // Ảnh design 100MB trên mạng chậm mất vài phút — xem `env.uploadTimeoutMs`.
+        timeout: env.uploadTimeoutMs,
         onUploadProgress: (event) => {
           if (!onProgress || !event.total) return;
           onProgress(Math.round((event.loaded * 100) / event.total));

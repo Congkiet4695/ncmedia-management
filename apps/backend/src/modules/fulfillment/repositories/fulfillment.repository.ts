@@ -53,14 +53,37 @@ export class FulfillmentRepository {
   // ---------------------------------------------------------------------------
 
   /** Tài khoản đang dùng cho một nhà cung cấp: ưu tiên bản đánh dấu mặc định. */
+  /**
+   * Điều kiện "tổ chức này được dùng tài khoản nhà cung cấp nào".
+   *
+   * 🔴 Tài khoản của CHÍNH tổ chức, **hoặc** tài khoản DÙNG CHUNG do Super Admin khai
+   * (`is_global`). Đây là ranh giới tenant duy nhất của module: mọi truy vấn đọc tài khoản
+   * (và qua đó là danh mục sản phẩm) đều phải đi qua điều kiện này, không nơi nào tự viết lại.
+   */
+  static usableAccountWhere(organizationId: string): Prisma.FulfillmentAccountWhereInput {
+    return { deletedAt: null, OR: [{ organizationId }, { isGlobal: true }] };
+  }
+
   findActiveAccount(organizationId: string, provider: FulfillmentProvider) {
     return this.prisma.fulfillmentAccount.findFirst({
-      where: { organizationId, provider, isActive: true, deletedAt: null },
-      orderBy: [{ isDefault: 'desc' }, { createdAt: 'asc' }],
+      where: {
+        ...FulfillmentRepository.usableAccountWhere(organizationId),
+        provider,
+        isActive: true,
+      },
+      // Tài khoản RIÊNG của tổ chức được ưu tiên hơn tài khoản dùng chung khi cả hai cùng có.
+      orderBy: [{ isGlobal: 'asc' }, { isDefault: 'desc' }, { createdAt: 'asc' }],
     });
   }
 
   findAccountById(organizationId: string, id: string) {
+    return this.prisma.fulfillmentAccount.findFirst({
+      where: { id, ...FulfillmentRepository.usableAccountWhere(organizationId) },
+    });
+  }
+
+  /** Tài khoản do CHÍNH tổ chức sở hữu — dùng cho đường GHI (sửa/xoá/đồng bộ thủ công). */
+  findOwnedAccountById(organizationId: string, id: string) {
     return this.prisma.fulfillmentAccount.findFirst({
       where: { id, organizationId, deletedAt: null },
     });
@@ -75,8 +98,8 @@ export class FulfillmentRepository {
 
   listAccounts(organizationId: string) {
     return this.prisma.fulfillmentAccount.findMany({
-      where: { organizationId, deletedAt: null },
-      orderBy: [{ provider: 'asc' }, { createdAt: 'asc' }],
+      where: FulfillmentRepository.usableAccountWhere(organizationId),
+      orderBy: [{ isGlobal: 'asc' }, { provider: 'asc' }, { createdAt: 'asc' }],
     });
   }
 

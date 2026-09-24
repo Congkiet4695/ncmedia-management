@@ -45,6 +45,11 @@ export const SUPER_ADMIN_PERMISSIONS = [
   'platform.organization.approve',
   'platform.masterdata.read',
   'platform.masterdata.sync',
+  // 🔴 Danh mục nhà cung cấp fulfillment cũng là dữ liệu DÙNG CHUNG cho mọi tổ chức — cùng lý
+  // do với master data TikTok: một Admin tổ chức bấm Sync là ghi đè danh mục của tất cả.
+  'platform.fulfillment.read',
+  'platform.fulfillment.manage',
+  'platform.fulfillment.sync',
 ] as const;
 
 /**

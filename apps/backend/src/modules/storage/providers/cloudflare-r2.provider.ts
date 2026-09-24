@@ -56,8 +56,10 @@ export class CloudflareR2Provider extends StorageProvider {
         secretAccessKey: config.getOrThrow<string>('storage.r2.secretKey'),
       },
       requestHandler: {
-        requestTimeout: config.get<number>('storage.timeoutMs', 30_000),
-        connectionTimeout: config.get<number>('storage.timeoutMs', 30_000),
+        // Mặc định dự phòng phải BẰNG mặc định của cấu hình (3 phút) — hai con số lệch nhau
+        // là upload file lớn chết ở đúng chỗ không ai ngờ tới.
+        requestTimeout: config.get<number>('storage.timeoutMs', 180_000),
+        connectionTimeout: config.get<number>('storage.timeoutMs', 180_000),
       },
     });
 

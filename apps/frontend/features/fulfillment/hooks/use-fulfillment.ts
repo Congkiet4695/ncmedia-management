@@ -4,6 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import {
   fulfillmentProviderService,
   fulfillmentService,
+  platformFulfillmentService,
   productMappingService,
 } from '../services/fulfillment.service';
 import type { PodDesignPlacement } from '@/features/pod-tiktok/order-types';
@@ -19,14 +20,63 @@ import type {
 } from '../types';
 
 const KEY = 'fulfillment';
+/** Cache của khu vực quản trị NỀN TẢNG — tách khỏi cache của tổ chức. */
+const PLATFORM_KEY = 'platform-fulfillment-providers';
 
-/** Trạng thái fulfillment của một đơn POD (chỉ tải khi panel được mở). */
-export function useFulfillmentState(podOrderId?: string, enabled = true) {
+/**
+ * Trạng thái fulfillment của một đơn POD (chỉ tải khi panel được mở).
+ *
+ * 🔴 `providerId` nằm trong `queryKey`: đổi nhà cung cấp là một câu hỏi KHÁC ("đơn này gửi
+ * được qua nhà cung cấp đó chưa?"), không phải cùng một dữ liệu. Nhờ vậy đổi qua lại giữa hai
+ * nhà cung cấp không bao giờ hiện nhầm kết quả của cái kia.
+ */
+export function useFulfillmentState(podOrderId?: string, enabled = true, providerId?: string) {
   return useQuery({
-    queryKey: [KEY, 'state', podOrderId],
-    queryFn: () => fulfillmentService.getState(podOrderId as string),
+    queryKey: [KEY, 'state', podOrderId, providerId ?? null],
+    queryFn: () => fulfillmentService.getState(podOrderId as string, providerId),
     enabled: Boolean(podOrderId) && enabled,
   });
+}
+
+/**
+ * Nhà cung cấp fulfillment ở cấp NỀN TẢNG (Super Admin).
+ *
+ * `enabled` để màn hình khác không vô tình gọi API quản trị nền tảng khi người dùng không có
+ * quyền — backend vẫn chặn bằng guard, nhưng gọi rồi nhận 403 là lãng phí và gây nhiễu log.
+ */
+export function usePlatformProviders(enabled = true) {
+  return useQuery({
+    queryKey: [PLATFORM_KEY, 'list'],
+    queryFn: () => platformFulfillmentService.list(),
+    enabled,
+  });
+}
+
+/** Thao tác của Super Admin: bật/tắt dùng chung · đồng bộ danh mục. */
+export function usePlatformProviderActions() {
+  const queryClient = useQueryClient();
+  /**
+   * 🔴 Làm mới CẢ hai phía: danh sách của Super Admin **và** mọi cache của tổ chức
+   * (`product-mappings`, `fulfillment`). Đồng bộ xong mà tổ chức vẫn thấy danh mục cũ thì
+   * đúng lỗi "sync rồi mà không thấy gì đổi".
+   */
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: [PLATFORM_KEY] });
+    void queryClient.invalidateQueries({ queryKey: [MAPPING_KEY] });
+    void queryClient.invalidateQueries({ queryKey: [KEY] });
+  };
+
+  return {
+    setGlobal: useMutation({
+      mutationFn: ({ id, isGlobal }: { id: string; isGlobal: boolean }) =>
+        platformFulfillmentService.setGlobal(id, isGlobal),
+      onSuccess: refresh,
+    }),
+    syncCatalog: useMutation({
+      mutationFn: (id: string) => platformFulfillmentService.syncCatalog(id),
+      onSuccess: refresh,
+    }),
+  };
 }
 
 export function useFulfillmentHistory(podOrderId?: string, enabled = false) {

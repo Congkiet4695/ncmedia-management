@@ -120,11 +120,19 @@ export default () => ({
     /** Giới hạn dung lượng một file (byte). Mặc định 100MB — xem storage.constants.ts. */
     maxFileBytes: parseInt(process.env.STORAGE_MAX_FILE_BYTES ?? '104857600', 10),
     /**
-     * Timeout gọi nhà cung cấp lưu trữ (ms). Mặc định 120s.
-     * 30s là quá ngắn cho file 100MB: chỉ cần đường truyền ~30 Mbps là đã hết giờ giữa chừng
-     * và upload hỏng dù mọi thứ khác đều đúng.
+     * **Ngân sách thời gian của MỘT lần upload** (ms). Mặc định 180000 = 3 phút.
+     *
+     * 🔴 Một con số cho cả chuỗi: `NEXT_PUBLIC_UPLOAD_TIMEOUT_MS` (trình duyệt) →
+     * `proxy_read_timeout` của Nginx (`deploy/nginx.conf`, khối `/api/`, 300s) → giá trị này
+     * (backend ↔ kho lưu trữ). Mắt xích ngắn nhất quyết định, nên chúng phải được chỉnh CÙNG
+     * NHAU; 30s hay 120s đều là quá ngắn cho file 100MB trên đường truyền chậm.
+     *
+     * `STORAGE_TIMEOUT_MS` giữ lại làm tên cũ (tương thích ngược với .env đang chạy).
      */
-    timeoutMs: parseInt(process.env.STORAGE_TIMEOUT_MS ?? '120000', 10),
+    timeoutMs: parseInt(
+      process.env.UPLOAD_TIMEOUT_MS ?? process.env.STORAGE_TIMEOUT_MS ?? '180000',
+      10,
+    ),
 
     r2: {
       accountId: process.env.R2_ACCOUNT_ID,

@@ -3,6 +3,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '../auth/auth.module';
 import { PodTiktokModule } from '../pod-tiktok/pod-tiktok.module';
 import { FulfillmentController } from './controllers/fulfillment.controller';
+import { PlatformFulfillmentController } from './controllers/platform-fulfillment.controller';
 import { PodOrderFulfillmentController } from './controllers/pod-order-fulfillment.controller';
 import { MangoApiClient } from './mango/clients/mango-api.client';
 import { MangoCatalogService } from './mango/services/mango-catalog.service';
@@ -23,6 +24,7 @@ import { FulfillmentCatalogSyncService } from './services/fulfillment-catalog-sy
 import { ProductMappingAutoService } from './services/product-mapping-auto.service';
 import { FulfillmentReadinessService } from './services/fulfillment-readiness.service';
 import { FulfillmentShippingLabelService } from './services/fulfillment-shipping-label.service';
+import { PlatformFulfillmentService } from './services/platform-fulfillment.service';
 import { ProductDesignService } from './services/product-design.service';
 import { FulfillmentSyncService } from './services/fulfillment-sync.service';
 import { FulfillmentService } from './services/fulfillment.service';
@@ -49,13 +51,20 @@ import { FulfillmentService } from './services/fulfillment.service';
  */
 @Module({
   imports: [AuthModule, PodTiktokModule, ScheduleModule.forRoot()],
-  controllers: [FulfillmentController, PodOrderFulfillmentController, MangoWebhookController],
+  controllers: [
+    FulfillmentController,
+    PodOrderFulfillmentController,
+    // Khu vực quản trị NỀN TẢNG: nhà cung cấp dùng chung + đồng bộ danh mục tập trung.
+    PlatformFulfillmentController,
+    MangoWebhookController,
+  ],
   providers: [
     // Nghiệp vụ chung
     FulfillmentService,
     FulfillmentReadinessService,
     // Nhãn vận chuyển TikTok — đường duy nhất tạo/lấy lại gói hàng của đơn.
     FulfillmentShippingLabelService,
+    PlatformFulfillmentService,
     ProductDesignService,
     ProductDesignMapper,
     FulfillmentSyncService,

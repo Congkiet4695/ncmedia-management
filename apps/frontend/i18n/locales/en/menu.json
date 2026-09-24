@@ -10,6 +10,7 @@
   "podBrands": "Brands",
   "podCategories": "Categories",
   "podCategoryTemplates": "Category Templates",
+  "podCloneProducts": "Clone Products",
   "podDescriptionTemplates": "Description Templates",
   "podDraftListings": "Draft Listings",
   "podFlashSales": "Flash Sales",
@@ -35,6 +36,6 @@
   "reportSellerRanking": "Seller ranking",
   "reportWarehouse": "Warehouse performance",
   "reports": "Reports",
-  "superAdminOrganizations": "Organizations",
-  "podCloneProducts": "Clone Products"
+  "superAdminFulfillmentProviders": "Fulfillment Providers",
+  "superAdminOrganizations": "Organizations"
 }

@@ -192,6 +192,21 @@ function buildStateService(over: { mappings?: unknown[]; account?: unknown; read
       ),
     listMappingsForOrganization: jest.fn().mockResolvedValue(over.mappings ?? [mappingRow()]),
     listProductDesigns: jest.fn().mockResolvedValue([]),
+    // Danh sách nhà cung cấp khả dụng (riêng của tổ chức + dùng chung) — `getState` dựng ô
+    // chọn nhà cung cấp từ đây.
+    listAccounts: jest.fn().mockResolvedValue(
+      'account' in over && over.account === null
+        ? []
+        : [
+            {
+              id: 'acc-1',
+              name: 'Mango US',
+              provider: FulfillmentProvider.MANGO,
+              isActive: true,
+              isGlobal: false,
+            },
+          ],
+    ),
   } as unknown as FulfillmentRepository;
 
   const readiness = {

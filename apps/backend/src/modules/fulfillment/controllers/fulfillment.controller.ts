@@ -25,6 +25,7 @@ import {
   ApiNotFoundResponse,
   ApiOkResponse,
   ApiOperation,
+  ApiQuery,
   ApiTags,
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
@@ -638,15 +639,32 @@ export class FulfillmentController {
     summary: 'Trạng thái fulfillment của một đơn POD',
     description:
       'Trả kèm `ready` + `issues`: đơn chưa gửi được thì `issues` liệt kê CHÍNH XÁC ' +
-      'thiếu gì (design, ánh xạ sản phẩm, địa chỉ...). `canFulfill`/`canCancel` để UI bật/tắt nút.',
+      'thiếu gì (design, ánh xạ sản phẩm, địa chỉ...). `canFulfill`/`canCancel` để UI bật/tắt ' +
+      'nút, `availableProviders` để UI dựng ô chọn nhà cung cấp.\n\n' +
+      '`providerId` (tuỳ chọn) = nhà cung cấp người dùng đang chọn; trạng thái được tính theo ' +
+      'ĐÚNG nhà cung cấp đó, nên màn hình và luồng gửi không bao giờ đánh giá hai nhà cung cấp ' +
+      'khác nhau.',
+  })
+  @ApiQuery({
+    name: 'providerId',
+    required: false,
+    format: 'uuid',
+    description: 'Nhà cung cấp đang chọn (`fulfillment_accounts.id`).',
   })
   @ApiOkResponse({ type: FulfillmentStateDto })
   getState(
     @CurrentUser() user: AuthenticatedUser,
     @PodScope() scope: PodAccessScope,
     @Param('podOrderId', ParseUUIDPipe) podOrderId: string,
+    @Query('providerId') providerId?: string,
   ): Promise<FulfillmentStateDto> {
-    return this.service.getState(user.organizationId, podOrderId, scope);
+    return this.service.getState(
+      user.organizationId,
+      podOrderId,
+      scope,
+      FulfillmentProvider.MANGO,
+      providerId,
+    );
   }
 
   @Post('orders/:podOrderId/fulfill')

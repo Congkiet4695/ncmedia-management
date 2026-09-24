@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { FulfillmentOptionsService } from '../../services/fulfillment-options.service';
 import { callArg, callArgs } from '../../../../testing/mock-call.util';
 import { FulfillmentStatus, FulfillmentTrigger, type FulfillmentOrder } from '@prisma/client';
 import { FulfillmentRepository } from '../../repositories/fulfillment.repository';
@@ -34,6 +35,8 @@ function buildService() {
     mapper,
     {} as unknown as MangoCredentialService,
     { withLock: <T>(_k: string, _t: number, task: () => Promise<T>) => task() } as unknown as DistributedLockService,
+    // Danh sách production line — spec không kiểm phần phụ thuộc xưởng nên trả rỗng.
+    { forAccount: () => Promise.resolve({ productionLines: [] }) } as unknown as FulfillmentOptionsService,
   );
 
   return { service, updateOrder, addHistory };

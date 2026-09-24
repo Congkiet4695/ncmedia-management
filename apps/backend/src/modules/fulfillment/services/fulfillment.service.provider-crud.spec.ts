@@ -52,11 +52,21 @@ function build(repoOverrides: Record<string, jest.Mock> = {}) {
       .fn()
       .mockImplementation((data: Record<string, unknown>) => Promise.resolve(account(data))),
     findAccountById: jest.fn().mockResolvedValue(account()),
+    // Đường GHI nay dùng `findOwnedAccountById` (tài khoản dùng chung chỉ Super Admin sửa).
+    findOwnedAccountById: jest.fn().mockResolvedValue(account()),
     countTiktokAccountsByProvider: jest.fn().mockResolvedValue(2),
     countOrdersByAccount: jest.fn().mockResolvedValue(7),
     softDeleteAccount: jest.fn().mockResolvedValue(account({ isActive: false })),
     ...repoOverrides,
   } as unknown as FulfillmentRepository;
+
+  // 🔴 Test nào ghi đè `findAccountById` là đang mô tả "tra tài khoản ra kết quả gì"; đường
+  // GHI (sửa/xoá) nay tra bằng `findOwnedAccountById`, nên nó phải nhận CÙNG kết quả — nếu
+  // không, bài kiểm "không tìm thấy" lại đi qua một mock khác và luôn xanh.
+  if (repoOverrides.findAccountById && !repoOverrides.findOwnedAccountById) {
+    (repo as unknown as Record<string, jest.Mock>).findOwnedAccountById =
+      repoOverrides.findAccountById;
+  }
 
   const service = new FulfillmentService(
     { get: (_key: string, fallback?: string) => fallback ?? '' } as unknown as ConfigService,

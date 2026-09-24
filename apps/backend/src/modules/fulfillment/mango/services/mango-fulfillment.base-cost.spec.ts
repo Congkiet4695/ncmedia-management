@@ -1,4 +1,5 @@
 import { ConfigService } from '@nestjs/config';
+import { FulfillmentOptionsService } from '../../services/fulfillment-options.service';
 import { FulfillmentStatus, FulfillmentTrigger, Prisma } from '@prisma/client';
 import {
   FulfillmentAlreadySubmittedException,
@@ -176,6 +177,11 @@ function buildService(options: Harness = {}) {
     touchAccountUsed: jest.fn().mockResolvedValue(undefined),
     listMappingsForOrganization: jest.fn().mockResolvedValue([]),
     listProductDesigns: jest.fn().mockResolvedValue([]),
+    // Nhà cung cấp khả dụng của tổ chức: mặc định chỉ có ACCOUNT này. Case "chưa gán nhà cung
+    // cấp cho TikTok Account" truyền `fulfillmentAccountId: null` và không có lựa chọn nào.
+    listAccounts: jest
+      .fn()
+      .mockResolvedValue(options.fulfillmentAccountId === null ? [] : [ACCOUNT]),
   } as unknown as FulfillmentRepository;
 
   const order = {
@@ -227,6 +233,8 @@ function buildService(options: Harness = {}) {
     new MangoOrderMapper(),
     new MangoCredentialService(encryption),
     lock,
+    // Danh sách production line — spec không kiểm phần phụ thuộc xưởng nên trả rỗng.
+    { forAccount: () => Promise.resolve({ productionLines: [] }) } as unknown as FulfillmentOptionsService,
   );
 
   return { service, repo, createDraft, createOrder, getOrder, updates, histories, record, rows: () => rows };
