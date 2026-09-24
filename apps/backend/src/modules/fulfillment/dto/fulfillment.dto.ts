@@ -939,6 +939,40 @@ export class FulfillmentOrderDto {
   @ApiProperty() updatedAt!: string;
 }
 
+/** Body lưu nhãn vận chuyển do người vận hành tự dán. */
+export class SaveShippingLabelDto {
+  @ApiProperty({
+    description:
+      'URL nhãn vận chuyển (PDF/PNG/JPG). Xưởng in TẢI FILE từ URL này nên nó phải truy cập ' +
+      'công khai — link đăng nhập mới xem được sẽ không dùng được.',
+    maxLength: 2048,
+  })
+  @Transform(trim)
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @MaxLength(2048)
+  labelUrl!: string;
+}
+
+/** Nhãn vận chuyển đang gắn với đơn — ĐỌC TỪ DATABASE, không phải state của giao diện. */
+export class ShippingLabelDto {
+  @ApiProperty({ description: 'URL nhãn (PDF/PNG) — xưởng in tải file từ đây.' })
+  labelUrl!: string;
+  @ApiProperty({
+    enum: ['TIKTOK', 'MANUAL'],
+    description: '`TIKTOK` = lấy qua API TikTok; `MANUAL` = người vận hành dán URL.',
+  })
+  source!: 'TIKTOK' | 'MANUAL';
+  @ApiProperty({ nullable: true, type: String, description: '`package_id` phía TikTok.' })
+  packageId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) trackingNumber!: string | null;
+  @ApiProperty({ nullable: true, type: String }) shippingServiceName!: string | null;
+  @ApiProperty({ nullable: true, type: String }) obtainedAt!: string | null;
+  @ApiPropertyOptional({
+    description: 'Lần lấy vừa rồi dùng LẠI gói đã có (không tạo gói mới).',
+  })
+  reusedPackage?: boolean;
+}
+
 /**
  * Một dòng hàng của đơn, kèm ÁNH XẠ ĐÃ GHÉP.
  *
@@ -983,6 +1017,25 @@ export class FulfillmentStateDto {
     description: 'Từng dòng hàng của đơn kèm ánh xạ đã ghép (cùng luật với luồng gửi).',
   })
   items!: FulfillmentStateItemDto[];
+  @ApiProperty({
+    nullable: true,
+    type: ShippingLabelDto,
+    description: 'Nhãn vận chuyển đã lưu của đơn. NULL = chưa có nhãn nào.',
+  })
+  shippingLabel!: ShippingLabelDto | null;
+  @ApiProperty({
+    enum: ['ADDRESS', 'LABEL'],
+    description:
+      'Đơn ra khỏi kho bằng cách nào: `ADDRESS` = có địa chỉ người nhận đọc được; ' +
+      '`LABEL` = địa chỉ không đọc được nên đi theo nhãn vận chuyển.',
+  })
+  shippingMode!: 'ADDRESS' | 'LABEL';
+  @ApiProperty({
+    description:
+      'TikTok đang che thông tin người nhận ở những lần đồng bộ gần đây. KHÔNG đồng nghĩa ' +
+      'với "không gửi được": hệ thống vẫn có thể đang giữ bản sao địa chỉ chụp trước đó.',
+  })
+  recipientMasked!: boolean;
 }
 
 export class FulfillmentHistoryDto {

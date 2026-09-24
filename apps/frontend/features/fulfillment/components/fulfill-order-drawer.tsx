@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
+  Download,
   ChevronDown,
   ChevronRight,
   Factory,
@@ -33,6 +34,7 @@ import {
   useFulfillmentErrors,
   useFulfillmentHistory,
   useFulfillmentState,
+  useShippingLabelActions,
 } from '../hooks/use-fulfillment';
 import {
   canSubmitFulfillment,
@@ -132,6 +134,15 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
 
   const [form, setForm] = useState<FulfillPayload>({});
   const [labelError, setLabelError] = useState<string | null>(null);
+  /**
+   * Ô nhãn vận chuyển.
+   *
+   * 🔴 Nhãn là DỮ LIỆU CỦA ĐƠN, không phải tuỳ chọn của một lần gửi: backend đọc nhãn đã lưu
+   * để quyết định đơn có gửi được không (đơn bị TikTok che địa chỉ chỉ đi được theo nhãn).
+   * Vì thế ô này lưu xuống database qua nút Lưu, và giá trị gốc luôn lấy từ `state`.
+   */
+  const [labelInput, setLabelInput] = useState('');
+  const labelActions = useShippingLabelActions(podOrderId);
   /** Kết quả lần gửi vừa rồi — có giá trị ⇒ thân drawer chuyển sang màn kết quả. */
   const [result, setResult] = useState<FulfillmentOrder | null>(null);
   const [designOpen, setDesignOpen] = useState(true);
@@ -164,6 +175,15 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
     setResult(null);
   }, [open]);
 
+  /**
+   * Nhãn đã lưu → ô nhập. Chỉ chạy khi GIÁ TRỊ ĐÃ LƯU đổi (mở drawer, lấy nhãn xong, lưu
+   * xong), nên không giẫm lên thứ người dùng đang gõ dở.
+   */
+  const savedLabelUrl = stateQuery.data?.shippingLabel?.labelUrl ?? '';
+  useEffect(() => {
+    setLabelInput(savedLabelUrl);
+  }, [savedLabelUrl]);
+
   const order = orderQuery.data;
   const record = result ?? state?.fulfillment ?? null;
   const status = record?.status ?? 'DRAFT';
@@ -194,6 +214,49 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
 
   const option = (value: string, label: string) => ({ value, label });
 
+  const savedLabel = state?.shippingLabel ?? null;
+  const labelBusy = labelActions.fetchFromTiktok.isPending || labelActions.save.isPending;
+  const labelDirty = labelInput.trim() !== (savedLabel?.labelUrl ?? '');
+
+  /** Lấy nhãn từ TikTok. Bấm lại KHÔNG tạo gói mới — backend tái dùng gói đã có. */
+  const getTiktokLabel = async (): Promise<void> => {
+    if (labelBusy) return;
+    setLabelError(null);
+    try {
+      const label = await labelActions.fetchFromTiktok.mutateAsync();
+      setLabelInput(label.labelUrl);
+      toast.success(
+        label.reusedPackage ? t('fulfill.label.reused') : t('fulfill.label.fetched'),
+        label.trackingNumber
+          ? { description: t('fulfill.label.tracking', { value: label.trackingNumber }) }
+          : undefined,
+      );
+    } catch (error) {
+      toast.error(t('fulfill.label.fetchFailed'), { description: translateApiError(error) });
+    }
+  };
+
+  /** Lưu nhãn người dùng tự dán — PERSIST, vì điều kiện gửi đọc từ database. */
+  const saveLabel = async (): Promise<void> => {
+    const url = labelInput.trim();
+    if (labelBusy) return;
+    if (!url) {
+      await labelActions.clear.mutateAsync().catch(() => undefined);
+      return;
+    }
+    if (!isHttpUrl(url)) {
+      setLabelError(t('fulfill.labelUrlInvalid'));
+      return;
+    }
+    setLabelError(null);
+    try {
+      await labelActions.save.mutateAsync(url);
+      toast.success(t('fulfill.label.saved'));
+    } catch (error) {
+      toast.error(t('fulfill.label.saveFailed'), { description: translateApiError(error) });
+    }
+  };
+
   /**
    * Chốt chặn bấm hai lần trong CÙNG một tick.
    *
@@ -207,11 +270,14 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
   const submit = async () => {
     if (submittingRef.current || submitting || !canSubmit) return;
     submittingRef.current = true;
-    const labelUrl = form.labelUrl?.trim();
-    if (labelUrl && !isHttpUrl(labelUrl)) {
-      setLabelError(t('fulfill.labelUrlInvalid'));
-      submittingRef.current = false;
-      return;
+    // Người dùng sửa ô nhãn mà chưa lưu ⇒ lưu trước rồi mới gửi: backend chỉ nhìn nhãn
+    // trong database, nên gửi ngay sẽ dùng nhãn CŨ mà người dùng tưởng đã đổi.
+    if (labelDirty) {
+      await saveLabel();
+      if (labelInput.trim() && !isHttpUrl(labelInput.trim())) {
+        submittingRef.current = false;
+        return;
+      }
     }
     setLabelError(null);
     try {
@@ -221,7 +287,9 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
         ...(form.speedType ? { speedType: form.speedType } : {}),
         ...(form.preferredCarrier ? { preferredCarrier: form.preferredCarrier } : {}),
         ...(form.isScanLabel ? { isScanLabel: true } : {}),
-        ...(labelUrl ? { labelUrl } : {}),
+        // Nhãn KHÔNG đi trong body nữa: backend đọc nhãn ĐÃ LƯU của đơn (xem
+        // `MangoFulfillmentService`). Gửi kèm một giá trị thứ hai chỉ tạo ra hai nguồn sự thật.
+
         ...(form.note?.trim() ? { note: form.note.trim() } : {}),
       };
       const created = await mutation.mutateAsync(payload);
@@ -383,6 +451,15 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
               </div>
               {/* PII người nhận KHÔNG được trả về giao diện; địa chỉ chỉ được backend xác thực. */}
               <p className="text-[11px] text-muted-foreground">{t('fulfill.addressCheckedHint')}</p>
+              {/* 🔴 Nói rõ hai tình huống khác hẳn nhau, thay vì một câu "đã che" chung chung:
+                  còn địa chỉ đã lưu ⇒ vẫn gửi bình thường; không còn ⇒ phải đi theo nhãn. */}
+              {state?.recipientMasked && (
+                <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                  {state.shippingMode === 'LABEL'
+                    ? t('fulfill.maskedNeedsLabel')
+                    : t('fulfill.maskedUsingSnapshot')}
+                </p>
+              )}
             </DrawerSection>
 
             {/* ------------------------------------------------------------- Loại fulfillment */}
@@ -399,7 +476,7 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
 
             {/* ----------------------------------------------------------- Thiết lập Fulfill */}
             {SUBMITTABLE.has(status) && !result && (
-              <DrawerSection title={t('fulfill.section.config')}>
+              <DrawerSection title={t('fulfill.section.config')} issues={messagesOf('SHIPPING')}>
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label>{t('fulfill.shippingMethodLabel')}</Label>
@@ -479,15 +556,66 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                   </div>
                 </div>
 
+                {/* ------------------------------------------------- Nhãn vận chuyển */}
                 <div className="space-y-1">
                   <Label>{t('fulfill.labelUrlLabel')}</Label>
                   <Input
-                    value={form.labelUrl ?? ''}
+                    value={labelInput}
                     placeholder="https://…"
-                    onChange={(event) =>
-                      setForm((prev) => ({ ...prev, labelUrl: event.target.value }))
-                    }
+                    onChange={(event) => setLabelInput(event.target.value)}
                   />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void getTiktokLabel()}
+                      disabled={labelBusy}
+                    >
+                      {labelActions.fetchFromTiktok.isPending ? (
+                        <Loader2 className="size-3.5 animate-spin" />
+                      ) : (
+                        <Download className="size-3.5" />
+                      )}
+                      {labelActions.fetchFromTiktok.isPending
+                        ? t('fulfill.label.fetching')
+                        : t('fulfill.label.getFromTiktok')}
+                    </Button>
+                    {/* Chỉ hiện khi người dùng THỰC SỰ đổi nội dung ô — nhãn vừa lấy từ
+                        TikTok đã được backend lưu sẵn, không cần bấm lưu lần nữa. */}
+                    {labelDirty && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="secondary"
+                        onClick={() => void saveLabel()}
+                        disabled={labelBusy}
+                      >
+                        {labelActions.save.isPending ? (
+                          <Loader2 className="size-3.5 animate-spin" />
+                        ) : null}
+                        {t('fulfill.label.save')}
+                      </Button>
+                    )}
+                  </div>
+                  {savedLabel && !labelDirty && (
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-emerald-700 dark:text-emerald-400">
+                      <CheckCircle2 className="size-3.5" />
+                      {savedLabel.source === 'TIKTOK'
+                        ? t('fulfill.label.savedTiktok')
+                        : t('fulfill.label.savedManual')}
+                      {savedLabel.trackingNumber && (
+                        <span className="text-muted-foreground">
+                          {t('fulfill.label.tracking', { value: savedLabel.trackingNumber })}
+                        </span>
+                      )}
+                      {savedLabel.shippingServiceName && (
+                        <span className="text-muted-foreground">
+                          · {savedLabel.shippingServiceName}
+                        </span>
+                      )}
+                    </p>
+                  )}
                   {labelError ? (
                     <p className="text-xs text-destructive">{labelError}</p>
                   ) : (

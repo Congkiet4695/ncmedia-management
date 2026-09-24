@@ -83,6 +83,27 @@ export const TIKTOK_PRODUCT_SAVE_MODE = {
 export type TiktokProductSaveMode =
   (typeof TIKTOK_PRODUCT_SAVE_MODE)[keyof typeof TIKTOK_PRODUCT_SAVE_MODE];
 
+/**
+ * `document_type` của **Get Package Shipping Document**.
+ *
+ * 🔴 `SHIPPING_LABEL` là thứ xưởng in cần: nhãn vận chuyển PDF. Các giá trị khác (packing
+ * slip, hazmat, invoice) không thay thế được nhãn, nên hệ thống không dùng mặc định.
+ */
+export const TIKTOK_SHIPPING_DOCUMENT_TYPE = {
+  SHIPPING_LABEL: 'SHIPPING_LABEL',
+  PACKING_SLIP: 'PACKING_SLIP',
+  SHIPPING_LABEL_AND_PACKING_SLIP: 'SHIPPING_LABEL_AND_PACKING_SLIP',
+  SHIPPING_LABEL_PICTURE: 'SHIPPING_LABEL_PICTURE',
+} as const;
+export type TiktokShippingDocumentType =
+  (typeof TIKTOK_SHIPPING_DOCUMENT_TYPE)[keyof typeof TIKTOK_SHIPPING_DOCUMENT_TYPE];
+
+/** Khổ giấy nhãn (`document_size`) — A6 là mặc định của TikTok và khổ nhãn tiêu chuẩn. */
+export const TIKTOK_SHIPPING_DOCUMENT_SIZE = 'A6';
+
+/** Định dạng nhãn (`document_format`) — PDF, thứ xưởng in tải về và in thẳng. */
+export const TIKTOK_SHIPPING_DOCUMENT_FORMAT = 'PDF';
+
 /** Content-Type bắt buộc của mọi call (SDK yêu cầu truyền tường minh). */
 export const TIKTOK_SDK_CONTENT_TYPE = 'application/json';
 

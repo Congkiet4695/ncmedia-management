@@ -259,6 +259,19 @@
     "facilityHint": "Only applies to the TIKTOK production line.",
     "facilityLabel": "Facility",
     "failed": "Could not send the order to the print shop",
+    "label": {
+      "fetchFailed": "Could not get the label from TikTok",
+      "fetched": "TikTok shipping label retrieved",
+      "fetching": "Getting label…",
+      "getFromTiktok": "Get label from TikTok",
+      "reused": "Reused the existing package — no new package was created",
+      "save": "Save label",
+      "saveFailed": "Could not save the label",
+      "saved": "Shipping label saved",
+      "savedManual": "Your label has been saved",
+      "savedTiktok": "TikTok shipping label is attached",
+      "tracking": "Tracking number: {{value}}"
+    },
     "labelUrlHint": "Shipping label link (PDF/PNG/JPG) — the print shop downloads it, so the URL must be public.",
     "labelUrlInvalid": "The label link must be a valid http(s) URL.",
     "labelUrlLabel": "Order label (URL)",
@@ -269,6 +282,8 @@
       "NEED_MANUAL": "Needs manual pick",
       "NO_PROVIDER": "No provider"
     },
+    "maskedNeedsLabel": "TikTok has hidden this order’s recipient details and no readable address is stored — the order will ship using the shipping label below.",
+    "maskedUsingSnapshot": "TikTok has hidden the recipient details in recent syncs. The address captured earlier is still stored, so this order ships normally.",
     "noItems": "This order has no items.",
     "none": "Not used",
     "noteLabel": "Note",

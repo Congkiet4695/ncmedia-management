@@ -186,6 +186,61 @@ export class MangoOrderMapper {
     };
   }
 
+  /**
+   * Địa chỉ gửi kèm khi đơn đi theo **NHÃN VẬN CHUYỂN** (TikTok không cho đọc địa chỉ nữa).
+   *
+   * ```
+   *   Địa chỉ thật nằm TRÊN NHÃN. Xưởng in dán nhãn đó lên hộp và đưa cho hãng vận chuyển;
+   *   các trường địa chỉ trong đơn của nhà cung cấp chỉ còn là dữ liệu hồ sơ.
+   * ```
+   *
+   * 🔴 **Không bịa thông tin người nhận.** Hàm này chỉ chuyển tiếp thứ TikTok còn cung cấp
+   * (mã quốc gia, mã bưu chính, bang/thành phố nếu còn); trường nào TikTok đã che thì gửi đi
+   * đúng dấu hiệu đã che `***` — nhà cung cấp nhìn vào biết ngay đây là đơn đi theo nhãn, chứ
+   * không nhận một cái tên/địa chỉ giả trông như thật.
+   *
+   * ⚠️ Nhà cung cấp có quyền từ chối đơn thiếu địa chỉ đọc được. Đó là giới hạn của HỌ, và
+   * thông điệp từ chối được trả nguyên văn về giao diện thay vì bị che bằng một lỗi tự chế.
+   */
+  buildLabelShippingAddress(params: {
+    recipient: TiktokRecipientAddress | null;
+    regionCode: string | null;
+    postalCode: string | null;
+  }): NormalizedAddress {
+    const REDACTED = '***';
+    const recipient = params.recipient;
+    const value = (input: string | null | undefined): string | null => {
+      const text = input?.trim();
+      return text && text.length > 0 ? text : null;
+    };
+
+    const { firstName, lastName } = recipient
+      ? this.splitName(recipient)
+      : { firstName: null, lastName: null };
+
+    return {
+      first_name: value(firstName) ?? REDACTED,
+      last_name: value(lastName),
+      phone: recipient ? value(recipient.phone_number) : null,
+      address_line_1:
+        (recipient ? value(recipient.address_line1) ?? value(recipient.address_detail) : null) ??
+        REDACTED,
+      address_line_2: recipient ? value(recipient.address_line2) : null,
+      city:
+        (recipient
+          ? this.districtByLevel(recipient, 'L2') ||
+            value(recipient.post_town) ||
+            this.districtByLevel(recipient, 'L3')
+          : null) ?? REDACTED,
+      state: (recipient ? this.districtByLevel(recipient, 'L1') : null) ?? REDACTED,
+      country:
+        (recipient ? value(recipient.region_code) || this.districtByLevel(recipient, 'L0') : null) ??
+        value(params.regionCode) ??
+        REDACTED,
+      zip: (recipient ? value(recipient.postal_code) : null) ?? value(params.postalCode) ?? REDACTED,
+    };
+  }
+
   /** Dựng payload tạo đơn. Mọi dữ liệu đã được validate TRƯỚC khi vào đây. */
   buildCreateOrderRequest(params: {
     externalOrderId: string;

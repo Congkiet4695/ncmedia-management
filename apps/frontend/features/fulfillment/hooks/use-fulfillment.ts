@@ -83,6 +83,37 @@ export function useFulfillmentActions(podOrderId: string) {
   };
 }
 
+/**
+ * Nhãn vận chuyển của đơn — lấy từ TikTok · lưu URL dán tay · gỡ nhãn.
+ *
+ * 🔴 Mọi thao tác đều làm mới `fulfillment` sau khi xong: điều kiện gửi (`canFulfill`,
+ * `issues`) do BACKEND tính từ nhãn ĐÃ LƯU, nên nhãn đổi là phải đọc lại trạng thái — người
+ * dùng không phải tải lại trang để nút Gửi sáng lên.
+ */
+export function useShippingLabelActions(podOrderId: string) {
+  const queryClient = useQueryClient();
+  const refresh = () => {
+    void queryClient.invalidateQueries({ queryKey: [KEY] });
+    void queryClient.invalidateQueries({ queryKey: ['pod-tiktok-orders'] });
+  };
+
+  return {
+    fetchFromTiktok: useMutation({
+      mutationFn: () => fulfillmentService.tiktokLabel(podOrderId),
+      onSuccess: refresh,
+    }),
+    save: useMutation({
+      mutationFn: (labelUrl: string) =>
+        fulfillmentService.saveShippingLabel(podOrderId, labelUrl),
+      onSuccess: refresh,
+    }),
+    clear: useMutation({
+      mutationFn: () => fulfillmentService.clearShippingLabel(podOrderId),
+      onSuccess: refresh,
+    }),
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Quản trị nhà cung cấp fulfillment
 // ---------------------------------------------------------------------------

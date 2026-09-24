@@ -50,6 +50,7 @@ import {
   MappingWithDesigns,
   issueSectionOf,
 } from './fulfillment-readiness.service';
+import { FulfillmentShippingLabelService } from './fulfillment-shipping-label.service';
 
 /** Trạng thái cho phép bấm Fulfill (chưa gửi hoặc gửi hỏng). */
 const FULFILLABLE_STATUSES: readonly FulfillmentStatus[] = [
@@ -612,6 +613,9 @@ export class FulfillmentService {
           sellerSku: item.sellerSku,
           mapping: null,
         })),
+        shippingLabel: FulfillmentShippingLabelService.labelOf(order),
+        shippingMode: 'ADDRESS' as const,
+        recipientMasked: order.recipientMasked,
       };
     }
 
@@ -653,6 +657,10 @@ export class FulfillmentService {
       // 🔴 Ghép bằng ĐÚNG chỉ mục mà `readiness.check()` vừa dùng ở trên: màn hình và luồng
       // gửi không thể nhìn thấy hai ánh xạ khác nhau cho cùng một dòng hàng.
       items: this.toStateItems(order, mappings, designsByKey, account.name),
+      // Nhãn và cách gửi đều do `check()` quyết — giao diện không tự suy luận lại.
+      shippingLabel: check.shippingLabel ?? null,
+      shippingMode: check.shippingMode ?? 'ADDRESS',
+      recipientMasked: order.recipientMasked,
     };
   }
 

@@ -22,6 +22,7 @@ import { FulfillmentOptionsService } from './services/fulfillment-options.servic
 import { FulfillmentCatalogSyncService } from './services/fulfillment-catalog-sync.service';
 import { ProductMappingAutoService } from './services/product-mapping-auto.service';
 import { FulfillmentReadinessService } from './services/fulfillment-readiness.service';
+import { FulfillmentShippingLabelService } from './services/fulfillment-shipping-label.service';
 import { ProductDesignService } from './services/product-design.service';
 import { FulfillmentSyncService } from './services/fulfillment-sync.service';
 import { FulfillmentService } from './services/fulfillment.service';
@@ -53,6 +54,8 @@ import { FulfillmentService } from './services/fulfillment.service';
     // Nghiệp vụ chung
     FulfillmentService,
     FulfillmentReadinessService,
+    // Nhãn vận chuyển TikTok — đường duy nhất tạo/lấy lại gói hàng của đơn.
+    FulfillmentShippingLabelService,
     ProductDesignService,
     ProductDesignMapper,
     FulfillmentSyncService,

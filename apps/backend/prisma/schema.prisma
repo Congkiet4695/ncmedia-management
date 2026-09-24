@@ -1310,7 +1310,26 @@ model PodOrder {
   recipientPostalCode String? @map("recipient_postal_code") @db.VarChar(20)
   /// Payload lần này trả về địa chỉ ĐÃ BỊ CHE (4PL/FBT hoặc quá 30 ngày sau COMPLETED).
   /// Dùng cho quy tắc masking-safe write: KHÔNG ghi đè dữ liệu thật bằng giá trị đã che.
+  ///
+  /// ⚠️ Cờ này KHÔNG có nghĩa "hệ thống không có địa chỉ": nhờ chính quy tắc masking-safe
+  /// write ở trên, `recipient_enc` thường vẫn giữ bản sao THẬT chụp trước khi TikTok che.
+  /// Điều kiện gửi sản xuất phải xét DỮ LIỆU đọc được, không xét cờ này.
   recipientMasked     Boolean @default(false) @map("recipient_masked")
+
+  // --- Nhãn vận chuyển dùng để gửi sản xuất ---
+  /// URL nhãn vận chuyển của đơn (TikTok cấp qua Get Package Shipping Document, hoặc người
+  /// vận hành tự dán vào). Xưởng in tải file từ URL này nên nó phải truy cập công khai.
+  ///
+  /// 🔴 Đây là nguồn sự thật cho điều kiện "gửi được chưa": địa chỉ người nhận không đọc
+  /// được (TikTok che từ lần đồng bộ ĐẦU TIÊN) thì nhãn này là thứ thay thế hợp lệ — xem
+  /// `FulfillmentReadinessService`.
+  shippingLabelUrl            String?   @map("shipping_label_url") @db.VarChar(2048)
+  /// `TIKTOK` (lấy qua API) | `MANUAL` (người vận hành dán URL).
+  shippingLabelSource         String?   @map("shipping_label_source") @db.VarChar(16)
+  /// `package_id` của TikTok đã cấp nhãn — chống tạo gói trùng khi bấm lấy nhãn nhiều lần.
+  shippingLabelPackageId      String?   @map("shipping_label_package_id") @db.VarChar(64)
+  shippingLabelTrackingNumber String?   @map("shipping_label_tracking_number") @db.VarChar(128)
+  shippingLabelAt             DateTime? @map("shipping_label_at") @db.Timestamptz(6)
 
   // --- Mốc thời gian (Unix seconds từ TikTok) ---
   tiktokCreateTime  BigInt  @map("tiktok_create_time")
@@ -1486,6 +1505,17 @@ model PodOrderPackage {
 
   /// `packages[].id` — package ID.
   tiktokPackageId String @map("tiktok_package_id") @db.VarChar(64)
+
+  // --- Nhãn vận chuyển của gói (Get Package Shipping Document) ---
+  /// Dịch vụ vận chuyển đã chọn khi tạo gói (`shipping_service_info`).
+  shippingServiceId   String?   @map("shipping_service_id") @db.VarChar(64)
+  shippingServiceName String?   @map("shipping_service_name") @db.VarChar(255)
+  /// `tracking_number` TikTok trả cùng nhãn.
+  trackingNumber      String?   @map("tracking_number") @db.VarChar(128)
+  /// `doc_url` của lần lấy nhãn gần nhất. URL do TikTok ký và CÓ HẠN, nên mỗi lần người dùng
+  /// bấm lấy nhãn hệ thống hỏi lại tài liệu cho ĐÚNG gói này — không bao giờ tạo gói thứ hai.
+  shippingDocumentUrl String?   @map("shipping_document_url") @db.VarChar(2048)
+  documentFetchedAt   DateTime? @map("document_fetched_at") @db.Timestamptz(6)
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)

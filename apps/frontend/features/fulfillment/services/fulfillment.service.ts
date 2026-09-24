@@ -26,6 +26,7 @@ import type {
   TiktokProductOption,
   UpsertProductMappingInput,
   UpdateFulfillmentProviderInput,
+  ShippingLabel,
 } from '../types';
 
 const BASE_PATH = '/fulfillment';
@@ -91,6 +92,28 @@ export const fulfillmentService = {
       reason ? { reason } : {},
     );
     return res.data.data;
+  },
+
+  /** Lấy nhãn vận chuyển của đơn từ TikTok (tái dùng gói đã có — xem tài liệu backend). */
+  async tiktokLabel(podOrderId: string): Promise<ShippingLabel> {
+    const res = await apiClient.post<ApiResponse<ShippingLabel>>(
+      `/pod/orders/${podOrderId}/fulfillment/tiktok-label`,
+    );
+    return res.data.data;
+  },
+
+  /** Lưu nhãn người vận hành tự dán — PERSIST, không chỉ giữ ở form. */
+  async saveShippingLabel(podOrderId: string, labelUrl: string): Promise<ShippingLabel> {
+    const res = await apiClient.put<ApiResponse<ShippingLabel>>(
+      `/pod/orders/${podOrderId}/fulfillment/label`,
+      { labelUrl },
+    );
+    return res.data.data;
+  },
+
+  /** Gỡ nhãn khỏi đơn. */
+  async clearShippingLabel(podOrderId: string): Promise<void> {
+    await apiClient.delete(`/pod/orders/${podOrderId}/fulfillment/label`);
   },
 
   async history(podOrderId: string): Promise<FulfillmentHistoryEntry[]> {

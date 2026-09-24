@@ -259,6 +259,19 @@
     "facilityHint": "Chỉ có tác dụng với line sản xuất TIKTOK.",
     "facilityLabel": "Facility",
     "failed": "Không gửi được đơn sang xưởng in",
+    "label": {
+      "fetchFailed": "Không lấy được nhãn từ TikTok",
+      "fetched": "Đã lấy nhãn vận chuyển từ TikTok",
+      "fetching": "Đang lấy nhãn…",
+      "getFromTiktok": "Lấy nhãn từ TikTok",
+      "reused": "Đã lấy lại nhãn của gói hàng đã có (không tạo gói mới)",
+      "save": "Lưu nhãn",
+      "saveFailed": "Không lưu được nhãn",
+      "saved": "Đã lưu nhãn vận chuyển",
+      "savedManual": "Đã lưu nhãn bạn cung cấp",
+      "savedTiktok": "Đã có nhãn vận chuyển của TikTok",
+      "tracking": "Mã vận đơn: {{value}}"
+    },
     "labelUrlHint": "Link nhãn vận chuyển (PDF/PNG/JPG) — xưởng in phải tải được, nên URL phải công khai.",
     "labelUrlInvalid": "Link nhãn phải là URL http(s) hợp lệ.",
     "labelUrlLabel": "Label đơn hàng (URL)",
@@ -269,6 +282,8 @@
       "NEED_MANUAL": "Cần chọn tay",
       "NO_PROVIDER": "Chưa có nhà cung cấp"
     },
+    "maskedNeedsLabel": "TikTok đã che thông tin người nhận của đơn này và hệ thống không còn bản địa chỉ nào đọc được — đơn sẽ đi theo NHÃN vận chuyển bên dưới.",
+    "maskedUsingSnapshot": "TikTok đã che thông tin người nhận ở những lần đồng bộ gần đây. Hệ thống vẫn dùng bản địa chỉ đã lưu trước đó nên đơn gửi bình thường.",
     "noItems": "Đơn không có sản phẩm nào.",
     "none": "Không dùng",
     "noteLabel": "Note",

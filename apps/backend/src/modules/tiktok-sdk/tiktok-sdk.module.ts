@@ -1,5 +1,6 @@
 import { Global, Module } from '@nestjs/common';
 import { TiktokBrandCrawlerService } from './tiktok-brand-crawler.service';
+import { TiktokFulfillmentApiService } from './tiktok-fulfillment-api.service';
 import { TiktokProductApiService } from './tiktok-product-api.service';
 import { TiktokPromotionApiService } from './tiktok-promotion-api.service';
 import { TikTokSdkService } from './tiktok-sdk.service';
@@ -27,12 +28,14 @@ import { TikTokSdkService } from './tiktok-sdk.service';
   providers: [
     TikTokSdkService,
     TiktokProductApiService,
+    TiktokFulfillmentApiService,
     TiktokPromotionApiService,
     TiktokBrandCrawlerService,
   ],
   exports: [
     TikTokSdkService,
     TiktokProductApiService,
+    TiktokFulfillmentApiService,
     TiktokPromotionApiService,
     TiktokBrandCrawlerService,
   ],

@@ -10,6 +10,10 @@ import {
 } from '../mango/mappers/mango-order.mapper';
 import type { MangoPrintFile } from '../mango/types/mango-api.types';
 import { createMappingIndex, findMappingInIndex, mappingKeyOf } from '../shared/mapping-match';
+import {
+  FulfillmentShippingLabelService,
+  type ShippingLabelState,
+} from './fulfillment-shipping-label.service';
 
 /**
  * Product Mapping — chỉ còn phần "in ở đâu".
@@ -70,6 +74,17 @@ export interface ReadinessResult {
    * `null` = không dòng nào khai ⇒ dùng mặc định của tài khoản.
    */
   productionLine?: string | null;
+  /**
+   * Cách đơn này ra khỏi kho:
+   *
+   * ```
+   *   ADDRESS  — có địa chỉ người nhận đọc được ⇒ nhà cung cấp tự mua nhãn như thường lệ
+   *   LABEL    — KHÔNG đọc được địa chỉ, nhưng đã có nhãn vận chuyển hợp lệ ⇒ gửi theo nhãn
+   * ```
+   */
+  shippingMode?: 'ADDRESS' | 'LABEL';
+  /** Nhãn vận chuyển đang gắn với đơn (nếu có) — nguồn: database, không phải form. */
+  shippingLabel?: ShippingLabelState | null;
 }
 
 /** Mã lỗi chuẩn — dùng chung BE/FE, không rải chuỗi tự do khắp nơi. */
@@ -80,6 +95,14 @@ export const READINESS_CODES = {
   ADDRESS_MISSING: 'ADDRESS_MISSING',
   ADDRESS_MASKED: 'ADDRESS_MASKED',
   ADDRESS_INCOMPLETE: 'ADDRESS_INCOMPLETE',
+  /**
+   * Không đọc được địa chỉ người nhận VÀ đơn chưa có nhãn vận chuyển.
+   *
+   * 🔴 Đây là mã thay thế cho việc dùng `ADDRESS_MASKED` làm rào chặn tuyệt đối. Địa chỉ bị
+   * che KHÔNG tự nó là lý do cấm gửi sản xuất: TikTok che địa chỉ thì chính TikTok cấp nhãn
+   * vận chuyển, và xưởng in chỉ cần nhãn đó. Chỉ khi không có CẢ HAI mới thật sự bế tắc.
+   */
+  TIKTOK_SHIPPING_LABEL_REQUIRED: 'TIKTOK_SHIPPING_LABEL_REQUIRED',
   MAPPING_MISSING: 'MAPPING_MISSING',
   /**
    * Sản phẩm ĐÃ có ánh xạ, nhưng ánh xạ đó khai cho một nhà cung cấp KHÁC với nhà cung cấp
@@ -110,7 +133,15 @@ export const READINESS_CODES = {
  * (Nhà cung cấp · Địa chỉ · Ánh xạ sản phẩm · Design), nên nếu để frontend tự đoán theo mã thì
  * mỗi lần thêm mã lỗi mới là một lần giao diện âm thầm dồn nó vào nhóm "khác".
  */
-export const FULFILLMENT_ISSUE_SECTIONS = ['ORDER', 'PROVIDER', 'ADDRESS', 'MAPPING', 'DESIGN'] as const;
+export const FULFILLMENT_ISSUE_SECTIONS = [
+  'ORDER',
+  'PROVIDER',
+  'ADDRESS',
+  // Khối "Thiết lập Fulfill" — nơi có ô nhãn vận chuyển và nút lấy nhãn từ TikTok.
+  'SHIPPING',
+  'MAPPING',
+  'DESIGN',
+] as const;
 export type FulfillmentIssueSection = (typeof FULFILLMENT_ISSUE_SECTIONS)[number];
 
 const SECTION_BY_CODE: Readonly<Record<string, FulfillmentIssueSection>> = {
@@ -123,6 +154,7 @@ const SECTION_BY_CODE: Readonly<Record<string, FulfillmentIssueSection>> = {
   ADDRESS_MISSING: 'ADDRESS',
   ADDRESS_MASKED: 'ADDRESS',
   ADDRESS_INCOMPLETE: 'ADDRESS',
+  TIKTOK_SHIPPING_LABEL_REQUIRED: 'SHIPPING',
   MAPPING_MISSING: 'MAPPING',
   MAPPING_PROVIDER_MISMATCH: 'MAPPING',
   PRODUCTION_LINE_CONFLICT: 'MAPPING',
@@ -193,7 +225,21 @@ export class FulfillmentReadinessService {
       issues.push({ code: READINESS_CODES.NO_ITEMS, message: 'Đơn không có sản phẩm nào.' });
     }
 
-    const address = this.resolveAddress(order, issues);
+    // 🔴 Địa chỉ và nhãn được xét CÙNG NHAU, không phải hai luật rời nhau: đơn chỉ bế tắc khi
+    // KHÔNG đọc được địa chỉ VÀ cũng không có nhãn vận chuyển.
+    const shippingLabel = FulfillmentShippingLabelService.labelOf(order);
+    const resolved = this.resolveAddress(order, issues, Boolean(shippingLabel));
+    // Không đọc được địa chỉ nhưng CÓ nhãn ⇒ đơn vẫn đi được: địa chỉ thật nằm trên nhãn, và
+    // phần gửi cho nhà cung cấp chỉ còn là những gì TikTok cho phép đọc (xem mapper).
+    const address =
+      resolved.address ??
+      (shippingLabel
+        ? this.mapper.buildLabelShippingAddress({
+            recipient: resolved.recipient,
+            regionCode: order.recipientRegionCode,
+            postalCode: order.recipientPostalCode,
+          })
+        : null);
     const items = this.resolveItems(
       order,
       mappings,
@@ -220,6 +266,8 @@ export class FulfillmentReadinessService {
       address: address ?? undefined,
       items: items.length > 0 ? items : undefined,
       productionLine: lines.length === 1 ? lines[0] : null,
+      shippingMode: resolved.address ? 'ADDRESS' : 'LABEL',
+      shippingLabel,
     };
   }
 
@@ -227,52 +275,67 @@ export class FulfillmentReadinessService {
   // Private
   // ---------------------------------------------------------------------------
 
-  /** Giải mã và chuẩn hoá địa chỉ; ghi lý do cụ thể nếu không dùng được. */
+  /**
+   * Địa chỉ giao hàng dùng được, hoặc `null` kèm lý do.
+   *
+   * 🔴 **Quyết theo DỮ LIỆU, không theo cờ `recipient_masked`.** Cờ đó chỉ nói "lần đồng bộ gần
+   * đây TikTok trả về bản đã che"; nhờ quy tắc masking-safe write, `recipient_enc` vẫn giữ bản
+   * THẬT chụp trước đó. Chặn theo cờ là chặn nhầm hàng loạt đơn mà hệ thống có đủ địa chỉ để
+   * giao — đúng lỗi đang gặp trên màn hình Fulfill.
+   *
+   * 🔴 **Không đọc được địa chỉ cũng chưa chắc là bế tắc.** Có nhãn vận chuyển (TikTok cấp
+   * hoặc người vận hành dán vào) thì xưởng in chỉ cần in nhãn — địa chỉ thật nằm trên nhãn.
+   * Vì thế `hasShippingLabel` được truyền vào đây: nó quyết định lý do ghi ra là
+   * "cần lấy nhãn" hay "không có gì để ghi cả".
+   */
   private resolveAddress(
     order: PodOrderWithRelations,
     issues: ReadinessIssue[],
-  ): NormalizedAddress | null {
-    if (!order.recipientEnc) {
-      issues.push({
-        code: READINESS_CODES.ADDRESS_MISSING,
-        message: 'Đơn chưa có địa chỉ người nhận. Hãy đồng bộ lại đơn từ TikTok.',
-      });
-      return null;
-    }
+    hasShippingLabel: boolean,
+  ): { address: NormalizedAddress | null; recipient: TiktokRecipientAddress | null } {
+    let decoded: TiktokRecipientAddress | null = null;
+    const fail = (
+      code: string,
+      message: string,
+    ): { address: null; recipient: TiktokRecipientAddress | null } => {
+      // Đã có nhãn ⇒ đơn vẫn gửi được, không ghi lý do chặn nào.
+      if (!hasShippingLabel) issues.push({ code, message });
+      return { address: null, recipient: decoded };
+    };
 
-    // 🔴 TikTok che địa chỉ với đơn 4PL US và đơn cũ (>30 ngày sau COMPLETED).
-    // Địa chỉ đã che thì KHÔNG thể giao hàng — phải chặn ngay, không gửi rác sang xưởng in.
-    if (order.recipientMasked) {
-      issues.push({
-        code: READINESS_CODES.ADDRESS_MASKED,
-        message:
-          'TikTok đã che thông tin người nhận của đơn này (đơn 4PL hoặc đơn quá hạn hiển thị). ' +
-          'Không thể tự gửi sản xuất — cần dùng nhãn vận chuyển do TikTok cấp.',
-      });
-      return null;
+    if (!order.recipientEnc) {
+      return fail(
+        READINESS_CODES.TIKTOK_SHIPPING_LABEL_REQUIRED,
+        'Đơn chưa có địa chỉ người nhận. Hãy đồng bộ lại đơn từ TikTok, hoặc lấy nhãn vận ' +
+          'chuyển của TikTok cho đơn này rồi gửi sản xuất theo nhãn.',
+      );
     }
 
     let recipient: TiktokRecipientAddress;
     try {
       recipient = JSON.parse(this.encryption.decrypt(order.recipientEnc)) as TiktokRecipientAddress;
+      decoded = recipient;
     } catch {
-      issues.push({
-        code: READINESS_CODES.ADDRESS_MISSING,
-        message: 'Không đọc được địa chỉ người nhận đã lưu. Hãy đồng bộ lại đơn từ TikTok.',
-      });
-      return null;
+      return fail(
+        READINESS_CODES.TIKTOK_SHIPPING_LABEL_REQUIRED,
+        'Không đọc được địa chỉ người nhận đã lưu. Hãy đồng bộ lại đơn từ TikTok, hoặc lấy ' +
+          'nhãn vận chuyển của TikTok rồi gửi sản xuất theo nhãn.',
+      );
     }
 
     const normalized = this.mapper.normalizeAddress(recipient);
     if (!normalized) {
-      issues.push({
-        code: READINESS_CODES.ADDRESS_INCOMPLETE,
-        message:
-          'Địa chỉ người nhận thiếu thông tin bắt buộc (tên, địa chỉ, thành phố, bang, quốc gia hoặc mã bưu chính).',
-      });
-      return null;
+      return fail(
+        READINESS_CODES.TIKTOK_SHIPPING_LABEL_REQUIRED,
+        order.recipientMasked
+          ? 'TikTok đã che thông tin người nhận của đơn này (đơn 4PL hoặc đơn quá hạn hiển ' +
+              'thị). Lấy nhãn vận chuyển của TikTok cho đơn này — xưởng in sẽ in đúng nhãn đó ' +
+              '— hoặc dán URL nhãn bạn đã có vào ô "Nhãn vận chuyển".'
+          : 'Địa chỉ người nhận thiếu thông tin bắt buộc (tên, địa chỉ, thành phố, bang, quốc ' +
+              'gia hoặc mã bưu chính). Đồng bộ lại đơn, hoặc gửi sản xuất theo nhãn vận chuyển.',
+      );
     }
-    return normalized;
+    return { address: normalized, recipient };
   }
 
   /** Ghép từng line item với ánh xạ SKU và design tương ứng. */

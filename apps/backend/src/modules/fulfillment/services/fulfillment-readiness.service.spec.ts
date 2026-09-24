@@ -27,6 +27,15 @@ function order(over: Record<string, unknown> = {}) {
     status: 'AWAITING_SHIPMENT',
     recipientEnc: 'enc',
     recipientMasked: false,
+    recipientRegionCode: 'US',
+    recipientPostalCode: '33602',
+    // Nhãn vận chuyển: mặc định CHƯA có (mọi test cũ giữ nguyên ý nghĩa).
+    shippingLabelUrl: null,
+    shippingLabelSource: null,
+    shippingLabelPackageId: null,
+    shippingLabelTrackingNumber: null,
+    shippingLabelAt: null,
+    packages: [],
     items: [
       {
         id: 'item-1',
@@ -150,24 +159,35 @@ describe('FulfillmentReadinessService', () => {
       expect(result.issues.map((i) => i.code)).toContain(READINESS_CODES.DESIGN_MISSING);
     });
 
-    it('🔴 địa chỉ bị TikTok che (đơn 4PL) → chặn, không gửi rác sang xưởng in', () => {
+    /**
+     * 🔴 LUẬT ĐÃ ĐỔI (và đây là lý do đổi):
+     *
+     * Cờ `recipient_masked` chỉ nói "lần đồng bộ gần đây TikTok trả về bản đã che". Nhờ quy
+     * tắc masking-safe write, `recipient_enc` vẫn giữ bản THẬT chụp trước đó — chặn theo cờ
+     * là chặn nhầm hàng loạt đơn mà hệ thống có đủ địa chỉ để giao.
+     */
+    it('🔴 cờ masked nhưng địa chỉ đã lưu vẫn đọc được ⇒ VẪN gửi được', () => {
       const result = service.check(
         order({ recipientMasked: true }) as never,
         [mapping()] as never,
         designs(),
       );
-      expect(result.ready).toBe(false);
-      expect(result.issues.map((i) => i.code)).toContain(READINESS_CODES.ADDRESS_MASKED);
-      expect(result.address).toBeUndefined();
+      expect(result.ready).toBe(true);
+      expect(result.issues).toEqual([]);
+      expect(result.address?.city).toBe('Tampa');
+      expect(result.shippingMode).toBe('ADDRESS');
     });
 
-    it('không có địa chỉ', () => {
+    it('🔴 không đọc được địa chỉ và CHƯA có nhãn ⇒ chặn với mã TIKTOK_SHIPPING_LABEL_REQUIRED', () => {
       const result = service.check(
         order({ recipientEnc: null }) as never,
         [mapping()] as never,
         designs(),
       );
-      expect(result.issues.map((i) => i.code)).toContain(READINESS_CODES.ADDRESS_MISSING);
+      expect(result.ready).toBe(false);
+      expect(result.issues.map((i) => i.code)).toContain(
+        READINESS_CODES.TIKTOK_SHIPPING_LABEL_REQUIRED,
+      );
     });
 
     it('đơn TikTok đã huỷ → không sản xuất', () => {
@@ -403,13 +423,13 @@ describe('FulfillmentReadinessService', () => {
 
   it('gom nhiều lý do cùng lúc thay vì dừng ở lỗi đầu tiên', () => {
     const result = service.check(
-      order({ status: 'CANCELLED', recipientMasked: true }) as never,
+      order({ status: 'CANCELLED', recipientEnc: null }) as never,
       [],
       designs(),
     );
     const codes = result.issues.map((issue) => issue.code);
     expect(codes).toContain(READINESS_CODES.ORDER_CANCELLED);
-    expect(codes).toContain(READINESS_CODES.ADDRESS_MASKED);
+    expect(codes).toContain(READINESS_CODES.TIKTOK_SHIPPING_LABEL_REQUIRED);
     expect(codes).toContain(READINESS_CODES.MAPPING_MISSING);
   });
 

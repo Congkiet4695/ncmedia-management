@@ -220,7 +220,14 @@ export interface FulfillmentOptions {
  * Khối trên màn hình Fulfill mà lỗi thuộc về — BACKEND quyết định (xem readiness service),
  * giao diện chỉ hiển thị đúng chỗ.
  */
-export type FulfillmentIssueSection = 'ORDER' | 'PROVIDER' | 'ADDRESS' | 'MAPPING' | 'DESIGN';
+export type FulfillmentIssueSection =
+  | 'ORDER'
+  | 'PROVIDER'
+  | 'ADDRESS'
+  /** Khối "Thiết lập Fulfill" — ô nhãn vận chuyển và nút lấy nhãn từ TikTok. */
+  | 'SHIPPING'
+  | 'MAPPING'
+  | 'DESIGN';
 
 export interface FulfillmentIssue {
   section: FulfillmentIssueSection;
@@ -258,6 +265,23 @@ export interface FulfillmentStateItem {
   mapping: ProductMapping | null;
 }
 
+/**
+ * Nhãn vận chuyển đang gắn với đơn — **đọc từ database**.
+ *
+ * 🔴 Không phải state của form: đây là thứ backend dùng để quyết định đơn có gửi được không,
+ * nên giao diện phải hiển thị đúng nó chứ không phải giá trị người dùng đang gõ dở.
+ */
+export interface ShippingLabel {
+  labelUrl: string;
+  source: 'TIKTOK' | 'MANUAL';
+  packageId: string | null;
+  trackingNumber: string | null;
+  shippingServiceName: string | null;
+  obtainedAt: string | null;
+  /** Lần lấy vừa rồi dùng LẠI gói đã có (không tạo gói mới). */
+  reusedPackage?: boolean;
+}
+
 export interface FulfillmentState {
   fulfillment: FulfillmentOrder | null;
   ready: boolean;
@@ -268,6 +292,20 @@ export interface FulfillmentState {
   provider: FulfillmentStateProvider | null;
   /** Từng dòng hàng kèm ánh xạ đang áp dụng. */
   items: FulfillmentStateItem[];
+  /** Nhãn vận chuyển đã lưu của đơn. `null` = chưa có. */
+  shippingLabel: ShippingLabel | null;
+  /**
+   * `ADDRESS` = có địa chỉ người nhận đọc được ⇒ gửi như thường lệ.
+   * `LABEL`   = địa chỉ không đọc được ⇒ đơn đi theo nhãn vận chuyển.
+   */
+  shippingMode: 'ADDRESS' | 'LABEL';
+  /**
+   * TikTok đang che thông tin người nhận ở những lần đồng bộ gần đây.
+   *
+   * 🔴 KHÔNG đồng nghĩa "không gửi được": hệ thống có thể vẫn giữ bản sao địa chỉ chụp trước
+   * khi TikTok che. Điều kiện gửi do `canFulfill` + `issues` quyết định, không phải cờ này.
+   */
+  recipientMasked: boolean;
 }
 
 export interface FulfillmentHistoryEntry {

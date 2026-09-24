@@ -224,7 +224,10 @@ export class MangoFulfillmentService {
       account.defaultShippingMethod) as MangoShippingMethod;
     const facility = options.facility ?? account.defaultFacility;
     const note = options.note ?? order.sellerNote;
-    const labelUrl = options.labelUrl ?? null;
+    // 🔴 Nhãn ĐÃ LƯU của đơn là nguồn chính; body chỉ để ghi đè trong đúng lần gửi này.
+    // Trước đây chỉ đọc body, nên nhãn người dùng đã lưu (hoặc lấy từ TikTok) biến mất khi
+    // bấm Gửi — và readiness thì lại dựa vào nhãn đã lưu để cho phép gửi. Hai bên lệch nhau.
+    const labelUrl = options.labelUrl ?? order.shippingLabelUrl ?? null;
 
     // Line sản xuất: ánh xạ của sản phẩm THẮNG mặc định tài khoản (readiness đã bảo đảm cả đơn
     // chỉ có một line; hai line khác nhau bị chặn từ trước với lý do rõ ràng).
