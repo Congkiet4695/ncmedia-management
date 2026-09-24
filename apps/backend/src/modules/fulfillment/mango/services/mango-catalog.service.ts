@@ -3,7 +3,12 @@ import { MangoApiClient } from '../clients/mango-api.client';
 import { MANGO_MAX_PAGES_PER_FETCH, MANGO_MAX_PAGE_LIMIT } from '../constants/mango.constants';
 import { MangoCredentialService } from './mango-credential.service';
 import type { MangoAccountCredentialRef } from './mango-credential.service';
-import type { MangoPagination, MangoProduct, MangoVariation } from '../types/mango-api.types';
+import type {
+  MangoPagination,
+  MangoProduct,
+  MangoProductionLine,
+  MangoVariation,
+} from '../types/mango-api.types';
 
 /** Một trang đã đọc — đủ để vòng lặp quyết định có đi tiếp hay không. */
 interface FetchedPage<T> {
@@ -100,6 +105,17 @@ export class MangoCatalogService {
         return { items: result.data?.items ?? [], pagination: result.data?.pagination };
       },
     });
+  }
+
+  /**
+   * Danh sách production line của tài khoản (`GET /production-lines`).
+   *
+   * Không phân trang ở tài liệu; trả nguyên payload để tầng trên tự chọn field cần dùng.
+   */
+  async fetchProductionLines(account: MangoAccountCredentialRef): Promise<MangoProductionLine[]> {
+    const context = this.credentials.buildContext(account);
+    const result = await this.client.listProductionLines(context);
+    return result.data?.items ?? [];
   }
 
   /** TOÀN BỘ biến thể của một sản phẩm (mọi trang), giữ nguyên payload gốc. */

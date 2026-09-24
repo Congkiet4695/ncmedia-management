@@ -3,13 +3,18 @@ import { FulfillmentStatus, PodDesignPlacement } from '@prisma/client';
 import {
   MANGO_ORDER_ID_MAX_LENGTH,
   MANGO_PRINT_POSITIONS,
+  type MangoFacility,
+  type MangoPreferredCarrier,
   type MangoPrintPosition,
   type MangoShippingMethod,
+  type MangoSpeedType,
 } from '../constants/mango.constants';
 import {
   MangoCreateOrderRequest,
   MangoOrderItemRequest,
+  MangoOrderResponse,
   MangoPrintFile,
+  MangoUpdateOrderRequest,
 } from '../types/mango-api.types';
 import type { TiktokRecipientAddress } from '../../../pod-tiktok/types/tiktok-order.types';
 
@@ -41,7 +46,45 @@ export interface ResolvedItem {
    * KHÔNG được làm đổi lợi nhuận của đơn đã gửi.
    */
   baseCost: number | null;
+  /**
+   * Line sản xuất khai ở Product Mapping cho sản phẩm này (id của nhà cung cấp).
+   *
+   * 🔴 KHÔNG gửi trong `items[]`: OrderCreateSchema không có trường production line — Mango suy
+   * ra xưởng từ chính sản phẩm. Giá trị này dùng để (1) phát hiện một đơn trộn nhiều xưởng
+   * TRƯỚC khi gửi, và (2) ghi lên bản ghi fulfillment để đối soát.
+   */
+  productionLine: string | null;
   printFiles: MangoPrintFile[];
+  /**
+   * `items[].item_id` gửi kèm — chính là id dòng `fulfillment_order_items` của NCMedia.
+   *
+   * 🔴 Tài liệu cho phép tự đặt (`item_id`: "auto-generated if not provided"), và đây là thứ
+   * DUY NHẤT ghép được giá vốn Mango trả về đúng dòng hàng nội bộ: một đơn có thể có hai dòng
+   * cùng SKU (hai line item TikTok của cùng biến thể), ghép theo SKU sẽ gán nhầm.
+   */
+  itemId?: string | null;
+}
+
+/** Tuỳ chọn gửi đơn do người vận hành chọn trên màn hình Fulfill (không phải mặc định tài khoản). */
+export interface MangoFulfillOptions {
+  shippingMethod: MangoShippingMethod;
+  facility?: string | null;
+  speedType?: MangoSpeedType | null;
+  preferredCarrier?: MangoPreferredCarrier | null;
+  isScanLabel?: boolean;
+  labelUrl?: string | null;
+  note?: string | null;
+}
+
+/** Giá vốn + thuộc tính biến thể Mango báo về cho MỘT dòng hàng. */
+export interface ProviderItemCost {
+  /** `item_id` — id dòng `fulfillment_order_items` nếu đơn được gửi kèm item_id. */
+  itemId: string | null;
+  sku: string | null;
+  quantity: number | null;
+  baseCost: number | null;
+  color: string | null;
+  size: string | null;
 }
 
 /**
@@ -157,6 +200,10 @@ export class MangoOrderMapper {
     /** Tên shop/seller để xưởng in đối chiếu. */
     seller?: string | null;
     buyerEmail?: string | null;
+    /** `is_scan_label` — chỉ có tác dụng với production line TIKTOK (tài liệu). */
+    isScanLabel?: boolean;
+    /** `preferred_carrier` — chỉ dùng khi đơn tự mua nhãn (auto | usps). */
+    preferredCarrier?: MangoPreferredCarrier | null;
   }): MangoCreateOrderRequest {
     const request: MangoCreateOrderRequest = {
       order_id: params.externalOrderId,
@@ -180,8 +227,54 @@ export class MangoOrderMapper {
     if (params.labelUrl) request.label_url = params.labelUrl;
     if (params.note) request.note = params.note;
     if (params.seller) request.seller = params.seller;
+    if (params.isScanLabel) request.is_scan_label = true;
+    if (params.preferredCarrier) request.preferred_carrier = params.preferredCarrier;
 
     return request;
+  }
+
+  /**
+   * Dựng payload SỬA đơn (PUT /orders/{order_id}) — chỉ những field người dùng thực sự đổi.
+   *
+   * 🔴 KHÔNG bao giờ gửi kèm `items`: dòng hàng đã ra xưởng in, gửi lại là kích hoạt chuyển đổi
+   * file in lần nữa và mở đường cho sai lệch giữa cái đã sản xuất và cái đang lưu. Chỉ `label_url`
+   * / `shipping_method` / `note` — đúng ba thứ đổi được sau khi đơn đã nhận mà chưa vào sản xuất.
+   */
+  buildUpdateOrderRequest(params: {
+    labelUrl?: string | null;
+    note?: string | null;
+    shippingMethod?: MangoShippingMethod | null;
+  }): MangoUpdateOrderRequest {
+    const request: MangoUpdateOrderRequest = {};
+    if (params.labelUrl !== undefined) request.label_url = params.labelUrl;
+    if (params.note !== undefined) request.note = params.note;
+    if (params.shippingMethod) request.shipping_method = params.shippingMethod;
+    return request;
+  }
+
+  /**
+   * Bóc giá vốn + màu/size từ `items[]` của Mango (Create Order, Get Order Detail, Update Order
+   * dùng chung `OrderResponseSchema`).
+   *
+   * Giá trị không đọc được ⇒ `null`, KHÔNG quy về 0: "chưa có giá" và "giá bằng 0" là hai
+   * chuyện khác nhau, và ghi 0 lên một đơn chưa được báo giá là làm hỏng số liệu lợi nhuận.
+   */
+  readProviderItems(detail: MangoOrderResponse | null | undefined): ProviderItemCost[] {
+    return (detail?.items ?? []).map((item) => ({
+      itemId: item.item_id?.trim() || null,
+      sku: item.sku?.trim() || null,
+      quantity: typeof item.quantity === 'number' ? item.quantity : null,
+      baseCost: this.toNumber(item.base_cost),
+      color: item.color?.trim() || null,
+      size: item.size?.trim() || null,
+    }));
+  }
+
+  /** Số hợp lệ hoặc `null` — Mango có thể trả chuỗi, `null`, hoặc bỏ hẳn field. */
+  toNumber(value: unknown): number | null {
+    if (value === null || value === undefined || value === '') return null;
+    const parsed = typeof value === 'number' ? value : Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
   }
 
   /** Che PII trước khi lưu `rawRequest` vào DB (vẫn đủ để đối soát kỹ thuật). */
@@ -247,11 +340,18 @@ export class MangoOrderMapper {
       print_files: item.printFiles,
     };
     if (item.productionConfig) request.production_config = item.productionConfig;
+    // Ghép giá vốn trả về đúng dòng hàng nội bộ — xem `ResolvedItem.itemId`.
+    if (item.itemId) request.item_id = item.itemId;
     return request;
   }
 
   private isPrintPosition(value: string): value is MangoPrintPosition {
     return (MANGO_PRINT_POSITIONS as readonly string[]).includes(value);
+  }
+
+  /** Ép kiểu facility đã được DTO kiểm — giữ ở ACL để service không phải biết enum của Mango. */
+  asFacility(value: string | null | undefined): MangoFacility | null {
+    return (value as MangoFacility | null | undefined) ?? null;
   }
 
   /**

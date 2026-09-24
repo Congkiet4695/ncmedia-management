@@ -10,6 +10,11 @@ import { PodDescriptionImageService } from '../../pod-product/services/pod-descr
 import { fetchRemoteImage, fetchRemoteVideo } from '../../pod-product/services/remote-image.fetch';
 import { extractDescriptionImages, hostnameOf } from '../../pod-product/services/description-images';
 import { TiktokProductApiService } from '../../tiktok-sdk/tiktok-product-api.service';
+import { TiktokClientError } from '../../pod-tiktok/exceptions/pod-tiktok.exceptions';
+import {
+  RETRYABLE_ERROR_CLASSES,
+  TIKTOK_ERROR_CODES,
+} from '../../pod-tiktok/constants/tiktok-error-code.constants';
 import {
   TIKTOK_IMAGE_USE_CASE,
   TIKTOK_PRODUCT_SAVE_MODE,
@@ -19,11 +24,15 @@ import type { TiktokShopContext } from '../../tiktok-sdk/types/tiktok-shop-conte
 import type {
   TiktokCategoryRules,
   TiktokCreateProductRequest,
+  TiktokCreateProductResult,
   TiktokCreateProductSku,
 } from '../../tiktok-sdk/types/tiktok-product.types';
 import {
   POD_CATEGORY_RULES_CACHE_MS,
+  POD_LISTING_CREATE_MAX_ATTEMPTS,
+  POD_LISTING_CREATE_RETRY_DELAY_MS,
   POD_LISTING_MAX_IMAGES,
+  POD_LISTING_RECONCILE_WINDOW_SEC,
 } from '../constants/pod-listing.constants';
 import { POD_TIKTOK_LEGACY_FAKE_NO_BRAND_ID } from '../../pod-product/constants/pod-product.constants';
 import type { ResolvedListing } from './pod-listing-resolver.service';
@@ -89,7 +98,20 @@ export function resolveTiktokBrandId(brand: ResolvedListing['brand']): string | 
   return id;
 }
 
-export function buildTiktokExternalId(payload: ResolvedListing): string {
+/**
+ * 🔴 HAI ĐỊNH DANH KHÁC NHAU — lẫn lộn chúng chính là gốc của lỗi `12052996`:
+ *
+ * ```
+ *   idempotency_key     = định danh MỘT LẦN GỬI   → mới ở mỗi request, không bao giờ lặp lại
+ *   external_product_id = định danh MỘT LƯỢT ĐĂNG → ổn định qua mọi lần thử, gửi cả khi Edit
+ * ```
+ *
+ * TikTok ghi nhận `idempotency_key` NGAY khi nhận request, nên nó là hàng rào chống **xử lý
+ * trùng**, KHÔNG phải cơ chế phát lại kết quả cũ: gửi lại một key đã dùng là bị từ chối, dù
+ * lần đầu chỉ hỏng ở đường truyền. Vì thế mọi lần gửi lại đều phải đi qua
+ * `PodListingPublisherService.createWithReconcile` (đối soát trước, gửi sau).
+ */
+export function buildTiktokIdempotencyKey(payload: ResolvedListing): string {
   const tail = (value: string | null | undefined): string =>
     (value ?? '').replace(/-/g, '').slice(-8);
 
@@ -100,6 +122,28 @@ export function buildTiktokExternalId(payload: ResolvedListing): string {
   const unique = randomUUID().replace(/-/g, '');
 
   return [trace, stamp, unique].filter((part) => part.length > 0).join('-').slice(0, 128);
+}
+
+/**
+ * `external_product_id` — định danh **ỔN ĐỊNH** của một lượt đăng, phía NCMedia.
+ *
+ * Tài liệu TikTok: *"An external identifier used in an external ecommerce platform. This is
+ * used to associate the product between TikTok Shop and the external ecommerce platform. Max
+ * length: 999 characters"*. Đây KHÔNG phải `idempotency_key`: giá trị này được gửi lại Y HỆT ở
+ * mọi lần thử của cùng một lượt đăng và ở cả Edit Product, để một sản phẩm trên Seller Center
+ * luôn tra ngược được về đúng bản ghi `pod_listing_payloads` đã sinh ra nó.
+ *
+ * 🔴 Neo vào `payloadId` (bản ghi payload của lượt đăng) chứ không vào `productId`: đăng lại
+ * cùng một sản phẩm bằng một lượt MỚI là một sản phẩm mới trên sàn, phải mang định danh mới —
+ * neo vào `productId` sẽ khiến hai sản phẩm khác nhau trên sàn cùng trỏ về một định danh.
+ */
+export function buildExternalProductId(payloadId: string): string {
+  return `ncm-listing-${payloadId}`.slice(0, 999);
+}
+
+/** `external_sku_id` — bản mức biến thể của {@link buildExternalProductId}. */
+export function buildExternalSkuId(payloadId: string, sellerSku: string): string {
+  return `ncm-listing-${payloadId}-${sellerSku}`.slice(0, 999);
 }
 
 /** Kết quả đẩy MỘT listing lên TikTok. */
@@ -297,6 +341,8 @@ export class PodListingPublisherService {
     organizationId: string;
     ctx: TiktokShopContext;
     payload: ResolvedListing;
+    /** `pod_listing_payloads.id` — nguồn của `external_product_id` (định danh ổn định). */
+    payloadId: string;
     imageUriCache: Map<string, Promise<string>>;
     log: ListingLogger;
   }): Promise<PublishOutcome> {
@@ -319,11 +365,9 @@ export class PodListingPublisherService {
     );
     // 🔴 Kho được quyết Ở ĐÂY — theo shop đang đăng, không phải theo Draft Product.
     const warehouse = await this.resolveWarehouse(params.organizationId, ctx, payload, log);
-    // 🔴 Sinh MỚI ở đây, mỗi lần gọi — kể cả khi hàng đợi chạy lại đúng item này.
-    const externalId = buildTiktokExternalId(payload);
     const request = this.buildCreateRequest(
       payload,
-      externalId,
+      params.payloadId,
       images.uris,
       images.variantUris,
       warehouse.tiktokWarehouseId,
@@ -331,12 +375,18 @@ export class PodListingPublisherService {
       images.videoId,
     );
 
-    await log(
-      PodListingLogLevel.INFO,
-      PodListingStep.CREATE_DRAFT,
-      'Gửi Create Product (AS_DRAFT)',
-      {
-        externalId,
+    // `idempotency_key` được sinh BÊN TRONG `createWithReconcile`: mỗi lần gửi một key mới, và
+    // không lần gửi lại nào xảy ra trước khi đối soát xem sản phẩm đã vào shop hay chưa.
+    const { data, requestId } = await this.createWithReconcile({
+      ctx,
+      payload,
+      payloadId: params.payloadId,
+      request,
+      saveMode: TIKTOK_PRODUCT_SAVE_MODE.AS_DRAFT,
+      step: PodListingStep.CREATE_DRAFT,
+      message: 'Gửi Create Product (AS_DRAFT)',
+      log,
+      logContext: {
         categoryId: request.categoryId,
         // Ghi cả HAI: ý định của template và giá trị thật sự gửi đi. Đây là cặp số liệu
         // duy nhất trả lời được "vì sao sản phẩm này lên sàn mang thương hiệu đó".
@@ -351,9 +401,7 @@ export class PodListingPublisherService {
         images: request.mainImages?.length ?? 0,
         descriptionImages: summarizeDescriptionImages(request.description ?? ''),
       },
-    );
-
-    const { data, requestId } = await this.productApi.createProduct(ctx, request);
+    });
     const remoteProductId = data.productId;
     if (!remoteProductId) {
       // TikTok trả code 0 nhưng không kèm product_id: coi là thất bại thay vì ghi một item
@@ -393,7 +441,7 @@ export class PodListingPublisherService {
    * 🔴 Đây là hàng rào chống trùng sản phẩm của cả sprint. Draft đã tồn tại trên sàn thì
    * TUYỆT ĐỐI không gọi Create Product lần nữa — TikTok sẽ đẻ ra một sản phẩm thứ hai giống
    * hệt, và không có cách nào gộp lại. Nhánh `CREATE` chỉ dành cho listing CHƯA từng chạm
-   * sàn, và gửi kèm `idempotencyKey` được sinh MỚI ở mỗi lần gọi (`buildTiktokExternalId`) —
+   * sàn, và gửi kèm `idempotencyKey` được sinh MỚI ở mỗi lần gọi (`buildTiktokIdempotencyKey`) —
    * TikTok từ chối key đã dùng bằng lỗi `12052996 requires a unique external_id`.
    *
    * 🔴 Edit Product là **full edit**: gửi thiếu trường nào là TikTok xoá trắng trường đó.
@@ -407,6 +455,8 @@ export class PodListingPublisherService {
     organizationId: string;
     ctx: TiktokShopContext;
     payload: ResolvedListing;
+    /** `pod_listing_payloads.id` — nguồn của `external_product_id` (định danh ổn định). */
+    payloadId: string;
     /** Id Draft trên TikTok. Có giá trị ⇒ đi nhánh Edit; `null` ⇒ tạo mới ở chế độ LISTING. */
     tiktokDraftId: string | null;
     imageUriCache: Map<string, Promise<string>>;
@@ -438,12 +488,9 @@ export class PodListingPublisherService {
     // Kho vẫn được quyết theo SHOP, y như lúc tạo Draft — yêu cầu sprint nói rõ: không
     // validate kho ở cổng trước, kho được resolve tại thời điểm publish.
     const warehouse = await this.resolveWarehouse(params.organizationId, ctx, payload, log);
-    // 🔴 Sinh MỚI cho MỖI lần publish. Bấm Retry ⇒ chạy lại đúng dòng này ⇒ key khác hẳn
-    // lần trước. Publish All ⇒ mỗi listing gọi hàm này một lần nên mỗi sản phẩm một key.
-    const externalId = buildTiktokExternalId(payload);
     const request = this.buildCreateRequest(
       payload,
-      externalId,
+      params.payloadId,
       images.uris,
       images.variantUris,
       warehouse.tiktokWarehouseId,
@@ -453,38 +500,58 @@ export class PodListingPublisherService {
 
     const mode: 'EDIT' | 'CREATE' = tiktokDraftId ? 'EDIT' : 'CREATE';
 
-    await log(
-      PodListingLogLevel.INFO,
-      PodListingStep.PUBLISH,
-      'Gửi Publish (save_mode = LISTING)',
-      {
-        mode,
-        // Nhánh EDIT không gửi key này đi (Edit Product không nhận) — ghi `null` cho đúng.
-        externalId: mode === 'CREATE' ? externalId : null,
-        tiktokDraftId,
-        warehouseId: warehouse.tiktokWarehouseId,
-        warehouseSource: warehouse.source,
-        market: payload.market,
-        currency: summarizeCurrencies(request),
-        skus: request.skus?.length ?? 0,
-        skuSummary: summarizeSkus(request),
-        images: request.mainImages?.length ?? 0,
-        descriptionImages: summarizeDescriptionImages(request.description ?? ''),
-      },
-    );
+    const logContext: Record<string, unknown> = {
+      mode,
+      tiktokDraftId,
+      warehouseId: warehouse.tiktokWarehouseId,
+      warehouseSource: warehouse.source,
+      market: payload.market,
+      currency: summarizeCurrencies(request),
+      skus: request.skus?.length ?? 0,
+      skuSummary: summarizeSkus(request),
+      images: request.mainImages?.length ?? 0,
+      descriptionImages: summarizeDescriptionImages(request.description ?? ''),
+    };
 
-    // `idempotencyKey` chỉ có nghĩa lúc TẠO; Edit Product không nhận nó, nên bỏ ra thay vì
-    // gửi kèm một trường TikTok không hiểu.
-    const editRequest: TiktokCreateProductRequest = { ...request };
-    delete editRequest.idempotencyKey;
+    let data: TiktokCreateProductResult;
+    let requestId: string | undefined;
 
-    const { data, requestId } =
-      mode === 'EDIT'
-        ? await this.productApi.publishProduct(ctx, tiktokDraftId as string, editRequest)
-        : await this.productApi.createProduct(ctx, {
-            ...request,
-            saveMode: TIKTOK_PRODUCT_SAVE_MODE.LISTING,
-          });
+    if (mode === 'EDIT') {
+      // `request` KHÔNG mang `idempotencyKey` (key chỉ được gắn vào đúng lúc gửi Create) —
+      // Edit Product không nhận trường đó. `externalProductId` thì VẪN gửi: Edit là full edit,
+      // bỏ trường nào là TikTok xoá trắng trường ấy.
+      await log(PodListingLogLevel.INFO, PodListingStep.PUBLISH, 'Gửi Publish (save_mode = LISTING)', {
+        ...logContext,
+        ...identityLog({
+          ctx,
+          payload,
+          payloadId: params.payloadId,
+          request,
+          endpoint: 'PRODUCT_PUBLISH',
+          method: 'PUT',
+          attempt: 1,
+          idempotencyKey: null,
+          tiktokProductId: tiktokDraftId,
+        }),
+      });
+      ({ data, requestId } = await this.productApi.publishProduct(
+        ctx,
+        tiktokDraftId as string,
+        request,
+      ));
+    } else {
+      ({ data, requestId } = await this.createWithReconcile({
+        ctx,
+        payload,
+        payloadId: params.payloadId,
+        request,
+        saveMode: TIKTOK_PRODUCT_SAVE_MODE.LISTING,
+        step: PodListingStep.PUBLISH,
+        message: 'Gửi Publish (save_mode = LISTING)',
+        log,
+        logContext,
+      }));
+    }
 
     // Nhánh EDIT: TikTok trả lại chính id đã gửi. Nhận `undefined` thì dùng lại id cũ thay
     // vì coi là thất bại — sản phẩm ĐÃ được cập nhật, báo hỏng chỉ khiến người dùng bấm
@@ -1231,10 +1298,178 @@ export class PodListingPublisherService {
    * biến thể) đi vào `skus[].sales_attributes`, phần còn lại đi vào `product_attributes`.
    * Trộn lẫn hai nhóm là TikTok từ chối cả sản phẩm.
    */
+  /**
+   * Gửi **Create Product** — và là NƠI DUY NHẤT trong hệ thống được phép gửi lại lệnh tạo.
+   *
+   * 🔴 Vì sao không để tầng SDK tự retry như mọi endpoint khác: Create Product mang
+   * `idempotency_key`, và TikTok ghi nhận key NGAY khi nhận request. Gửi lại y hệt (cùng key)
+   * sau một lỗi mạng ⇒ `12052996 Precondition Required — This operation requires a unique
+   * external_id`, lượt đăng chết oan. Gửi lại với key MỚI mà không kiểm tra gì ⇒ nếu lần đầu
+   * thật ra đã thành công thì shop có ngay sản phẩm thứ hai giống hệt, không gộp lại được.
+   *
+   * Nên thứ tự bắt buộc là: **hỏng ⇒ đối soát ⇒ mới quyết**.
+   *
+   * ```
+   *   gửi (key mới)
+   *     ├─ OK                      → xong
+   *     ├─ lỗi nghiệp vụ khác      → ném ngay (dữ liệu sai, gửi lại cũng sai)
+   *     └─ lỗi tạm thời | 12052996 → chờ → tìm sản phẩm trên shop theo seller_sku
+   *            ├─ thấy  → NHẬN sản phẩm đó (không gửi lại)
+   *            ├─ không → gửi lại với key MỚI (tối đa POD_LISTING_CREATE_MAX_ATTEMPTS lần)
+   *            └─ không đối soát được → ném lỗi gốc, TUYỆT ĐỐI không gửi lại
+   * ```
+   */
+  private async createWithReconcile(params: {
+    ctx: TiktokShopContext;
+    payload: ResolvedListing;
+    payloadId: string;
+    request: TiktokCreateProductRequest;
+    saveMode: string;
+    step: PodListingStep;
+    message: string;
+    log: ListingLogger;
+    logContext: Record<string, unknown>;
+  }): Promise<{ data: TiktokCreateProductResult; requestId?: string; reconciled: boolean }> {
+    const { ctx, payload, payloadId, request, saveMode, step, log } = params;
+
+    const sellerSkus = (request.skus ?? [])
+      .map((sku) => sku.sellerSku)
+      .filter((sku): sku is string => Boolean(sku));
+    // Mốc "sản phẩm này do CHÍNH lượt gửi hiện tại tạo ra" — trừ hao lệch giờ hai server.
+    const createdAfter = Math.floor(Date.now() / 1000) - POD_LISTING_RECONCILE_WINDOW_SEC;
+
+    for (let attempt = 1; attempt <= POD_LISTING_CREATE_MAX_ATTEMPTS; attempt++) {
+      // 🔴 Key MỚI cho mỗi lần gửi — không bao giờ dùng lại key của lần trước.
+      const idempotencyKey = buildTiktokIdempotencyKey(payload);
+
+      await log(PodListingLogLevel.INFO, step, params.message, {
+        ...params.logContext,
+        ...identityLog({
+          ctx,
+          payload,
+          payloadId,
+          request,
+          endpoint: 'PRODUCT_CREATE',
+          method: 'POST',
+          attempt,
+          idempotencyKey,
+          tiktokProductId: null,
+        }),
+      });
+
+      try {
+        const { data, requestId } = await this.productApi.createProduct(ctx, {
+          ...request,
+          saveMode,
+          idempotencyKey,
+        });
+        return { data, requestId, reconciled: false };
+      } catch (error) {
+        const tiktok = error instanceof TiktokClientError ? error : null;
+        const duplicateKey = tiktok?.tiktokCode === TIKTOK_ERROR_CODES.DUPLICATE_EXTERNAL_ID;
+        const transient = tiktok !== null && RETRYABLE_ERROR_CLASSES.includes(tiktok.errorClass);
+        // Lỗi dữ liệu (thiếu brand, sai kho, quá hạn mức shop…): gửi lại cũng hỏng y hệt.
+        if (!duplicateKey && !transient) throw error;
+
+        await log(
+          PodListingLogLevel.WARN,
+          step,
+          duplicateKey
+            ? 'TikTok từ chối vì `external_id` đã dùng — đối soát trước khi quyết định gửi lại'
+            : 'Create Product hỏng ở trạng thái KHÔNG rõ — đối soát trước khi quyết định gửi lại',
+          {
+            attempt,
+            idempotencyKey,
+            tiktokCode: tiktok?.tiktokCode ?? null,
+            tiktokRequestId: tiktok?.requestId ?? null,
+            errorClass: tiktok?.errorClass ?? null,
+          },
+        );
+
+        // Chờ một nhịp: TikTok cần chút thời gian để sản phẩm vừa tạo xuất hiện ở Search.
+        await this.delay(POD_LISTING_CREATE_RETRY_DELAY_MS * attempt);
+
+        let found: TiktokCreateProductResult | null;
+        try {
+          found = await this.findCreatedProduct(ctx, sellerSkus, createdAfter);
+        } catch (searchError) {
+          // Không biết sản phẩm đã vào shop hay chưa ⇒ KHÔNG gửi lại. Người vận hành nhìn
+          // thấy lỗi gốc và kiểm tra Seller Center, còn hơn tạo ra một sản phẩm trùng.
+          await log(
+            PodListingLogLevel.ERROR,
+            step,
+            'Không đối soát được sau khi Create Product hỏng — dừng để tránh sản phẩm trùng',
+            { attempt, reason: (searchError as Error).message },
+          );
+          throw error;
+        }
+
+        if (found?.productId) {
+          await log(
+            PodListingLogLevel.INFO,
+            step,
+            'Đối soát: sản phẩm ĐÃ có trên shop — nhận kết quả đó, không gửi lại',
+            { attempt, remoteProductId: found.productId, sellerSkus: sellerSkus.slice(0, 20) },
+          );
+          return { data: found, reconciled: true };
+        }
+
+        if (attempt === POD_LISTING_CREATE_MAX_ATTEMPTS) throw error;
+
+        await log(PodListingLogLevel.WARN, step, 'Đối soát: shop CHƯA có sản phẩm — gửi lại với `external_id` mới', {
+          attempt,
+          nextAttempt: attempt + 1,
+        });
+      }
+    }
+
+    // Vòng lặp luôn return hoặc throw; nhánh này chỉ để thoả TypeScript.
+    throw new Error('Create Product thất bại không rõ lý do');
+  }
+
+  /**
+   * Tìm sản phẩm mà lượt gửi vừa rồi CÓ THỂ đã tạo ra, dựa trên `seller_sku`.
+   *
+   * 🔴 `seller_sku` có thể trùng với một sản phẩm đăng từ trước, nên chỉ nhận sản phẩm có
+   * `create_time` nằm trong cửa sổ của lượt gửi hiện tại — nếu không, hệ thống sẽ "nhận vơ"
+   * một sản phẩm cũ và đánh dấu lượt đăng là thành công trong khi chẳng có gì được tạo.
+   */
+  private async findCreatedProduct(
+    ctx: TiktokShopContext,
+    sellerSkus: string[],
+    createdAfter: number,
+  ): Promise<TiktokCreateProductResult | null> {
+    if (sellerSkus.length === 0) return null;
+
+    const { data } = await this.productApi.searchProducts(ctx, {
+      // Search Products lọc theo `seller_skus`; 10 mã đầu đã đủ nhận diện một sản phẩm.
+      filter: { sellerSkus: sellerSkus.slice(0, 10) },
+    });
+
+    const match = data.items
+      .filter((item) => Boolean(item.id) && (item.createTime ?? 0) >= createdAfter)
+      .sort((a, b) => (b.createTime ?? 0) - (a.createTime ?? 0))[0];
+    if (!match?.id) return null;
+
+    return {
+      productId: match.id,
+      skus: (match.skus ?? []).map((sku) => ({ id: sku.id, sellerSku: sku.sellerSku })),
+    };
+  }
+
+  /** Tách riêng để test thay được — không ai muốn chờ thật vài giây trong unit test. */
+  private delay(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
   private buildCreateRequest(
     payload: ResolvedListing,
-    /** `idempotency_key` — sinh MỚI cho mỗi lần gọi, xem `buildTiktokExternalId`. */
-    externalId: string,
+    /**
+     * `pod_listing_payloads.id` — sinh ra `external_product_id` và `external_sku_id`, định
+     * danh ỔN ĐỊNH của lượt đăng. `idempotency_key` KHÔNG nằm trong hàm này: nó thuộc về từng
+     * LẦN GỬI và được gắn trong `createWithReconcile`.
+     */
+    payloadId: string,
     imageUris: string[],
     uriByFileId: Map<string, string>,
     /** Kho ĐÃ ĐƯỢC quyết theo shop — không lấy lại từ payload. */
@@ -1266,8 +1501,9 @@ export class PodListingPublisherService {
       ...(payload.highlights?.length ? { keyProductFeatures: payload.highlights } : {}),
       categoryId: payload.category.tiktokCategoryId ?? undefined,
       brandId: resolveTiktokBrandId(payload.brand),
-      // 🔴 DUY NHẤT cho mỗi request. Không phải hash payload — xem `buildTiktokExternalId`.
-      idempotencyKey: externalId,
+      // Định danh ỔN ĐỊNH của lượt đăng — gửi ở CẢ Create lẫn Edit. Đừng nhầm với
+      // `idempotency_key` (mới ở mỗi lần gửi, gắn trong `createWithReconcile`).
+      externalProductId: buildExternalProductId(payloadId),
       mainImages: imageUris.map((uri) => ({ uri })),
       packageWeight: payload.package.weight
         ? { value: payload.package.weight, unit: payload.package.weightUnit ?? undefined }
@@ -1287,13 +1523,14 @@ export class PodListingPublisherService {
       ...(videoId ? { video: { id: videoId } } : {}),
       productAttributes,
       skus: payload.variants.map((variant) =>
-        this.buildSku(payload, variant, uriByFileId, warehouseId),
+        this.buildSku(payload, payloadId, variant, uriByFileId, warehouseId),
       ),
     };
   }
 
   private buildSku(
     payload: ResolvedListing,
+    payloadId: string,
     variant: ResolvedListing['variants'][number],
     uriByFileId: Map<string, string>,
     warehouseId: string,
@@ -1317,6 +1554,7 @@ export class PodListingPublisherService {
 
     return {
       sellerSku: variant.sellerSku,
+      externalSkuId: buildExternalSkuId(payloadId, variant.sellerSku),
       price: {
         amount: variant.salePrice ?? undefined,
         currency,
@@ -1335,6 +1573,50 @@ export class PodListingPublisherService {
       })),
     };
   }
+}
+
+/**
+ * Bộ định danh ghi kèm MỌI lời gọi tạo/sửa sản phẩm — đây là thứ để dựng lại một sự cố
+ * `12052996` mà không cần bật debug: lần gửi thứ mấy, key nào, sản phẩm nội bộ nào, shop nào.
+ *
+ * 🔴 Chỉ định danh nghiệp vụ. KHÔNG có access token, shop cipher hay bất cứ thứ gì bí mật.
+ */
+function identityLog(params: {
+  ctx: TiktokShopContext;
+  payload: ResolvedListing;
+  payloadId: string;
+  request: TiktokCreateProductRequest;
+  endpoint: string;
+  method: 'POST' | 'PUT';
+  attempt: number;
+  idempotencyKey: string | null;
+  tiktokProductId: string | null;
+}): Record<string, unknown> {
+  const { payload, request } = params;
+  return {
+    endpoint: params.endpoint,
+    method: params.method,
+    attempt: params.attempt,
+    shopId: params.ctx.shopId,
+    payloadId: params.payloadId,
+    productId: payload.source.productId,
+    sessionProductId: payload.source.sessionProductId,
+    listingTemplateId: payload.source.listingTemplateId,
+    tiktokProductId: params.tiktokProductId,
+    // TikTok gọi `idempotency_key` là `external_id` trong thông điệp lỗi — ghi cả hai tên để
+    // người đọc log nối được với câu lỗi họ nhìn thấy trên màn hình.
+    externalId: params.idempotencyKey,
+    idempotencyKey: params.idempotencyKey,
+    externalProductId: request.externalProductId ?? null,
+    externalSkuIds: (request.skus ?? [])
+      .map((sku) => sku.externalSkuId)
+      .filter((id): id is string => Boolean(id))
+      .slice(0, 20),
+    sellerSkus: (request.skus ?? [])
+      .map((sku) => sku.sellerSku)
+      .filter((sku): sku is string => Boolean(sku))
+      .slice(0, 20),
+  };
 }
 
 /**

@@ -304,6 +304,7 @@ describe('Publisher — ảnh biến thể lên TikTok', () => {
       organizationId: 'org-1',
       ctx: CTX,
       payload,
+      payloadId: 'payload-1',
       tiktokDraftId: null,
       imageUriCache: new Map(),
       log: jest.fn().mockResolvedValue(undefined),
@@ -345,6 +346,7 @@ describe('Publisher — ảnh biến thể lên TikTok', () => {
       organizationId: 'org-1',
       ctx: CTX,
       payload,
+      payloadId: 'payload-1',
       tiktokDraftId: null,
       // Cùng file đã có uri MAIN_IMAGE (dùng làm ảnh sản phẩm ở listing khác) — không được lấy nhầm cho sku_img.
       imageUriCache: new Map([['MAIN_IMAGE:file-black', Promise.resolve('main-uri-black')], ['MAIN_IMAGE:file-front', Promise.resolve('front')]]),

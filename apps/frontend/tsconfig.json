@@ -27,6 +27,7 @@
   "exclude": [
     "node_modules",
     "scripts/verify-pagination.ts",
+    "scripts/verify-fulfill-config.ts",
     "scripts/verify-issue-grouping.ts",
     "scripts/verify-selection.ts",
     "scripts/verify-description-editor.ts",

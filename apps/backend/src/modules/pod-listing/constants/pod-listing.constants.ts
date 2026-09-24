@@ -352,3 +352,28 @@ export const POD_PRODUCT_CLONE_WAIT_MS = 30_000;
  * chỉ hỏi TikTok một lần.
  */
 export const POD_CATEGORY_RULES_CACHE_MS = 6 * 60 * 60_000;
+
+// ---------------------------------------------------------------------------
+// Create Product — retry có đối soát
+// ---------------------------------------------------------------------------
+
+/**
+ * Số lần GỬI Create Product tối đa cho một lượt đăng (tính cả lần đầu).
+ *
+ * 🔴 Mỗi lần gửi mang một `idempotency_key` MỚI, nên trước khi gửi lại hệ thống BẮT BUỘC đối
+ * soát "sản phẩm đã vào shop chưa" — nếu bỏ bước đó thì lần gửi thứ hai đẻ ra sản phẩm trùng.
+ * Xem `PodListingPublisherService.createWithReconcile`.
+ */
+export const POD_LISTING_CREATE_MAX_ATTEMPTS = 3;
+
+/** Chờ bấy nhiêu ms trước mỗi lần đối soát/gửi lại Create Product (nhân theo số lần thử). */
+export const POD_LISTING_CREATE_RETRY_DELAY_MS = 2_000;
+
+/**
+ * Cửa sổ thời gian (giây) để nhận ra "sản phẩm này do CHÍNH lượt gửi vừa rồi tạo ra".
+ *
+ * Đối soát tìm theo `seller_sku` — mà `seller_sku` có thể trùng với một sản phẩm đăng từ
+ * trước. Chỉ những sản phẩm `create_time` nằm trong cửa sổ này (tính từ lúc bắt đầu gửi, trừ
+ * hao lệch giờ giữa hai server) mới được nhận là kết quả của lượt gửi hiện tại.
+ */
+export const POD_LISTING_RECONCILE_WINDOW_SEC = 300;

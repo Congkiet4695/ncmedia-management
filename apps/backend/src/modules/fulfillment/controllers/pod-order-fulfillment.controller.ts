@@ -1,4 +1,4 @@
-import { Controller, HttpCode, HttpStatus, Param, ParseUUIDPipe, Post } from '@nestjs/common';
+import { Body, Controller, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
@@ -12,7 +12,11 @@ import { FulfillmentTrigger } from '@prisma/client';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../auth/decorators/require-permissions.decorator';
 import { AuthenticatedUser } from '../../auth/types/authenticated-user.interface';
-import { FulfillmentOrderDto } from '../dto/fulfillment.dto';
+import {
+  FulfillPodOrderDto,
+  FulfillmentOrderDto,
+  UpdateFulfillmentOrderDto,
+} from '../dto/fulfillment.dto';
 import { MangoFulfillmentService } from '../mango/services/mango-fulfillment.service';
 import { FulfillmentService } from '../services/fulfillment.service';
 
@@ -54,12 +58,44 @@ export class PodOrderFulfillmentController {
   async fulfill(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) podOrderId: string,
+    @Body() dto: FulfillPodOrderDto,
   ): Promise<FulfillmentOrderDto> {
     const record = await this.mangoService.fulfill(
       user.organizationId,
       user.userId,
       podOrderId,
       FulfillmentTrigger.MANUAL,
+      dto ?? {},
+    );
+    return this.service.toOrderDto(record);
+  }
+
+  @Patch(':id/fulfillment')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('fulfillment.create')
+  @ApiOperation({
+    summary: 'Sửa đơn đã gửi (nhãn · ghi chú · phương thức vận chuyển)',
+    description:
+      'Gọi Update Order của nhà cung cấp. Chỉ dùng được khi đơn CHƯA vào sản xuất. Sửa nhãn ' +
+      'hoặc phương thức vận chuyển khiến nhà cung cấp TÍNH LẠI chi phí — giá vốn mới được áp ' +
+      'ngay vào đơn.',
+  })
+  @ApiOkResponse({ type: FulfillmentOrderDto })
+  @ApiConflictResponse({ description: 'FULFILLMENT_CANNOT_UPDATE' })
+  async updateFulfillment(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) podOrderId: string,
+    @Body() dto: UpdateFulfillmentOrderDto,
+  ): Promise<FulfillmentOrderDto> {
+    const record = await this.mangoService.updateAtProvider(
+      user.organizationId,
+      user.userId,
+      podOrderId,
+      {
+        labelUrl: dto.labelUrl,
+        note: dto.note,
+        shippingMethod: dto.shippingMethod,
+      },
     );
     return this.service.toOrderDto(record);
   }

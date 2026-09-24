@@ -148,7 +148,7 @@ async function publish(ctx: ResolveContext, options: PublisherOptions = {}) {
   const errors = issues.filter((issue) => issue.level === 'ERROR');
   const { service, productApi, storage, prisma } = buildPublisher(options);
   const log = jest.fn().mockResolvedValue(undefined);
-  const outcome = await service.publishDraft({ organizationId: ORG, ctx: CTX, payload, imageUriCache: new Map(), log });
+  const outcome = await service.publishDraft({ organizationId: ORG, ctx: CTX, payload, payloadId: 'payload-1', imageUriCache: new Map(), log });
   const request = productApi.createProduct.mock.calls[0]?.[1];
   const uploads = productApi.uploadImage.mock.calls.map((call) => `${call[2]}:${call[1].fileName}`);
   return { payload, errors, outcome, request, uploads, storage, log, prisma, productApi, service };
@@ -158,7 +158,7 @@ async function publish(ctx: ResolveContext, options: PublisherOptions = {}) {
 function publishWithApi(ctx: ResolveContext, options: PublisherOptions) {
   const { payload } = resolver.resolveFromContext(ctx);
   const { service, productApi } = buildPublisher(options);
-  const result = service.publishDraft({ organizationId: ORG, ctx: CTX, payload, imageUriCache: new Map(), log: jest.fn().mockResolvedValue(undefined) });
+  const result = service.publishDraft({ organizationId: ORG, ctx: CTX, payload, payloadId: 'payload-1', imageUriCache: new Map(), log: jest.fn().mockResolvedValue(undefined) });
   return { result, productApi };
 }
 
@@ -438,8 +438,8 @@ describe('Bảng size × Get Category Rules × cache uri', () => {
     const { payload } = resolver.resolveFromContext(withSizeChart());
     const { service, productApi } = buildPublisher();
     const log = jest.fn().mockResolvedValue(undefined);
-    await service.publishDraft({ organizationId: ORG, ctx: CTX, payload, imageUriCache: new Map(), log });
-    await service.publishDraft({ organizationId: ORG, ctx: CTX, payload, imageUriCache: new Map(), log });
+    await service.publishDraft({ organizationId: ORG, ctx: CTX, payload, payloadId: 'payload-1', imageUriCache: new Map(), log });
+    await service.publishDraft({ organizationId: ORG, ctx: CTX, payload, payloadId: 'payload-1', imageUriCache: new Map(), log });
     expect(productApi.getCategoryRules).toHaveBeenCalledTimes(1);
   });
 });

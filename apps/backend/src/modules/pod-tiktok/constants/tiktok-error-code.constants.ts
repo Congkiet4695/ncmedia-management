@@ -34,6 +34,15 @@ export const TIKTOK_ERROR_CODES = {
   INVALID_SIGN: 106001,
   /** Thiếu shop_cipher. */
   MISSING_SHOP_CIPHER: 106013,
+  /**
+   * `Precondition Required. This operation requires a unique 'external_id'.`
+   *
+   * 🔴 Create Product trả mã này khi `idempotency_key` gửi lên **đã từng được dùng trong
+   * shop**. Nó KHÔNG phải lỗi tạm thời và cũng không phải lỗi dữ liệu: TikTok đang nói
+   * "request này tôi đã nhận rồi". Vì thế nơi gọi phải ĐỐI SOÁT (sản phẩm đã vào shop chưa)
+   * thay vì gửi lại — xem `PodListingPublisherService.createWithReconcile`.
+   */
+  DUPLICATE_EXTERNAL_ID: 12052996,
 } as const;
 
 /**

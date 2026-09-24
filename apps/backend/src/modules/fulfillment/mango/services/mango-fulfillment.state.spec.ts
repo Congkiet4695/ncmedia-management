@@ -7,6 +7,7 @@ import { PodOrderRepository } from '../../../pod-tiktok/repositories/pod-order.r
 import { MangoApiClient } from '../clients/mango-api.client';
 import { MangoOrderMapper } from '../mappers/mango-order.mapper';
 import { MangoFulfillmentService } from './mango-fulfillment.service';
+import { DistributedLockService } from '../../../pod-tiktok/infra/distributed-lock.service';
 import { MangoCredentialService } from './mango-credential.service';
 import type { MangoOrderStatus } from '../constants/mango.constants';
 import type { MangoOrderResponse } from '../types/mango-api.types';
@@ -19,7 +20,9 @@ function buildService() {
   const updateOrder = jest.fn().mockResolvedValue(undefined);
   const addHistory = jest.fn().mockResolvedValue(undefined);
 
-  const repo = { updateOrder, addHistory } as unknown as FulfillmentRepository;
+  // listItems rỗng ⇒ nhánh giá vốn thoát sớm; test này chỉ xét phần áp TRẠNG THÁI.
+  const listItems = jest.fn().mockResolvedValue([]);
+  const repo = { updateOrder, addHistory, listItems } as unknown as FulfillmentRepository;
   const mapper = new MangoOrderMapper();
 
   const service = new MangoFulfillmentService(
@@ -30,6 +33,7 @@ function buildService() {
     {} as unknown as MangoApiClient,
     mapper,
     {} as unknown as MangoCredentialService,
+    { withLock: <T>(_k: string, _t: number, task: () => Promise<T>) => task() } as unknown as DistributedLockService,
   );
 
   return { service, updateOrder, addHistory };

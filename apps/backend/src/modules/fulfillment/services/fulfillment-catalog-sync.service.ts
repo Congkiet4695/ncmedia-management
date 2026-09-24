@@ -67,6 +67,32 @@ export interface CatalogSyncResult {
  * biến thể; chạy tuần tự thì một danh mục 2000 sản phẩm mất hàng chục phút. Chạy song song
  * có trần, còn việc giữ đúng 10 req/s là của `MangoApiClient`.
  */
+/**
+ * SKU **nghiệp vụ** của một sản phẩm nhà cung cấp — `null` khi nhà cung cấp không thực sự có.
+ *
+ * 🔴 MangoTee trả `sku = "PROD-<id sản phẩm>"` cho TOÀN BỘ danh mục (284/284 bản ghi trong
+ * database hiện tại): đó là chính cái id kỹ thuật viết lại, không phải mã người vận hành đọc.
+ * Lưu nó vào cột `sku` là mọi ô chọn hiện "Tên sản phẩm · PROD-6362ae37-519a-…" — UUID chường
+ * ra giữa giao diện. Chặn ngay tại CỬA VÀO của dữ liệu, thay vì bắt từng màn hình tự cắt chuỗi
+ * (mỗi màn hình một kiểu cắt là một lỗi hiển thị khác nhau).
+ *
+ * Không mất gì: payload gốc vẫn nằm ở `raw_data`, còn `external_product_id` vẫn là id để tra
+ * cứu và để tìm kiếm. SKU thật của biến thể (`EMBUNGH1M00S`, `12125`…) KHÔNG bị đụng tới —
+ * đó mới là mã gửi sang xưởng in.
+ */
+export function businessProductSku(
+  sku: string | null | undefined,
+  externalProductId: string,
+): string | null {
+  const value = sku?.trim();
+  if (!value) return null;
+  const id = externalProductId.trim().toLowerCase();
+  const lower = value.toLowerCase();
+  // `PROD-<id>`, `<id>`, hay bất cứ biến thể nào chỉ bọc lại id đều không phải mã nghiệp vụ.
+  if (!id || lower === id || lower.includes(id)) return null;
+  return value;
+}
+
 @Injectable()
 export class FulfillmentCatalogSyncService {
   private readonly logger = new Logger(FulfillmentCatalogSyncService.name);
@@ -375,7 +401,8 @@ export class FulfillmentCatalogSyncService {
       externalProductId: item.id as string,
       externalCatalogueId: item.catalog_id?.trim() || null,
       name: item.name?.trim() || item.sku?.trim() || (item.id as string),
-      sku: item.sku?.trim() || null,
+      // Xem `businessProductSku`: id kỹ thuật viết lại KHÔNG được lưu như SKU.
+      sku: businessProductSku(item.sku, item.id as string),
       image: item.images?.[0] ?? null,
       basePrice: item.base_price ?? null,
       currency: item.currency ?? null,

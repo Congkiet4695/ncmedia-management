@@ -48,7 +48,7 @@ interface OrderActionMenuProps {
  * `POST /orders/sync` chạy theo shop/tổ chức chứ không theo từng đơn. Tooltip nói đúng việc
  * nó làm để không ai bấm nhầm rồi tưởng đơn vừa được kéo mới từ sàn.
  *
- * 🔴 **Cancel** được giữ lại từ màn hình cũ (`FulfillmentPanel`). Bố cục mới gọn hơn nhưng
+ * 🔴 **Cancel** được giữ lại từ bảng fulfillment của màn hình cũ. Bố cục mới gọn hơn nhưng
  * không được phép làm mất một thao tác nghiệp vụ đang có — huỷ đơn ở xưởng in là việc thật,
  * và bỏ nó đi chỉ để bảng đẹp hơn là đẩy người vận hành sang cổng quản trị của nhà cung cấp.
  */

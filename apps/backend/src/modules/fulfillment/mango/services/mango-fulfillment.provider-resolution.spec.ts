@@ -12,6 +12,7 @@ import { TiktokEncryptionService } from '../../../pod-tiktok/services/tiktok-enc
 import type { PodOrderWithRelations } from '../../../pod-tiktok/types/pod-order-with-relations.type';
 import { MangoApiClient } from '../clients/mango-api.client';
 import { MangoOrderMapper } from '../mappers/mango-order.mapper';
+import { DistributedLockService } from '../../../pod-tiktok/infra/distributed-lock.service';
 import { MangoCredentialService } from './mango-credential.service';
 import { MangoFulfillmentService } from './mango-fulfillment.service';
 
@@ -22,6 +23,13 @@ import { MangoFulfillmentService } from './mango-fulfillment.service';
 const encryption = {
   decrypt: (value: string) => value.replace(/^enc:/, ''),
 } as unknown as TiktokEncryptionService;
+
+/** Khoá phân tán giả: luôn lấy được khoá và chạy thẳng hàm bên trong. */
+function lockStub(): DistributedLockService {
+  return {
+    withLock: <T>(_key: string, _ttl: number, task: () => Promise<T>) => task(),
+  } as unknown as DistributedLockService;
+}
 
 function buildService(overrides: {
   findAccountById?: jest.Mock;
@@ -51,6 +59,7 @@ function buildService(overrides: {
     {} as unknown as MangoApiClient,
     new MangoOrderMapper(),
     new MangoCredentialService(encryption),
+    lockStub(),
   );
 
   return { service, findAccountById, createOrder };
@@ -176,6 +185,7 @@ describe('MangoFulfillmentService.fulfill — chống gửi trùng', () => {
       {} as unknown as MangoApiClient,
       new MangoOrderMapper(),
       new MangoCredentialService(encryption),
+      lockStub(),
     );
 
     await expect(service.fulfill('org-1', 'user-1', 'order-1')).rejects.toThrow();

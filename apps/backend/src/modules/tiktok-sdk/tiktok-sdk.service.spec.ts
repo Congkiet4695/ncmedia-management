@@ -132,6 +132,21 @@ describe('TikTokSdkService', () => {
       expect(result.data).toEqual({ ok: true });
     });
 
+    it('🔴 `retry: false` → KHÔNG tự gửi lại dù lỗi mạng (Create Product mang `idempotency_key`)', async () => {
+      const service = buildService();
+      const invoke = jest
+        .fn()
+        .mockRejectedValueOnce(new Error('socket hang up'))
+        .mockResolvedValueOnce({ body: { code: 0, data: { ok: true } } });
+
+      // Gửi lại y hệt = gửi lại cùng `idempotency_key` ⇒ TikTok trả `12052996 requires a
+      // unique external_id`. Quyền gửi lại thuộc về nơi đối soát được, không phải tầng này.
+      await expect(
+        service.execute<{ ok: boolean }>({ endpoint: 'PRODUCT_CREATE', retry: false, invoke }),
+      ).rejects.toBeInstanceOf(TiktokClientError);
+      expect(invoke).toHaveBeenCalledTimes(1);
+    });
+
     it('HTTP 500 kèm envelope → giữ nguyên code nghiệp vụ để chẩn đoán', async () => {
       const service = buildService();
       const invoke = jest.fn().mockRejectedValue({

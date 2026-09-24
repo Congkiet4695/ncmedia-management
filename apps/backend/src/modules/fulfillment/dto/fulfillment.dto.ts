@@ -17,9 +17,18 @@ import {
   MinLength,
   Min,
 } from 'class-validator';
-import { FulfillmentProvider, FulfillmentStatus } from '@prisma/client';
+import { FulfillmentProvider, FulfillmentStatus, PodDesignPlacement } from '@prisma/client';
 import { PodDesignDto } from '../../pod-tiktok/dto/pod-design.dto';
-import { MANGO_SHIPPING_METHODS } from '../mango/constants/mango.constants';
+import {
+  FULFILLMENT_ISSUE_SECTIONS,
+  type FulfillmentIssueSection,
+} from '../services/fulfillment-readiness.service';
+import {
+  MANGO_FACILITIES,
+  MANGO_PREFERRED_CARRIERS,
+  MANGO_SHIPPING_METHODS,
+  MANGO_SPEED_TYPES,
+} from '../mango/constants/mango.constants';
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
@@ -319,6 +328,18 @@ export class CatalogProductQueryDto {
   @IsOptional()
   @IsUUID('4')
   catalogueId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Tra CHÍNH XÁC theo id sản phẩm phía nhà cung cấp — dùng để dựng lại ô chọn của một ' +
+      'cấu hình đã lưu (sản phẩm đó thường không nằm ở trang đầu). Khác `search` ở chỗ so ' +
+      'khớp tuyệt đối, không phải "chứa".',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(255)
+  externalProductId?: string;
 }
 
 /** Kết quả một lượt đồng bộ danh mục. */
@@ -504,6 +525,21 @@ export class UpsertProductMappingDto {
   @MaxLength(40)
   productionConfig?: string;
 
+  /**
+   * Line sản xuất của nhà cung cấp cho riêng sản phẩm này.
+   *
+   * 🔴 Giá trị là **id do nhà cung cấp cấp** (`GET /production-lines` → `items[].id`), không
+   * phải tên hiển thị. Bỏ trống ⇒ dùng line mặc định của tài khoản.
+   */
+  @ApiPropertyOptional({
+    description: 'ID line sản xuất của nhà cung cấp (GET /production-lines → items[].id).',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(64)
+  productionLine?: string;
+
   @ApiPropertyOptional({
     description:
       'Ánh xạ vị trí in riêng cho sản phẩm này. VD: { "FRONT": "front", "BACK": "back" }. ' +
@@ -619,6 +655,12 @@ export class ProductMappingDto {
   @ApiProperty({ nullable: true, type: String }) providerColor!: string | null;
   @ApiProperty({ nullable: true, type: String }) providerSize!: string | null;
   @ApiProperty({ nullable: true, type: String }) productionConfig!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'ID line sản xuất của nhà cung cấp gắn cho sản phẩm này (NULL = dùng mặc định tài khoản).',
+  })
+  productionLine!: string | null;
   @ApiProperty({ nullable: true, type: Object }) placementMap!: unknown;
   @ApiProperty() isActive!: boolean;
   @ApiProperty({ nullable: true, type: String }) note!: string | null;
@@ -661,6 +703,132 @@ export class PaginatedProductMappingDto {
 // Fulfillment
 // ---------------------------------------------------------------------------
 
+/**
+ * Tuỳ chọn gửi đơn — đúng những thứ người vận hành chọn trên màn hình Fulfill.
+ *
+ * 🔴 Mọi field đều TUỲ CHỌN: bỏ trống thì dùng mặc định của tài khoản nhà cung cấp, đúng hành
+ * vi trước đây. Giá trị hợp lệ lấy nguyên văn từ tài liệu Mango (không tự chế enum).
+ */
+export class FulfillPodOrderDto {
+  @ApiPropertyOptional({
+    enum: MANGO_SHIPPING_METHODS,
+    description: 'Bỏ trống ⇒ dùng phương thức mặc định của tài khoản nhà cung cấp.',
+  })
+  @IsOptional()
+  @IsIn(MANGO_SHIPPING_METHODS)
+  shippingMethod?: (typeof MANGO_SHIPPING_METHODS)[number];
+
+  @ApiPropertyOptional({
+    enum: MANGO_FACILITIES,
+    description: 'Xưởng xử lý — chỉ có tác dụng với production line TIKTOK.',
+  })
+  @IsOptional()
+  @IsIn(MANGO_FACILITIES)
+  facility?: (typeof MANGO_FACILITIES)[number];
+
+  @ApiPropertyOptional({
+    enum: MANGO_SPEED_TYPES,
+    description: 'Chỉ dùng cho production line FASTUS (rush | expedite).',
+  })
+  @IsOptional()
+  @IsIn(MANGO_SPEED_TYPES)
+  speedType?: (typeof MANGO_SPEED_TYPES)[number];
+
+  @ApiPropertyOptional({
+    enum: MANGO_PREFERRED_CARRIERS,
+    description: 'Hãng vận chuyển ưu tiên khi đơn tự mua nhãn.',
+  })
+  @IsOptional()
+  @IsIn(MANGO_PREFERRED_CARRIERS)
+  preferredCarrier?: (typeof MANGO_PREFERRED_CARRIERS)[number];
+
+  @ApiPropertyOptional({ description: 'Bật scan label (chỉ production line TIKTOK).' })
+  @IsOptional()
+  @IsBoolean()
+  isScanLabel?: boolean;
+
+  @ApiPropertyOptional({
+    description: 'URL nhãn vận chuyển người bán tự mua (PDF/PNG/JPG, phải truy cập công khai).',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsUrl({ protocols: ['http', 'https'], require_protocol: true })
+  @MaxLength(1024)
+  labelUrl?: string;
+
+  @ApiPropertyOptional({ description: 'Ghi chú gửi kèm cho xưởng in. Bỏ trống ⇒ ghi chú của người bán.' })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(1000)
+  note?: string;
+}
+
+/**
+ * Sửa đơn ĐÃ gửi mà chưa vào sản xuất (PUT /orders/{id} của Mango).
+ * Sửa nhãn hoặc phương thức vận chuyển ⇒ nhà cung cấp TÍNH LẠI chi phí.
+ */
+export class UpdateFulfillmentOrderDto {
+  @ApiPropertyOptional({ description: 'URL nhãn vận chuyển mới. Chuỗi rỗng = gỡ nhãn.' })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(1024)
+  labelUrl?: string;
+
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(1000)
+  note?: string;
+
+  @ApiPropertyOptional({ enum: MANGO_SHIPPING_METHODS })
+  @IsOptional()
+  @IsIn(MANGO_SHIPPING_METHODS)
+  shippingMethod?: (typeof MANGO_SHIPPING_METHODS)[number];
+}
+
+export class FulfillmentOptionDto {
+  @ApiProperty() value!: string;
+  @ApiProperty() label!: string;
+}
+
+export class PrintLocationOptionDto {
+  @ApiProperty({ enum: PodDesignPlacement, description: 'Vị trí in phía NCMedia (khoá upload design).' })
+  placement!: PodDesignPlacement;
+  @ApiProperty({ description: 'print_files key tương ứng của nhà cung cấp.' })
+  providerKey!: string;
+}
+
+/**
+ * Lựa chọn cấu hình của MỘT tài khoản nhà cung cấp.
+ *
+ * 🔴 Giao diện KHÔNG viết cứng giá trị nào của nhà cung cấp — mọi ô chọn ở màn hình Fulfill
+ * đều đọc từ đây (xem `FulfillmentOptionsService`).
+ */
+export class FulfillmentOptionsDto {
+  @ApiProperty({ enum: FulfillmentProvider }) provider!: FulfillmentProvider;
+  @ApiProperty() accountId!: string;
+  @ApiProperty({ nullable: true, type: String }) notice!: string | null;
+  @ApiProperty({ type: FulfillmentOptionDto, isArray: true }) shippingMethods!: FulfillmentOptionDto[];
+  @ApiProperty({ type: FulfillmentOptionDto, isArray: true }) facilities!: FulfillmentOptionDto[];
+  @ApiProperty({ type: FulfillmentOptionDto, isArray: true }) speedTypes!: FulfillmentOptionDto[];
+  @ApiProperty({ type: FulfillmentOptionDto, isArray: true })
+  preferredCarriers!: FulfillmentOptionDto[];
+  @ApiProperty({ type: FulfillmentOptionDto, isArray: true })
+  productionConfigs!: FulfillmentOptionDto[];
+  @ApiProperty({
+    type: FulfillmentOptionDto,
+    isArray: true,
+    description: 'Lấy trực tiếp từ nhà cung cấp; rỗng = chưa hỏi được (xem warnings).',
+  })
+  productionLines!: FulfillmentOptionDto[];
+  @ApiProperty({ type: PrintLocationOptionDto, isArray: true })
+  printLocations!: PrintLocationOptionDto[];
+  @ApiProperty({ type: String, isArray: true }) warnings!: string[];
+}
+
 export class CancelFulfillmentDto {
   @ApiPropertyOptional({ description: 'Lý do huỷ gửi kèm cho nhà cung cấp.' })
   @IsOptional()
@@ -678,6 +846,12 @@ export class TriggerFulfillmentSyncDto {
 }
 
 export class FulfillmentIssueDto {
+  @ApiProperty({
+    enum: FULFILLMENT_ISSUE_SECTIONS,
+    description:
+      'Khối trên màn hình Fulfill mà lỗi này thuộc về — giao diện hiện lỗi ngay tại chỗ phải sửa.',
+  })
+  section!: FulfillmentIssueSection;
   @ApiProperty({ nullable: true, type: String }) tiktokProductId?: string | null;
   @ApiProperty({ nullable: true, type: String }) tiktokSkuId?: string | null;
   @ApiProperty({ nullable: true, type: String }) sellerSku?: string | null;
@@ -697,6 +871,20 @@ export class FulfillmentItemDto {
   @ApiProperty({ nullable: true, type: Object }) printFiles!: unknown;
   @ApiProperty({ nullable: true, type: String }) color!: string | null;
   @ApiProperty({ nullable: true, type: String }) size!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description:
+      'Giá vốn dòng hàng. Sau khi gửi đơn là số NHÀ CUNG CẤP báo về (Create Order / Get Order ' +
+      'Detail); trước đó là giá khai ở Product Mapping. NULL = nhà cung cấp chưa báo giá.',
+  })
+  baseCost!: number | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'items[].item_id phía nhà cung cấp (bằng id dòng này khi đơn được gửi kèm item_id).',
+  })
+  providerItemId!: string | null;
 }
 
 export class FulfillmentOrderDto {
@@ -720,8 +908,20 @@ export class FulfillmentOrderDto {
   @ApiProperty({ nullable: true, type: String }) labelUrl!: string | null;
   @ApiProperty({ nullable: true, type: String }) shippingMethod!: string | null;
   @ApiProperty({ nullable: true, type: String }) productionLine!: string | null;
+  @ApiProperty({ nullable: true, type: String }) facility!: string | null;
+  @ApiProperty({ nullable: true, type: String }) speedType!: string | null;
+  @ApiProperty({ nullable: true, type: Number, description: 'Tổng giá vốn hàng (nhà cung cấp tính).' })
+  subtotal!: number | null;
+  @ApiProperty({ nullable: true, type: Number }) shippingFee!: number | null;
+  @ApiProperty({ nullable: true, type: Number }) tax!: number | null;
   @ApiProperty({ nullable: true, type: Number }) total!: number | null;
   @ApiProperty({ nullable: true, type: String }) currency!: string | null;
+  @ApiProperty({
+    description:
+      'Còn dòng hàng chưa có giá vốn từ nhà cung cấp. Đơn vẫn được tiếp nhận; giá vốn sẽ được ' +
+      'điền ở lượt đồng bộ kế tiếp.',
+  })
+  baseCostPending!: boolean;
   @ApiProperty() attemptCount!: number;
   @ApiProperty({ nullable: true, type: String }) lastErrorCode!: string | null;
   @ApiProperty({ nullable: true, type: String }) lastErrorMessage!: string | null;
@@ -737,6 +937,28 @@ export class FulfillmentOrderDto {
   @ApiProperty({ type: FulfillmentItemDto, isArray: true }) items!: FulfillmentItemDto[];
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
+}
+
+/**
+ * Một dòng hàng của đơn, kèm ÁNH XẠ ĐÃ GHÉP.
+ *
+ * 🔴 Vì sao trả kèm ở đây: luật ghép là `Product ID + Seller SKU` và nó sống ở backend
+ * (`shared/mapping-match.ts`). Trước đây màn hình Fulfill tự tải một trang ánh xạ rồi tự ghép
+ * lại — hai bản sao của cùng một luật, và bản của giao diện còn phụ thuộc việc ánh xạ có lọt
+ * vào trang đó hay không. Tổ chức nhiều ánh xạ hơn một trang là màn hình báo "chưa ánh xạ"
+ * cho một sản phẩm đã ánh xạ, rồi lưu đè lại và đâm vào ràng buộc UNIQUE.
+ */
+export class FulfillmentStateItemDto {
+  @ApiProperty({ description: 'Khoá nội bộ của dòng hàng (pod_order_items.id).' })
+  podOrderItemId!: string;
+  @ApiProperty({ nullable: true, type: String }) tiktokProductId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) sellerSku!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: ProductMappingDto,
+    description: 'Ánh xạ đang áp dụng cho dòng hàng này. NULL = chưa khai.',
+  })
+  mapping!: ProductMappingDto | null;
 }
 
 /** Trạng thái fulfillment kèm đánh giá "gửi được chưa" — dùng cho màn hình đơn. */
@@ -755,6 +977,12 @@ export class FulfillmentStateDto {
     description: 'Nhà cung cấp gán cho kết nối TikTok của đơn. NULL = chưa cấu hình.',
   })
   provider!: FulfillmentStateProviderDto | null;
+  @ApiProperty({
+    type: FulfillmentStateItemDto,
+    isArray: true,
+    description: 'Từng dòng hàng của đơn kèm ánh xạ đã ghép (cùng luật với luồng gửi).',
+  })
+  items!: FulfillmentStateItemDto[];
 }
 
 export class FulfillmentHistoryDto {

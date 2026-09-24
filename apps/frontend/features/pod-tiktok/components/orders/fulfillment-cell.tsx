@@ -1,18 +1,15 @@
 'use client';
 
-import { AlertTriangle, Factory, Loader2, Send } from 'lucide-react';
-import { toast } from 'sonner';
+import { useState } from 'react';
+import { AlertTriangle, Factory, Send } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip } from '@/components/ui/tooltip';
-import { useApiError } from '@/hooks/use-api-error';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
-import {
-  useFulfillmentActions,
-  useFulfillmentState,
-} from '@/features/fulfillment/hooks/use-fulfillment';
+import { FulfillOrderDrawer } from '@/features/fulfillment/components/fulfill-order-drawer';
+import { useFulfillmentState } from '@/features/fulfillment/hooks/use-fulfillment';
 import type { FulfillmentStatus } from '@/features/fulfillment/types';
 import { EMPTY, formatOrderDateTime, orderCurrency } from '../../order-view-model';
 
@@ -47,9 +44,10 @@ const STATUS_VARIANT: Record<FulfillmentStatus, 'default' | 'muted' | 'destructi
  *   đã gửi    →  Provider · Fulfilled At · Fulfilled By · Base Cost   (KHÔNG còn nút Fulfill)
  * ```
  *
- * 🔴 Nút Fulfill gọi ĐÚNG `fulfillmentService.fulfill(podOrderId)` đang có — không có logic
- * fulfillment mới nào ở tầng giao diện. Nút chỉ bật khi **backend** xác nhận `canFulfill`:
- * cho bấm rồi để server từ chối là dạy người dùng bỏ qua thông báo lỗi.
+ * 🔴 Nút Fulfill **mở Drawer** (`FulfillOrderDrawer`) chứ không POST thẳng: gửi sản xuất là
+ * quyết định cần đọc đơn, ánh xạ, design và chọn phương thức vận chuyển — bấm một phát rồi
+ * "hy vọng mặc định đúng" là cách tạo ra những đơn in sai. Toàn bộ nghiệp vụ vẫn nằm ở
+ * service/hook cũ, drawer chỉ là nơi hiển thị và thu thập lựa chọn.
  *
  * 🔴 **Lý do chặn phải HIỆN RA, không giấu trong tooltip.** Bản trước bọc nút bị `disabled`
  * trong `<Tooltip>`: nút disabled không phát sự kiện chuột, nên tooltip mang lý do KHÔNG BAO
@@ -59,15 +57,14 @@ const STATUS_VARIANT: Record<FulfillmentStatus, 'default' | 'muted' | 'destructi
  *
  * 🔴 Mỗi dòng tự hỏi trạng thái fulfillment của mình (`GET /fulfillment/:orderId/state`) —
  * hệ thống không có endpoint lấy hàng loạt. Đây đúng bằng số request mà màn hình cũ đã tạo
- * (mỗi thẻ đơn một `FulfillmentPanel`), nên không phải bước lùi về hiệu năng.
+ * (mỗi thẻ đơn một bảng fulfillment riêng), nên không phải bước lùi về hiệu năng.
  */
 export function FulfillmentCell({ podOrderId, enabled, canFulfill }: FulfillmentCellProps) {
   const { t } = useTranslation(['pod', 'fulfillment']);
-  const translateApiError = useApiError();
   const { formatCurrency } = useLocaleFormat();
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   const state = useFulfillmentState(podOrderId, enabled);
-  const actions = useFulfillmentActions(podOrderId);
 
   if (!enabled) {
     return <span className="text-xs text-muted-foreground">{EMPTY}</span>;
@@ -85,6 +82,14 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
   const data = state.data;
   const fulfillment = data?.fulfillment ?? null;
 
+  const drawer = (
+    <FulfillOrderDrawer
+      open={drawerOpen}
+      onClose={() => setDrawerOpen(false)}
+      podOrderId={podOrderId}
+    />
+  );
+
   // ----------------------------------------------------------------- Chưa gửi
   if (!fulfillment) {
     const issues = data?.issues ?? [];
@@ -92,6 +97,7 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
 
     return (
       <div className="space-y-1">
+        {drawer}
         <Badge variant="muted" className="h-5 whitespace-nowrap px-1.5 text-[10px]">
           {t('pod:orders.fulfillment.notFulfilled')}
         </Badge>
@@ -108,22 +114,18 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
               }
             >
               <span className="block">
+                {/* 🔴 Mở được KỂ CẢ khi đang bị chặn: drawer là nơi nói rõ thiếu gì và sửa
+                    ngay tại chỗ (khai ánh xạ nhanh). Nút xám chết không dạy người dùng điều gì. */}
                 <Button
                   variant={blocked ? 'outline' : 'default'}
                   size="sm"
-                  disabled={blocked || actions.fulfill.isPending}
                   className="h-6 w-full px-2 text-[11px]"
                   onClick={(event) => {
                     event.stopPropagation();
-                    void actions.fulfill
-                      .mutateAsync()
-                      .then(() => toast.success(t('fulfillment:action.fulfillSuccess')))
-                      .catch((error: unknown) => toast.error(translateApiError(error)));
+                    setDrawerOpen(true);
                   }}
                 >
-                  {actions.fulfill.isPending ? (
-                    <Loader2 className="size-3 animate-spin" />
-                  ) : blocked ? (
+                  {blocked ? (
                     <AlertTriangle className="size-3" />
                   ) : (
                     <Send className="size-3" />
@@ -160,14 +162,25 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
   // ----------------------------------------------------------------- Đã gửi
   return (
     <div className="space-y-0.5 text-[11px] leading-tight">
+      {drawer}
       <div className="flex items-center gap-1">
         <Factory className="size-3 shrink-0 text-muted-foreground" />
-        <Badge
-          variant={STATUS_VARIANT[fulfillment.status] ?? 'muted'}
-          className="h-5 whitespace-nowrap px-1.5 text-[10px]"
+        {/* Đã gửi vẫn mở được drawer — để xem kết quả, giá vốn và lý do lỗi (không gửi lại được). */}
+        <button
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            setDrawerOpen(true);
+          }}
+          title={t('pod:orders.fulfillment.openDetail')}
         >
-          {t(`fulfillment:status.${fulfillment.status}`)}
-        </Badge>
+          <Badge
+            variant={STATUS_VARIANT[fulfillment.status] ?? 'muted'}
+            className="h-5 whitespace-nowrap px-1.5 text-[10px]"
+          >
+            {t(`fulfillment:status.${fulfillment.status}`)}
+          </Badge>
+        </button>
       </div>
 
       <Row

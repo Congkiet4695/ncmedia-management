@@ -84,6 +84,7 @@ function mapping(over: Record<string, unknown> = {}) {
     providerSku: 'MANGO-1',
     baseCost: null,
     productionConfig: null,
+    productionLine: null,
     placementMap: null,
     ...over,
   };
@@ -410,5 +411,52 @@ describe('FulfillmentReadinessService', () => {
     expect(codes).toContain(READINESS_CODES.ORDER_CANCELLED);
     expect(codes).toContain(READINESS_CODES.ADDRESS_MASKED);
     expect(codes).toContain(READINESS_CODES.MAPPING_MISSING);
+  });
+
+  /**
+   * 🔴 Một đơn = MỘT xưởng (tài liệu MangoTeePrints: tên sản phẩm mang tên xưởng in). Hai dòng
+   * khai hai line khác nhau thì nhà cung cấp từ chối CẢ đơn — phải chặn trước khi gửi và nói rõ
+   * hai giá trị đang xung đột.
+   */
+  it('line sản xuất: một line cho cả đơn ⇒ trả về line đó cho bản ghi fulfillment', () => {
+    const result = service.check(order() as never, [mapping({ productionLine: 'TIKTOK' })] as never, designs());
+
+    expect(result.ready).toBe(true);
+    expect(result.productionLine).toBe('TIKTOK');
+    expect(result.items?.[0].productionLine).toBe('TIKTOK');
+  });
+
+  it('line sản xuất: hai dòng khai hai line khác nhau ⇒ CHẶN với lý do nêu đủ hai giá trị', () => {
+    const twoItems = order({
+      items: [
+        { id: 'item-1', skuId: 'SKU-TT-1', sellerSku: 'SELLER-1', productId: 'PROD-1', productName: 'Tee' },
+        { id: 'item-2', skuId: 'SKU-TT-2', sellerSku: 'SELLER-2', productId: 'PROD-2', productName: 'Hoodie' },
+      ],
+    });
+    // Khoá tra design dùng ĐÚNG hàm thuần của hệ thống, không tự ghép chuỗi.
+    const designsForBoth = new Map([
+      [mappingKeyOf('PROD-1', 'SELLER-1') as string, [design()]],
+      [mappingKeyOf('PROD-2', 'SELLER-2') as string, [design()]],
+    ]);
+
+    const result = service.check(
+      twoItems as never,
+      [
+        mapping({ productionLine: 'TIKTOK' }),
+        mapping({ id: 'map-2', tiktokProductId: 'PROD-2', sellerSku: 'SELLER-2', providerSku: 'MANGO-2', productionLine: 'FASTUS' }),
+      ] as never,
+      designsForBoth as never,
+    );
+
+    expect(result.ready).toBe(false);
+    const conflict = result.issues.find((issue) => issue.code === READINESS_CODES.PRODUCTION_LINE_CONFLICT);
+    expect(conflict?.message).toContain('TIKTOK');
+    expect(conflict?.message).toContain('FASTUS');
+    expect(result.productionLine).toBeNull();
+  });
+
+  it('không dòng nào khai line ⇒ null (tầng gửi đơn dùng mặc định của tài khoản)', () => {
+    const result = service.check(order() as never, [mapping()] as never, designs());
+    expect(result.productionLine).toBeNull();
   });
 });

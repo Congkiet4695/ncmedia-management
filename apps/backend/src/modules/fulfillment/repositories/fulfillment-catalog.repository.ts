@@ -322,16 +322,27 @@ export class FulfillmentCatalogRepository {
     accountId: string;
     catalogueId?: string;
     search?: string;
+    /**
+     * Tra CHÍNH XÁC một sản phẩm theo id phía nhà cung cấp.
+     *
+     * 🔴 Đây là đường dựng lại ô chọn khi mở cấu hình đã lưu: ánh xạ chỉ giữ id, mà sản phẩm
+     * đó thường không nằm trong trang đầu của danh mục vài trăm sản phẩm. Dùng `equals` chứ
+     * không phải `contains` như ô tìm kiếm — hydrate là "lấy đúng bản ghi này", không phải
+     * "tìm gần đúng".
+     */
+    externalProductId?: string;
     page: number;
     limit: number;
   }) {
     const keyword = params.search?.trim();
+    const exactId = params.externalProductId?.trim();
     const where: Prisma.FulfillmentProductWhereInput = {
       organizationId: params.organizationId,
       accountId: params.accountId,
       deletedAt: null,
       status: FulfillmentCatalogItemStatus.ACTIVE,
       ...(params.catalogueId ? { catalogueId: params.catalogueId } : {}),
+      ...(exactId ? { externalProductId: exactId } : {}),
       ...(keyword
         ? {
             OR: [

@@ -1275,7 +1275,8 @@
       "fulfilledBy": "Người gửi",
       "fulfilledByHint": "API fulfillment chưa trả về người đã gửi đơn.",
       "baseCost": "Giá gốc",
-      "blockedHint": "Đơn chưa gửi được — xem các lý do liệt kê bên dưới."
+      "blockedHint": "Đơn chưa gửi được — xem các lý do liệt kê bên dưới.",
+      "openDetail": "Xem chi tiết fulfillment"
     },
     "actions": {
       "syncFulfillment": "Đồng bộ xưởng in",

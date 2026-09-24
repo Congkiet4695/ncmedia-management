@@ -39,7 +39,9 @@
   "combobox": {
     "addCustom": "Add \"{{value}}\"",
     "clear": "Clear",
+    "endOfList": "End of list",
     "loading": "Loading…",
+    "loadingMore": "Loading more…",
     "more": "{{count}} more — keep typing to narrow it down",
     "noResult": "No match",
     "placeholder": "Select…",

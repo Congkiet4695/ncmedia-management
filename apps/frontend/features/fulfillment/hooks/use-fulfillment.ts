@@ -1,6 +1,6 @@
 'use client';
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fulfillmentProviderService,
   fulfillmentService,
@@ -10,6 +10,8 @@ import type { PodDesignPlacement } from '@/features/pod-tiktok/order-types';
 import type {
   CatalogProductQuery,
   CreateFulfillmentProviderInput,
+  FulfillPayload,
+  UpdateFulfillmentPayload,
   ProductDesignKey,
   ProductMappingQuery,
   UpdateFulfillmentProviderInput,
@@ -58,11 +60,16 @@ export function useFulfillmentActions(podOrderId: string) {
 
   return {
     fulfill: useMutation({
-      mutationFn: () => fulfillmentService.fulfill(podOrderId),
+      mutationFn: (payload: FulfillPayload = {}) => fulfillmentService.fulfill(podOrderId, payload),
       onSuccess: refresh,
     }),
     retry: useMutation({
-      mutationFn: () => fulfillmentService.retry(podOrderId),
+      mutationFn: (payload: FulfillPayload = {}) => fulfillmentService.retry(podOrderId, payload),
+      onSuccess: refresh,
+    }),
+    update: useMutation({
+      mutationFn: (payload: UpdateFulfillmentPayload) =>
+        fulfillmentService.updateFulfillment(podOrderId, payload),
       onSuccess: refresh,
     }),
     sync: useMutation({
@@ -151,6 +158,20 @@ export function useProductMappings(query: ProductMappingQuery) {
  * `staleTime` dài vì dữ liệu này do Sync Job ghi xuống theo giờ, không đổi giữa hai lần mở
  * dialog. Đóng/mở lại trong vài phút không tạo thêm request nào.
  */
+/**
+ * Lựa chọn cấu hình của nhà cung cấp — nguồn DUY NHẤT cho các ô chọn ở màn hình Fulfill.
+ *
+ * Nhớ 5 phút: danh sách gần như tĩnh, còn production line là một lời gọi sang nhà cung cấp.
+ */
+export function useFulfillmentOptions(accountId?: string) {
+  return useQuery({
+    queryKey: [MAPPING_KEY, 'options', accountId],
+    queryFn: () => productMappingService.options(accountId as string),
+    enabled: Boolean(accountId),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
 export function useProviderCatalogues(accountId?: string) {
   return useQuery({
     queryKey: [MAPPING_KEY, 'catalogues', accountId],
@@ -182,6 +203,61 @@ export function useProviderCatalogProducts(accountId?: string, query: CatalogPro
     enabled: Boolean(accountId),
     staleTime: 5 * 60 * 1000,
     placeholderData: (previous) => previous,
+  });
+}
+
+/**
+ * Sản phẩm nhà cung cấp — **cuộn tới đâu tải tới đó**, tìm kiếm chạy phía SERVER.
+ *
+ * ```
+ *   mở ô chọn        → trang 1 (20 sản phẩm)
+ *   cuộn gần đáy     → trang 2, 3, … nối vào cuối, KHÔNG thay thế
+ *   gõ từ khoá       → khoá cache đổi ⇒ trang 1 của KẾT QUẢ TÌM, cuộn tiếp vẫn phân trang
+ * ```
+ *
+ * 🔴 Mỗi từ khoá là một mục cache riêng (`queryKey` có `search`), nên phản hồi của "c" về
+ * muộn KHÔNG thể ghi đè kết quả của "canvas" — chống race condition bằng chính cách khoá dữ
+ * liệu, không phải bằng một cờ tự quản.
+ */
+export function useProviderCatalogProductsInfinite(
+  accountId?: string,
+  search = '',
+  limit = 20,
+) {
+  return useInfiniteQuery({
+    queryKey: [MAPPING_KEY, 'catalog-products-infinite', accountId, search, limit],
+    queryFn: ({ pageParam }) =>
+      productMappingService.catalogProducts(accountId as string, {
+        page: pageParam,
+        limit,
+        ...(search ? { search } : {}),
+      }),
+    initialPageParam: 1,
+    getNextPageParam: (lastPage) =>
+      lastPage.meta.page < lastPage.meta.totalPages ? lastPage.meta.page + 1 : undefined,
+    enabled: Boolean(accountId),
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Tra CHÍNH XÁC sản phẩm đã lưu trong ánh xạ (theo id nhà cung cấp).
+ *
+ * 🔴 Đây là mảnh ghép khiến "mở lại cấu hình đã lưu" hiển thị đúng tên: ánh xạ chỉ giữ id,
+ * và id đó hiếm khi nằm trong trang đang tải. MỘT request, một bản ghi — không phải tải cả
+ * danh mục về để tìm.
+ */
+export function useProviderCatalogProduct(accountId?: string, externalProductId?: string | null) {
+  return useQuery({
+    queryKey: [MAPPING_KEY, 'catalog-product', accountId, externalProductId],
+    queryFn: () =>
+      productMappingService.catalogProducts(accountId as string, {
+        externalProductId: externalProductId as string,
+        page: 1,
+        limit: 1,
+      }),
+    enabled: Boolean(accountId) && Boolean(externalProductId),
+    staleTime: 5 * 60 * 1000,
   });
 }
 

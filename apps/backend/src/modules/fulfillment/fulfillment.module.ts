@@ -18,6 +18,7 @@ import { FulfillmentCatalogSyncJob } from './scheduler/fulfillment-catalog-sync.
 import { FulfillmentSyncJob } from './scheduler/fulfillment-sync.job';
 import { AutoMapOrderSyncHook } from './services/auto-map-order-sync.hook';
 import { FulfillmentCatalogQueryService } from './services/fulfillment-catalog-query.service';
+import { FulfillmentOptionsService } from './services/fulfillment-options.service';
 import { FulfillmentCatalogSyncService } from './services/fulfillment-catalog-sync.service';
 import { ProductMappingAutoService } from './services/product-mapping-auto.service';
 import { FulfillmentReadinessService } from './services/fulfillment-readiness.service';
@@ -60,6 +61,7 @@ import { FulfillmentService } from './services/fulfillment.service';
     FulfillmentCatalogRepository,
     FulfillmentCatalogSyncService,
     FulfillmentCatalogQueryService,
+    FulfillmentOptionsService,
     // Ánh xạ tự động — cùng một luật, ba nguồn kích hoạt (đồng bộ đơn · đồng bộ danh mục · thủ công)
     ProductMappingAutoService,
     AutoMapOrderSyncHook,

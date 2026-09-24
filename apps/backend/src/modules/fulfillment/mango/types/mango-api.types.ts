@@ -107,13 +107,15 @@ export interface MangoCreateOrderRequest {
   preferred_carrier?: string;
 }
 
-export interface MangoCreateOrderData {
-  id?: string;
-  order_id?: string;
-  /** Giữ `string` để chịu được trạng thái mới Mango bổ sung sau này. */
-  status?: string;
-  [key: string]: unknown;
-}
+/**
+ * `data` của Create Order.
+ *
+ * 🔴 Theo tài liệu (CreateOrderResponse → `data: OrderResponseSchema`), response tạo đơn trả về
+ * **NGUYÊN một đơn**: trạng thái, `items[]` kèm `base_cost`, và `subtotal`/`tax`/`shipping_fee`/
+ * `total`. Vì thế nó là chính `MangoOrderResponse` — khai riêng một kiểu rút gọn đồng nghĩa với
+ * việc vứt bỏ giá vốn ngay tại lần gọi duy nhất chắc chắn có nó.
+ */
+export type MangoCreateOrderData = MangoOrderResponse;
 
 // ---------------------------------------------------------------------------
 // Get Order Detail — GET /orders/{order_id}
@@ -176,6 +178,41 @@ export interface MangoOrderResponse {
   updated_at?: string;
   [key: string]: unknown;
 }
+
+// ---------------------------------------------------------------------------
+// Update Order — PUT /orders/{order_id}
+// ---------------------------------------------------------------------------
+
+/**
+ * Thân request Update Order (OrderUpdateSchema) — MỌI field đều tuỳ chọn.
+ *
+ * 🔴 Tài liệu: "When updating items, label_url or shipping_method, will automatically:
+ * Recalculate cost, Convert print files (if needed), Convert label (if needed)" và "Only allows
+ * updating certain fields and when order is not processed yet".
+ */
+export interface MangoUpdateOrderRequest {
+  note?: string | null;
+  label_url?: string | null;
+  seller?: string | null;
+  shipping_method?: MangoShippingMethod | null;
+  speed_type?: MangoSpeedType | null;
+  facility?: string | null;
+  first_name?: string | null;
+  last_name?: string | null;
+  email?: string | null;
+  phone?: string | null;
+  address_line_1?: string | null;
+  address_line_2?: string | null;
+  city?: string | null;
+  state?: string | null;
+  country?: string | null;
+  zip?: string | null;
+  ioss_number?: string | null;
+  items?: MangoOrderItemRequest[];
+}
+
+/** `data` của Update Order — cùng `OrderResponseSchema` với Create/Get. */
+export type MangoUpdateOrderData = MangoOrderResponse;
 
 // ---------------------------------------------------------------------------
 // Cancel Order — POST /orders/{order_id}/cancel

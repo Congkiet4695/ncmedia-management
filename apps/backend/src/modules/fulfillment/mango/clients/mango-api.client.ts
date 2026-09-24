@@ -23,6 +23,8 @@ import {
   MangoOrderResponse,
   MangoProductionLinesData,
   MangoProductsData,
+  MangoUpdateOrderData,
+  MangoUpdateOrderRequest,
   MangoVariationsData,
   MangoWebhookCreateRequest,
   MangoWebhookData,
@@ -99,6 +101,21 @@ export class MangoApiClient {
 
   getOrder(ctx: MangoCallContext, orderId: string): Promise<MangoResult<MangoOrderResponse>> {
     return this.call<MangoOrderResponse>(ctx, 'GET', MANGO_ENDPOINTS.orderDetail(orderId));
+  }
+
+  /**
+   * Sửa đơn CHƯA vào sản xuất (PUT /orders/{order_id}).
+   *
+   * 🔴 KHÔNG tự thử lại (giống POST): sửa `items` / `label_url` / `shipping_method` khiến Mango
+   * tính lại chi phí và chuyển đổi file in — một request timeout có thể đã tới nơi, gửi lại là
+   * kích hoạt lần chuyển đổi thứ hai.
+   */
+  updateOrder(
+    ctx: MangoCallContext,
+    orderId: string,
+    body: MangoUpdateOrderRequest,
+  ): Promise<MangoResult<MangoUpdateOrderData>> {
+    return this.call<MangoUpdateOrderData>(ctx, 'PUT', MANGO_ENDPOINTS.updateOrder(orderId), body);
   }
 
   cancelOrder(

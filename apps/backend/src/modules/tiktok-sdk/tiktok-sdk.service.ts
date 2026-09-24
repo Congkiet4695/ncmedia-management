@@ -30,6 +30,17 @@ export interface TiktokSdkCall<T> {
   endpoint: string;
   /** Hàm thực sự gọi SDK — trả về `{ body }` như SDK quy định. */
   invoke: () => Promise<{ body: TiktokSdkEnvelope<T> }>;
+  /**
+   * Cho phép `execute` tự gửi lại khi gặp nhóm lỗi tạm thời. Mặc định `true`.
+   *
+   * 🔴 Đặt `false` cho những endpoint mà **gửi lại y hệt là sai**, không phải "chậm hơn":
+   * Create Product mang `idempotency_key` — TikTok ghi nhận key NGAY khi nhận request, nên
+   * lần gửi lại (cùng thân request ⇒ cùng key) bị từ chối bằng `12052996 Precondition
+   * Required — This operation requires a unique external_id`, kể cả khi lần đầu chỉ hỏng ở
+   * đường truyền. Nơi gọi phải tự quyết: đối soát xem sản phẩm đã vào shop chưa RỒI mới
+   * quyết định gửi lại với key mới (xem `PodListingPublisherService.createWithReconcile`).
+   */
+  retry?: boolean;
 }
 
 /**
@@ -116,7 +127,9 @@ export class TikTokSdkService implements OnModuleInit {
         if (!(error instanceof TiktokClientError)) throw error;
         lastError = error;
 
-        const retryable = RETRYABLE_ERROR_CLASSES.includes(error.errorClass);
+        // `retry === false` ⇒ KHÔNG bao giờ tự gửi lại, kể cả lỗi mạng: xem `TiktokSdkCall.retry`.
+        const retryable =
+          call.retry !== false && RETRYABLE_ERROR_CLASSES.includes(error.errorClass);
         this.logger.error({
           module: 'tiktok-sdk',
           endpoint: call.endpoint,

@@ -26,7 +26,8 @@
     "test:edit-product": "node --experimental-strip-types scripts/verify-edit-product.ts",
     "test:rich-text": "node --experimental-strip-types scripts/verify-rich-text-format.ts",
     "test:custom-listing": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-custom-listing.ts",
-    "test:sku-sync": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-sku-sync.ts"
+    "test:sku-sync": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-sku-sync.ts",
+    "test:fulfill-config": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-fulfill-config.ts"
   },
   "dependencies": {
     "@hookform/resolvers": "^3.10.0",

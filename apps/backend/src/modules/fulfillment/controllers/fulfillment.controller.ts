@@ -56,6 +56,8 @@ import {
   FulfillmentProviderOptionDto,
   FulfillmentErrorDto,
   FulfillmentHistoryDto,
+  FulfillPodOrderDto,
+  FulfillmentOptionsDto,
   FulfillmentOrderDto,
   FulfillmentStateDto,
   FulfillmentSyncResultDto,
@@ -69,6 +71,7 @@ import { FulfillmentCatalogQueryService } from '../services/fulfillment-catalog-
 import { FulfillmentCatalogSyncService } from '../services/fulfillment-catalog-sync.service';
 import { ProductMappingAutoService } from '../services/product-mapping-auto.service';
 import { MangoFulfillmentService } from '../mango/services/mango-fulfillment.service';
+import { FulfillmentOptionsService } from '../services/fulfillment-options.service';
 import { FulfillmentSyncService } from '../services/fulfillment-sync.service';
 import { PodScope } from '../../pod-tiktok/decorators/pod-scope.decorator';
 import { PodScopeGuard } from '../../pod-tiktok/guards/pod-scope.guard';
@@ -95,6 +98,7 @@ export class FulfillmentController {
     private readonly service: FulfillmentService,
     private readonly mangoService: MangoFulfillmentService,
     private readonly syncService: FulfillmentSyncService,
+    private readonly optionsService: FulfillmentOptionsService,
     private readonly catalogQuery: FulfillmentCatalogQueryService,
     private readonly catalogSync: FulfillmentCatalogSyncService,
     private readonly autoMap: ProductMappingAutoService,
@@ -162,6 +166,24 @@ export class FulfillmentController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<DeleteFulfillmentAccountResultDto> {
     return this.service.deleteAccount(user.organizationId, user.userId, id);
+  }
+
+  @Get('accounts/:id/options')
+  @RequirePermissions('fulfillment.read')
+  @ApiOperation({
+    summary: 'Lựa chọn cấu hình của một nhà cung cấp',
+    description:
+      'Shipping method · facility · speed type · preferred carrier · production config · ' +
+      'production line (hỏi trực tiếp nhà cung cấp) · vị trí in được hỗ trợ · lưu ý riêng. ' +
+      'Màn hình Fulfill đọc từ đây thay vì viết cứng giá trị của nhà cung cấp.',
+  })
+  @ApiOkResponse({ type: FulfillmentOptionsDto })
+  async options(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<FulfillmentOptionsDto> {
+    const account = await this.service.requireAccountById(user.organizationId, id);
+    return this.optionsService.forAccount(account);
   }
 
   @Post('accounts/:id/test-connection')
@@ -284,7 +306,10 @@ export class FulfillmentController {
     summary: 'Sản phẩm trong danh mục nhà cung cấp',
     description:
       'Đọc từ Database, có tìm kiếm và PHÂN TRANG phía server. `id` trả về là khoá NỘI BỘ ' +
-      '(uuid) — dùng chính nó để lấy biến thể; `externalProductId` mới là id phía nhà cung cấp.',
+      '(uuid) — dùng chính nó để lấy biến thể; `externalProductId` mới là id phía nhà cung cấp. ' +
+      'Tham số `search` tìm GẦN ĐÚNG trên toàn bộ danh mục (tên · SKU · id nhà cung cấp); ' +
+      'tham số `externalProductId` tra CHÍNH XÁC một sản phẩm — dùng khi cần dựng lại ô chọn ' +
+      'của một cấu hình đã lưu mà sản phẩm đó không nằm trong trang đang xem.',
   })
   @ApiOkResponse({ type: PaginatedCatalogProductDto })
   listCatalogProducts(
@@ -295,6 +320,7 @@ export class FulfillmentController {
     return this.catalogQuery.listProducts(user.organizationId, id, {
       catalogueId: query.catalogueId,
       search: query.search,
+      externalProductId: query.externalProductId,
       page: query.page ?? 1,
       limit: query.limit ?? 50,
     });
@@ -639,12 +665,14 @@ export class FulfillmentController {
   async fulfill(
     @CurrentUser() user: AuthenticatedUser,
     @Param('podOrderId', ParseUUIDPipe) podOrderId: string,
+    @Body() dto: FulfillPodOrderDto,
   ): Promise<FulfillmentOrderDto> {
     const record = await this.mangoService.fulfill(
       user.organizationId,
       user.userId,
       podOrderId,
       FulfillmentTrigger.MANUAL,
+      dto ?? {},
     );
     return this.service.toOrderDto(record);
   }
@@ -662,12 +690,14 @@ export class FulfillmentController {
   async retry(
     @CurrentUser() user: AuthenticatedUser,
     @Param('podOrderId', ParseUUIDPipe) podOrderId: string,
+    @Body() dto: FulfillPodOrderDto,
   ): Promise<FulfillmentOrderDto> {
     const record = await this.mangoService.fulfill(
       user.organizationId,
       user.userId,
       podOrderId,
       FulfillmentTrigger.RETRY,
+      dto ?? {},
     );
     return this.service.toOrderDto(record);
   }

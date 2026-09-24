@@ -164,6 +164,22 @@ export class FulfillmentCannotCancelException extends ConflictException {
 }
 
 /** Nhà cung cấp từ chối dữ liệu — trả nguyên các lỗi field để người dùng sửa. */
+/**
+ * Đơn không còn SỬA được ở nhà cung cấp (đã vào sản xuất / đã ship).
+ *
+ * Tài liệu Update Order: chỉ sửa được khi đơn "not processed yet".
+ */
+export class FulfillmentCannotUpdateException extends ConflictException {
+  constructor(status: string) {
+    super({
+      code: 'FULFILLMENT_CANNOT_UPDATE',
+      message:
+        `Không sửa được đơn ở trạng thái "${status}". ` +
+        'Nhà cung cấp chỉ cho sửa nhãn / ghi chú / phương thức vận chuyển khi đơn chưa vào sản xuất.',
+    });
+  }
+}
+
 export class FulfillmentValidationException extends BadRequestException {
   constructor(
     message: string,

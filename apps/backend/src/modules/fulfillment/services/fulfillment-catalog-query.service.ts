@@ -1,5 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { FulfillmentCatalogRepository } from '../repositories/fulfillment-catalog.repository';
+import { businessProductSku } from './fulfillment-catalog-sync.service';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import { FulfillmentAccountNotFoundException } from '../exceptions/fulfillment.exceptions';
 import type {
@@ -63,7 +64,14 @@ export class FulfillmentCatalogQueryService {
   async listProducts(
     organizationId: string,
     accountId: string,
-    params: { catalogueId?: string; search?: string; page: number; limit: number },
+    params: {
+      catalogueId?: string;
+      search?: string;
+      /** Tra chính xác một sản phẩm (dựng lại ô chọn của cấu hình đã lưu). */
+      externalProductId?: string;
+      page: number;
+      limit: number;
+    },
   ): Promise<PaginatedCatalogProductDto> {
     await this.assertAccount(organizationId, accountId);
 
@@ -73,6 +81,7 @@ export class FulfillmentCatalogQueryService {
         accountId,
         catalogueId: params.catalogueId,
         search: params.search,
+        externalProductId: params.externalProductId,
         page: params.page,
         limit: params.limit,
       }),
@@ -83,7 +92,10 @@ export class FulfillmentCatalogQueryService {
       items: items.map((item) => ({
         id: item.id,
         externalProductId: item.externalProductId,
-        sku: item.sku,
+        // 🔴 Lọc lại bằng ĐÚNG luật của lượt đồng bộ: bản ghi đồng bộ TRƯỚC khi có luật vẫn
+        // đang giữ `sku = "PROD-<id>"` trong database, và không ai được nhìn thấy nó trên
+        // màn hình chỉ vì danh mục chưa được đồng bộ lại. Một luật, hai chỗ gọi.
+        sku: businessProductSku(item.sku, item.externalProductId),
         name: item.name,
         catalogueId: item.catalogueId,
         catalogName: item.catalogue?.name ?? null,

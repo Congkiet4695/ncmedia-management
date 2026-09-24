@@ -278,6 +278,12 @@ export interface TiktokUploadedImage {
 /** Một biến thể trong request Create Product. */
 export interface TiktokCreateProductSku {
   sellerSku?: string;
+  /**
+   * `external_sku_id` — định danh biến thể phía ta (TikTok: *"used to associate the SKU
+   * between TikTok Shop and the external ecommerce platform"*). Ổn định theo
+   * (lượt đăng, `seller_sku`), y như `externalProductId` ở mức sản phẩm.
+   */
+  externalSkuId?: string;
   /** Giá bán — `amount` là giá thực bán, `salePrice` là giá khuyến mãi (nếu có). */
   price?: { amount?: string; currency?: string; salePrice?: string };
   /** Giá gốc gạch ngang. */
@@ -311,8 +317,28 @@ export interface TiktokCreateProductRequest {
   brandId?: string;
   /** `AS_DRAFT` (Sprint 4) hoặc `LISTING`. */
   saveMode?: string;
-  /** Chống tạo trùng khi client thử lại — TikTok trả về đúng sản phẩm đã tạo. */
+  /**
+   * `idempotency_key` — định danh của **MỘT LẦN GỬI**.
+   *
+   * 🔴 TikTok: *"Ensure this key is unique within the shop for each request"* (tối đa 128 ký
+   * tự, khuyến nghị UUID v4). TikTok ghi nhận key ngay khi nhận request và TỪ CHỐI key đã
+   * dùng bằng `12052996 Precondition Required — This operation requires a unique
+   * external_id`. Nói cách khác nó là hàng rào chống **xử lý trùng**, KHÔNG phải cơ chế phát
+   * lại kết quả cũ: đã gửi đi thì lần sau phải là key khác. Sinh ở
+   * `buildTiktokIdempotencyKey`, không bao giờ dẫn xuất từ nội dung payload.
+   */
   idempotencyKey?: string;
+  /**
+   * `external_product_id` — định danh của **MỘT SẢN PHẨM PHÍA TA** (TikTok: *"An external
+   * identifier used in an external ecommerce platform. This is used to associate the product
+   * between TikTok Shop and the external ecommerce platform. Max length: 999 characters"*).
+   *
+   * 🔴 Khác hẳn `idempotencyKey`: giá trị này **ỔN ĐỊNH** qua mọi lần thử của cùng một lượt
+   * đăng (`pod_listing_payloads.id`) và đi kèm cả ở Edit Product — nhờ đó một sản phẩm trên
+   * Seller Center luôn tra ngược được về đúng bản ghi trong hệ thống. Xem
+   * `buildExternalProductId`.
+   */
+  externalProductId?: string;
   mainImages?: Array<{ uri?: string }>;
   packageWeight?: { value?: string; unit?: string };
   packageDimensions?: { length?: string; width?: string; height?: string; unit?: string };

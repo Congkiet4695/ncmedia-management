@@ -65,6 +65,11 @@ export interface ReadinessResult {
   issues: ReadinessIssue[];
   address?: NormalizedAddress;
   items?: ResolvedItem[];
+  /**
+   * Line sản xuất thống nhất của cả đơn (id nhà cung cấp) — suy từ ánh xạ của các dòng hàng.
+   * `null` = không dòng nào khai ⇒ dùng mặc định của tài khoản.
+   */
+  productionLine?: string | null;
 }
 
 /** Mã lỗi chuẩn — dùng chung BE/FE, không rải chuỗi tự do khắp nơi. */
@@ -85,10 +90,51 @@ export const READINESS_CODES = {
    * xưởng A sang xưởng B là in ra một sản phẩm khác hẳn.
    */
   MAPPING_PROVIDER_MISMATCH: 'MAPPING_PROVIDER_MISMATCH',
+  /**
+   * Các dòng hàng của đơn khai HAI line sản xuất khác nhau.
+   *
+   * 🔴 Tài liệu MangoTeePrints: một đơn chỉ thuộc MỘT xưởng (tên sản phẩm mang tên xưởng).
+   * Trộn hai xưởng thì nhà cung cấp từ chối cả đơn — chặn ở đây để không tốn một lời gọi và
+   * để người vận hành biết phải sửa ánh xạ nào.
+   */
+  PRODUCTION_LINE_CONFLICT: 'PRODUCTION_LINE_CONFLICT',
   DESIGN_MISSING: 'DESIGN_MISSING',
   DESIGN_NOT_PUBLIC: 'DESIGN_NOT_PUBLIC',
   PLACEMENT_UNSUPPORTED: 'PLACEMENT_UNSUPPORTED',
 } as const;
+
+/**
+ * Khu vực trên màn hình Fulfill mà mỗi lỗi THUỘC VỀ.
+ *
+ * 🔴 Backend quyết định, không phải giao diện. Màn hình Fulfill hiện lỗi NGAY TẠI khối cần sửa
+ * (Nhà cung cấp · Địa chỉ · Ánh xạ sản phẩm · Design), nên nếu để frontend tự đoán theo mã thì
+ * mỗi lần thêm mã lỗi mới là một lần giao diện âm thầm dồn nó vào nhóm "khác".
+ */
+export const FULFILLMENT_ISSUE_SECTIONS = ['ORDER', 'PROVIDER', 'ADDRESS', 'MAPPING', 'DESIGN'] as const;
+export type FulfillmentIssueSection = (typeof FULFILLMENT_ISSUE_SECTIONS)[number];
+
+const SECTION_BY_CODE: Readonly<Record<string, FulfillmentIssueSection>> = {
+  ORDER_NOT_FOUND: 'ORDER',
+  ORDER_CANCELLED: 'ORDER',
+  NO_ITEMS: 'ORDER',
+  ACCOUNT_MISSING: 'PROVIDER',
+  PROVIDER_NOT_ASSIGNED: 'PROVIDER',
+  PROVIDER_INACTIVE: 'PROVIDER',
+  ADDRESS_MISSING: 'ADDRESS',
+  ADDRESS_MASKED: 'ADDRESS',
+  ADDRESS_INCOMPLETE: 'ADDRESS',
+  MAPPING_MISSING: 'MAPPING',
+  MAPPING_PROVIDER_MISMATCH: 'MAPPING',
+  PRODUCTION_LINE_CONFLICT: 'MAPPING',
+  DESIGN_MISSING: 'DESIGN',
+  DESIGN_NOT_PUBLIC: 'DESIGN',
+  PLACEMENT_UNSUPPORTED: 'DESIGN',
+};
+
+/** Khu vực của một mã lỗi; mã lạ ⇒ `ORDER` (khối chung đầu màn hình, không bị giấu đi). */
+export function issueSectionOf(code: string): FulfillmentIssueSection {
+  return SECTION_BY_CODE[code] ?? 'ORDER';
+}
 
 /** Trạng thái đơn TikTok không còn ý nghĩa để sản xuất. */
 const UNFULFILLABLE_TIKTOK_STATUSES = new Set(['CANCELLED', 'UNPAID']);
@@ -157,11 +203,23 @@ export class FulfillmentReadinessService {
       expectedAccountId,
     );
 
+    // Một đơn = một xưởng. Hai dòng khai hai line khác nhau ⇒ chặn tại đây, nói rõ hai giá trị.
+    const lines = [...new Set(items.map((item) => item.productionLine).filter(Boolean))] as string[];
+    if (lines.length > 1) {
+      issues.push({
+        code: READINESS_CODES.PRODUCTION_LINE_CONFLICT,
+        message:
+          `Các sản phẩm trong đơn đang khai hai line sản xuất khác nhau (${lines.join(' · ')}). ` +
+          'Nhà cung cấp chỉ nhận đơn thuộc MỘT xưởng — sửa Cấu hình sản phẩm cho khớp rồi gửi lại.',
+      });
+    }
+
     return {
       ready: issues.length === 0,
       issues,
       address: address ?? undefined,
       items: items.length > 0 ? items : undefined,
+      productionLine: lines.length === 1 ? lines[0] : null,
     };
   }
 
@@ -283,6 +341,7 @@ export class FulfillmentReadinessService {
         productionConfig: mapping.productionConfig,
         // Giá vốn khai ở Product Mapping — chép làm ảnh chụp lúc gửi, xem `replaceItems`.
         baseCost: mapping.baseCost === null ? null : Number(mapping.baseCost),
+        productionLine: mapping.productionLine ?? null,
         printFiles,
       });
     }

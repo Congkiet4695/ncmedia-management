@@ -258,8 +258,13 @@ export class TiktokProductApiService {
    * sàn và KHÔNG vào hàng chờ duyệt. Muốn đăng bán phải truyền `LISTING` tường minh — để
    * không ai publish nhầm chỉ vì quên một tham số.
    *
-   * `idempotencyKey` do phía gọi cấp (hash của payload): thử lại sau lỗi mạng sẽ nhận lại
-   * đúng sản phẩm cũ thay vì đẻ ra bản trùng trên shop thật.
+   * 🔴 **KHÔNG tự retry** (`retry: false`). `idempotency_key` do phía gọi cấp và TikTok ghi
+   * nhận key ngay khi nhận request: gửi lại cùng thân request (⇒ cùng key) sau một lỗi mạng
+   * bị từ chối bằng `12052996 Precondition Required — This operation requires a unique
+   * external_id`, còn gửi lại với key MỚI thì tạo ra sản phẩm thứ hai nếu lần đầu thật ra đã
+   * thành công. Không lựa chọn nào an toàn nếu quyết ở tầng này — tầng này không biết sản
+   * phẩm đã vào shop hay chưa. Quyền retry thuộc về nơi có thể ĐỐI SOÁT trước khi gửi lại:
+   * `PodListingPublisherService.createWithReconcile`.
    */
   async createProduct(
     ctx: TiktokShopContext,
@@ -273,6 +278,7 @@ export class TiktokProductApiService {
 
     return this.sdk.execute<TiktokCreateProductResult>({
       endpoint: 'PRODUCT_CREATE',
+      retry: false,
       invoke: () =>
         this.sdk.api.ProductV202309Api.ProductsPost(
           ctx.accessToken,

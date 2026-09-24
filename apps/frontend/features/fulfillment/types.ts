@@ -92,6 +92,51 @@ export interface FulfillmentItem {
   printFiles: unknown;
   color: string | null;
   size: string | null;
+  /**
+   * Giá vốn dòng hàng.
+   *
+   * 🔴 Sau khi gửi đơn, đây là số NHÀ CUNG CẤP báo về (Create Order / Get Order Detail) — KHÔNG
+   * phải số tự tính ở giao diện. NULL = nhà cung cấp chưa báo giá cho dòng này.
+   */
+  baseCost: number | null;
+  providerItemId: string | null;
+}
+
+/**
+ * Tuỳ chọn gửi đơn — đúng các lựa chọn MangoTee nhận (không tự chế giá trị).
+ * Bỏ trống ⇒ backend dùng mặc định của tài khoản nhà cung cấp.
+ */
+export const FULFILL_SHIPPING_METHODS = [
+  'standard',
+  'priority',
+  'express',
+  'global',
+  'by_tiktok',
+  'by_seller',
+  'dhl_parcel_ground',
+  'dhl_parcel_expedited',
+] as const;
+export type FulfillShippingMethod = (typeof FULFILL_SHIPPING_METHODS)[number];
+
+export const FULFILL_FACILITIES = ['AUTO', 'TX', 'SJ', 'VA'] as const;
+export const FULFILL_SPEED_TYPES = ['rush', 'expedite'] as const;
+export const FULFILL_PREFERRED_CARRIERS = ['auto', 'usps'] as const;
+
+export interface FulfillPayload {
+  shippingMethod?: FulfillShippingMethod;
+  facility?: (typeof FULFILL_FACILITIES)[number];
+  speedType?: (typeof FULFILL_SPEED_TYPES)[number];
+  preferredCarrier?: (typeof FULFILL_PREFERRED_CARRIERS)[number];
+  isScanLabel?: boolean;
+  labelUrl?: string;
+  note?: string;
+}
+
+/** Sửa đơn ĐÃ gửi mà chưa vào sản xuất — nhà cung cấp tính lại chi phí. */
+export interface UpdateFulfillmentPayload {
+  labelUrl?: string;
+  note?: string;
+  shippingMethod?: FulfillShippingMethod;
 }
 
 export interface FulfillmentOrder {
@@ -111,8 +156,15 @@ export interface FulfillmentOrder {
   labelUrl: string | null;
   shippingMethod: string | null;
   productionLine: string | null;
+  facility: string | null;
+  speedType: string | null;
+  subtotal: number | null;
+  shippingFee: number | null;
+  tax: number | null;
   total: number | null;
   currency: string | null;
+  /** Đơn đã gửi nhưng còn dòng chưa có giá vốn — lượt đồng bộ kế tiếp sẽ điền. */
+  baseCostPending: boolean;
   attemptCount: number;
   lastErrorCode: string | null;
   lastErrorMessage: string | null;
@@ -132,7 +184,46 @@ export interface FulfillmentOrder {
  * Với `MAPPING_MISSING`, backend gửi kèm ngữ cảnh SKU để giao diện mở được dialog ánh xạ
  * ngay tại màn hình đơn — không phải đi sang màn hình Product Mapping tìm lại.
  */
+/** Một lựa chọn cho ô chọn: giá trị gửi lên + nhãn hiển thị. */
+export interface FulfillmentOption {
+  value: string;
+  label: string;
+}
+
+/** Vị trí in hệ thống hỗ trợ, kèm khoá tương ứng phía nhà cung cấp. */
+export interface PrintLocationOption {
+  placement: PodDesignPlacement;
+  providerKey: string;
+}
+
+/**
+ * Lựa chọn cấu hình của MỘT tài khoản nhà cung cấp.
+ *
+ * 🔴 Giao diện không giữ bản sao nào của các danh sách này: thêm nhà cung cấp thứ hai chỉ cần
+ * backend trả khác đi, không phải build lại web.
+ */
+export interface FulfillmentOptions {
+  provider: FulfillmentProviderType;
+  accountId: string;
+  notice: string | null;
+  shippingMethods: FulfillmentOption[];
+  facilities: FulfillmentOption[];
+  speedTypes: FulfillmentOption[];
+  preferredCarriers: FulfillmentOption[];
+  productionConfigs: FulfillmentOption[];
+  productionLines: FulfillmentOption[];
+  printLocations: PrintLocationOption[];
+  warnings: string[];
+}
+
+/**
+ * Khối trên màn hình Fulfill mà lỗi thuộc về — BACKEND quyết định (xem readiness service),
+ * giao diện chỉ hiển thị đúng chỗ.
+ */
+export type FulfillmentIssueSection = 'ORDER' | 'PROVIDER' | 'ADDRESS' | 'MAPPING' | 'DESIGN';
+
 export interface FulfillmentIssue {
+  section: FulfillmentIssueSection;
   code: string;
   message: string;
   podOrderItemId: string | null;
@@ -153,6 +244,20 @@ export interface FulfillmentStateProvider {
   isActive: boolean;
 }
 
+/**
+ * Một dòng hàng của đơn kèm ÁNH XẠ ĐÃ GHÉP (backend ghép, theo `Product ID + Seller SKU`).
+ *
+ * 🔴 Giao diện KHÔNG tự ghép nữa: trước đây nó tải một trang ánh xạ của cả tổ chức rồi tự
+ * dò — tổ chức có nhiều ánh xạ hơn một trang là màn hình báo "chưa ánh xạ" cho sản phẩm đã
+ * ánh xạ, rồi lưu đè và đâm vào ràng buộc UNIQUE của database.
+ */
+export interface FulfillmentStateItem {
+  podOrderItemId: string;
+  tiktokProductId: string | null;
+  sellerSku: string | null;
+  mapping: ProductMapping | null;
+}
+
 export interface FulfillmentState {
   fulfillment: FulfillmentOrder | null;
   ready: boolean;
@@ -161,6 +266,8 @@ export interface FulfillmentState {
   canCancel: boolean;
   /** Nhà cung cấp gán cho kết nối TikTok của đơn. NULL = chưa cấu hình. */
   provider: FulfillmentStateProvider | null;
+  /** Từng dòng hàng kèm ánh xạ đang áp dụng. */
+  items: FulfillmentStateItem[];
 }
 
 export interface FulfillmentHistoryEntry {
@@ -246,6 +353,8 @@ export interface ProductMapping {
   providerColor: string | null;
   providerSize: string | null;
   productionConfig: string | null;
+  /** ID line sản xuất của nhà cung cấp gắn cho sản phẩm này. NULL = dùng mặc định tài khoản. */
+  productionLine: string | null;
   placementMap: unknown;
   isActive: boolean;
   status: ProductMappingStatus;
@@ -335,8 +444,16 @@ export interface ProviderCatalogVariation {
 export interface CatalogProductQuery {
   page?: number;
   limit?: number;
+  /** Tìm GẦN ĐÚNG trên toàn bộ danh mục (tên · SKU · id nhà cung cấp) — phía server. */
   search?: string;
   catalogueId?: string;
+  /**
+   * Tra CHÍNH XÁC một sản phẩm theo id phía nhà cung cấp.
+   *
+   * Dùng để dựng lại ô chọn của cấu hình đã lưu: sản phẩm đó gần như không bao giờ nằm ở
+   * trang đầu, mà tải cả danh mục về chỉ để tìm một dòng thì không chấp nhận được.
+   */
+  externalProductId?: string;
 }
 
 export interface PaginatedCatalogProducts {
@@ -411,6 +528,10 @@ export interface UpsertProductMappingInput {
   providerVariantName?: string;
   providerColor?: string;
   providerSize?: string;
+  /** `production_config` của nhà cung cấp (vd default | large). */
+  productionConfig?: string;
+  /** ID line sản xuất (`GET /production-lines` → `items[].id`), KHÔNG phải tên hiển thị. */
+  productionLine?: string;
   isActive?: boolean;
   note?: string;
 }

@@ -10,6 +10,7 @@ import {
 import { randomBytes } from 'node:crypto';
 import { PrismaService } from '../../../database/prisma.service';
 import { PodOrderRepository } from '../../pod-tiktok/repositories/pod-order.repository';
+import type { PodOrderWithRelations } from '../../pod-tiktok/types/pod-order-with-relations.type';
 import {
   PodAccessScopeService,
   PodShopForbiddenException,
@@ -24,6 +25,7 @@ import {
   FulfillmentHistoryDto,
   FulfillmentOrderDto,
   FulfillmentStateDto,
+  FulfillmentStateItemDto,
   PaginatedProductMappingDto,
   ProductMappingDto,
   ProductMappingQueryDto,
@@ -42,8 +44,12 @@ import {
   FulfillmentOrderWithRelations,
   FulfillmentRepository,
 } from '../repositories/fulfillment.repository';
-import { mappingKeyOf } from '../shared/mapping-match';
-import { FulfillmentReadinessService, MappingWithDesigns } from './fulfillment-readiness.service';
+import { createMappingIndex, findMappingInIndex, mappingKeyOf } from '../shared/mapping-match';
+import {
+  FulfillmentReadinessService,
+  MappingWithDesigns,
+  issueSectionOf,
+} from './fulfillment-readiness.service';
 
 /** Trạng thái cho phép bấm Fulfill (chưa gửi hoặc gửi hỏng). */
 const FULFILLABLE_STATUSES: readonly FulfillmentStatus[] = [
@@ -418,6 +424,7 @@ export class FulfillmentService {
       providerColor: dto.providerColor ?? null,
       providerSize: dto.providerSize ?? null,
       productionConfig: dto.productionConfig ?? null,
+      productionLine: dto.productionLine ?? null,
       placementMap: (dto.placementMap ?? null) as Prisma.InputJsonValue,
       isActive: dto.isActive ?? true,
       note: dto.note ?? null,
@@ -454,6 +461,7 @@ export class FulfillmentService {
       providerColor: dto.providerColor ?? null,
       providerSize: dto.providerSize ?? null,
       productionConfig: dto.productionConfig ?? null,
+      productionLine: dto.productionLine ?? null,
       placementMap: (dto.placementMap ?? null) as Prisma.InputJsonValue,
       ...(dto.isActive !== undefined ? { isActive: dto.isActive } : {}),
       note: dto.note ?? null,
@@ -583,6 +591,7 @@ export class FulfillmentService {
         ready: false,
         issues: [
           {
+            section: 'PROVIDER' as const,
             code: account ? 'PROVIDER_INACTIVE' : 'PROVIDER_NOT_ASSIGNED',
             message: account
               ? `Nhà cung cấp "${account.name}" đang INACTIVE.`
@@ -595,6 +604,14 @@ export class FulfillmentService {
         provider: account
           ? { id: account.id, name: account.name, type: account.provider, isActive: false }
           : null,
+        // Chưa có nhà cung cấp thì chưa tra ánh xạ được, nhưng danh sách dòng hàng vẫn phải
+        // có — giao diện dựng khối cấu hình theo đúng mảng này.
+        items: order.items.map((item) => ({
+          podOrderItemId: item.id,
+          tiktokProductId: item.productId,
+          sellerSku: item.sellerSku,
+          mapping: null,
+        })),
       };
     }
 
@@ -618,6 +635,7 @@ export class FulfillmentService {
       fulfillment: record ? this.toOrderDto(record) : null,
       ready: check.ready,
       issues: check.issues.map((issue) => ({
+        section: issueSectionOf(issue.code),
         code: issue.code,
         message: issue.message,
         podOrderItemId: issue.podOrderItemId ?? null,
@@ -632,7 +650,43 @@ export class FulfillmentService {
       canFulfill: check.ready && FULFILLABLE_STATUSES.includes(status),
       canCancel: Boolean(record) && CANCELLABLE_STATUSES.includes(status),
       provider: { id: account.id, name: account.name, type: account.provider, isActive: true },
+      // 🔴 Ghép bằng ĐÚNG chỉ mục mà `readiness.check()` vừa dùng ở trên: màn hình và luồng
+      // gửi không thể nhìn thấy hai ánh xạ khác nhau cho cùng một dòng hàng.
+      items: this.toStateItems(order, mappings, designsByKey, account.name),
     };
+  }
+
+  /**
+   * Từng dòng hàng kèm ánh xạ ĐÃ GHÉP.
+   *
+   * 🔴 Không truy vấn thêm: `mappings` và `designsByKey` đã được nạp một lần ở `getState`.
+   * Giao diện nhờ đó không phải tự tải danh sách ánh xạ rồi tự ghép lại — việc mà nó chỉ làm
+   * đúng khi ánh xạ tình cờ nằm trong trang nó tải về.
+   */
+  private toStateItems(
+    order: PodOrderWithRelations,
+    mappings: MappingWithDesigns[],
+    designsByKey: Map<string, DesignForDto[]>,
+    providerName: string,
+  ): FulfillmentStateItemDto[] {
+    const index = createMappingIndex(mappings);
+    return order.items.map((item) => {
+      const mapping = findMappingInIndex(item, index);
+      const key = mappingKeyOf(item.productId, item.sellerSku);
+      return {
+        podOrderItemId: item.id,
+        tiktokProductId: item.productId,
+        sellerSku: item.sellerSku,
+        mapping: mapping
+          ? this.toMappingDto(
+              mapping,
+              providerName,
+              null,
+              (key ? designsByKey.get(key) : undefined) ?? [],
+            )
+          : null,
+      };
+    });
   }
 
   /**
@@ -833,6 +887,7 @@ export class FulfillmentService {
       providerColor: mapping.providerColor,
       providerSize: mapping.providerSize,
       productionConfig: mapping.productionConfig,
+      productionLine: mapping.productionLine,
       placementMap: mapping.placementMap,
       isActive: mapping.isActive,
       // `status` là dạng đọc được của `isActive` — không thêm cột thứ hai cho cùng khái niệm.
@@ -863,8 +918,18 @@ export class FulfillmentService {
       labelUrl: record.labelUrl,
       shippingMethod: record.shippingMethod,
       productionLine: record.productionLine,
+      facility: record.facility,
+      speedType: record.speedType,
+      subtotal: record.subtotal === null ? null : Number(record.subtotal),
+      shippingFee: record.shippingFee === null ? null : Number(record.shippingFee),
+      tax: record.tax === null ? null : Number(record.tax),
       total: record.total === null ? null : Number(record.total),
       currency: record.currency,
+      // Đơn đã gửi mà còn dòng chưa có giá vốn ⇒ giao diện nói rõ "đang chờ báo giá" thay vì
+      // hiển thị một ô trống không ai biết là lỗi hay chưa tới.
+      baseCostPending:
+        record.submittedAt !== null &&
+        (record.items ?? []).some((item) => item.baseCost === null),
       attemptCount: record.attemptCount,
       lastErrorCode: record.lastErrorCode,
       lastErrorMessage: record.lastErrorMessage,
@@ -880,6 +945,8 @@ export class FulfillmentService {
         printFiles: item.printFiles,
         color: item.color,
         size: item.size,
+        baseCost: item.baseCost === null ? null : Number(item.baseCost),
+        providerItemId: item.providerItemId,
       })),
       createdAt: record.createdAt.toISOString(),
       updatedAt: record.updatedAt.toISOString(),

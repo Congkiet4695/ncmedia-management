@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   FulfillmentEventType,
   FulfillmentOrder,
+  FulfillmentOrderItem,
   FulfillmentProvider,
   FulfillmentStatus,
   FulfillmentTrigger,
@@ -443,6 +444,12 @@ export class FulfillmentRepository {
    * với giá vốn nào. Design nay sống ở Product Mapping và có thể bị thay/xoá bất cứ lúc nào;
    * không có ảnh chụp thì đơn đã gửi mất luôn khả năng đối soát với xưởng in.
    */
+  /**
+   * Ghi lại trọn bộ dòng hàng của một lần gửi và TRẢ VỀ id đã tạo.
+   *
+   * 🔴 Id là thứ được gửi sang nhà cung cấp làm `items[].item_id`, nên phải có TRƯỚC khi dựng
+   * request — nhờ đó giá vốn nhà cung cấp báo về ghép được đúng dòng, kể cả khi hai dòng cùng SKU.
+   */
   async replaceItems(
     fulfillmentOrderId: string,
     organizationId: string,
@@ -454,13 +461,62 @@ export class FulfillmentRepository {
       baseCost: number | null;
       printFiles: Prisma.InputJsonValue;
     }>,
-  ): Promise<void> {
-    await this.prisma.$transaction([
+  ): Promise<FulfillmentOrderItem[]> {
+    const [, created] = await this.prisma.$transaction([
       this.prisma.fulfillmentOrderItem.deleteMany({ where: { fulfillmentOrderId } }),
-      this.prisma.fulfillmentOrderItem.createMany({
-        data: items.map((item) => ({ ...item, fulfillmentOrderId, organizationId })),
-      }),
-    ]);
+      ...items.map((item) =>
+        this.prisma.fulfillmentOrderItem.create({
+          data: { ...item, fulfillmentOrderId, organizationId },
+        }),
+      ),
+    ] as [Prisma.PrismaPromise<Prisma.BatchPayload>, ...Prisma.PrismaPromise<FulfillmentOrderItem>[]]);
+    void created;
+    return this.listItems(fulfillmentOrderId);
+  }
+
+  listItems(fulfillmentOrderId: string): Promise<FulfillmentOrderItem[]> {
+    return this.prisma.fulfillmentOrderItem.findMany({
+      where: { fulfillmentOrderId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /**
+   * Ghi giá vốn + màu/size NHÀ CUNG CẤP báo về cho từng dòng hàng.
+   *
+   * 🔴 Chỉ ghi ĐÈ khi có giá trị: Mango trả `base_cost = null` lúc đơn chưa được báo giá, và ghi
+   * `null` lên con số đã có sẽ xoá mất giá vốn của một đơn đã chốt. Dòng nào không có số mới thì
+   * giữ nguyên số cũ (ảnh chụp từ Product Mapping lúc gửi).
+   */
+  async applyProviderItemCosts(
+    fulfillmentOrderId: string,
+    costs: Array<{
+      id: string;
+      baseCost: number | null;
+      color: string | null;
+      size: string | null;
+      providerItemId: string | null;
+    }>,
+  ): Promise<number> {
+    const writable = costs.filter(
+      (cost) => cost.baseCost !== null || cost.color || cost.size || cost.providerItemId,
+    );
+    if (writable.length === 0) return 0;
+
+    await this.prisma.$transaction(
+      writable.map((cost) =>
+        this.prisma.fulfillmentOrderItem.update({
+          where: { id: cost.id },
+          data: {
+            ...(cost.baseCost === null ? {} : { baseCost: new Prisma.Decimal(cost.baseCost) }),
+            ...(cost.color ? { color: cost.color } : {}),
+            ...(cost.size ? { size: cost.size } : {}),
+            ...(cost.providerItemId ? { providerItemId: cost.providerItemId } : {}),
+          },
+        }),
+      ),
+    );
+    return writable.length;
   }
 
   /**

@@ -117,6 +117,7 @@ function buildService() {
       organizationId: 'org-1',
       ctx: CTX,
       payload,
+      payloadId: 'payload-1',
       tiktokDraftId,
       // Ảnh đã có `uri` sẵn trong payload ⇒ cache được nạp từ đó, không upload lại.
       // 🔴 Khoá cache nay gồm CẢ use case (`MAIN_IMAGE:<fileId>`): cùng một tấm ảnh dùng làm
@@ -315,6 +316,7 @@ describe('PodListingPublisherService — ảnh trong mô tả', () => {
       organizationId: 'org-1',
       ctx: CTX,
       payload: buildPayload({ description: '<p>hi</p><img src="https://cdn.ncmedia.test/uploads/a.jpg">' }),
+      payloadId: 'payload-1',
       imageUriCache: new Map([['MAIN_IMAGE:file-1', Promise.resolve('uri-1')]]),
       log,
     });
@@ -354,6 +356,7 @@ describe('PodListingPublisherService — ảnh trong mô tả', () => {
         organizationId: 'org-1',
         ctx: CTX,
         payload: buildPayload({ description: '<img src="https://cdn.ncmedia.test/uploads/a.jpg">' }),
+        payloadId: 'payload-1',
         imageUriCache: new Map(),
         log,
       }),

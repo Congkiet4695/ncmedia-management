@@ -9,6 +9,7 @@ import {
   FulfillmentTrigger,
   Prisma,
 } from '@prisma/client';
+import { DistributedLockService } from '../../../pod-tiktok/infra/distributed-lock.service';
 import { PodOrderRepository } from '../../../pod-tiktok/repositories/pod-order.repository';
 import type { PodOrderWithRelations } from '../../../pod-tiktok/types/pod-order-with-relations.type';
 import {
@@ -17,6 +18,7 @@ import {
   FulfillmentProviderNotAssignedException,
   FulfillmentAlreadySubmittedException,
   FulfillmentCannotCancelException,
+  FulfillmentCannotUpdateException,
   FulfillmentClientError,
   FulfillmentErrorClass,
   FulfillmentNotReadyException,
@@ -38,9 +40,19 @@ import {
 import { mappingKeyOf } from '../../shared/mapping-match';
 import { MangoApiClient, MangoCallContext } from '../clients/mango-api.client';
 import { MangoCredentialService } from './mango-credential.service';
-import { MangoOrderMapper } from '../mappers/mango-order.mapper';
-import type { MangoShippingMethod } from '../constants/mango.constants';
+import { MangoOrderMapper, type ResolvedItem } from '../mappers/mango-order.mapper';
+import type {
+  MangoPreferredCarrier,
+  MangoShippingMethod,
+  MangoSpeedType,
+} from '../constants/mango.constants';
 import type { MangoOrderResponse } from '../types/mango-api.types';
+
+/** Một dòng hàng nhà cung cấp trả về, kèm số lần SKU đó xuất hiện (ghép nhập nhằng ⇒ bỏ qua). */
+interface ProviderItemBucket {
+  count: number;
+  item: import('../mappers/mango-order.mapper').ProviderItemCost;
+}
 
 /** Trạng thái Mango cho phép huỷ (tài liệu Cancel Order: chỉ NEW_ORDER hoặc ON_HOLD). */
 const CANCELLABLE_STATUSES: readonly FulfillmentStatus[] = [
@@ -53,6 +65,44 @@ const RESUBMITTABLE_STATUSES: readonly FulfillmentStatus[] = [
   FulfillmentStatus.DRAFT,
   FulfillmentStatus.FAILED,
 ];
+
+/**
+ * Trạng thái còn SỬA được ở nhà cung cấp.
+ *
+ * Tài liệu Update Order: "Only allows updating certain fields and when order is not processed
+ * yet" — tức là đơn mới tiếp nhận hoặc đang tạm giữ; đã vào sản xuất thì không.
+ */
+const UPDATABLE_STATUSES: readonly FulfillmentStatus[] = [
+  FulfillmentStatus.SUBMITTED,
+  FulfillmentStatus.ON_HOLD,
+];
+
+/**
+ * Khoá chống bấm "Đẩy sang Fulfill" hai lần (ms).
+ *
+ * 🔴 Kiểm trạng thái rồi mới ghi là một khoảng hở: hai request gần như đồng thời cùng đọc
+ * thấy DRAFT/FAILED và cùng đi tiếp. Mango sẽ từ chối request thứ hai vì trùng `order_id`
+ * (idempotency thật nằm ở đó), nhưng nó cũng kịp ghi đè bản ghi bằng một lần FAILED giả và
+ * làm người dùng tưởng đơn hỏng. Khoá đóng đúng khoảng hở đó; TTL để tiến trình chết không
+ * khoá vĩnh viễn.
+ */
+const FULFILL_LOCK_MS = 60_000;
+
+/**
+ * Tuỳ chọn gửi đơn người vận hành chọn trên màn hình Fulfill.
+ *
+ * Bỏ trống ⇒ lấy mặc định của tài khoản nhà cung cấp (hành vi cũ, không đổi).
+ */
+export interface MangoFulfillOptionsInput {
+  shippingMethod?: MangoShippingMethod | null;
+  facility?: string | null;
+  speedType?: MangoSpeedType | null;
+  preferredCarrier?: MangoPreferredCarrier | null;
+  isScanLabel?: boolean;
+  /** Nhãn vận chuyển người bán tự mua (PDF/PNG/JPG, URL công khai). */
+  labelUrl?: string | null;
+  note?: string | null;
+}
 
 /**
  * MangoFulfillmentService — nghiệp vụ gửi đơn sang MangoTeePrints.
@@ -80,6 +130,7 @@ export class MangoFulfillmentService {
     private readonly client: MangoApiClient,
     private readonly mapper: MangoOrderMapper,
     private readonly credentials: MangoCredentialService,
+    private readonly lock: DistributedLockService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -98,6 +149,21 @@ export class MangoFulfillmentService {
     actorUserId: string,
     podOrderId: string,
     trigger: FulfillmentTrigger = FulfillmentTrigger.MANUAL,
+    options: MangoFulfillOptionsInput = {},
+  ): Promise<FulfillmentOrderWithRelations> {
+    const done = await this.lock.withLock(`fulfillment:fulfill:${podOrderId}`, FULFILL_LOCK_MS, () =>
+      this.fulfillLocked(organizationId, actorUserId, podOrderId, trigger, options),
+    );
+    if (!done) throw new FulfillmentAlreadySubmittedException(FulfillmentStatus.SUBMITTING);
+    return done;
+  }
+
+  private async fulfillLocked(
+    organizationId: string,
+    actorUserId: string,
+    podOrderId: string,
+    trigger: FulfillmentTrigger,
+    options: MangoFulfillOptionsInput,
   ): Promise<FulfillmentOrderWithRelations> {
     const existing = await this.repo.findByPodOrder(
       organizationId,
@@ -152,6 +218,18 @@ export class MangoFulfillmentService {
     const externalOrderId =
       existing?.externalOrderId ?? this.mapper.buildExternalOrderId(order.tiktokOrderId);
 
+    // Tuỳ chọn người dùng chọn cho ĐƠN NÀY thắng mặc định của tài khoản; không chọn thì giữ
+    // nguyên hành vi cũ (mặc định tài khoản, ghi chú của người bán).
+    const shippingMethod = (options.shippingMethod ??
+      account.defaultShippingMethod) as MangoShippingMethod;
+    const facility = options.facility ?? account.defaultFacility;
+    const note = options.note ?? order.sellerNote;
+    const labelUrl = options.labelUrl ?? null;
+
+    // Line sản xuất: ánh xạ của sản phẩm THẮNG mặc định tài khoản (readiness đã bảo đảm cả đơn
+    // chỉ có một line; hai line khác nhau bị chặn từ trước với lý do rõ ràng).
+    const productionLine = check.productionLine ?? account.defaultProductionLine;
+
     const record =
       existing ??
       (await this.repo.createDraft({
@@ -160,26 +238,15 @@ export class MangoFulfillmentService {
         provider: MangoFulfillmentService.PROVIDER,
         podOrderId,
         externalOrderId,
-        productionLine: account.defaultProductionLine,
-        shippingMethod: account.defaultShippingMethod,
-        facility: account.defaultFacility,
+        productionLine,
+        shippingMethod,
+        facility,
         createdBy: actorUserId,
       }));
 
-    const request = this.mapper.buildCreateOrderRequest({
-      externalOrderId,
-      address: check.address,
-      items: check.items,
-      shippingMethod: account.defaultShippingMethod as MangoShippingMethod,
-      facility: account.defaultFacility,
-      // Đơn 4PL của TikTok đã có nhãn sẵn — chỉ gửi khi thực sự có.
-      labelUrl: null,
-      note: order.sellerNote,
-      seller: order.shop.name,
-      buyerEmail: order.buyerEmail,
-    });
-
-    await this.repo.replaceItems(
+    // 🔴 Ghi dòng hàng TRƯỚC khi dựng request: id của chúng được gửi làm `items[].item_id`, và
+    // đó là thứ duy nhất ghép được giá vốn Mango trả về đúng dòng (hai dòng có thể cùng SKU).
+    const storedItems = await this.repo.replaceItems(
       record.id,
       organizationId,
       check.items.map((item) => ({
@@ -191,10 +258,37 @@ export class MangoFulfillmentService {
         printFiles: item.printFiles as unknown as Prisma.InputJsonValue,
       })),
     );
+    const itemIdByPodItem = new Map(storedItems.map((item) => [item.podOrderItemId ?? '', item.id]));
+    const itemsWithId: ResolvedItem[] = check.items.map((item) => ({
+      ...item,
+      itemId: itemIdByPodItem.get(item.podOrderItemId) ?? null,
+    }));
+
+    const request = this.mapper.buildCreateOrderRequest({
+      externalOrderId,
+      address: check.address,
+      items: itemsWithId,
+      shippingMethod,
+      facility,
+      speedType: options.speedType ?? null,
+      preferredCarrier: options.preferredCarrier ?? null,
+      isScanLabel: options.isScanLabel === true,
+      // Nhãn vận chuyển: đơn 4PL của TikTok đã có nhãn sẵn, hoặc người bán tự mua rồi dán link.
+      labelUrl,
+      note,
+      seller: order.shop.name,
+      buyerEmail: order.buyerEmail,
+    });
 
     await this.repo.updateOrder(record.id, {
       status: FulfillmentStatus.SUBMITTING,
       attemptCount: { increment: 1 },
+      shippingMethod,
+      facility,
+      // Gửi lại một đơn cũ sau khi sửa ánh xạ ⇒ bản ghi phải mang line MỚI, không giữ line cũ.
+      productionLine,
+      speedType: options.speedType ?? null,
+      labelUrl,
       rawRequest: this.mapper.maskRequestForStorage(request) as Prisma.InputJsonValue,
       updatedBy: actorUserId,
     });
@@ -215,7 +309,9 @@ export class MangoFulfillmentService {
 
       await this.repo.updateOrder(record.id, {
         status: FulfillmentStatus.SUBMITTED,
-        providerOrderId: result.data?.id ?? null,
+        // `id` là khoá phía Mango; thiếu thì lấy `order_id` — bản ghi KHÔNG có mã nhà cung cấp
+        // sẽ bị bộ đồng bộ bỏ qua (điều kiện `providerOrderId != null`) và kẹt mãi không có giá vốn.
+        providerOrderId: result.data?.id ?? result.data?.order_id ?? null,
         providerStatus: result.data?.status ?? null,
         rawResponse: (result.data ?? {}) as Prisma.InputJsonValue,
         lastRequestId: result.requestId ?? null,
@@ -225,6 +321,16 @@ export class MangoFulfillmentService {
         lastSyncedAt: new Date(),
         updatedBy: actorUserId,
       });
+
+      // 🔴 Giá vốn nằm NGAY trong response tạo đơn (`data` = OrderResponseSchema, mỗi
+      // `items[].base_cost`). Bỏ qua nó là tự ép mình chờ lượt đồng bộ sau mới biết giá vốn.
+      const pending = await this.applyProviderCosts(record.id, organizationId, result.data);
+      if (pending) {
+        // Chưa có giá ngay ⇒ hỏi lại ĐÚNG MỘT LẦN bằng Get Order Detail (tài liệu: chi phí có
+        // thể được tính sau khi đơn được nhận). Vẫn thiếu thì để bộ đồng bộ định kỳ lo —
+        // KHÔNG ghi 0, KHÔNG ghi đè null lên số đã có.
+        await this.refreshCosts(organizationId, record.id, account, trigger, actorUserId);
+      }
       await this.repo.addHistory({
         organizationId,
         fulfillmentOrderId: record.id,
@@ -346,10 +452,12 @@ export class MangoFulfillmentService {
       trackingUrl: primaryShipment?.tracking_url ?? record.trackingUrl,
       carrier: primaryShipment?.carrier ?? record.carrier,
       labelUrl: detail.label_url ?? primaryShipment?.label_url ?? record.labelUrl,
-      subtotal: this.toDecimal(detail.subtotal),
-      shippingFee: this.toDecimal(detail.shipping_fee),
-      tax: this.toDecimal(detail.tax),
-      total: this.toDecimal(detail.total),
+      // 🔴 Không có số mới thì GIỮ số cũ. Mango bỏ trống chi phí ở những trạng thái nhất định;
+      // ghi `null` đè lên giá đã chốt là xoá mất số liệu đối soát lợi nhuận của đơn.
+      subtotal: this.toDecimal(detail.subtotal) ?? record.subtotal,
+      shippingFee: this.toDecimal(detail.shipping_fee) ?? record.shippingFee,
+      tax: this.toDecimal(detail.tax) ?? record.tax,
+      total: this.toDecimal(detail.total) ?? record.total,
       productionLine: detail.production_line_id ?? record.productionLine,
       rawResponse: detail as unknown as Prisma.InputJsonValue,
       lastSyncedAt: new Date(),
@@ -362,6 +470,10 @@ export class MangoFulfillmentService {
         ? { completedAt: new Date() }
         : {}),
     });
+
+    // Giá vốn từng dòng hàng — cùng `items[]` cho Create / Get Detail / Update, nên áp ở đây
+    // là mọi đường vào đều cập nhật được (tạo đơn · đồng bộ định kỳ · webhook · sửa đơn).
+    await this.applyProviderCosts(record.id, record.organizationId, detail);
 
     if (statusChanged) {
       await this.repo.addHistory({
@@ -396,6 +508,196 @@ export class MangoFulfillmentService {
     }
 
     return statusChanged || trackingChanged;
+  }
+
+  // ---------------------------------------------------------------------------
+  // Giá vốn (base cost)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Ghi giá vốn nhà cung cấp báo về vào từng dòng hàng.
+   *
+   * Ghép theo `item_id` (chính là id dòng `fulfillment_order_items` ta gửi đi) — chính xác tuyệt
+   * đối kể cả khi hai dòng cùng SKU. Đơn cũ gửi trước khi có `item_id` thì lùi về ghép theo SKU
+   * **và chỉ khi SKU đó xuất hiện đúng một lần** ở cả hai phía: ghép nhập nhằng thì thà không ghi
+   * còn hơn gán nhầm giá vốn cho dòng khác.
+   *
+   * @returns `true` khi vẫn còn dòng CHƯA có giá vốn (gọi Get Order Detail lại sau).
+   */
+  private async applyProviderCosts(
+    fulfillmentOrderId: string,
+    organizationId: string,
+    detail: MangoOrderResponse | null | undefined,
+  ): Promise<boolean> {
+    const providerItems = this.mapper.readProviderItems(detail);
+    const rows = await this.repo.listItems(fulfillmentOrderId);
+    if (rows.length === 0) return false;
+
+    const byId = new Map(providerItems.filter((item) => item.itemId).map((item) => [item.itemId, item]));
+    const bySku = new Map<string, ProviderItemBucket>();
+    for (const item of providerItems) {
+      if (!item.sku) continue;
+      const bucket = bySku.get(item.sku) ?? { count: 0, item };
+      bucket.count += 1;
+      bucket.item = item;
+      bySku.set(item.sku, bucket);
+    }
+    const localSkuCount = new Map<string, number>();
+    for (const row of rows) {
+      localSkuCount.set(row.providerSku, (localSkuCount.get(row.providerSku) ?? 0) + 1);
+    }
+
+    const costs = rows.map((row) => {
+      const matched =
+        byId.get(row.id) ??
+        (localSkuCount.get(row.providerSku) === 1 && bySku.get(row.providerSku)?.count === 1
+          ? bySku.get(row.providerSku)?.item
+          : undefined);
+      return {
+        id: row.id,
+        baseCost: matched?.baseCost ?? null,
+        color: matched?.color ?? null,
+        size: matched?.size ?? null,
+        providerItemId: matched?.itemId ?? null,
+      };
+    });
+
+    const written = await this.repo.applyProviderItemCosts(fulfillmentOrderId, costs);
+    const fresh = written > 0 ? await this.repo.listItems(fulfillmentOrderId) : rows;
+    const missing = fresh.filter((row) => row.baseCost === null).length;
+
+    if (providerItems.length > 0) {
+      this.logger.log({
+        module: 'fulfillment',
+        provider: 'MANGO',
+        operation: 'base-cost.apply',
+        organizationId,
+        fulfillmentOrderId,
+        providerItems: providerItems.length,
+        localItems: rows.length,
+        updated: written,
+        missingBaseCost: missing,
+        msg: 'Cập nhật giá vốn theo dữ liệu nhà cung cấp',
+      });
+    }
+    return missing > 0;
+  }
+
+  /**
+   * Hỏi lại Get Order Detail để lấy giá vốn còn thiếu.
+   *
+   * Fail-soft: đơn ĐÃ được xưởng in tiếp nhận, nên một lời gọi phụ hỏng không được biến kết quả
+   * gửi đơn thành thất bại. Thiếu tiếp thì bộ đồng bộ định kỳ (`FulfillmentSyncService` —
+   * đơn SUBMITTED luôn nằm trong danh sách hỏi lại) sẽ điền nốt.
+   */
+  private async refreshCosts(
+    organizationId: string,
+    fulfillmentOrderId: string,
+    account: FulfillmentAccount,
+    trigger: FulfillmentTrigger,
+    actorUserId?: string,
+  ): Promise<void> {
+    const record = await this.repo.findById(organizationId, fulfillmentOrderId);
+    if (!record) return;
+    try {
+      const result = await this.client.getOrder(this.callContext(account), record.externalOrderId);
+      await this.applyProviderState(record, result.data, trigger, {
+        durationMs: result.durationMs,
+        requestId: result.requestId,
+        performedBy: actorUserId,
+      });
+    } catch (error) {
+      this.logger.warn({
+        module: 'fulfillment',
+        provider: 'MANGO',
+        operation: 'base-cost.refresh',
+        organizationId,
+        fulfillmentOrderId,
+        msg: `Chưa lấy được giá vốn ngay sau khi tạo đơn, để lượt đồng bộ sau: ${
+          error instanceof Error ? error.message : 'lỗi không xác định'
+        }`,
+      });
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // Sửa đơn đã gửi (nhãn / ghi chú / phương thức vận chuyển)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Sửa đơn ĐÃ gửi nhưng CHƯA vào sản xuất (PUT /orders/{order_id}).
+   *
+   * Dùng cho tình huống thực tế: nhãn vận chuyển mua sau khi đã đẩy đơn, hoặc đổi phương thức
+   * vận chuyển. Tài liệu ghi rõ sửa `label_url` / `shipping_method` sẽ khiến Mango **tính lại
+   * chi phí** — nên response được áp thẳng vào bản ghi (kể cả giá vốn từng dòng).
+   */
+  async updateAtProvider(
+    organizationId: string,
+    actorUserId: string,
+    podOrderId: string,
+    changes: { labelUrl?: string | null; note?: string | null; shippingMethod?: MangoShippingMethod | null },
+  ): Promise<FulfillmentOrderWithRelations> {
+    const record = await this.repo.findByPodOrder(
+      organizationId,
+      podOrderId,
+      MangoFulfillmentService.PROVIDER,
+    );
+    if (!record) throw new FulfillmentOrderNotFoundException();
+    if (!UPDATABLE_STATUSES.includes(record.status)) {
+      throw new FulfillmentCannotUpdateException(record.status);
+    }
+
+    const request = this.mapper.buildUpdateOrderRequest(changes);
+    if (Object.keys(request).length === 0) return this.requireRecord(organizationId, record.id);
+
+    const account = await this.requireAccountById(organizationId, record.accountId);
+    try {
+      const result = await this.client.updateOrder(
+        this.callContext(account),
+        record.externalOrderId,
+        request,
+      );
+      await this.repo.updateOrder(record.id, {
+        ...(changes.labelUrl !== undefined ? { labelUrl: changes.labelUrl } : {}),
+        ...(changes.shippingMethod ? { shippingMethod: changes.shippingMethod } : {}),
+        lastRequestId: result.requestId ?? null,
+        updatedBy: actorUserId,
+      });
+      await this.repo.addHistory({
+        organizationId,
+        fulfillmentOrderId: record.id,
+        eventType: FulfillmentEventType.SYNC,
+        trigger: FulfillmentTrigger.MANUAL,
+        fromStatus: record.status,
+        providerStatus: result.data?.status ?? record.providerStatus,
+        message: `Đã cập nhật đơn ở xưởng in: ${Object.keys(request).join(', ')}`,
+        durationMs: result.durationMs,
+        requestId: result.requestId,
+        performedBy: actorUserId,
+      });
+      // Response mang chi phí đã tính lại ⇒ áp ngay, không chờ lượt đồng bộ.
+      const fresh = await this.repo.findById(organizationId, record.id);
+      if (fresh) {
+        await this.applyProviderState(fresh, result.data, FulfillmentTrigger.MANUAL, {
+          durationMs: result.durationMs,
+          requestId: result.requestId,
+          performedBy: actorUserId,
+        });
+      }
+    } catch (error) {
+      await this.recordFailure(
+        organizationId,
+        record.id,
+        'update',
+        FulfillmentTrigger.MANUAL,
+        actorUserId,
+        error,
+        FulfillmentEventType.SYNC,
+      );
+      throw this.translate(error);
+    }
+
+    return this.requireRecord(organizationId, record.id);
   }
 
   // ---------------------------------------------------------------------------

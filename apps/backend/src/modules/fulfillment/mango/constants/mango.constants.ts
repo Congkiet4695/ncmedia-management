@@ -97,6 +97,11 @@ export const MANGO_ENDPOINTS = {
   listOrders: '/orders',
   /** GET — chi tiết đơn theo `order_id` NCMedia đã gửi. */
   orderDetail: (orderId: string) => `/orders/${encodeURIComponent(orderId)}`,
+  /**
+   * PUT — sửa đơn CHƯA vào sản xuất. Tài liệu Update Order: sửa `items`, `label_url` hoặc
+   * `shipping_method` sẽ khiến Mango **tính lại chi phí** (và chuyển đổi file in / nhãn nếu cần).
+   */
+  updateOrder: (orderId: string) => `/orders/${encodeURIComponent(orderId)}`,
   /** POST — huỷ đơn. Chỉ áp dụng khi trạng thái là NEW_ORDER hoặc ON_HOLD. */
   cancelOrder: (orderId: string) => `/orders/${encodeURIComponent(orderId)}/cancel`,
   /** GET — danh mục sản phẩm. */
@@ -143,6 +148,24 @@ export const MANGO_SHIPPING_METHODS = [
 ] as const;
 export type MangoShippingMethod = (typeof MANGO_SHIPPING_METHODS)[number];
 
+/**
+ * `items[].production_config` — tài liệu OrderItemSchema: "Production configuration: default or large".
+ * `large` dùng vùng in lớn và **tính thêm phí** ở một số production line.
+ */
+export const MANGO_PRODUCTION_CONFIGS = ['default', 'large'] as const;
+export type MangoProductionConfig = (typeof MANGO_PRODUCTION_CONFIGS)[number];
+
+/**
+ * Lưu ý hiển thị ở đầu khối cấu hình sản phẩm.
+ *
+ * 🔴 Đặt ở BACKEND vì đây là ràng buộc NGHIỆP VỤ của nhà cung cấp, không phải chữ trang trí:
+ * Mango gắn sản phẩm với production line qua chính tên sản phẩm, nên một đơn nhiều dòng phải
+ * cùng một xưởng. Viết cứng câu này trong giao diện nghĩa là nhà cung cấp thứ hai sẽ hiện nhầm.
+ */
+export const MANGO_PROVIDER_NOTICE =
+  'Với MangoTeePrints, tên sản phẩm bắt đầu bằng tên xưởng in. Đơn có nhiều sản phẩm phải chọn ' +
+  'các sản phẩm CÙNG một xưởng (production line), nếu không nhà cung cấp sẽ từ chối đơn.';
+
 /** `SpeedType` — chỉ áp dụng cho production line FASTUS. */
 export const MANGO_SPEED_TYPES = ['rush', 'expedite'] as const;
 export type MangoSpeedType = (typeof MANGO_SPEED_TYPES)[number];
@@ -183,6 +206,11 @@ export type MangoWebhookEvent = (typeof MANGO_WEBHOOK_EVENTS)[number];
 
 /** `preferred_carrier` — chọn hãng vận chuyển cho đơn TIKTOK/US1 đi Mỹ. */
 export const MANGO_PREFERRED_CARRIERS = ['auto', 'usps'] as const;
+export type MangoPreferredCarrier = (typeof MANGO_PREFERRED_CARRIERS)[number];
+
+/** `FacilityType` — xưởng xử lý đơn. Chỉ dùng cho production line TIKTOK; mặc định AUTO. */
+export const MANGO_FACILITIES = ['AUTO', 'TX', 'SJ', 'VA'] as const;
+export type MangoFacility = (typeof MANGO_FACILITIES)[number];
 
 /** Mã lỗi chuẩn trong envelope của Mango (Overview → Common Error Codes). */
 export const MANGO_ERROR_CODES = {

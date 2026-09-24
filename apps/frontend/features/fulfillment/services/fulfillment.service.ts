@@ -3,12 +3,15 @@ import type { ApiResponse, Paginated } from '@/types/api';
 import type { PodDesign, PodDesignPlacement } from '@/features/pod-tiktok/order-types';
 import type {
   CreateFulfillmentProviderInput,
+  FulfillPayload,
   FulfillmentError,
   FulfillmentProviderAccount,
   FulfillmentProviderOption,
   FulfillmentHistoryEntry,
   FulfillmentOrder,
+  FulfillmentOptions,
   FulfillmentState,
+  UpdateFulfillmentPayload,
   AutoMapResult,
   CatalogProductQuery,
   CatalogStatus,
@@ -41,16 +44,36 @@ export const fulfillmentService = {
     return res.data.data;
   },
 
-  async fulfill(podOrderId: string): Promise<FulfillmentOrder> {
+  async fulfill(podOrderId: string, payload: FulfillPayload = {}): Promise<FulfillmentOrder> {
     const res = await apiClient.post<ApiResponse<FulfillmentOrder>>(
       `${BASE_PATH}/orders/${podOrderId}/fulfill`,
+      payload,
     );
     return res.data.data;
   },
 
-  async retry(podOrderId: string): Promise<FulfillmentOrder> {
+  async retry(podOrderId: string, payload: FulfillPayload = {}): Promise<FulfillmentOrder> {
     const res = await apiClient.post<ApiResponse<FulfillmentOrder>>(
       `${BASE_PATH}/orders/${podOrderId}/retry`,
+      payload,
+    );
+    return res.data.data;
+  },
+
+  /**
+   * Sửa đơn đã gửi (nhãn · ghi chú · phương thức vận chuyển).
+   *
+   * 🔴 Đường dẫn theo góc nhìn ĐƠN POD vì đây là endpoint duy nhất của thao tác này
+   * (`PATCH /pod/orders/{id}/fulfillment`). Nhà cung cấp tính lại chi phí, nên response đã mang
+   * giá vốn mới.
+   */
+  async updateFulfillment(
+    podOrderId: string,
+    payload: UpdateFulfillmentPayload,
+  ): Promise<FulfillmentOrder> {
+    const res = await apiClient.patch<ApiResponse<FulfillmentOrder>>(
+      `/pod/orders/${podOrderId}/fulfillment`,
+      payload,
     );
     return res.data.data;
   },
@@ -171,6 +194,19 @@ export const productMappingService = {
   // 🔴 Không endpoint nào ở đây gọi Mango lúc người dùng bấm. Dữ liệu do Sync Job ghi xuống;
   // muốn mới thì gọi `syncCatalog` (một tác vụ DÀI với danh mục lớn).
   // -------------------------------------------------------------------------
+
+  /**
+   * Lựa chọn cấu hình của một nhà cung cấp (shipping · facility · speed · carrier ·
+   * production config · production line · vị trí in · lưu ý).
+   *
+   * 🔴 Giao diện KHÔNG giữ bản sao nào của các danh sách này — xem `FulfillmentOptionsService`.
+   */
+  async options(accountId: string): Promise<FulfillmentOptions> {
+    const res = await apiClient.get<ApiResponse<FulfillmentOptions>>(
+      `${BASE_PATH}/accounts/${accountId}/options`,
+    );
+    return res.data.data;
+  },
 
   async catalogues(accountId: string): Promise<ProviderCatalogue[]> {
     const res = await apiClient.get<ApiResponse<ProviderCatalogue[]>>(

@@ -1275,7 +1275,8 @@
       "fulfilledBy": "Fulfilled By",
       "fulfilledByHint": "The fulfillment API does not return who submitted the order yet.",
       "baseCost": "Base Cost",
-      "blockedHint": "This order cannot be fulfilled yet — see the reasons listed below."
+      "blockedHint": "This order cannot be fulfilled yet — see the reasons listed below.",
+      "openDetail": "View fulfilment details"
     },
     "actions": {
       "syncFulfillment": "Sync fulfillment",

@@ -6,7 +6,13 @@ import { Check, ChevronDown, Loader2, Search, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 
-/** Một lựa chọn trong danh sách. `hint` hiện mờ bên phải (mã danh mục, tên shop…). */
+/**
+ * Một lựa chọn trong danh sách. `hint` hiện mờ bên phải (mã danh mục, tên shop…).
+ *
+ * 🔴 `hint` dành cho thông tin NGƯỜI DÙNG đọc được (mã danh mục, tên shop), KHÔNG phải để phô
+ * định danh kỹ thuật: UUID nằm ở `value` và chỉ đi cùng request, không bao giờ hiện lên màn hình.
+ * `value` luôn nguyên vẹn — nhãn hiển thị và định danh là hai thứ tách rời.
+ */
 export interface ComboboxOption {
   value: string;
   label: string;
@@ -132,6 +138,10 @@ function OptionList({
   footer,
   inputRef,
   onKeyDown,
+  onLoadMore,
+  hasMore,
+  loadingMore,
+  endMessage,
 }: {
   options: ComboboxOption[];
   keyword: string;
@@ -146,6 +156,10 @@ function OptionList({
   footer?: React.ReactNode;
   inputRef: React.RefObject<HTMLInputElement | null>;
   onKeyDown: (event: React.KeyboardEvent<HTMLInputElement>) => void;
+  onLoadMore?: () => void;
+  hasMore?: boolean;
+  loadingMore?: boolean;
+  endMessage?: string;
 }) {
   const { t } = useTranslation('common');
   const listRef = React.useRef<HTMLDivElement>(null);
@@ -156,8 +170,27 @@ function OptionList({
     node?.scrollIntoView({ block: 'nearest' });
   }, [highlighted]);
 
-  const visible = options.slice(0, MAX_RENDERED);
+  /**
+   * 🔴 Danh sách phân trang (`onLoadMore`) KHÔNG bị cắt ở `MAX_RENDERED`: số option đã tải là
+   * do chính người dùng cuộn ra, cắt đi thì cuộn thêm không còn tác dụng. Danh sách nạp sẵn
+   * (brand: hàng chục nghìn dòng) vẫn cắt như cũ.
+   */
+  const paged = Boolean(onLoadMore);
+  const visible = paged ? options : options.slice(0, MAX_RENDERED);
   const hidden = options.length - visible.length;
+
+  /**
+   * Cuộn gần đáy ⇒ xin trang kế.
+   *
+   * Chốt chặn nằm ở `hasMore` + `loadingMore` (do nơi gọi nắm), nên giữ chuột ở đáy danh sách
+   * không tạo ra một chuỗi request: lần đầu chạm ngưỡng đã bật `loadingMore`, những lần bắn
+   * tiếp theo rơi vào đúng điều kiện này và dừng.
+   */
+  const onScroll = (event: React.UIEvent<HTMLDivElement>): void => {
+    if (!onLoadMore || !hasMore || loadingMore) return;
+    const node = event.currentTarget;
+    if (node.scrollTop + node.clientHeight >= node.scrollHeight - 48) onLoadMore();
+  };
 
   return (
     <>
@@ -176,7 +209,7 @@ function OptionList({
         )}
       </div>
 
-      <div ref={listRef} className="max-h-60 overflow-y-auto py-1">
+      <div ref={listRef} onScroll={onScroll} className="max-h-60 overflow-y-auto py-1">
         {visible.length === 0 && !loading && (
           <p className="px-3 py-6 text-center text-sm text-muted-foreground">
             {emptyMessage ?? t('combobox.noResult')}
@@ -216,6 +249,19 @@ function OptionList({
             {t('combobox.more', { count: hidden })}
           </p>
         )}
+
+        {/* Danh sách phân trang: nói rõ đang tải thêm / đã hết, thay vì im lặng dừng cuộn. */}
+        {paged && loadingMore && (
+          <p className="flex items-center justify-center gap-1 px-3 py-2 text-xs text-muted-foreground">
+            <Loader2 className="size-3 animate-spin" />
+            {t('combobox.loadingMore')}
+          </p>
+        )}
+        {paged && !loadingMore && !hasMore && visible.length > 0 && (
+          <p className="px-3 py-2 text-center text-xs text-muted-foreground">
+            {endMessage ?? t('combobox.endOfList')}
+          </p>
+        )}
       </div>
 
       {footer}
@@ -238,6 +284,18 @@ export interface ComboboxProps {
   loading?: boolean;
   /** Có mặt ⇒ **tìm kiếm phía server**: component không tự lọc, chỉ báo từ khoá ra ngoài. */
   onSearchChange?: (keyword: string) => void;
+  /**
+   * Có mặt ⇒ **danh sách phân trang**: cuộn gần đáy thì gọi hàm này để nạp trang kế.
+   * Nơi gọi phải nối option mới vào CUỐI danh sách cũ (không thay thế) và tự giữ
+   * `hasMore`/`loadingMore` — component chỉ phát tín hiệu.
+   */
+  onLoadMore?: () => void;
+  /** Còn trang chưa tải hay không. `false` ⇒ hiện "đã tải hết". */
+  hasMore?: boolean;
+  /** Đang tải trang kế — chặn bắn thêm request khi người dùng giữ chuột ở đáy. */
+  loadingMore?: boolean;
+  /** Câu hiện ở cuối danh sách khi đã tải hết (mặc định dùng chuỗi chung). */
+  endMessage?: string;
   /** Cho phép bỏ chọn (trả về chuỗi rỗng). */
   clearable?: boolean;
   className?: string;
@@ -273,6 +331,10 @@ export function Combobox({
   disabled,
   loading,
   onSearchChange,
+  onLoadMore,
+  hasMore,
+  loadingMore,
+  endMessage,
   clearable,
   className,
   id,
@@ -387,6 +449,10 @@ export function Combobox({
           emptyMessage={emptyMessage}
           inputRef={inputRef}
           onKeyDown={onKeyDown}
+          onLoadMore={onLoadMore}
+          hasMore={hasMore}
+          loadingMore={loadingMore}
+          endMessage={endMessage}
         />
       </Popover>
     </>
