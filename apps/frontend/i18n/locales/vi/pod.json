@@ -146,7 +146,9 @@
       "end": "Kết thúc",
       "items": "Sản phẩm",
       "createdBy": "Người tạo",
-      "updated": "Cập nhật"
+      "updated": "Cập nhật",
+      "result": "Kết quả chạy",
+      "lastRun": "Chạy gần nhất"
     },
     "actions": {
       "publish": "Publish",
@@ -155,13 +157,18 @@
       "duplicate": "Nhân bản",
       "saveTemplate": "Lưu Template",
       "addProducts": "Thêm sản phẩm",
-      "batchEdit": "Sửa hàng loạt"
+      "batchEdit": "Sửa hàng loạt",
+      "syncFromTiktok": "Đồng bộ từ TikTok",
+      "pushItems": "Đẩy sản phẩm mới lên TikTok"
     },
     "confirm": {
       "publish": "Đẩy \"{{name}}\" lên TikTok? Giá khuyến mãi sẽ có hiệu lực với người mua thật.",
       "cancel": "Huỷ \"{{name}}\" trên TikTok? Khuyến mãi sẽ ngừng ngay lập tức.",
       "delete": "Xoá \"{{name}}\"?",
-      "deleteItems": "Xoá {{count}} dòng sản phẩm khỏi đợt sale này?"
+      "deleteItems": "Xoá {{count}} dòng sản phẩm khỏi đợt sale này?",
+      "syncFromTiktokShop": "Đồng bộ Flash Sale của shop đang chọn từ TikTok về hệ thống? Thao tác này chỉ ĐỌC từ TikTok.",
+      "syncFromTiktokAll": "Đồng bộ Flash Sale của MỌI shop bạn quản lý từ TikTok về hệ thống? Thao tác này chỉ ĐỌC từ TikTok.",
+      "pushItems": "Đẩy {{count}} dòng chưa lên sàn của \"{{name}}\" vào khuyến mãi đang chạy trên TikTok? Các dòng đã lên sàn không bị gửi lại."
     },
     "toast": {
       "created": "Đã tạo Flash Sale",
@@ -179,7 +186,13 @@
       "batchAppliedPartial": "Đã cập nhật {{updated}} / {{requested}} SKU · {{skipped}} dòng bỏ qua",
       "batchSkippedReasons": "Bỏ qua: {{reasons}}",
       "templateSaved": "Đã lưu Template",
-      "publishStarted": "Đã bắt đầu đẩy lên TikTok — {{count}} lô đang được gửi nền."
+      "publishStarted": "Đã bắt đầu đẩy lên TikTok — {{count}} lô đang được gửi nền.",
+      "importDone": "Đồng bộ xong: {{created}} đợt mới · {{updated}} cập nhật · {{unchanged}} không đổi",
+      "importUnmatched": "{{count}} SKU trên TikTok chưa có trong hệ thống — hãy đồng bộ sản phẩm rồi chạy lại.",
+      "importShopFailed": "Shop {{shop}}: {{message}}",
+      "importShopBusy": "Shop {{shop}} đang được đồng bộ ở phiên khác — thử lại sau.",
+      "pushStarted": "Đang gửi {{count}} dòng mới lên TikTok…",
+      "pushNothing": "Không có dòng nào chưa lên TikTok."
     },
     "form": {
       "shop": "Shop",
@@ -228,7 +241,9 @@
       "syncHint": "Đọc lại trạng thái từ TikTok. Đây là nút DUY NHẤT trên màn hình gọi tới sàn.",
       "itemQuota": "SKU đã chọn: {{total, number}} / {{max, number}}",
       "issueAffected": "— {{count}} SKU",
-      "issueSamples": "Xem ví dụ"
+      "issueSamples": "Xem ví dụ",
+      "pendingPushHint": "{{count}} dòng chưa lên TikTok. Bấm \"Đẩy sản phẩm mới lên TikTok\" để thêm chúng vào khuyến mãi đang chạy.",
+      "runningEditHint": "Đợt đang chạy: chỉ thêm được sản phẩm mới và sửa/xoá dòng chưa lên TikTok."
     },
     "items": {
       "empty": "Chưa có sản phẩm nào. Bấm Thêm sản phẩm để bắt đầu.",
@@ -333,6 +348,78 @@
       "activityId": "Khuyến mãi {{id}}",
       "failedAtBatch": "Dừng ở lô {{batch}}/{{total}}. {{message}} Bấm Retry sẽ gửi tiếp trên CÙNG khuyến mãi — không tạo khuyến mãi thứ hai.",
       "asyncHint": "Sản phẩm được gửi lên TikTok theo từng lô tối đa 300 SKU. Bạn có thể rời khỏi trang, quá trình vẫn chạy nền."
+    },
+    "stats": {
+      "success": "{{count}} thành công",
+      "failed": "{{count}} thất bại",
+      "pending": "{{count}} chờ gửi",
+      "removed": "{{count}} bị gỡ",
+      "products": "Sản phẩm: {{published}}/{{total}} thành công · {{failed}} thất bại",
+      "tooltip": "Tính theo dòng (biến thể) — {{total}} dòng"
+    },
+    "source": {
+      "SYSTEM": "Hệ thống",
+      "TIKTOK": "Từ TikTok"
+    },
+    "auto": {
+      "column": "Auto",
+      "on": "ON",
+      "off": "OFF",
+      "sequence": "#{{n}}",
+      "confirmOn": "Bật Auto cho \"{{name}}\"? Khi đợt này còn ≤ {{hours}} giờ, hệ thống tự tạo đợt kế tiếp (chép đủ sản phẩm, giữ % giảm) và đưa lên TikTok.",
+      "confirmOff": "Tắt Auto cho \"{{name}}\"? Chuỗi sẽ dừng ở đợt này.",
+      "turnedOn": "Đã bật Auto Flash Sale",
+      "turnedOff": "Đã tắt Auto Flash Sale",
+      "settingsButton": "Auto Scheduler",
+      "chainTitle": "Chuỗi Auto Flash Sale",
+      "chainHint": "Mỗi chuỗi chỉ có một đợt bật Auto. Đợt kế tiếp được tạo khi đợt đang bật còn ≤ {{hours}} giờ.",
+      "chainEmpty": "Đợt này chưa thuộc chuỗi Auto nào.",
+      "createdFrom": "Tạo từ",
+      "next": "Đợt kế tiếp",
+      "thisSale": "đợt này",
+      "activeNode": "Đang bật Auto",
+      "turnOn": "Bật Auto",
+      "turnOff": "Tắt Auto",
+      "trigger": {
+        "CRON": "Tự động",
+        "MANUAL": "Chạy ngay"
+      },
+      "runStatus": {
+        "SUCCESS": "Thành công",
+        "PARTIAL": "Có chuỗi lỗi",
+        "FAILED": "Thất bại"
+      },
+      "action": {
+        "NOT_DUE": "Chưa tới hạn",
+        "CREATED": "Đã tạo đợt kế tiếp",
+        "TRANSFERRED": "Đã chuyển Auto",
+        "IN_PROGRESS": "Đang gửi lên TikTok",
+        "SKIPPED": "Bỏ qua",
+        "FAILED": "Lỗi"
+      },
+      "settings": {
+        "title": "Auto Flash Sale Scheduler",
+        "subtitle": "Giờ chạy mỗi ngày của job tự tạo đợt Flash Sale kế tiếp cho các đợt đang bật Auto.",
+        "noPermission": "Bạn không có quyền cấu hình Auto Flash Sale.",
+        "enabled": "Bật job Auto Flash Sale",
+        "runTime": "Giờ chạy",
+        "runTimeHint": "Mỗi ngày chạy đúng một lần. Server tắt đúng giờ chạy thì lần chạy được bù ngay khi server hoạt động lại.",
+        "timezone": "Múi giờ",
+        "lastRun": "Lần chạy gần nhất",
+        "nextRun": "Lần chạy kế tiếp",
+        "lastResult": "Kết quả gần nhất",
+        "never": "Chưa chạy",
+        "disabled": "Đang tắt",
+        "save": "Lưu cấu hình",
+        "saved": "Đã lưu cấu hình Auto Flash Sale",
+        "runNow": "Chạy ngay",
+        "runNowConfirm": "Chạy Auto Flash Sale ngay bây giờ? Các đợt đang bật Auto đã tới hạn sẽ được tạo đợt kế tiếp THẬT trên TikTok.",
+        "runDone": "Xong: {{created}} tạo mới · {{transferred}} chuyển Auto · {{failed}} lỗi",
+        "rulesTitle": "Luật của chuỗi",
+        "rules": "Tạo đợt kế tiếp khi đợt đang bật Auto còn ≤ {{leadHours}} giờ · đợt mới bắt đầu {{gapMinutes}} phút sau khi đợt cũ kết thúc · kéo dài {{durationDays}} ngày − {{endTrimMinutes}} phút.",
+        "summary": "Kiểm {{checked}} · tạo {{created}} · chuyển {{transferred}} · đang gửi {{inProgress}} · bỏ qua {{skipped}} · lỗi {{failed}}",
+        "invalidTime": "Giờ chạy phải có dạng HH:mm."
+      }
     }
   },
   "link": {

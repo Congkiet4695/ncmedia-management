@@ -1,9 +1,11 @@
+import type { PodDesignPlacement } from '../pod-tiktok/order-types';
 import type {
   FulfillmentIssue,
   FulfillmentState,
   FulfillmentStatus,
   ProviderCatalogProduct,
   ProviderCatalogVariation,
+  ProviderPrintArea,
 } from './types';
 
 /**
@@ -36,8 +38,11 @@ export function isBusinessSku(sku: string | null | undefined, externalId?: strin
   const value = sku?.trim();
   if (!value) return false;
   if (UUID_LIKE.test(value)) return false;
+  // Chỉ loại khi SKU bọc lại một id KỸ THUẬT (uuid). Khi chính id nhà cung cấp LÀ mã nghiệp vụ
+  // (Sellerwix: id sản phẩm = SKU sản phẩm, vd `SW-MD-MPTG`) thì SKU trùng id là đúng — cùng luật
+  // với `businessProductSku` ở backend.
   const id = externalId?.trim().toLowerCase();
-  if (id && value.toLowerCase().includes(id)) return false;
+  if (id && UUID_LIKE.test(id) && value.toLowerCase().includes(id)) return false;
   return true;
 }
 
@@ -193,4 +198,67 @@ export function canSubmitFulfillment(params: {
   submitting?: boolean;
 }): boolean {
   return submitBlockers(params).length === 0;
+}
+
+// ---------------------------------------------------------------------------
+// Vị trí in theo biến thể (Sellerwix `print_areas`)
+// ---------------------------------------------------------------------------
+
+/** Ánh xạ vị trí in NCMedia → khoá vùng in của nhà cung cấp, vd `{ FRONT: 'CF' }`. */
+export type PlacementMap = Partial<Record<PodDesignPlacement, string>>;
+
+/**
+ * Tên hiển thị vùng in → vị trí in NCMedia, CHỈ những tên có nguyên văn trong tài liệu Sellerwix
+ * (ví dụ Get product variants: `Front` / `Back`). Vùng khác phải do người vận hành chọn — không
+ * đoán "Left Sleeve" là `LEFT`. Cùng luật với `SELLERWIX_DEFAULT_PLACEMENT_DISPLAY_NAMES` ở backend.
+ */
+const DEFAULT_PLACEMENT_BY_DISPLAY_NAME: Readonly<Record<string, PodDesignPlacement>> = {
+  front: 'FRONT',
+  back: 'BACK',
+};
+
+/** Ánh xạ mặc định cho một biến thể: vùng `Front` → FRONT, `Back` → BACK. */
+export function defaultPlacementMap(printAreas: ProviderPrintArea[]): PlacementMap {
+  const map: PlacementMap = {};
+  for (const area of printAreas) {
+    const placement = DEFAULT_PLACEMENT_BY_DISPLAY_NAME[area.displayName?.trim().toLowerCase() ?? ''];
+    if (placement && !map[placement]) map[placement] = area.key;
+  }
+  return map;
+}
+
+/**
+ * Ánh xạ đã lưu, chỉ giữ những khoá CÓ trong `print_areas` của biến thể đang chọn. Đổi biến thể
+ * mà vùng in cũ không còn ⇒ bỏ, thay vì gửi một khoá nhà cung cấp sẽ từ chối.
+ */
+export function sanitizePlacementMap(
+  saved: unknown,
+  printAreas: ProviderPrintArea[],
+  placements: readonly PodDesignPlacement[],
+): PlacementMap {
+  if (!saved || typeof saved !== 'object') return {};
+  const keys = new Set(printAreas.map((area) => area.key));
+  const map: PlacementMap = {};
+  for (const placement of placements) {
+    const key = (saved as Record<string, unknown>)[placement];
+    if (typeof key === 'string' && keys.has(key)) map[placement] = key;
+  }
+  return map;
+}
+
+/**
+ * Gán MỘT vùng in cho MỘT vị trí NCMedia (`''` = bỏ gán). Mỗi vùng in chỉ nhận một vị trí và mỗi
+ * vị trí chỉ in ở một vùng — gán lại thì bỏ liên kết cũ, không để hai file tranh một vùng.
+ */
+export function assignPlacement(
+  map: PlacementMap,
+  areaKey: string,
+  placement: PodDesignPlacement | '',
+): PlacementMap {
+  const next: PlacementMap = {};
+  for (const [entryPlacement, key] of Object.entries(map) as Array<[PodDesignPlacement, string]>) {
+    if (key !== areaKey && entryPlacement !== placement) next[entryPlacement] = key;
+  }
+  if (placement) next[placement] = areaKey;
+  return next;
 }

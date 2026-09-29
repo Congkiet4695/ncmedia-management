@@ -1,13 +1,18 @@
 import { Injectable, Logger } from '@nestjs/common';
 import {
+  FulfillmentAccount,
   FulfillmentCatalogItemStatus,
   FulfillmentProvider,
   FulfillmentTrigger,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
-import { FulfillmentAccountNotFoundException } from '../exceptions/fulfillment.exceptions';
+import {
+  FulfillmentAccountNotFoundException,
+  FulfillmentProviderNotSupportedException,
+} from '../exceptions/fulfillment.exceptions';
 import { MangoCatalogService } from '../mango/services/mango-catalog.service';
+import { SellerwixCatalogService } from '../sellerwix/services/sellerwix-catalog.service';
 import type { MangoAccountCredentialRef } from '../mango/services/mango-credential.service';
 import { MANGO_CATALOG_SYNC } from '../mango/constants/mango.constants';
 import type { MangoProduct, MangoVariation } from '../mango/types/mango-api.types';
@@ -88,10 +93,16 @@ export function businessProductSku(
   if (!value) return null;
   const id = externalProductId.trim().toLowerCase();
   const lower = value.toLowerCase();
-  // `PROD-<id>`, `<id>`, hay bất cứ biến thể nào chỉ bọc lại id đều không phải mã nghiệp vụ.
-  if (!id || lower === id || lower.includes(id)) return null;
+  if (!id) return null;
+  // `PROD-<uuid>`, `<uuid>`, hay bất cứ biến thể nào chỉ bọc lại một id KỸ THUẬT (uuid) đều không
+  // phải mã nghiệp vụ. Nhưng khi chính id nhà cung cấp LÀ mã nghiệp vụ (Sellerwix: `external_product_id`
+  // = sku sản phẩm, vd `SW-MD-MPT`) thì SKU trùng id là đúng và phải được hiển thị.
+  if (TECHNICAL_ID.test(id) && lower.includes(id)) return null;
   return value;
 }
+
+/** Id kỹ thuật dạng UUID (MangoTee: id sản phẩm). */
+const TECHNICAL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 @Injectable()
 export class FulfillmentCatalogSyncService {
@@ -102,6 +113,7 @@ export class FulfillmentCatalogSyncService {
     private readonly repo: FulfillmentRepository,
     private readonly catalogRepo: FulfillmentCatalogRepository,
     private readonly mangoCatalog: MangoCatalogService,
+    private readonly sellerwixCatalog: SellerwixCatalogService,
   ) {}
 
   /**
@@ -178,7 +190,76 @@ export class FulfillmentCatalogSyncService {
   // Private
   // ---------------------------------------------------------------------------
 
-  private async runSync(
+  /**
+   * Đọc danh mục theo ĐÚNG nhà cung cấp của tài khoản.
+   *
+   * 🔴 Chỉ bước ĐỌC khác nhau giữa các nhà cung cấp; bước GHI (upsert theo lô, archive khi đọc đủ,
+   * nhật ký) là của chung. Nhà cung cấp chưa có tích hợp ⇒ báo rõ, KHÔNG chạy nhầm client Mango với
+   * thông tin xác thực của nhà cung cấp khác.
+   */
+  private runSync(
+    scope: CatalogScope,
+    account: FulfillmentAccount,
+    startedAt: Date,
+  ): Promise<CatalogSyncResult> {
+    switch (account.provider) {
+      case FulfillmentProvider.MANGO:
+        return this.runMangoSync(scope, account, startedAt);
+      case FulfillmentProvider.SELLERWIX:
+        return this.runSellerwixSync(scope, account, startedAt);
+      default:
+        throw new FulfillmentProviderNotSupportedException(account.provider);
+    }
+  }
+
+  /**
+   * Sellerwix: Category → Product → Variant (`SellerwixCatalogService`), ghi qua CÙNG repository và
+   * CÙNG luật archive với Mango.
+   */
+  private async runSellerwixSync(
+    scope: CatalogScope,
+    account: FulfillmentAccount,
+    startedAt: Date,
+  ): Promise<CatalogSyncResult> {
+    const syncedAt = new Date();
+    const snapshot = await this.sellerwixCatalog.fetchCatalog(account);
+
+    const catalogueIds = await this.catalogRepo.upsertCatalogues(scope, snapshot.catalogues, syncedAt);
+    const productIds = await this.catalogRepo.upsertProducts(
+      scope,
+      snapshot.products,
+      catalogueIds,
+      syncedAt,
+    );
+    const variantsWritten = await this.catalogRepo.upsertVariants(
+      scope,
+      snapshot.variants,
+      productIds,
+      syncedAt,
+    );
+
+    const complete = snapshot.warnings.length === 0;
+    const archived = complete
+      ? await this.catalogRepo.archiveStale(scope, syncedAt)
+      : { catalogues: 0, products: 0, variants: 0 };
+
+    return {
+      accountId: scope.accountId,
+      provider: scope.provider,
+      catalogues: snapshot.catalogues.length,
+      products: snapshot.products.length,
+      variants: variantsWritten,
+      archivedCatalogues: archived.catalogues,
+      archivedProducts: archived.products,
+      archivedVariants: archived.variants,
+      apiCalls: snapshot.apiCalls,
+      durationMs: Date.now() - startedAt.getTime(),
+      complete,
+      warnings: snapshot.warnings,
+    };
+  }
+
+  private async runMangoSync(
     scope: CatalogScope,
     account: MangoAccountCredentialRef,
     startedAt: Date,

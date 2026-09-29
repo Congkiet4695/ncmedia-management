@@ -121,7 +121,7 @@ export class PodFlashSaleSyncService {
       },
       orderBy: { publishHeartbeatAt: { sort: 'asc', nulls: 'first' } },
       take: FLASH_SALE_PUBLISH_SWEEP_BATCH,
-      select: { id: true, organizationId: true, publishRunId: true },
+      select: { id: true, organizationId: true, publishRunId: true, publishedAt: true },
     });
 
     let resumed = 0;

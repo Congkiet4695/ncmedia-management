@@ -188,7 +188,11 @@ export class MangoWebhookService {
   async retryPending(): Promise<{ retried: number; succeeded: number }> {
     const maxAttempts = this.config.get<number>('fulfillment.webhook.maxAttempts', 5);
     const batch = this.config.get<number>('fulfillment.webhook.retryBatch', 50);
-    const pending = await this.repo.findPendingWebhooks(batch, maxAttempts);
+    const pending = await this.repo.findPendingWebhooks(
+      FulfillmentProvider.MANGO,
+      batch,
+      maxAttempts,
+    );
 
     let succeeded = 0;
     for (const log of pending) {
@@ -215,7 +219,7 @@ export class MangoWebhookService {
   /** Tìm tài khoản có `webhookSecret` khớp — so sánh chống tấn công thời gian. */
   private async resolveAccountBySecret(secret?: string) {
     if (!secret) return null;
-    const accounts = await this.repo.findAccountsWithWebhookSecret();
+    const accounts = await this.repo.findAccountsWithWebhookSecret(FulfillmentProvider.MANGO);
     for (const account of accounts) {
       if (!account.webhookSecretEnc) continue;
       try {

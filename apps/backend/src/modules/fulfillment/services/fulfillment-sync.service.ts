@@ -2,8 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { FulfillmentProvider, FulfillmentTrigger } from '@prisma/client';
 import { DistributedLockService } from '../../pod-tiktok/infra/distributed-lock.service';
-import { MangoFulfillmentService } from '../mango/services/mango-fulfillment.service';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
+import { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 
 /** Tổng hợp kết quả một lượt đồng bộ. */
 export interface FulfillmentSyncResult {
@@ -33,7 +33,7 @@ export class FulfillmentSyncService {
   constructor(
     private readonly config: ConfigService,
     private readonly repo: FulfillmentRepository,
-    private readonly mangoService: MangoFulfillmentService,
+    private readonly gateway: FulfillmentProviderGateway,
     private readonly lock: DistributedLockService,
   ) {}
 
@@ -91,13 +91,22 @@ export class FulfillmentSyncService {
       const accountCache = new Map<string, Awaited<ReturnType<typeof this.repo.findAccountById>>>();
       const deadlineAt = startedAt + deadlineMs;
       const startedDate = new Date(startedAt);
-      const syncLog = await this.repo.startSyncLog({
-        organizationId: organizationId ?? orders[0].organizationId,
-        provider: FulfillmentProvider.MANGO,
-        trigger,
-        triggeredBy: triggeredBy ?? null,
-        startedAt: startedDate,
-      });
+      // MỘT nhật ký cho MỖI nhà cung cấp có mặt trong lượt — số liệu đối soát không trộn Mango với
+      // Sellerwix (hai trần tần suất, hai nguồn lỗi khác nhau).
+      const perProvider = new Map<
+        FulfillmentProvider,
+        { logId: string; checked: number; updated: number; failed: number; apiCalls: number }
+      >();
+      for (const provider of new Set(orders.map((order) => order.provider))) {
+        const log = await this.repo.startSyncLog({
+          organizationId: organizationId ?? orders[0].organizationId,
+          provider,
+          trigger,
+          triggeredBy: triggeredBy ?? null,
+          startedAt: startedDate,
+        });
+        perProvider.set(provider, { logId: log.id, checked: 0, updated: 0, failed: 0, apiCalls: 0 });
+      }
 
       for (const order of orders) {
         if (Date.now() >= deadlineAt) {
@@ -117,26 +126,36 @@ export class FulfillmentSyncService {
           );
         }
         const account = accountCache.get(cacheKey);
-        if (!account || !account.isActive) {
+        const stats = perProvider.get(order.provider);
+        if (!account || !account.isActive || !this.gateway.isSupported(order.provider)) {
           result.ordersFailed += 1;
+          if (stats) stats.failed += 1;
           continue;
         }
 
         result.ordersChecked += 1;
-        // syncOne KHÔNG ném lỗi (fail-soft) — một đơn hỏng không được dừng cả lượt.
-        const outcome = await this.mangoService.syncOne(order, account, trigger);
+        // syncOne KHÔNG ném lỗi (fail-soft) — một đơn hỏng không được dừng cả lượt. Adapter chọn
+        // theo nhà cung cấp CỦA BẢN GHI: đơn Sellerwix không bao giờ được hỏi bằng client Mango.
+        const outcome = await this.gateway.syncOne(order, account, trigger);
         result.apiCalls += outcome.apiCalls;
         if (outcome.changed) result.ordersUpdated += 1;
+        if (stats) {
+          stats.checked += 1;
+          stats.apiCalls += outcome.apiCalls;
+          if (outcome.changed) stats.updated += 1;
+        }
       }
 
       result.durationMs = Date.now() - startedAt;
-      await this.repo.finishSyncLog(syncLog.id, startedDate, {
-        status: 'SUCCESS',
-        ordersChecked: result.ordersChecked,
-        ordersUpdated: result.ordersUpdated,
-        ordersFailed: result.ordersFailed,
-        apiCalls: result.apiCalls,
-      });
+      for (const stats of perProvider.values()) {
+        await this.repo.finishSyncLog(stats.logId, startedDate, {
+          status: 'SUCCESS',
+          ordersChecked: stats.checked,
+          ordersUpdated: stats.updated,
+          ordersFailed: stats.failed,
+          apiCalls: stats.apiCalls,
+        });
+      }
 
       this.logger.log({
         module: 'fulfillment',

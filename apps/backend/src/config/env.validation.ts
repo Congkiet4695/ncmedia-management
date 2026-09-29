@@ -151,6 +151,10 @@ export const envValidationSchema = Joi.object({
   TIKTOK_FLASH_SALE_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   TIKTOK_FLASH_SALE_SYNC_CRON: Joi.string().default('*/5 * * * *'),
 
+  // --- Auto Flash Sale: nhịp quét (giờ chạy do Admin cấu hình theo tổ chức) ---
+  TIKTOK_FLASH_SALE_AUTO_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+  TIKTOK_FLASH_SALE_AUTO_TICK_CRON: Joi.string().default('* * * * *'),
+
   // --- Mail Module (Gmail SMTP) ---
   // MAIL_USER/MAIL_PASS để trống là hợp lệ: dev/CI không có SMTP thật, module tự chuyển sang
   // chế độ chỉ ghi log thay vì chặn cả hệ thống khởi động.
@@ -183,6 +187,8 @@ export const envValidationSchema = Joi.object({
   FULFILLMENT_WEBHOOK_BASE_URL: Joi.string().uri().allow('').default(''),
   MANGO_API_BASE_URL: Joi.string().uri().default('https://v3.mangoteeprints.com/api/public/v1'),
   MANGO_HTTP_TIMEOUT_MS: Joi.number().integer().min(1000).max(120000).default(30000),
+  SELLERWIX_API_BASE_URL: Joi.string().uri().default('https://api.sellerwix.com/public-api'),
+  SELLERWIX_HTTP_TIMEOUT_MS: Joi.number().integer().min(1000).max(120000).default(30000),
   FULFILLMENT_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
   FULFILLMENT_SYNC_CRON: Joi.string().default('*/5 * * * *'),
   FULFILLMENT_SYNC_BATCH_SIZE: Joi.number().integer().min(1).max(1000).default(100),

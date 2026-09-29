@@ -181,7 +181,7 @@ function ProvidersView() {
                     return (
                       <TableRow key={provider.id}>
                         <TableCell>
-                          <Badge variant="muted">{provider.provider}</Badge>
+                          <Badge variant="muted">{t(`provider.typeValue.${provider.provider}`)}</Badge>
                         </TableCell>
                         <TableCell className="font-medium">
                           {provider.name}

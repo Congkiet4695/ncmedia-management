@@ -20,6 +20,7 @@ import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import { FulfillmentOptionsService } from './fulfillment-options.service';
 import { FulfillmentReadinessService } from './fulfillment-readiness.service';
 import { FulfillmentService } from './fulfillment.service';
+import type { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 
 /**
  * **Nhà cung cấp DÙNG CHUNG + chọn nhà cung cấp khi gửi đơn.**
@@ -109,6 +110,8 @@ function buildStateService(
 
   const repo = {
     findByPodOrder: jest.fn().mockResolvedValue(null),
+    findCurrentByPodOrder: jest.fn().mockResolvedValue(null),
+    findBlockingRecordOfOtherProvider: jest.fn().mockResolvedValue(null),
     findAccountById: jest.fn((_org: string, id: string) =>
       Promise.resolve(accounts.find((entry) => entry.id === id) ?? null),
     ),
@@ -128,6 +131,10 @@ function buildStateService(
     } as unknown as StorageMapper),
     { encrypt: (v: string) => v, decrypt: (v: string) => v } as unknown as TiktokEncryptionService,
     { assertShopAllowed: jest.fn() } as unknown as PodAccessScopeService,
+    {
+      isSupported: () => true,
+      placementResolver: jest.fn().mockResolvedValue(undefined),
+    } as unknown as FulfillmentProviderGateway,
   );
 
   return { service, repo: repo as unknown as Record<string, jest.Mock> };
@@ -154,7 +161,7 @@ describe('FulfillmentService.getState — chọn nhà cung cấp', () => {
       assignedAccountId: 'acc-own',
     });
 
-    const state = await service.getState(ORG_A, 'order-1', POD_SCOPE_SYSTEM, FulfillmentProvider.MANGO, 'acc-global');
+    const state = await service.getState(ORG_A, 'order-1', POD_SCOPE_SYSTEM, 'acc-global');
 
     expect(state.provider?.id).toBe('acc-global');
     expect(state.availableProviders.map((entry) => entry.id)).toEqual(['acc-own', 'acc-global']);
@@ -205,6 +212,8 @@ function buildFulfillService(
   const createDraft = jest.fn().mockResolvedValue(record);
   const repo = {
     findByPodOrder: jest.fn().mockResolvedValue(null),
+    findCurrentByPodOrder: jest.fn().mockResolvedValue(null),
+    findBlockingRecordOfOtherProvider: jest.fn().mockResolvedValue(null),
     findAccountById: jest.fn((_org: string, id: string) =>
       Promise.resolve(accounts.find((entry) => entry.id === id) ?? null),
     ),

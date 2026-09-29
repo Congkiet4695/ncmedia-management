@@ -30,7 +30,7 @@ import {
   ShippingLabelDto,
   UpdateFulfillmentOrderDto,
 } from '../dto/fulfillment.dto';
-import { MangoFulfillmentService } from '../mango/services/mango-fulfillment.service';
+import { FulfillmentProviderGateway } from '../services/fulfillment-provider.gateway';
 import { FulfillmentShippingLabelService } from '../services/fulfillment-shipping-label.service';
 import { FulfillmentService } from '../services/fulfillment.service';
 
@@ -50,7 +50,7 @@ import { FulfillmentService } from '../services/fulfillment.service';
 export class PodOrderFulfillmentController {
   constructor(
     private readonly service: FulfillmentService,
-    private readonly mangoService: MangoFulfillmentService,
+    private readonly gateway: FulfillmentProviderGateway,
     private readonly labelService: FulfillmentShippingLabelService,
   ) {}
 
@@ -75,7 +75,7 @@ export class PodOrderFulfillmentController {
     @Param('id', ParseUUIDPipe) podOrderId: string,
     @Body() dto: FulfillPodOrderDto,
   ): Promise<FulfillmentOrderDto> {
-    const record = await this.mangoService.fulfill(
+    const record = await this.gateway.fulfill(
       user.organizationId,
       user.userId,
       podOrderId,
@@ -163,12 +163,15 @@ export class PodOrderFulfillmentController {
   })
   @ApiOkResponse({ type: FulfillmentOrderDto })
   @ApiConflictResponse({ description: 'FULFILLMENT_CANNOT_UPDATE' })
+  @ApiUnprocessableEntityResponse({
+    description: 'FULFILLMENT_OPERATION_NOT_SUPPORTED — nhà cung cấp không có API sửa đơn (Sellerwix)',
+  })
   async updateFulfillment(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) podOrderId: string,
     @Body() dto: UpdateFulfillmentOrderDto,
   ): Promise<FulfillmentOrderDto> {
-    const record = await this.mangoService.updateAtProvider(
+    const record = await this.gateway.updateAtProvider(
       user.organizationId,
       user.userId,
       podOrderId,

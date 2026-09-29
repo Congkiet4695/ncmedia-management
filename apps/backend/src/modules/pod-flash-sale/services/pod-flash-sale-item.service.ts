@@ -119,7 +119,8 @@ export class PodFlashSaleItemService {
     scope: PodAccessScope,
   ): Promise<FlashSaleDetailRow> {
     const flashSale = await this.flashSales.get(organizationId, flashSaleId, scope);
-    this.flashSales.assertEditable(flashSale.status, 'thêm sản phẩm');
+    // Đợt ĐANG CHẠY cũng thêm được — dòng mới ở READY, gửi lên sàn bằng `push-items`.
+    this.flashSales.assertCanAddItems(flashSale.status);
 
     const products = await this.loadProducts(
       organizationId,
@@ -237,7 +238,7 @@ export class PodFlashSaleItemService {
     scope: PodAccessScope,
   ): Promise<FlashSaleDetailRow> {
     const flashSale = await this.flashSales.get(organizationId, flashSaleId, scope);
-    this.flashSales.assertEditable(flashSale.status, 'sửa sản phẩm');
+    this.flashSales.assertItemsMutable(flashSale, [itemId], 'sửa sản phẩm');
 
     const item = flashSale.items.find((row) => row.id === itemId);
     if (!item) throw new PodFlashSaleItemNotFoundException();
@@ -297,7 +298,7 @@ export class PodFlashSaleItemService {
   ): Promise<{ flashSale: FlashSaleDetailRow; result: FlashSaleBatchUpdateResult }> {
     const startedAt = Date.now();
     const flashSale = await this.flashSales.get(organizationId, flashSaleId, scope);
-    this.flashSales.assertEditable(flashSale.status, 'sửa hàng loạt');
+    this.flashSales.assertItemsMutable(flashSale, dto.itemIds, 'sửa hàng loạt');
 
     // Request bị gửi lại / người dùng chọn trùng ⇒ mỗi dòng chỉ xét một lần.
     const requestedIds = [...new Set(dto.itemIds)];
@@ -467,7 +468,7 @@ export class PodFlashSaleItemService {
     scope: PodAccessScope,
   ): Promise<FlashSaleDetailRow> {
     const flashSale = await this.flashSales.get(organizationId, flashSaleId, scope);
-    this.flashSales.assertEditable(flashSale.status, 'xoá sản phẩm');
+    this.flashSales.assertItemsMutable(flashSale, itemIds, 'xoá sản phẩm');
 
     // Chỉ xoá những id THỰC SỰ thuộc đợt này — id lạ bị bỏ qua, không xoá nhầm dòng của
     // đợt khác chỉ vì client gửi sai.

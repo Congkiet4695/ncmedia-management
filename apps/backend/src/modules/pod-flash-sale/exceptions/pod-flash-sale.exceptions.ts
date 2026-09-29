@@ -123,11 +123,73 @@ export class PodFlashSaleProviderException extends BadGatewayException {
 }
 
 /** Cấu hình template lưu trong JSON không đúng hình dạng. */
+/**
+ * Hoạt động trên TikTok không còn sửa được (TikTok: không cập nhật sản phẩm của hoạt động
+ * `DEACTIVATED`/`EXPIRED`; hoặc `activity_commands` chứa `IMMUTABLE`). Chặn TRƯỚC khi gửi.
+ */
+export class PodFlashSaleNotEditableOnProviderException extends ConflictException {
+  constructor(providerStatus: string | null, immutable: boolean) {
+    super({
+      code: 'POD_FLASH_SALE_NOT_EDITABLE_ON_PROVIDER',
+      message: immutable
+        ? 'TikTok đã khoá hoạt động khuyến mãi này (IMMUTABLE) — không thêm được sản phẩm.'
+        : `Hoạt động trên TikTok đang ở trạng thái ${providerStatus ?? 'không rõ'} — TikTok không cho cập nhật sản phẩm.`,
+    });
+  }
+}
+
 export class PodFlashSaleTemplateConfigInvalidException extends BadRequestException {
   constructor(reason: string) {
     super({
       code: 'POD_FLASH_SALE_TEMPLATE_CONFIG_INVALID',
       message: `Cấu hình template không hợp lệ: ${reason}`,
     });
+  }
+}
+
+/** Shop đang có một lượt đồng bộ Flash Sale khác chạy (khoá theo shop). */
+export class PodFlashSaleImportBusyException extends ConflictException {
+  constructor() {
+    super({
+      code: 'POD_FLASH_SALE_IMPORT_BUSY',
+      message: 'Shop này đang được đồng bộ Flash Sale từ TikTok — vui lòng thử lại sau ít phút.',
+    });
+  }
+}
+
+/** Một lượt Auto Flash Sale khác của tổ chức đang chạy (cron hoặc Run Now). */
+export class PodFlashSaleAutoBusyException extends ConflictException {
+  constructor() {
+    super({
+      code: 'POD_FLASH_SALE_AUTO_BUSY',
+      message: 'Đang có một lượt Auto Flash Sale chạy cho tổ chức này — vui lòng thử lại sau ít phút.',
+    });
+  }
+}
+
+/** Bật Auto ở một đợt đã sinh ra đợt kế tiếp — phải bật ở đợt cuối chuỗi. */
+export class PodFlashSaleAutoHasNextException extends ConflictException {
+  constructor(nextName: string) {
+    super({
+      code: 'POD_FLASH_SALE_AUTO_HAS_NEXT',
+      message: `Đợt này đã có đợt kế tiếp "${nextName}" trong chuỗi Auto — hãy bật Auto ở đợt cuối chuỗi.`,
+    });
+  }
+}
+
+/** Chuỗi đã có một đợt khác đang bật Auto. */
+export class PodFlashSaleAutoChainActiveException extends ConflictException {
+  constructor() {
+    super({
+      code: 'POD_FLASH_SALE_AUTO_CHAIN_ACTIVE',
+      message: 'Chuỗi Auto này đã có một đợt khác đang bật Auto — mỗi chuỗi chỉ có một đợt bật Auto.',
+    });
+  }
+}
+
+/** Cấu hình lịch Auto không hợp lệ (múi giờ không phải IANA …). */
+export class PodFlashSaleAutoConfigInvalidException extends BadRequestException {
+  constructor(message: string) {
+    super({ code: 'POD_FLASH_SALE_AUTO_CONFIG_INVALID', message });
   }
 }

@@ -49,6 +49,13 @@ export const FLASH_SALE_MAX_NAME_LENGTH = 50;
  * Giữ khớp với `FLASH_SALE_MAX_ITEMS` phía backend (nơi kiểm tra có thẩm quyền).
  */
 export const FLASH_SALE_MAX_ITEMS = 10_000;
+
+/**
+ * Auto Flash Sale: tạo đợt kế tiếp khi đợt đang bật Auto còn ≤ bấy nhiêu giờ. Chỉ để HIỂN THỊ
+ * trong câu xác nhận — giữ khớp với `FLASH_SALE_AUTO_RULES.LEAD_MS` phía backend (nơi quyết
+ * định thật; màn hình Scheduler đọc số từ API).
+ */
+export const FLASH_SALE_AUTO_LEAD_HOURS = 24;
 /** Số dòng tối thiểu để bấm Publish. */
 export const FLASH_SALE_MIN_ITEMS = 1;
 /**
@@ -77,6 +84,24 @@ export interface PodFlashSaleUserRef {
   id: string;
   fullName: string;
 }
+
+/**
+ * Kết quả chạy của một đợt — theo DÒNG (biến thể / sản phẩm ở mức PRODUCT) và theo SẢN PHẨM.
+ * Backend tính từ trạng thái hiện tại của từng dòng ⇒ thử lại không bao giờ đếm đôi.
+ */
+export interface PodFlashSaleItemStats {
+  totalItems: number;
+  publishedItems: number;
+  failedItems: number;
+  /** PENDING + READY — chưa gửi lên TikTok. */
+  pendingItems: number;
+  removedItems: number;
+  totalProducts: number;
+  publishedProducts: number;
+  failedProducts: number;
+}
+
+export type PodFlashSaleSource = 'SYSTEM' | 'TIKTOK';
 
 export interface PodFlashSaleListItem {
   id: string;
@@ -109,6 +134,18 @@ export interface PodFlashSaleListItem {
    * chỉ sửa một chỗ, và hai tầng không bao giờ lệch nhau.
    */
   live: boolean;
+  /** Tạo trong hệ thống, hoặc đồng bộ về từ TikTok. */
+  source: PodFlashSaleSource;
+  /** Lần chạy (publish / gửi thêm sản phẩm) gần nhất kết thúc lúc nào. */
+  lastRunAt: string | null;
+  stats: PodFlashSaleItemStats;
+  /** Đợt này đang bật Auto Flash Sale (nút đang hoạt động của chuỗi). */
+  autoMode: boolean;
+  autoChainId: string | null;
+  /** Đợt đã sinh ra đợt này. */
+  autoParentId: string | null;
+  /** Số thứ tự trong chuỗi (đợt đầu = 1). */
+  autoSequence: number | null;
 }
 
 export interface PodFlashSaleItem {
@@ -399,4 +436,117 @@ export interface PodFlashSaleProductResult {
   meta: { total: number; page: number; limit: number; totalPages: number };
   /** Tổng số dòng SKU của cả đợt sale (mọi trang). */
   totalItems: number;
+}
+
+/** Kết quả đồng bộ Flash Sale từ TikTok của MỘT shop. */
+export interface PodFlashSaleImportShopResult {
+  shopId: string;
+  shopName: string;
+  /** BUSY = shop đang có lượt đồng bộ khác chạy. */
+  result: 'SUCCESS' | 'FAILED' | 'BUSY';
+  errorCode: string | null;
+  errorMessage: string | null;
+  scanned: number;
+  created: number;
+  updated: number;
+  unchanged: number;
+  skipped: number;
+  failed: number;
+  itemsCreated: number;
+  itemsUpdated: number;
+  itemsRemoved: number;
+  unmatchedItems: number;
+  invalidItems: number;
+}
+
+export interface PodFlashSaleImportResult {
+  shops: PodFlashSaleImportShopResult[];
+  created: number;
+  updated: number;
+  unchanged: number;
+  skipped: number;
+  failed: number;
+  unmatchedItems: number;
+}
+
+export interface SyncFlashSalesFromTiktokPayload {
+  /** Bỏ trống ⇒ mọi shop trong phạm vi của người dùng. */
+  shopId?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Auto Flash Sale
+// ---------------------------------------------------------------------------
+
+export type PodFlashSaleAutoAction =
+  | 'NOT_DUE'
+  | 'CREATED'
+  | 'TRANSFERRED'
+  | 'IN_PROGRESS'
+  | 'SKIPPED'
+  | 'FAILED';
+
+export interface PodFlashSaleAutoNodeResult {
+  flashSaleId: string;
+  name: string;
+  shopId: string;
+  chainId: string | null;
+  action: PodFlashSaleAutoAction;
+  nextFlashSaleId: string | null;
+  message: string | null;
+}
+
+export interface PodFlashSaleAutoRunResult {
+  trigger: 'CRON' | 'MANUAL';
+  status: 'SUCCESS' | 'PARTIAL' | 'FAILED';
+  startedAt: string;
+  finishedAt: string;
+  checked: number;
+  notDue: number;
+  created: number;
+  transferred: number;
+  inProgress: number;
+  skipped: number;
+  failed: number;
+  nodes: PodFlashSaleAutoNodeResult[];
+}
+
+export interface PodFlashSaleAutoConfig {
+  configured: boolean;
+  enabled: boolean;
+  /** `HH:mm` */
+  runTime: string | null;
+  timezone: string | null;
+  lastRunAt: string | null;
+  lastRunTrigger: string | null;
+  lastRunStatus: string | null;
+  lastRunSummary: PodFlashSaleAutoRunResult | null;
+  nextRunAt: string | null;
+  /** Luật của chuỗi — chỉ đọc. */
+  rules: { leadHours: number; gapMinutes: number; durationDays: number; endTrimMinutes: number };
+}
+
+export interface UpdateFlashSaleAutoConfigPayload {
+  enabled: boolean;
+  runTime: string;
+  timezone: string;
+}
+
+export interface PodFlashSaleAutoChainNode {
+  id: string;
+  name: string;
+  status: PodFlashSaleStatus;
+  startAt: string;
+  endAt: string;
+  autoMode: boolean;
+  autoSequence: number | null;
+  autoParentId: string | null;
+  providerFlashSaleId: string | null;
+}
+
+export interface PodFlashSaleAutoChain {
+  chainId: string | null;
+  previousId: string | null;
+  nextId: string | null;
+  nodes: PodFlashSaleAutoChainNode[];
 }

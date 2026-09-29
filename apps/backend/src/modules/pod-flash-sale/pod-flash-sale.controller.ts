@@ -43,6 +43,7 @@ import {
   PodFlashSaleQueryDto,
   PublishFlashSaleDto,
   SaveFlashSaleTemplateDto,
+  SyncFlashSalesFromTiktokDto,
   UpdateFlashSaleDto,
   UpdateFlashSaleItemDto,
 } from './dto/pod-flash-sale.dto';
@@ -53,10 +54,14 @@ import {
   PaginatedPodFlashSaleLogDto,
   PodFlashSaleBatchUpdateResponseDto,
   PodFlashSaleDetailDto,
+  PodFlashSaleImportResultDto,
   PodFlashSalePublishResultDto,
   PodFlashSaleTemplateDto,
   PodFlashSaleValidationDto,
 } from './dto/pod-flash-sale-response.dto';
+import { PodFlashSaleAutoChainDto, SetFlashSaleAutoModeDto } from './dto/pod-flash-sale-auto.dto';
+import { PodFlashSaleAutoService } from './services/pod-flash-sale-auto.service';
+import { PodFlashSaleImportService } from './services/pod-flash-sale-import.service';
 import { PodFlashSaleItemService } from './services/pod-flash-sale-item.service';
 import { PodFlashSalePublisherService } from './services/pod-flash-sale-publisher.service';
 import { PodFlashSaleSyncService } from './services/pod-flash-sale-sync.service';
@@ -89,6 +94,8 @@ export class PodFlashSaleController {
     private readonly publisher: PodFlashSalePublisherService,
     private readonly templates: PodFlashSaleTemplateService,
     private readonly sync: PodFlashSaleSyncService,
+    private readonly importer: PodFlashSaleImportService,
+    private readonly autoService: PodFlashSaleAutoService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -256,6 +263,26 @@ export class PodFlashSaleController {
     return this.service.remove(user.organizationId, user.userId, id, scope);
   }
 
+  @Post('sync-from-tiktok')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions(FLASH_SALE_PERMISSIONS.WRITE)
+  @ApiOperation({
+    summary: 'Đồng bộ Flash Sale từ TikTok về hệ thống',
+    description:
+      'Search Activities (FLASHSALE, đủ mọi trang) → Get Activity → khớp theo activity_id và ' +
+      'tiktok_product_id/tiktok_sku_id. Idempotent: chạy lại không tạo bản ghi trùng. Chỉ ĐỌC ' +
+      'từ TikTok, không đổi gì trên sàn. Khoá theo shop: shop đang được đồng bộ ⇒ 409 ' +
+      'POD_FLASH_SALE_IMPORT_BUSY (khi chọn một shop) hoặc result = BUSY.',
+  })
+  @ApiOkResponse({ type: PodFlashSaleImportResultDto })
+  syncFromTiktok(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Body() dto: SyncFlashSalesFromTiktokDto,
+  ): Promise<PodFlashSaleImportResultDto> {
+    return this.importer.syncFromTiktok(user.organizationId, user.userId, dto, scope);
+  }
+
   @Post(':id/duplicate')
   @RequirePermissions(FLASH_SALE_PERMISSIONS.WRITE)
   @ApiOperation({
@@ -397,6 +424,59 @@ export class PodFlashSaleController {
     @Body() dto: PublishFlashSaleDto,
   ): Promise<PodFlashSalePublishResultDto> {
     return this.publisher.publish(user.organizationId, user.userId, id, dto, scope);
+  }
+
+  @Post(':id/push-items')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions(FLASH_SALE_PERMISSIONS.PUBLISH)
+  @ApiOperation({
+    summary: 'Gửi sản phẩm mới thêm vào Flash Sale ĐANG CHẠY lên TikTok',
+    description:
+      'Chỉ khi đợt đang RUNNING. Gửi RIÊNG các dòng chưa lên sàn (READY/FAILED) vào CÙNG ' +
+      'hoạt động bằng Update Activity Products — dòng đã PUBLISHED không bị gửi lại, không bị ' +
+      'gỡ. Chạy nền như Publish (theo dõi qua publish-status); xong hay hỏng, đợt vẫn RUNNING. ' +
+      'Hoạt động TikTok đã DEACTIVATED/EXPIRED/IMMUTABLE ⇒ 409 POD_FLASH_SALE_NOT_EDITABLE_ON_PROVIDER.',
+  })
+  @ApiOkResponse({ type: PodFlashSalePublishResultDto })
+  @ApiBadGatewayResponse({ description: 'TikTok từ chối (POD_FLASH_SALE_PROVIDER_ERROR)' })
+  pushItems(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<PodFlashSalePublishResultDto> {
+    return this.publisher.pushPendingItems(user.organizationId, user.userId, id, scope);
+  }
+
+  @Patch(':id/auto-mode')
+  @RequirePermissions(FLASH_SALE_PERMISSIONS.PUBLISH)
+  @ApiOperation({
+    summary: 'Bật/tắt Auto Flash Sale ở một đợt',
+    description:
+      'ON ⇒ đợt này thành nút đang hoạt động của chuỗi Auto: khi còn ≤ 24 giờ, job hằng ngày tạo ' +
+      'đợt kế tiếp (chép đủ sản phẩm/biến thể, giữ % giảm) và đưa lên TikTok. Mỗi chuỗi chỉ một ' +
+      'đợt ON. Quyền publish vì bật Auto dẫn tới tạo khuyến mãi thật trên sàn.',
+  })
+  @ApiOkResponse({ type: PodFlashSaleDetailDto })
+  async setAutoMode(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: SetFlashSaleAutoModeDto,
+  ): Promise<PodFlashSaleDetailDto> {
+    const updated = await this.autoService.setAutoMode(user.organizationId, user.userId, id, dto.enabled, scope);
+    return this.service.toDetail(updated);
+  }
+
+  @Get(':id/auto-chain')
+  @RequirePermissions(FLASH_SALE_PERMISSIONS.READ)
+  @ApiOperation({ summary: 'Chuỗi Auto của một đợt: đợt trước, đợt sau, toàn bộ chuỗi A → B → C' })
+  @ApiOkResponse({ type: PodFlashSaleAutoChainDto })
+  autoChain(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<PodFlashSaleAutoChainDto> {
+    return this.autoService.getChain(user.organizationId, id, scope);
   }
 
   @Post(':id/retry')

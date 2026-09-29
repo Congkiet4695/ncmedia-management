@@ -34,6 +34,7 @@ import type {
   PaginatedPodFlashSaleDto,
   PaginatedPodFlashSaleLogDto,
   PodFlashSaleDetailDto,
+  PodFlashSaleItemStatsDto,
   PodFlashSaleValidationDto,
 } from '../dto/pod-flash-sale-response.dto';
 import {
@@ -52,6 +53,7 @@ import {
   isPublishable,
   toFlashSaleItem,
   toFlashSaleListItem,
+  computeItemStats,
   toFlashSaleLog,
   type FlashSaleDetailRow,
 } from '../mappers/pod-flash-sale.mapper';
@@ -152,10 +154,71 @@ export class PodFlashSaleService {
       this.prisma.podFlashSale.count({ where }),
     ]);
 
+    const stats = await this.loadStats(
+      organizationId,
+      rows.map((row) => row.id),
+    );
     return {
-      items: rows.map(toFlashSaleListItem),
+      items: rows.map((row) => toFlashSaleListItem(row, stats.get(row.id))),
       meta: { total, page, limit, totalPages: total === 0 ? 0 : Math.ceil(total / limit) },
     };
+  }
+
+  /**
+   * Thống kê kết quả chạy cho CÁC ĐỢT CỦA TRANG HIỆN TẠI — MỘT truy vấn gộp, không N+1, không
+   * nạp từng dòng về (một đợt có thể chứa hàng nghìn SKU). Cùng định nghĩa với `computeItemStats`.
+   */
+  async loadStats(
+    organizationId: string,
+    flashSaleIds: string[],
+  ): Promise<Map<string, PodFlashSaleItemStatsDto>> {
+    const result = new Map<string, PodFlashSaleItemStatsDto>();
+    if (flashSaleIds.length === 0) return result;
+
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        flash_sale_id: string;
+        total_items: bigint;
+        published_items: bigint;
+        failed_items: bigint;
+        removed_items: bigint;
+        total_products: bigint;
+        published_products: bigint;
+        failed_products: bigint;
+      }>
+    >`
+      SELECT
+        flash_sale_id,
+        COUNT(*) AS total_items,
+        COUNT(*) FILTER (WHERE status = 'PUBLISHED') AS published_items,
+        COUNT(*) FILTER (WHERE status = 'FAILED') AS failed_items,
+        COUNT(*) FILTER (WHERE status = 'REMOVED') AS removed_items,
+        COUNT(DISTINCT product_id) AS total_products,
+        COUNT(DISTINCT product_id) FILTER (WHERE status = 'PUBLISHED') AS published_products,
+        COUNT(DISTINCT product_id) FILTER (WHERE status = 'FAILED') AS failed_products
+      FROM pod_flash_sale_items
+      WHERE organization_id = ${organizationId}::uuid
+        AND flash_sale_id IN (${Prisma.join(flashSaleIds.map((id) => Prisma.sql`${id}::uuid`))})
+      GROUP BY flash_sale_id
+    `;
+
+    for (const row of rows) {
+      const totalItems = Number(row.total_items);
+      const publishedItems = Number(row.published_items);
+      const failedItems = Number(row.failed_items);
+      const removedItems = Number(row.removed_items);
+      result.set(row.flash_sale_id, {
+        totalItems,
+        publishedItems,
+        failedItems,
+        removedItems,
+        pendingItems: totalItems - publishedItems - failedItems - removedItems,
+        totalProducts: Number(row.total_products),
+        publishedProducts: Number(row.published_products),
+        failedProducts: Number(row.failed_products),
+      });
+    }
+    return result;
   }
 
   /**
@@ -192,7 +255,7 @@ export class PodFlashSaleService {
     const validation = this.validateRow(row);
     const active = row.items.filter((item) => item.status !== PodFlashSaleItemStatus.REMOVED);
     return {
-      ...toFlashSaleListItem(row),
+      ...toFlashSaleListItem(row, computeItemStats(row.items)),
       // Chỉ id sản phẩm (đã lọc trùng, giữ thứ tự thêm) — không kèm dòng.
       productIds: [...new Set(active.map((item) => item.productId))],
       currency: active[0]?.currency ?? null,
@@ -216,6 +279,14 @@ export class PodFlashSaleService {
       issues: result.issues,
       readyItems: result.readyItemIds.length,
     };
+  }
+
+  /**
+   * Kiểm RIÊNG các dòng (bỏ qua tên/khung giờ) — dùng cho đợt ĐANG CHẠY, nơi giờ bắt đầu đã qua
+   * là bình thường. Cùng bộ luật dòng với `validateRow`.
+   */
+  validateItemsOnly(row: FlashSaleDetailRow): { issues: PodFlashSaleValidationDto['issues']; readyItemIds: string[] } {
+    return this.validator.validateItems(row.items);
   }
 
   async validate(
@@ -401,7 +472,11 @@ export class PodFlashSaleService {
       null,
     );
 
-    const items = source.items.filter((item) => item.status !== PodFlashSaleItemStatus.REMOVED);
+    // 🔴 Chép ĐỦ mọi dòng của bản gốc — kể cả dòng `FAILED` và `REMOVED`. Đó là CẤU HÌNH người
+    // vận hành đã chọn; việc sàn gỡ/từ chối một dòng ở đợt CŨ không có nghĩa là họ muốn bỏ nó
+    // ở đợt MỚI (FAILED ≠ DELETE). Trước đây bản sao bỏ qua dòng `REMOVED`, cộng với lỗi mất dòng
+    // khi đồng bộ sản phẩm, là lý do "duplicate thiếu product/variant".
+    const items = source.items;
     if (items.length > FLASH_SALE_MAX_ITEMS) throw new PodFlashSaleTooManyItemsException(FLASH_SALE_MAX_ITEMS);
 
     // Nhân bản sang shop khác: sản phẩm của shop nguồn không tồn tại ở shop đích, nên các
@@ -454,7 +529,12 @@ export class PodFlashSaleService {
             // `providerSkuId` là XÁC NHẬN của sàn cho đợt cũ — bản sao chưa lên sàn nên
             // không có gì để xác nhận.
             providerSkuId: null,
-            status: PodFlashSaleItemStatus.READY,
+            // Bản sao chưa lên sàn: mọi dòng về "sẵn sàng gửi" — trừ dòng mà giá/giới hạn còn
+            // chưa hợp lệ ngay từ bản gốc (`PENDING`), giữ nguyên để người dùng thấy cần sửa.
+            status:
+              item.status === PodFlashSaleItemStatus.PENDING
+                ? PodFlashSaleItemStatus.PENDING
+                : PodFlashSaleItemStatus.READY,
             sortOrder: index,
           })),
         });
@@ -483,6 +563,50 @@ export class PodFlashSaleService {
   assertEditable(status: PodFlashSaleStatus, action: string): void {
     if (!FLASH_SALE_EDITABLE_STATUSES.includes(status)) {
       throw new PodFlashSaleInvalidStateException(action, status);
+    }
+  }
+
+  /**
+   * Được THÊM dòng không: đợt còn sửa được, hoặc đợt ĐANG CHẠY (thêm rồi gửi riêng phần mới —
+   * `PodFlashSalePublisherService.pushPendingItems`). Dòng cũ không bị đụng tới.
+   */
+  assertCanAddItems(status: PodFlashSaleStatus): void {
+    if (FLASH_SALE_EDITABLE_STATUSES.includes(status) || status === PodFlashSaleStatus.RUNNING) {
+      return;
+    }
+    throw new PodFlashSaleInvalidStateException('thêm sản phẩm', status);
+  }
+
+  /**
+   * Được SỬA/XOÁ những dòng này không.
+   *
+   * 🔴 Đợt ĐANG CHẠY: chỉ dòng CHƯA lên TikTok (vừa thêm, hoặc gửi hỏng). Dòng đã `PUBLISHED`
+   * đang bán thật trên sàn — sửa/xoá nó ở đây mà không đổi trên sàn là để hệ thống nói một đằng,
+   * TikTok bán một nẻo. Gỡ sản phẩm khỏi đợt đang chạy không thuộc phạm vi thay đổi này.
+   */
+  assertItemsMutable(
+    flashSale: FlashSaleDetailRow,
+    itemIds: string[],
+    action: string,
+  ): void {
+    if (FLASH_SALE_EDITABLE_STATUSES.includes(flashSale.status)) return;
+    if (flashSale.status !== PodFlashSaleStatus.RUNNING) {
+      throw new PodFlashSaleInvalidStateException(action, flashSale.status);
+    }
+    const onProvider = new Set(
+      flashSale.items
+        .filter(
+          (item) =>
+            item.status === PodFlashSaleItemStatus.PUBLISHED ||
+            item.status === PodFlashSaleItemStatus.REMOVED,
+        )
+        .map((item) => item.id),
+    );
+    if (itemIds.some((id) => onProvider.has(id))) {
+      throw new PodFlashSaleInvalidStateException(
+        `${action} (dòng đã lên TikTok — chỉ sửa/xoá được dòng chưa gửi)`,
+        flashSale.status,
+      );
     }
   }
 

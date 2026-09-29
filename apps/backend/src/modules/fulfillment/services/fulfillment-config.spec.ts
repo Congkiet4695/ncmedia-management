@@ -12,6 +12,7 @@ import { FulfillmentCatalogQueryService } from './fulfillment-catalog-query.serv
 import { businessProductSku } from './fulfillment-catalog-sync.service';
 import { FulfillmentReadinessService } from './fulfillment-readiness.service';
 import { FulfillmentService } from './fulfillment.service';
+import type { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 
 /**
  * **Cấu hình sản phẩm ở màn hình Fulfill** — ba luật mà giao diện dựa vào:
@@ -182,6 +183,8 @@ function buildStateService(over: { mappings?: unknown[]; account?: unknown; read
 
   const repo = {
     findByPodOrder: jest.fn().mockResolvedValue(null),
+    findCurrentByPodOrder: jest.fn().mockResolvedValue(null),
+    findBlockingRecordOfOtherProvider: jest.fn().mockResolvedValue(null),
     findAccountById: jest
       .fn()
       .mockResolvedValue(
@@ -224,6 +227,10 @@ function buildStateService(over: { mappings?: unknown[]; account?: unknown; read
     } as unknown as StorageMapper),
     encryption,
     { assertShopAllowed: jest.fn() } as unknown as PodAccessScopeService,
+    {
+      isSupported: () => true,
+      placementResolver: jest.fn().mockResolvedValue(undefined),
+    } as unknown as FulfillmentProviderGateway,
   );
 
   return { service, repo: repo as unknown as Record<string, jest.Mock> };

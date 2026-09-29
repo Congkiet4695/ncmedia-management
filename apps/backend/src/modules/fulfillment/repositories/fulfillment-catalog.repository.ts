@@ -472,6 +472,22 @@ export class FulfillmentCatalogRepository {
   }
 
   /**
+   * Biến thể của MỘT tài khoản theo SKU — MỌI trạng thái, kèm `raw_data`.
+   *
+   * Dùng cho luồng GỬI ĐƠN (không phải ánh xạ tự động): cần biết cả biến thể đã ngừng bán để báo
+   * rõ, và cần `raw_data` (Sellerwix: `print_areas`, `is_rush_service`). Không lọc
+   * `organization_id` — xem chú thích ở `listCatalogues`: hàng rào tenant là bước kiểm tài khoản
+   * (`usableAccountWhere`) ở tầng service.
+   */
+  findVariantsForAccount(accountId: string, skus: string[]) {
+    if (skus.length === 0) return Promise.resolve([]);
+    return this.prisma.fulfillmentVariant.findMany({
+      where: { accountId, deletedAt: null, sku: { in: skus } },
+      select: { sku: true, status: true, rawData: true },
+    });
+  }
+
+  /**
    * Mọi biến thể đang hoạt động của một tài khoản, chỉ những cột cần để ghép.
    *
    * Dùng cho các tầng ghép theo TÊN (Product Title / Variant), vốn không tra được bằng chỉ

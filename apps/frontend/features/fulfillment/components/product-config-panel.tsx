@@ -13,7 +13,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useApiError } from '@/hooks/use-api-error';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
-import type { PodDesign, PodOrderItem } from '@/features/pod-tiktok/order-types';
+import {
+  POD_DESIGN_PLACEMENTS,
+  type PodDesign,
+  type PodDesignPlacement,
+  type PodOrderItem,
+} from '@/features/pod-tiktok/order-types';
 import { cn } from '@/lib/utils';
 import {
   useFulfillmentOptions,
@@ -23,10 +28,14 @@ import {
   useProviderCatalogVariations,
 } from '../hooks/use-fulfillment';
 import {
+  assignPlacement,
   configBlockers,
+  defaultPlacementMap,
   mergeProductOptions,
   providerVariantLabel,
+  sanitizePlacementMap,
   type ConfigBlocker,
+  type PlacementMap,
 } from '../product-config';
 import type { ProductMapping, ProviderCatalogProduct, UpsertProductMappingInput } from '../types';
 import { DesignSlot } from './design-slot';
@@ -124,6 +133,11 @@ export function ProductConfigPanel({
   const [productionConfig, setProductionConfig] = useState('');
   const [productionLine, setProductionLine] = useState('');
   const [baseCost, setBaseCost] = useState('');
+  /**
+   * Vị trí in NCMedia → vùng in của biến thể (chỉ nhà cung cấp có `print_areas` theo biến thể —
+   * Sellerwix). `null` = người dùng chưa đụng tới ⇒ dùng ánh xạ đã lưu / mặc định Front-Back.
+   */
+  const [placementDraft, setPlacementDraft] = useState<PlacementMap | null>(null);
 
   /**
    * Chữ ký của ÁNH XẠ đang hiển thị.
@@ -153,6 +167,7 @@ export function ProductConfigPanel({
     setBaseCost(
       mapping?.baseCost === null || mapping?.baseCost === undefined ? '' : String(mapping.baseCost),
     );
+    setPlacementDraft(null);
     // Ánh xạ cũ chỉ có SKU mà không có màu/size ⇒ mở thẳng chế độ chọn theo SKU.
     setBySku(Boolean(mapping?.providerSku) && !mapping?.providerColor && !mapping?.providerSize);
   }, [mappingSignature, mapping]);
@@ -263,6 +278,7 @@ export function ProductConfigPanel({
       setColor('');
       setSize('');
       setVariantId('');
+      setPlacementDraft(null);
       variantHydratedRef.current = mappingSignature;
     },
     [loadedProducts, selectedProduct, mappingSignature],
@@ -284,7 +300,30 @@ export function ProductConfigPanel({
     ];
   }, [options.data?.productionLines, productionLine, t]);
 
-  const printLocations = options.data?.printLocations ?? [];
+  const capabilities = options.data?.capabilities;
+
+  /**
+   * Vùng in của biến thể đang chọn. `null` ⇒ nhà cung cấp dùng bộ vị trí in CỐ ĐỊNH (Mango) —
+   * dùng `printLocations` của backend như trước.
+   */
+  const variantPrintAreas = selectedVariant?.printAreas ?? null;
+  const placementMap = useMemo<PlacementMap>(() => {
+    if (!variantPrintAreas) return {};
+    if (placementDraft) return sanitizePlacementMap(placementDraft, variantPrintAreas, POD_DESIGN_PLACEMENTS);
+    const saved = sanitizePlacementMap(mapping?.placementMap, variantPrintAreas, POD_DESIGN_PLACEMENTS);
+    return Object.keys(saved).length > 0 ? saved : defaultPlacementMap(variantPrintAreas);
+  }, [variantPrintAreas, placementDraft, mapping?.placementMap]);
+
+  /**
+   * Ô artwork cần hiện: theo ánh xạ vùng in của biến thể (Sellerwix), hoặc danh sách cố định của
+   * nhà cung cấp (Mango). Chưa chọn biến thể Sellerwix ⇒ tạm dùng mặc định Front/Back của backend.
+   */
+  const printLocations = variantPrintAreas
+    ? POD_DESIGN_PLACEMENTS.filter((placement) => placementMap[placement]).map((placement) => ({
+        placement,
+        providerKey: placementMap[placement] as string,
+      }))
+    : (options.data?.printLocations ?? []);
 
   /** Nguồn DUY NHẤT của "lưu được chưa" — nút, thông điệp và chốt chặn đều đọc từ đây. */
   const blockers = configBlockers({
@@ -322,6 +361,8 @@ export function ProductConfigPanel({
       ...(productionConfig ? { productionConfig } : {}),
       ...(productionLine ? { productionLine } : {}),
       ...(baseCost.trim() ? { baseCost: Number(baseCost) } : {}),
+      // Vị trí in theo biến thể (Sellerwix) — gửi đúng khoá `print_areas[].key` đã chọn.
+      ...(variantPrintAreas ? { placementMap: placementMap as Record<string, string> } : {}),
     };
 
     const run = mapping
@@ -445,7 +486,10 @@ export function ProductConfigPanel({
           </div>
 
           {/* --------------------------------------- Production config + line sản xuất */}
+          {/* Chỉ nhà cung cấp CÓ hai khái niệm này (Mango) — Sellerwix không có trong API. */}
+          {(capabilities?.productionConfig || capabilities?.productionLine) && (
           <div className="grid gap-3 sm:grid-cols-2">
+            {capabilities.productionConfig && (
             <div className="space-y-1">
               <Label>{t('fulfill.config.productionConfig')}</Label>
               <Combobox
@@ -460,6 +504,8 @@ export function ProductConfigPanel({
                 ]}
               />
             </div>
+            )}
+            {capabilities.productionLine && (
             <div className="space-y-1">
               <Label>{t('fulfill.config.productionLine')}</Label>
               <Combobox
@@ -475,7 +521,9 @@ export function ProductConfigPanel({
                     : t('fulfill.config.productionLineHint')}
               </p>
             </div>
+            )}
           </div>
+          )}
 
           {/* ------------------------------------------------- Biến thể: SKU hoặc Color/Size */}
           <label className="flex items-center gap-2 text-xs">
@@ -571,6 +619,54 @@ export function ProductConfigPanel({
             />
             <p className="text-[11px] text-muted-foreground">{t('fulfill.config.baseCostHint')}</p>
           </div>
+
+          {/* ------------------------------------ Vùng in theo biến thể (Sellerwix print_areas) */}
+          {variantPrintAreas && (
+            <div className="space-y-1">
+              <Label>{t('fulfill.config.printAreas')}</Label>
+              {variantPrintAreas.length === 0 ? (
+                <p className="text-xs text-destructive">{t('fulfill.config.printAreasEmpty')}</p>
+              ) : (
+                <div className="space-y-1.5">
+                  {variantPrintAreas.map((area) => {
+                    const assigned =
+                      (Object.entries(placementMap) as Array<[PodDesignPlacement, string]>).find(
+                        ([, key]) => key === area.key,
+                      )?.[0] ?? '';
+                    return (
+                      <div key={area.key} className="grid grid-cols-2 items-center gap-2 text-xs">
+                        <span className="min-w-0 truncate">
+                          {area.displayName ?? area.key}
+                          <span className="ml-1 font-mono text-muted-foreground">({area.key})</span>
+                          {area.required && (
+                            <Badge variant="warning" className="ml-1 h-4 px-1 text-[10px]">
+                              {t('fulfill.config.printAreaRequired')}
+                            </Badge>
+                          )}
+                        </span>
+                        <Combobox
+                          value={assigned}
+                          onChange={(value) =>
+                            setPlacementDraft(
+                              assignPlacement(placementMap, area.key, value as PodDesignPlacement | ''),
+                            )
+                          }
+                          options={[
+                            { value: '', label: t('fulfill.config.printAreaUnused') },
+                            ...POD_DESIGN_PLACEMENTS.map((placement) => ({
+                              value: placement,
+                              label: placement,
+                            })),
+                          ]}
+                        />
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              <p className="text-[11px] text-muted-foreground">{t('fulfill.config.printAreasHint')}</p>
+            </div>
+          )}
 
           {/* ------------------------------------------------------------ Artwork / Design */}
           <div className="space-y-2">

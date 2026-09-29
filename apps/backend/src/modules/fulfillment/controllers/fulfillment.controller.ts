@@ -62,6 +62,7 @@ import {
   FulfillmentOrderDto,
   FulfillmentStateDto,
   FulfillmentSyncResultDto,
+  OrderShippingMethodsDto,
   ProductMappingDto,
   TriggerFulfillmentSyncDto,
   UpdateFulfillmentAccountDto,
@@ -71,7 +72,7 @@ import {
 import { FulfillmentCatalogQueryService } from '../services/fulfillment-catalog-query.service';
 import { FulfillmentCatalogSyncService } from '../services/fulfillment-catalog-sync.service';
 import { ProductMappingAutoService } from '../services/product-mapping-auto.service';
-import { MangoFulfillmentService } from '../mango/services/mango-fulfillment.service';
+import { FulfillmentProviderGateway } from '../services/fulfillment-provider.gateway';
 import { FulfillmentOptionsService } from '../services/fulfillment-options.service';
 import { FulfillmentSyncService } from '../services/fulfillment-sync.service';
 import { PodScope } from '../../pod-tiktok/decorators/pod-scope.decorator';
@@ -84,8 +85,8 @@ import { FulfillmentService } from '../services/fulfillment.service';
  *
  * Tenant-scoped (organizationId từ JWT — ADR-004) + RBAC `fulfillment.*`.
  *
- * 🔴 Hiện chỉ MangoTeePrints được implement. Tham số `provider` để sẵn cho nhà cung cấp
- * sau này — mặc định MANGO nên client hiện tại không cần truyền.
+ * 🔴 Mọi thao tác với nhà cung cấp đi qua `FulfillmentProviderGateway` — adapter được chọn theo
+ * `provider` của tài khoản (MangoTeePrints, Sellerwix). Controller không biết nhà cung cấp nào.
  */
 @ApiTags('Fulfillment')
 @ApiBearerAuth()
@@ -97,7 +98,7 @@ import { FulfillmentService } from '../services/fulfillment.service';
 export class FulfillmentController {
   constructor(
     private readonly service: FulfillmentService,
-    private readonly mangoService: MangoFulfillmentService,
+    private readonly gateway: FulfillmentProviderGateway,
     private readonly syncService: FulfillmentSyncService,
     private readonly optionsService: FulfillmentOptionsService,
     private readonly catalogQuery: FulfillmentCatalogQueryService,
@@ -193,9 +194,10 @@ export class FulfillmentController {
   @ApiOperation({
     summary: 'Kiểm tra kết nối tới nhà cung cấp',
     description:
-      'Gọi `GET /production-lines` của nhà cung cấp — endpoint chỉ đọc, cần xác thực, không ' +
-      'tạo dữ liệu. Thành công ⇒ `connected: true`. Thất bại ⇒ trả NGUYÊN VĂN thông báo lỗi ' +
-      'của nhà cung cấp (HTTP vẫn 200 vì đây là kết quả chẩn đoán, không phải lỗi hệ thống).',
+      'MangoTeePrints: `GET /production-lines`. Sellerwix: đổi JWT assertion lấy access token ' +
+      'rồi `GET /v1/category`. Cả hai đều chỉ đọc, cần xác thực, không tạo dữ liệu. Thành công ⇒ ' +
+      '`connected: true`. Thất bại ⇒ trả NGUYÊN VĂN thông báo lỗi của nhà cung cấp (HTTP vẫn 200 ' +
+      'vì đây là kết quả chẩn đoán, không phải lỗi hệ thống).',
   })
   @ApiOkResponse({ type: TestConnectionResultDto })
   async testConnection(
@@ -203,7 +205,7 @@ export class FulfillmentController {
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<TestConnectionResultDto> {
     const account = await this.service.requireAccountById(user.organizationId, id);
-    return this.mangoService.testConnection(account);
+    return this.gateway.testConnection(account);
   }
 
   @Get('provider-options')
@@ -658,13 +660,29 @@ export class FulfillmentController {
     @Param('podOrderId', ParseUUIDPipe) podOrderId: string,
     @Query('providerId') providerId?: string,
   ): Promise<FulfillmentStateDto> {
-    return this.service.getState(
-      user.organizationId,
-      podOrderId,
-      scope,
-      FulfillmentProvider.MANGO,
-      providerId,
-    );
+    return this.service.getState(user.organizationId, podOrderId, scope, providerId);
+  }
+
+  @Get('orders/:podOrderId/shipping-methods')
+  @RequirePermissions('fulfillment.read')
+  @ApiOperation({
+    summary: 'Phương thức vận chuyển hợp lệ cho đơn với một nhà cung cấp',
+    description:
+      'MangoTeePrints: enum cố định theo tài liệu. Sellerwix: `GET /v1/variant/{sku}/shipping-method` ' +
+      'cho MỌI SKU đã ánh xạ của đơn (nhớ 10 phút), lấy GIAO của các phương thức đang active và ' +
+      'giao được tới quốc gia người nhận. `warnings` nói rõ khi chưa tính được (dòng hàng chưa ' +
+      'ánh xạ, nhà cung cấp lỗi…).',
+  })
+  @ApiQuery({ name: 'providerId', required: true, format: 'uuid' })
+  @ApiOkResponse({ type: OrderShippingMethodsDto })
+  async shippingMethods(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('podOrderId', ParseUUIDPipe) podOrderId: string,
+    @Query('providerId', ParseUUIDPipe) providerId: string,
+  ): Promise<OrderShippingMethodsDto> {
+    await this.service.assertPodOrderInScope(user.organizationId, podOrderId, scope);
+    return this.gateway.shippingMethods(user.organizationId, podOrderId, providerId);
   }
 
   @Post('orders/:podOrderId/fulfill')
@@ -685,7 +703,7 @@ export class FulfillmentController {
     @Param('podOrderId', ParseUUIDPipe) podOrderId: string,
     @Body() dto: FulfillPodOrderDto,
   ): Promise<FulfillmentOrderDto> {
-    const record = await this.mangoService.fulfill(
+    const record = await this.gateway.fulfill(
       user.organizationId,
       user.userId,
       podOrderId,
@@ -701,8 +719,9 @@ export class FulfillmentController {
   @ApiOperation({
     summary: 'Gửi lại đơn đã thất bại',
     description:
-      'Dùng lại đúng `order_id` cũ nên nếu lần trước thực ra đã tới nơi, nhà cung cấp sẽ báo ' +
-      'trùng thay vì tạo đơn thứ hai — không bao giờ sản xuất lặp.',
+      'MangoTeePrints: dùng lại đúng `order_id` cũ — nhà cung cấp báo trùng thay vì tạo đơn thứ ' +
+      'hai. Sellerwix: tra `GET /v1/order/{reference_id}?store_id` TRƯỚC khi tạo — có rồi thì liên ' +
+      'kết, không tạo lại. Không bao giờ sản xuất lặp.',
   })
   @ApiOkResponse({ type: FulfillmentOrderDto })
   async retry(
@@ -710,7 +729,7 @@ export class FulfillmentController {
     @Param('podOrderId', ParseUUIDPipe) podOrderId: string,
     @Body() dto: FulfillPodOrderDto,
   ): Promise<FulfillmentOrderDto> {
-    const record = await this.mangoService.fulfill(
+    const record = await this.gateway.fulfill(
       user.organizationId,
       user.userId,
       podOrderId,
@@ -731,7 +750,7 @@ export class FulfillmentController {
     @Param('podOrderId', ParseUUIDPipe) podOrderId: string,
   ): Promise<FulfillmentOrderDto> {
     await this.service.assertPodOrderInScope(user.organizationId, podOrderId, scope);
-    const record = await this.mangoService.syncByPodOrder(
+    const record = await this.gateway.syncByPodOrder(
       user.organizationId,
       user.userId,
       podOrderId,
@@ -744,7 +763,9 @@ export class FulfillmentController {
   @RequirePermissions('fulfillment.cancel')
   @ApiOperation({
     summary: 'Huỷ đơn ở xưởng in',
-    description: 'Nhà cung cấp chỉ cho huỷ khi đơn chưa vào sản xuất (NEW_ORDER hoặc ON_HOLD).',
+    description:
+      'Chỉ khi đơn chưa vào sản xuất (SUBMITTED hoặc ON_HOLD). Gửi tới đúng nhà cung cấp của bản ' +
+      'ghi hiện hành; nhà cung cấp từ chối thì trả nguyên văn lý do.',
   })
   @ApiOkResponse({ type: FulfillmentOrderDto })
   @ApiConflictResponse({ description: 'FULFILLMENT_CANNOT_CANCEL' })
@@ -753,7 +774,7 @@ export class FulfillmentController {
     @Param('podOrderId', ParseUUIDPipe) podOrderId: string,
     @Body() dto: CancelFulfillmentDto,
   ): Promise<FulfillmentOrderDto> {
-    const record = await this.mangoService.cancel(
+    const record = await this.gateway.cancel(
       user.organizationId,
       user.userId,
       podOrderId,

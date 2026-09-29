@@ -14,6 +14,7 @@ import {
   Save,
   Trash2,
   Search,
+  Upload,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -37,8 +38,9 @@ import { Input } from '@/components/ui/input';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { FlashSaleLogPanel } from '@/features/pod-flash-sale/components/flash-sale-log-panel';
 import { PublishProgressCard } from '@/features/pod-flash-sale/components/publish-progress-card';
+import { FlashSaleAutoChainCard } from '@/features/pod-flash-sale/components/flash-sale-auto-chain-card';
 import { groupIssues, type GroupedIssue } from '@/features/pod-flash-sale/issue-grouping';
-import { FLASH_SALE_MAX_ITEMS } from '@/features/pod-flash-sale/types';
+import { FLASH_SALE_AUTO_LEAD_HOURS, FLASH_SALE_MAX_ITEMS } from '@/features/pod-flash-sale/types';
 import type {
   PodFlashSaleBatchResult,
   PodFlashSaleChunkProgress,
@@ -55,7 +57,9 @@ import {
   useFlashSale,
   useFlashSalePublishStatus,
   usePublishFlashSale,
+  usePushFlashSaleItems,
   useRetryFlashSale,
+  useSetFlashSaleAutoMode,
   useSaveFlashSaleTemplate,
   useSyncFlashSale,
   useUpdateFlashSale,
@@ -112,6 +116,8 @@ function FlashSaleDetailView() {
     data?.status === 'PUBLISHING' || data?.status === 'FAILED' || data?.status === 'RUNNING',
   );
   const retry = useRetryFlashSale();
+  const pushItems = usePushFlashSaleItems();
+  const setAutoMode = useSetFlashSaleAutoMode();
   const cancel = useCancelFlashSale();
   const sync = useSyncFlashSale();
   const saveTemplate = useSaveFlashSaleTemplate();
@@ -259,6 +265,12 @@ function FlashSaleDetailView() {
   }
 
   const editable = canWrite && data.editable;
+  // 🔴 Đợt ĐANG CHẠY: phần đầu (tên, khung giờ) vẫn khoá, nhưng được THÊM sản phẩm và sửa/xoá
+  // những dòng CHƯA lên TikTok; dòng đã lên sàn bị khoá từng dòng. Server kiểm lại mọi thao tác.
+  const running = data.status === 'RUNNING';
+  const itemsEditable = editable || (canWrite && running);
+  // Dòng chưa lên sàn của đợt đang chạy — chờ bấm "Đẩy sản phẩm mới lên TikTok".
+  const notOnTiktok = data.counts.PENDING + data.counts.READY + data.counts.FAILED;
 
   const saveInfo = (): void => {
     const startAt = localToUtcIso(form.startLocal, form.timezone);
@@ -355,6 +367,31 @@ function FlashSaleDetailView() {
             </Button>
           )}
 
+          {canPublish && running && notOnTiktok > 0 && (
+            <Button
+              disabled={pushItems.isPending}
+              onClick={() => {
+                if (!window.confirm(t('flashSale.confirm.pushItems', { name: data.name, count: notOnTiktok }))) {
+                  return;
+                }
+                void pushItems
+                  .mutateAsync(id)
+                  .then((result) => {
+                    toast.success(
+                      result.totalItems > 0
+                        ? t('flashSale.toast.pushStarted', { count: result.totalItems })
+                        : t('flashSale.toast.pushNothing'),
+                    );
+                    void publishStatus.refetch();
+                  })
+                  .catch(onError);
+              }}
+            >
+              {pushItems.isPending ? <Loader2 className="size-4 animate-spin" /> : <Upload className="size-4" />}
+              {t('flashSale.actions.pushItems')}
+            </Button>
+          )}
+
           {canPublish && data.status === 'FAILED' && (
             <Button
               disabled={retry.isPending}
@@ -412,6 +449,24 @@ function FlashSaleDetailView() {
 
       {/* --------------------------------------------------------------- Tiến độ Publish */}
       {publishStatus.data && <PublishProgressCard status={publishStatus.data} />}
+
+      {/* ------------------------------------------------------------- Auto Flash Sale */}
+      <FlashSaleAutoChainCard
+        flashSale={data}
+        canToggle={canPublish}
+        toggling={setAutoMode.isPending}
+        leadHours={FLASH_SALE_AUTO_LEAD_HOURS}
+        onToggle={(enabled) => {
+          const message = enabled
+            ? t('flashSale.auto.confirmOn', { name: data.name, hours: FLASH_SALE_AUTO_LEAD_HOURS })
+            : t('flashSale.auto.confirmOff', { name: data.name });
+          if (!window.confirm(message)) return;
+          void setAutoMode
+            .mutateAsync({ id, enabled })
+            .then(() => toast.success(enabled ? t('flashSale.auto.turnedOn') : t('flashSale.auto.turnedOff')))
+            .catch(onError);
+        }}
+      />
 
       {/* ------------------------------------------------------------------ Lỗi & cảnh báo */}
       {(errors.length > 0 || warnings.length > 0) && (
@@ -491,7 +546,7 @@ function FlashSaleDetailView() {
                 })}
               </p>
             </div>
-            {editable && (
+            {itemsEditable && (
               <Button onClick={() => setSelectorOpen(true)} disabled={addItems.isPending}>
                 <Plus className="size-4" />
                 {t('flashSale.actions.addProducts')}
@@ -499,8 +554,16 @@ function FlashSaleDetailView() {
             )}
           </div>
 
+          {running && itemsEditable && (
+            <p className="text-xs text-muted-foreground">
+              {notOnTiktok > 0
+                ? t('flashSale.detail.pendingPushHint', { count: notOnTiktok })
+                : t('flashSale.detail.runningEditHint')}
+            </p>
+          )}
+
           {/* Thanh Batch — chỉ hiện khi có dòng được chọn, đúng cách TikCRM làm. */}
-          {editable && selectedIds.length > 0 && (
+          {itemsEditable && selectedIds.length > 0 && (
             <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/40 px-3 py-2">
               <span className="text-sm">
                 {t('flashSale.detail.selected', { count: selectedIds.length })}
@@ -558,7 +621,12 @@ function FlashSaleDetailView() {
             <FlashSaleItemTable
               groups={productGroups.data?.items ?? []}
               productLevel={data.productLevel}
-              editable={editable}
+              editable={itemsEditable}
+              isItemLocked={
+                running
+                  ? (item) => item.status === 'PUBLISHED' || item.status === 'REMOVED'
+                  : undefined
+              }
               selectedIds={selectedIds}
               onSelectionChange={setSelectedIds}
               collapsedProductIds={collapsedProductIds}

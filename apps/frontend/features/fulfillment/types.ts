@@ -24,6 +24,12 @@ export interface FulfillmentProviderAccount {
   webhookUrl: string | null;
   /** Tài khoản DÙNG CHUNG toàn nền tảng — tổ chức đọc được nhưng không sửa/xoá được. */
   isGlobal: boolean;
+  /** Sellerwix: Store ID (không bí mật). */
+  storeId: string | null;
+  /** Sellerwix: Public Key ID (không bí mật). */
+  publicKeyId: string | null;
+  /** Sellerwix: đã lưu private key chưa — bản thân key KHÔNG BAO GIỜ về tới giao diện. */
+  privateKeyConfigured: boolean;
 }
 
 /** Mục trong dropdown chọn nhà cung cấp ở màn hình TikTok Account. */
@@ -38,10 +44,24 @@ export interface TestConnectionResult {
   connected: boolean;
   message: string;
   durationMs: number | null;
+  /** Mango: số production line đọc được. */
   productionLineCount: number | null;
+  /** Sellerwix: số danh mục đọc được sau khi đổi access token. */
+  categoryCount: number | null;
 }
 
-export interface CreateFulfillmentProviderInput {
+/**
+ * Trường thông tin xác thực RIÊNG của Sellerwix (OAuth2 JWT Bearer RS256). Chỉ gửi khi nhà cung
+ * cấp là SELLERWIX — backend từ chối các trường này với nhà cung cấp khác.
+ */
+export interface SellerwixCredentialInput {
+  /** Private key RSA (PEM) — ghi một chiều, không bao giờ đọc lại. */
+  privateKey?: string;
+  storeId?: string;
+  publicKeyId?: string;
+}
+
+export interface CreateFulfillmentProviderInput extends SellerwixCredentialInput {
   provider: FulfillmentProviderType;
   name: string;
   apiKey: string;
@@ -49,7 +69,7 @@ export interface CreateFulfillmentProviderInput {
   isActive?: boolean;
 }
 
-export interface UpdateFulfillmentProviderInput {
+export interface UpdateFulfillmentProviderInput extends SellerwixCredentialInput {
   name?: string;
   /** Bỏ trống ⇒ GIỮ NGUYÊN khoá cũ. Chỉ gửi khi người dùng bấm "Replace API Key". */
   apiKey?: string;
@@ -57,8 +77,8 @@ export interface UpdateFulfillmentProviderInput {
   isActive?: boolean;
 }
 
-/** Nhà cung cấp fulfillment. Hiện chỉ MANGO được implement. */
-export const FULFILLMENT_PROVIDERS = ['MANGO', 'PRINTIFY', 'PRINTFUL', 'CUSTOM'] as const;
+/** Nhà cung cấp fulfillment. Đã tích hợp: MANGO (MangoTeePrints), SELLERWIX. */
+export const FULFILLMENT_PROVIDERS = ['MANGO', 'SELLERWIX', 'PRINTIFY', 'PRINTFUL', 'CUSTOM'] as const;
 export type FulfillmentProviderType = (typeof FULFILLMENT_PROVIDERS)[number];
 
 /**
@@ -132,13 +152,25 @@ export interface FulfillPayload {
    * nối TikTok (dữ liệu cũ) hoặc nhà cung cấp duy nhất khả dụng.
    */
   fulfillmentAccountId?: string;
-  shippingMethod?: FulfillShippingMethod;
+  /**
+   * Mã phương thức vận chuyển THEO nhà cung cấp. Mango: một trong `FULFILL_SHIPPING_METHODS`;
+   * Sellerwix: `code` lấy từ `GET /fulfillment/orders/{id}/shipping-methods`.
+   */
+  shippingMethod?: string;
   facility?: (typeof FULFILL_FACILITIES)[number];
   speedType?: (typeof FULFILL_SPEED_TYPES)[number];
   preferredCarrier?: (typeof FULFILL_PREFERRED_CARRIERS)[number];
   isScanLabel?: boolean;
+  /** Sellerwix `rush_service`. */
+  rushService?: boolean;
   labelUrl?: string;
   note?: string;
+}
+
+/** Phương thức vận chuyển dùng được cho MỘT đơn với MỘT nhà cung cấp. */
+export interface OrderShippingMethods {
+  options: FulfillmentOption[];
+  warnings: string[];
 }
 
 /** Sửa đơn ĐÃ gửi mà chưa vào sản xuất — nhà cung cấp tính lại chi phí. */
@@ -222,7 +254,25 @@ export interface FulfillmentOptions {
   productionConfigs: FulfillmentOption[];
   productionLines: FulfillmentOption[];
   printLocations: PrintLocationOption[];
+  capabilities: FulfillmentCapabilities;
   warnings: string[];
+}
+
+/**
+ * Nhà cung cấp hỗ trợ tuỳ chọn nào — giao diện ẩn hẳn ô KHÔNG có ý nghĩa với nhà cung cấp đang
+ * chọn (Facility/Speed type/Scan label chỉ của Mango, Rush service chỉ của Sellerwix).
+ */
+export interface FulfillmentCapabilities {
+  productionLine: boolean;
+  productionConfig: boolean;
+  facility: boolean;
+  speedType: boolean;
+  preferredCarrier: boolean;
+  scanLabel: boolean;
+  rushService: boolean;
+  /** Phương thức vận chuyển phụ thuộc sản phẩm của đơn (Sellerwix). */
+  shippingMethodsByOrder: boolean;
+  updateAfterSubmit: boolean;
 }
 
 /**
@@ -521,6 +571,16 @@ export interface ProviderCatalogVariation {
   size: string | null;
   price: string | null;
   isAvailable: boolean;
+  /** Sellerwix: vùng in của biến thể. NULL với nhà cung cấp có bộ vị trí in cố định (Mango). */
+  printAreas: ProviderPrintArea[] | null;
+}
+
+/** Một vùng in của biến thể nhà cung cấp (Sellerwix `print_areas[]`). */
+export interface ProviderPrintArea {
+  /** Khoá gửi đi (vd CF, FB) — không phải nhãn hiển thị. */
+  key: string;
+  displayName: string | null;
+  required: boolean;
 }
 
 export interface CatalogProductQuery {
@@ -614,6 +674,11 @@ export interface UpsertProductMappingInput {
   productionConfig?: string;
   /** ID line sản xuất (`GET /production-lines` → `items[].id`), KHÔNG phải tên hiển thị. */
   productionLine?: string;
+  /**
+   * Vị trí in NCMedia → khoá vị trí in nhà cung cấp, vd `{ FRONT: 'CF', LEFT: 'LS' }` (Sellerwix:
+   * khoá lấy từ `print_areas` của biến thể).
+   */
+  placementMap?: Record<string, string>;
   isActive?: boolean;
   note?: string;
 }

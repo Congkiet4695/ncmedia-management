@@ -39,6 +39,20 @@ export function useFulfillmentState(podOrderId?: string, enabled = true, provide
 }
 
 /**
+ * Phương thức vận chuyển của ĐƠN với nhà cung cấp đang chọn — chỉ gọi khi nhà cung cấp tính theo
+ * đơn (`capabilities.shippingMethodsByOrder`, vd Sellerwix). Khoá gồm nhà cung cấp: đổi nhà cung
+ * cấp là một câu hỏi khác.
+ */
+export function useOrderShippingMethods(podOrderId?: string, providerId?: string, enabled = true) {
+  return useQuery({
+    queryKey: [KEY, 'shipping-methods', podOrderId, providerId ?? null],
+    queryFn: () => fulfillmentService.shippingMethods(podOrderId as string, providerId as string),
+    enabled: Boolean(podOrderId) && Boolean(providerId) && enabled,
+    staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
  * Nhà cung cấp fulfillment ở cấp NỀN TẢNG (Super Admin).
  *
  * `enabled` để màn hình khác không vô tình gọi API quản trị nền tảng khi người dùng không có

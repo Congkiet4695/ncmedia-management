@@ -537,3 +537,14 @@ export class PodFlashSaleProductQueryDto {
   @MaxLength(255)
   search?: string;
 }
+
+/** Đồng bộ Flash Sale từ TikTok về hệ thống. */
+export class SyncFlashSalesFromTiktokDto {
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description: 'Chỉ đồng bộ shop này. Bỏ trống ⇒ mọi shop trong phạm vi của người dùng.',
+  })
+  @IsOptional()
+  @IsUUID()
+  shopId?: string;
+}

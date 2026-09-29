@@ -1821,16 +1821,16 @@ model StorageFile {
   uploader     User         @relation("StorageUploader", fields: [uploadedBy], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   /// ⚠️ CŨ — design gắn theo line item của đơn. Giữ để dữ liệu lịch sử vẫn tra được.
-  podDesigns           PodOrderItemDesign[]
+  podDesigns               PodOrderItemDesign[]
   /// File in gắn theo **Product Mapping** — nguồn design hiện hành.
-  productDesigns       FulfillmentProductDesign[]      @relation("FulfillmentProductDesignFile")
+  productDesigns           FulfillmentProductDesign[]      @relation("FulfillmentProductDesignFile")
   /// Ảnh trong một bộ ảnh mẫu (mockup) của Image Template.
-  imageTemplateItems   PodImageTemplateItem[]
+  imageTemplateItems       PodImageTemplateItem[]
   /// File dùng làm ảnh riêng của một tổ hợp SKU trong SKU Template.
-  skuTemplateItems     PodSkuTemplateItem[]            @relation("PodSkuTemplateItemImage")
+  skuTemplateItems         PodSkuTemplateItem[]            @relation("PodSkuTemplateItemImage")
   /// Ảnh mặc định của một giá trị biến thể (trục đầu) trong SKU Template.
-  skuTemplateVariantValues PodSkuTemplateVariantValue[] @relation("PodSkuTemplateVariantValueImage")
-  sessionProductImages PodListingSessionProductImage[] @relation("PodListingSessionProductImageFile")
+  skuTemplateVariantValues PodSkuTemplateVariantValue[]    @relation("PodSkuTemplateVariantValueImage")
+  sessionProductImages     PodListingSessionProductImage[] @relation("PodListingSessionProductImageFile")
 
   @@index([organizationId])
   @@index([organizationId, module])
@@ -2038,11 +2038,13 @@ model PodTiktokStatementTransaction {
 // Chi tiết: docs/fulfillment/README.md
 // ===========================================================================
 
-/// Nhà cung cấp fulfillment. Hiện chỉ MANGOTEE được implement.
+/// Nhà cung cấp fulfillment. Đã implement: MANGO (MangoTeePrints), SELLERWIX.
 enum FulfillmentProvider {
   MANGO
   PRINTIFY
   PRINTFUL
+  /// Sellerwix Public API — xem docs/fulfillment/sellerwix.md.
+  SELLERWIX
   /// Nhà cung cấp tự khai báo (tích hợp riêng). Giữ chỗ để thêm provider không nằm
   /// trong danh sách dựng sẵn mà không phải đổi enum lần nữa.
   CUSTOM
@@ -2145,10 +2147,18 @@ model FulfillmentAccount {
   /// Ghi đè base URL (môi trường thử nghiệm). NULL = dùng cấu hình mặc định của hệ thống.
   baseUrlOverride String? @map("base_url_override") @db.VarChar(500)
 
+  /// Bí mật THỨ HAI của nhà cung cấp, MÃ HOÁ AES-256-GCM giống `apiKeyEnc`. KHÔNG expose qua API.
+  /// Sellerwix: private key RSA (PEM) để ký JWT assertion RS256 (OAuth2 client credentials).
+  /// NULL với nhà cung cấp chỉ cần một API key (MangoTeePrints).
+  secretEnc      String? @map("secret_enc") @db.Text
+  /// Cấu hình KHÔNG bí mật riêng của nhà cung cấp. Sellerwix: `{ storeId, publicKeyId }`.
+  /// NULL với MangoTeePrints.
+  providerConfig Json?   @map("provider_config")
+
   /// `production_line_id` mặc định khi tạo đơn (Mango: GET /production-lines).
   defaultProductionLine String? @map("default_production_line") @db.VarChar(64)
   /// `shipping_method` mặc định (Mango enum: standard | priority | express | ...).
-  defaultShippingMethod String  @default("standard") @map("default_shipping_method") @db.VarChar(40)
+  defaultShippingMethod String  @default("standard") @map("default_shipping_method") @db.VarChar(255)
   /// `facility` mặc định (chỉ production line TIKTOK). NULL = để Mango tự chọn (AUTO).
   defaultFacility       String? @map("default_facility") @db.VarChar(40)
 
@@ -2538,7 +2548,7 @@ model FulfillmentOrder {
 
   /// Thông số đã dùng khi tạo đơn (ghi lại để đối soát khi cấu hình đổi về sau).
   productionLine String? @map("production_line") @db.VarChar(64)
-  shippingMethod String? @map("shipping_method") @db.VarChar(40)
+  shippingMethod String? @map("shipping_method") @db.VarChar(255)
   facility       String? @db.VarChar(40)
   speedType      String? @map("speed_type") @db.VarChar(40)
 
@@ -2740,6 +2750,12 @@ model FulfillmentWebhookLog {
   /// riêng trên URL webhook — xem docs/fulfillment/README.md §Webhook.
   verified Boolean @default(false)
 
+  /// Khoá sự kiện phía nhà cung cấp — UNIQUE từng phần (provider, provider_event_id) chống xử lý
+  /// trùng. Sellerwix: `event.id` + `event.type` + `event.created_at`. NULL = nhà cung cấp không gửi.
+  providerEventId String?   @map("provider_event_id") @db.VarChar(255)
+  /// Thời điểm sự kiện phía nhà cung cấp — sự kiện CŨ hơn sự kiện đã áp thì bỏ qua.
+  providerEventAt DateTime? @map("provider_event_at") @db.Timestamptz(6)
+
   processed    Boolean   @default(false)
   processedAt  DateTime? @map("processed_at") @db.Timestamptz(6)
   /// Số lần thử xử lý; vượt ngưỡng ⇒ chuyển sang dead letter.
@@ -2758,6 +2774,7 @@ model FulfillmentWebhookLog {
   @@index([processed, deadLetter])
   @@index([externalOrderId])
   @@index([createdAt])
+  @@index([fulfillmentOrderId, providerEventAt], map: "fulfillment_webhook_logs_fulfillment_order_id_provider_event_at")
   @@map("fulfillment_webhook_logs")
 }
 
@@ -3870,8 +3887,8 @@ model PodCategoryTemplate {
   dimensionUnit String? @map("dimension_unit") @db.VarChar(16)
 
   /// Size chart & product video mặc định — trỏ tới file trong Storage Module (R2).
-  sizeChartFileId String? @map("size_chart_file_id") @db.Uuid
-  videoFileId     String? @map("video_file_id") @db.Uuid
+  sizeChartFileId          String?   @map("size_chart_file_id") @db.Uuid
+  videoFileId              String?   @map("video_file_id") @db.Uuid
   /// `uri` TikTok của bảng size sau lần upload đầu (use case SIZE_CHART_IMAGE) — listing sau dùng
   /// lại, không upload lại. Đổi `sizeChartFileId` thì service reset về NULL.
   sizeChartTiktokImageUri  String?   @map("size_chart_tiktok_image_uri") @db.VarChar(512)
@@ -5408,6 +5425,8 @@ enum PodFlashSaleLogAction {
   DEACTIVATE
   SYNC_STATUS
   VALIDATE
+  /// Auto Flash Sale: tạo đợt kế tiếp, chuyển Auto, bật/tắt Auto.
+  AUTO_CHAIN
 
   @@map("pod_flash_sale_log_action")
 }
@@ -5502,8 +5521,31 @@ model PodFlashSale {
   /// nghĩa là tiến trình đã chết giữa chừng ⇒ lượt quét được phép nhặt lại.
   publishHeartbeatAt DateTime? @map("publish_heartbeat_at") @db.Timestamptz(6)
 
+  /// Nguồn của đợt sale: `SYSTEM` (tạo trong hệ thống) | `TIKTOK` (đồng bộ về từ TikTok —
+  /// tạo ở Seller Center). Chuỗi thay vì enum để thêm nguồn khác không phải migration enum.
+  source String @default("SYSTEM") @db.VarChar(16)
+
   /// Template đã sinh ra đợt này (Duplicate/Apply Template). NULL = tạo tay.
   sourceTemplateId String? @map("source_template_id") @db.Uuid
+
+  // -------------------------------------------------------------------------
+  // Auto Flash Sale — CHUỖI các đợt nối tiếp nhau (A → B → C …)
+  //
+  // 🔴 Hai ràng buộc nằm ở DATABASE (partial unique index trong migration, Prisma chưa khai
+  // báo được), không chỉ ở code:
+  //  - `auto_parent_id` UNIQUE (khi chưa xoá) ⇒ mỗi đợt có TỐI ĐA MỘT đợt kế tiếp. Hai lượt
+  //    cron cùng tạo B ⇒ lượt thứ hai vỡ ràng buộc, không bao giờ có B trùng.
+  //  - `(auto_chain_id) WHERE auto_mode` UNIQUE ⇒ mỗi chuỗi có đúng MỘT đợt đang bật Auto.
+  // -------------------------------------------------------------------------
+
+  /// Đợt này đang là NÚT ĐANG HOẠT ĐỘNG của chuỗi Auto — cron sẽ tạo đợt kế tiếp từ nó.
+  autoMode     Boolean @default(false) @map("auto_mode")
+  /// Id chuỗi = id của đợt đầu tiên bật Auto. Mọi đợt sinh ra từ nó mang cùng giá trị.
+  autoChainId  String? @map("auto_chain_id") @db.Uuid
+  /// Đợt đã sinh ra đợt này. NULL = đợt đầu chuỗi (hoặc không thuộc chuỗi nào).
+  autoParentId String? @map("auto_parent_id") @db.Uuid
+  /// Số thứ tự trong chuỗi: đợt đầu = 1, đợt kế = 2 …
+  autoSequence Int?    @map("auto_sequence")
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -5515,6 +5557,8 @@ model PodFlashSale {
   shop           PodTiktokShop         @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   sourceTemplate PodFlashSaleTemplate? @relation(fields: [sourceTemplateId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   creator        User?                 @relation("PodFlashSaleCreator", fields: [createdBy], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  autoParent     PodFlashSale?         @relation("PodFlashSaleAutoChain", fields: [autoParentId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  autoChildren   PodFlashSale[]        @relation("PodFlashSaleAutoChain")
 
   items PodFlashSaleItem[]
   logs  PodFlashSaleLog[]
@@ -5529,7 +5573,50 @@ model PodFlashSale {
   @@index([status, endAt])
   /// Lượt quét tìm đợt kẹt ở PUBLISHING — lọc theo `status` rồi sắp theo nhịp tim.
   @@index([status, publishHeartbeatAt])
+  @@index([shopId, source])
+  @@index([autoChainId])
+  @@index([autoParentId])
   @@map("pod_flash_sales")
+}
+
+// ---------------------------------------------------------------------------
+// PodFlashSaleAutoConfig — lịch chạy Auto Flash Sale của MỘT tổ chức.
+//
+// 🔴 Không có bảng System Settings chung trong hệ thống ⇒ bảng riêng, MỘT dòng mỗi tổ chức
+// (`organization_id` UNIQUE). Chỉ quyền `pod.flashsale.auto.config` (Admin) được sửa.
+// ---------------------------------------------------------------------------
+
+model PodFlashSaleAutoConfig {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @unique @map("organization_id") @db.Uuid
+
+  /// Bật/tắt job Auto Flash Sale của tổ chức.
+  enabled  Boolean @default(false)
+  /// Giờ chạy trong ngày, `HH:mm` (24h), theo `timezone` bên dưới. Mỗi ngày đúng MỘT lần.
+  runTime  String  @map("run_time") @db.VarChar(5)
+  /// Múi giờ IANA của giờ chạy (vd `America/Los_Angeles`). KHÔNG dùng múi giờ của server.
+  timezone String  @db.VarChar(64)
+
+  /// Mốc lịch (`runTime` của một ngày, quy ra UTC) đã được một lượt chạy GIÀNH. Lượt quét so
+  /// sánh-và-đổi cột này ⇒ mỗi mốc chạy đúng một lần dù có nhiều instance, và mốc bị lỡ
+  /// (server tắt lúc 05:00) được chạy bù khi server lên lại.
+  lastScheduledAt DateTime? @map("last_scheduled_at") @db.Timestamptz(6)
+  /// Lượt chạy gần nhất (cron hoặc Run Now).
+  lastRunAt       DateTime? @map("last_run_at") @db.Timestamptz(6)
+  lastRunTrigger  String?   @map("last_run_trigger") @db.VarChar(16)
+  /// `SUCCESS` | `PARTIAL` (có chuỗi lỗi) | `FAILED`.
+  lastRunStatus   String?   @map("last_run_status") @db.VarChar(16)
+  /// Tổng kết lượt chạy gần nhất: số đợt kiểm/tạo/bỏ qua/lỗi/chuyển giao.
+  lastRunSummary  Json?     @map("last_run_summary")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  @@index([enabled])
+  @@map("pod_flash_sale_auto_configs")
 }
 
 // ---------------------------------------------------------------------------
@@ -5590,7 +5677,9 @@ model PodFlashSaleItem {
 
   flashSale PodFlashSale       @relation(fields: [flashSaleId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   product   PodProduct         @relation(fields: [productId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  variant   PodProductVariant? @relation(fields: [variantId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  /// 🔴 SET NULL, KHÔNG CASCADE: SKU bị xoá trên TikTok không được kéo dòng Flash Sale biến mất
+  /// theo (FAILED ≠ DELETE). Dòng giữ `providerVariantId`/`skuId` đã chụp; validator báo lỗi.
+  variant   PodProductVariant? @relation(fields: [variantId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   /// Mức VARIATION: mỗi biến thể xuất hiện đúng một lần trong một đợt.
   /// 🔴 Mức PRODUCT (`variantId = NULL`) KHÔNG bị ràng buộc này chặn — trong PostgreSQL,

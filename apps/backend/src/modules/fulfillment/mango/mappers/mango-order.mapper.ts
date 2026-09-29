@@ -32,9 +32,23 @@ export interface NormalizedAddress {
   zip: string;
 }
 
+/**
+ * Một file in đã ghép vị trí — `key` là khoá vị trí PHÍA NHÀ CUNG CẤP (Mango: `print_files[].key`;
+ * Sellerwix: `print_areas[].key` của biến thể). Kiểu chuỗi vì mỗi nhà cung cấp một bộ khoá.
+ */
+export interface ResolvedPrintFile {
+  key: string;
+  url: string;
+}
+
 /** Một dòng sản phẩm đã ghép đủ SKU + design, sẵn sàng đưa vào request. */
 export interface ResolvedItem {
   podOrderItemId: string;
+  /**
+   * Id line item TikTok của dòng hàng. Mango không dùng; Sellerwix gửi làm
+   * `line_items[].reference_id` (bắt buộc với store kết nối marketplace).
+   */
+  tiktokLineItemId?: string | null;
   providerSku: string;
   quantity: number;
   productionConfig: string | null;
@@ -54,7 +68,7 @@ export interface ResolvedItem {
    * TRƯỚC khi gửi, và (2) ghi lên bản ghi fulfillment để đối soát.
    */
   productionLine: string | null;
-  printFiles: MangoPrintFile[];
+  printFiles: ResolvedPrintFile[];
   /**
    * `items[].item_id` gửi kèm — chính là id dòng `fulfillment_order_items` của NCMedia.
    *
@@ -399,7 +413,8 @@ export class MangoOrderMapper {
     const request: MangoOrderItemRequest = {
       sku: item.providerSku,
       quantity: item.quantity,
-      print_files: item.printFiles,
+      // Khoá đã được luật vị trí in CỦA MANGO (`resolvePlacement`) sinh ra ⇒ luôn là MangoPrintPosition.
+      print_files: item.printFiles as MangoPrintFile[],
     };
     if (item.productionConfig) request.production_config = item.productionConfig;
     // Ghép giá vốn trả về đúng dòng hàng nội bộ — xem `ResolvedItem.itemId`.

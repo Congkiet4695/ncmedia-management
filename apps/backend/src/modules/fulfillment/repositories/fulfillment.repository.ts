@@ -21,6 +21,17 @@ export type FulfillmentOrderWithRelations = Prisma.FulfillmentOrderGetPayload<{
   include: typeof FULFILLMENT_ORDER_INCLUDE;
 }>;
 
+/**
+ * Trạng thái mà một bản ghi fulfillment KHÔNG còn giữ đơn ở xưởng in: chưa gửi, gửi hỏng, đã huỷ,
+ * bị từ chối. Bản ghi ở trạng thái KHÁC nghĩa là đơn đang/đã được sản xuất ở nhà cung cấp đó.
+ */
+export const NON_BLOCKING_FULFILLMENT_STATUSES: readonly FulfillmentStatus[] = [
+  FulfillmentStatus.DRAFT,
+  FulfillmentStatus.FAILED,
+  FulfillmentStatus.CANCELLED,
+  FulfillmentStatus.REJECTED,
+];
+
 /** Dữ liệu ghi một dòng nhật ký (append-only). */
 export interface HistoryEntry {
   organizationId: string;
@@ -89,10 +100,13 @@ export class FulfillmentRepository {
     });
   }
 
-  /** Mọi tài khoản có cấu hình secret webhook — dùng để xác thực request gọi về. */
-  findAccountsWithWebhookSecret() {
+  /**
+   * Mọi tài khoản có cấu hình secret webhook — dùng để xác thực request gọi về.
+   * Lọc theo nhà cung cấp: URL webhook của Mango không được xác thực bằng secret của Sellerwix.
+   */
+  findAccountsWithWebhookSecret(provider: FulfillmentProvider) {
     return this.prisma.fulfillmentAccount.findMany({
-      where: { deletedAt: null, isActive: true, webhookSecretEnc: { not: null } },
+      where: { deletedAt: null, isActive: true, provider, webhookSecretEnc: { not: null } },
     });
   }
 
@@ -408,6 +422,76 @@ export class FulfillmentRepository {
   }
 
   /**
+   * Bản ghi fulfillment "hiện hành" của một đơn POD, BẤT KỂ nhà cung cấp.
+   *
+   * Một đơn có thể có nhiều bản ghi (mỗi nhà cung cấp một — UNIQUE `(pod_order_id, provider)`),
+   * ví dụ gửi Mango hỏng rồi gửi Sellerwix. Bản ghi đang giữ đơn ở xưởng in thắng; không có thì
+   * lấy bản ghi được cập nhật gần nhất.
+   */
+  async findCurrentByPodOrder(
+    organizationId: string,
+    podOrderId: string,
+  ): Promise<FulfillmentOrderWithRelations | null> {
+    const records = await this.prisma.fulfillmentOrder.findMany({
+      where: { organizationId, podOrderId, deletedAt: null },
+      include: FULFILLMENT_ORDER_INCLUDE,
+      orderBy: { updatedAt: 'desc' },
+    });
+    return (
+      records.find((record) => !NON_BLOCKING_FULFILLMENT_STATUSES.includes(record.status)) ??
+      records[0] ??
+      null
+    );
+  }
+
+  /**
+   * Bản ghi của nhà cung cấp KHÁC đang giữ đơn ở xưởng in.
+   *
+   * 🔴 UNIQUE `(pod_order_id, provider)` chỉ chặn gửi trùng TRONG một nhà cung cấp. Không có phép
+   * kiểm này thì một đơn đã sản xuất ở Mango vẫn gửi được sang Sellerwix — sản xuất hai lần.
+   */
+  findBlockingRecordOfOtherProvider(
+    organizationId: string,
+    podOrderId: string,
+    provider: FulfillmentProvider,
+  ): Promise<FulfillmentOrderWithRelations | null> {
+    return this.prisma.fulfillmentOrder.findFirst({
+      where: {
+        organizationId,
+        podOrderId,
+        deletedAt: null,
+        provider: { not: provider },
+        status: { notIn: [...NON_BLOCKING_FULFILLMENT_STATUSES] },
+      },
+      include: FULFILLMENT_ORDER_INCLUDE,
+    });
+  }
+
+  /**
+   * Bản ghi của MỘT tài khoản theo mã đơn phía nhà cung cấp hoặc `reference_id` đã gửi — dùng
+   * khi nhận webhook. Lọc theo tài khoản: webhook của tài khoản A không được đụng đơn của B.
+   */
+  findForProviderEvent(params: {
+    provider: FulfillmentProvider;
+    accountId: string;
+    providerOrderId?: string | null;
+    externalOrderId?: string | null;
+  }): Promise<FulfillmentOrder | null> {
+    const keys: Prisma.FulfillmentOrderWhereInput[] = [];
+    if (params.providerOrderId) keys.push({ providerOrderId: params.providerOrderId });
+    if (params.externalOrderId) keys.push({ externalOrderId: params.externalOrderId });
+    if (keys.length === 0) return Promise.resolve(null);
+    return this.prisma.fulfillmentOrder.findFirst({
+      where: {
+        provider: params.provider,
+        accountId: params.accountId,
+        deletedAt: null,
+        OR: keys,
+      },
+    });
+  }
+
+  /**
    * Bản ghi fulfillment của NHIỀU đơn POD — dùng cho màn hình danh sách.
    * Một truy vấn cho cả trang ⇒ không N+1.
    */
@@ -495,6 +579,15 @@ export class FulfillmentRepository {
     ] as [Prisma.PrismaPromise<Prisma.BatchPayload>, ...Prisma.PrismaPromise<FulfillmentOrderItem>[]]);
     void created;
     return this.listItems(fulfillmentOrderId);
+  }
+
+  /** Dòng hàng kèm id line item TikTok — Sellerwix ghép chi phí theo `line_items[].reference_id`. */
+  listItemsWithLineRef(fulfillmentOrderId: string) {
+    return this.prisma.fulfillmentOrderItem.findMany({
+      where: { fulfillmentOrderId },
+      orderBy: { createdAt: 'asc' },
+      include: { podOrderItem: { select: { tiktokLineItemId: true } } },
+    });
   }
 
   listItems(fulfillmentOrderId: string): Promise<FulfillmentOrderItem[]> {
@@ -643,8 +736,31 @@ export class FulfillmentRepository {
     verified: boolean;
     organizationId?: string | null;
     accountId?: string | null;
+    providerEventId?: string | null;
+    providerEventAt?: Date | null;
   }) {
     return this.prisma.fulfillmentWebhookLog.create({ data });
+  }
+
+  /**
+   * Đã áp một sự kiện MỚI HƠN cho cùng đơn chưa — sự kiện cũ tới sau (giao nhận không theo thứ
+   * tự) không được ghi đè trạng thái mới bằng trạng thái cũ.
+   */
+  async hasNewerProcessedEvent(
+    fulfillmentOrderId: string,
+    providerEventAt: Date,
+    excludeLogId: string,
+  ): Promise<boolean> {
+    const newer = await this.prisma.fulfillmentWebhookLog.findFirst({
+      where: {
+        fulfillmentOrderId,
+        processed: true,
+        id: { not: excludeLogId },
+        providerEventAt: { gt: providerEventAt },
+      },
+      select: { id: true },
+    });
+    return newer !== null;
   }
 
   async markWebhookProcessed(
@@ -671,10 +787,18 @@ export class FulfillmentRepository {
     });
   }
 
-  /** Webhook chưa xử lý được — hàng đợi thử lại cho scheduler. */
-  findPendingWebhooks(limit: number, maxAttempts: number) {
+  /**
+   * Webhook chưa xử lý được của MỘT nhà cung cấp — hàng đợi thử lại cho scheduler.
+   * 🔴 Lọc theo nhà cung cấp: payload Sellerwix đưa vào bộ xử lý của Mango là dead letter oan.
+   */
+  findPendingWebhooks(provider: FulfillmentProvider, limit: number, maxAttempts: number) {
     return this.prisma.fulfillmentWebhookLog.findMany({
-      where: { processed: false, deadLetter: false, attemptCount: { lt: maxAttempts } },
+      where: {
+        provider,
+        processed: false,
+        deadLetter: false,
+        attemptCount: { lt: maxAttempts },
+      },
       orderBy: { createdAt: 'asc' },
       take: limit,
     });

@@ -28,6 +28,14 @@ import { PlatformFulfillmentService } from './services/platform-fulfillment.serv
 import { ProductDesignService } from './services/product-design.service';
 import { FulfillmentSyncService } from './services/fulfillment-sync.service';
 import { FulfillmentService } from './services/fulfillment.service';
+import { FulfillmentProviderGateway } from './services/fulfillment-provider.gateway';
+import { SellerwixApiClient } from './sellerwix/clients/sellerwix-api.client';
+import { SellerwixOrderMapper } from './sellerwix/mappers/sellerwix-order.mapper';
+import { SellerwixCatalogService } from './sellerwix/services/sellerwix-catalog.service';
+import { SellerwixCredentialService } from './sellerwix/services/sellerwix-credential.service';
+import { SellerwixFulfillmentService } from './sellerwix/services/sellerwix-fulfillment.service';
+import { SellerwixWebhookController } from './sellerwix/webhook/sellerwix-webhook.controller';
+import { SellerwixWebhookService } from './sellerwix/webhook/sellerwix-webhook.service';
 
 /**
  * FulfillmentModule — gửi đơn POD sang xưởng in.
@@ -35,7 +43,10 @@ import { FulfillmentService } from './services/fulfillment.service';
  * Phân lớp:
  *  - `controllers/*`        — REST API (tenant-scoped + RBAC)
  *  - `services/*`           — nghiệp vụ KHÔNG phụ thuộc nhà cung cấp
+ *  - `services/fulfillment-provider.gateway.ts` — chọn adapter theo `account.provider`;
+ *      controller/scheduler CHỈ gọi gateway, không gọi thẳng nhà cung cấp nào
  *  - `mango/*`              — toàn bộ phần đặc thù MangoTeePrints
+ *  - `sellerwix/*`          — toàn bộ phần đặc thù Sellerwix (cùng bố cục với `mango/`)
  *      · `clients/`  cửa duy nhất ra API nhà cung cấp
  *      · `mappers/`  Anti-Corruption Layer hai chiều
  *      · `services/` nghiệp vụ tạo/đồng bộ/huỷ đơn
@@ -43,8 +54,8 @@ import { FulfillmentService } from './services/fulfillment.service';
  *  - `scheduler/*`          — chỉ kích hoạt theo lịch, KHÔNG chứa nghiệp vụ
  *  - `repositories/*`       — data access, luôn nhận organizationId
  *
- * Thêm nhà cung cấp mới (Printify/Printful): tạo thư mục ngang hàng với `mango/`,
- * KHÔNG sửa `services/` chung và KHÔNG đụng tới module POD.
+ * Thêm nhà cung cấp mới: tạo thư mục ngang hàng với `mango/` / `sellerwix/`, cài
+ * `FulfillmentProviderAdapter`, đăng ký adapter trong gateway. KHÔNG đụng tới module POD.
  *
  * 🔴 Phụ thuộc MỘT CHIỀU: Fulfillment → PodTiktok (đọc đơn, giải mã PII, khoá phân tán).
  * Module POD KHÔNG biết gì về Fulfillment ⇒ không có phụ thuộc vòng.
@@ -57,6 +68,7 @@ import { FulfillmentService } from './services/fulfillment.service';
     // Khu vực quản trị NỀN TẢNG: nhà cung cấp dùng chung + đồng bộ danh mục tập trung.
     PlatformFulfillmentController,
     MangoWebhookController,
+    SellerwixWebhookController,
   ],
   providers: [
     // Nghiệp vụ chung
@@ -84,6 +96,15 @@ import { FulfillmentService } from './services/fulfillment.service';
     MangoCredentialService,
     MangoFulfillmentService,
     MangoWebhookService,
+    // Sellerwix
+    SellerwixApiClient,
+    SellerwixOrderMapper,
+    SellerwixCatalogService,
+    SellerwixCredentialService,
+    SellerwixFulfillmentService,
+    SellerwixWebhookService,
+    // Chọn adapter theo nhà cung cấp — điểm vào duy nhất từ controller/scheduler.
+    FulfillmentProviderGateway,
     // Lịch
     FulfillmentSyncJob,
     FulfillmentCatalogSyncJob,

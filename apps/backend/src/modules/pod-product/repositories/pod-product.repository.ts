@@ -185,10 +185,10 @@ export class PodProductRepository {
   /**
    * Ghi (tạo hoặc cập nhật) TRỌN VẸN một sản phẩm trong MỘT transaction.
    *
-   * 🔴 Quan hệ con (biến thể/ảnh/video/thuộc tính) dùng chiến lược **xoá rồi ghi lại**:
-   * TikTok trả về trạng thái đầy đủ ở mỗi lần đọc, nên đây là cách duy nhất phản ánh
-   * đúng việc seller XOÁ bớt một SKU/ảnh. Biến thể dùng `deleteMany` theo `productId`
-   * chứ không xoá mềm — bản ghi biến thể không có dữ liệu nghiệp vụ riêng cần giữ.
+   * 🔴 Ảnh/video/thuộc tính dùng chiến lược **xoá rồi ghi lại** (TikTok trả trạng thái đầy
+   * đủ ở mỗi lần đọc). **Biến thể thì KHÔNG**: chúng được UPSERT theo `tiktok_sku_id` để giữ
+   * nguyên `id` — dòng Flash Sale tham chiếu tới biến thể, và đổi `id` ở mỗi lượt đồng bộ đã
+   * từng xoá sạch dòng Flash Sale qua FK CASCADE. Chỉ SKU không còn trên TikTok mới bị xoá.
    */
   async upsertAggregate(
     organizationId: string,
@@ -235,24 +235,52 @@ export class PodProductRepository {
       await tx.podProductImage.deleteMany({ where: { productId: product.id } });
       await tx.podProductVideo.deleteMany({ where: { productId: product.id } });
       await tx.podProductAttribute.deleteMany({ where: { productId: product.id } });
-      await tx.podProductVariant.deleteMany({ where: { productId: product.id } });
 
-      // Biến thể phải ghi TRƯỚC ảnh: ảnh của SKU cần `variantId` vừa tạo.
+      // 🔴 Biến thể: UPSERT theo (product_id, tiktok_sku_id), KHÔNG xoá-rồi-tạo-lại.
+      //
+      // Biến thể CÓ dữ liệu khác tham chiếu tới nó (dòng Flash Sale). Xoá-rồi-tạo-lại đổi `id`
+      // của MỌI SKU ở mỗi lượt đồng bộ, và trước đây FK CASCADE đã xoá theo toàn bộ dòng Flash
+      // Sale của sản phẩm — không log, không lỗi (đợt 600 SKU còn 36 dòng). Giữ nguyên `id`
+      // của SKU còn tồn tại; chỉ SKU người bán đã XOÁ trên TikTok mới bị xoá ở đây.
+      const existingVariants = await tx.podProductVariant.findMany({
+        where: { productId: product.id },
+        select: { id: true, tiktokSkuId: true },
+      });
+      const existingIdBySkuId = new Map(
+        existingVariants.map((variant) => [variant.tiktokSkuId, variant.id]),
+      );
+
+      // Biến thể phải ghi TRƯỚC ảnh: ảnh của SKU cần `variantId`.
       const variantIdBySkuId = new Map<string, string>();
       for (const variant of mapped.variants) {
         if (!variant.tiktokSkuId) continue;
-        const created = await tx.podProductVariant.create({
-          data: {
-            ...variant,
-            salesAttributes: variant.salesAttributes ?? Prisma.JsonNull,
-            inventory: variant.inventory ?? Prisma.JsonNull,
-            organizationId,
-            productId: product.id,
-            createdBy: actorUserId,
-          },
-          select: { id: true },
-        });
-        variantIdBySkuId.set(variant.tiktokSkuId, created.id);
+        const data = {
+          ...variant,
+          salesAttributes: variant.salesAttributes ?? Prisma.JsonNull,
+          inventory: variant.inventory ?? Prisma.JsonNull,
+        };
+        const existingId = existingIdBySkuId.get(variant.tiktokSkuId);
+        const saved = existingId
+          ? await tx.podProductVariant.update({
+              where: { id: existingId },
+              data: { ...data, deletedAt: null, updatedBy: actorUserId },
+              select: { id: true },
+            })
+          : await tx.podProductVariant.create({
+              data: { ...data, organizationId, productId: product.id, createdBy: actorUserId },
+              select: { id: true },
+            });
+        variantIdBySkuId.set(variant.tiktokSkuId, saved.id);
+      }
+
+      // SKU không còn trên TikTok ⇒ xoá. Dòng Flash Sale trỏ tới nó KHÔNG mất theo: FK là
+      // SET NULL (migration 20260930090000), dòng giữ `provider_variant_id` đã chụp và được
+      // validator Flash Sale báo lỗi rõ ràng.
+      const staleVariantIds = existingVariants
+        .filter((variant) => !variantIdBySkuId.has(variant.tiktokSkuId))
+        .map((variant) => variant.id);
+      if (staleVariantIds.length > 0) {
+        await tx.podProductVariant.deleteMany({ where: { id: { in: staleVariantIds } } });
       }
 
       if (mapped.images.length > 0) {

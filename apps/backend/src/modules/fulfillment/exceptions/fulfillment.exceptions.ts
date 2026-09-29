@@ -136,6 +136,16 @@ export class FulfillmentProviderMisconfiguredException extends UnprocessableEnti
   }
 }
 
+/** Nhà cung cấp có trong enum nhưng CHƯA có tích hợp (Printify/Printful/Custom). */
+export class FulfillmentProviderNotSupportedException extends UnprocessableEntityException {
+  constructor(provider: string) {
+    super({
+      code: 'FULFILLMENT_PROVIDER_NOT_SUPPORTED',
+      message: `Nhà cung cấp ${provider} chưa được tích hợp — chưa thể đồng bộ danh mục hay gửi đơn.`,
+    });
+  }
+}
+
 export class FulfillmentOrderNotFoundException extends NotFoundException {
   constructor() {
     super({
@@ -158,6 +168,33 @@ export class FulfillmentAlreadySubmittedException extends ConflictException {
 }
 
 /** Đơn chưa đủ điều kiện gửi — kèm danh sách lý do cụ thể để người dùng sửa. */
+/**
+ * Đơn đang được nhà cung cấp KHÁC sản xuất.
+ *
+ * 🔴 Chặn sản xuất hai lần qua hai nhà cung cấp — UNIQUE `(pod_order_id, provider)` không làm
+ * được việc này vì hai bản ghi khác nhà cung cấp đều hợp lệ với ràng buộc đó.
+ */
+export class FulfillmentSubmittedToOtherProviderException extends ConflictException {
+  constructor(providerLabel: string, status: string) {
+    super({
+      code: 'FULFILLMENT_SUBMITTED_TO_OTHER_PROVIDER',
+      message:
+        `Đơn này đã được gửi sang ${providerLabel} (trạng thái ${status}). Huỷ đơn ở ${providerLabel} ` +
+        'trước khi gửi sang nhà cung cấp khác — gửi thêm là sản xuất hai lần.',
+    });
+  }
+}
+
+/** Nhà cung cấp không có API cho thao tác này (vd Sellerwix không có Update Order). */
+export class FulfillmentOperationNotSupportedException extends UnprocessableEntityException {
+  constructor(providerLabel: string, operation: string) {
+    super({
+      code: 'FULFILLMENT_OPERATION_NOT_SUPPORTED',
+      message: `${providerLabel} không hỗ trợ thao tác "${operation}" qua API.`,
+    });
+  }
+}
+
 export class FulfillmentNotReadyException extends UnprocessableEntityException {
   constructor(reasons: Array<{ code: string; message: string }>) {
     super({
@@ -214,39 +251,55 @@ export class FulfillmentValidationException extends BadRequestException {
 }
 
 export class FulfillmentProviderAuthException extends BadGatewayException {
-  constructor() {
-    super({
-      code: 'FULFILLMENT_PROVIDER_AUTH',
-      message:
-        'API key của nhà cung cấp không hợp lệ hoặc không đủ quyền. Vui lòng kiểm tra cấu hình.',
-    });
+  constructor(
+    message = 'API key của nhà cung cấp không hợp lệ hoặc không đủ quyền. Vui lòng kiểm tra cấu hình.',
+  ) {
+    super({ code: 'FULFILLMENT_PROVIDER_AUTH', message });
   }
 }
 
 export class FulfillmentProviderTimeoutException extends GatewayTimeoutException {
-  constructor() {
-    super({
-      code: 'FULFILLMENT_PROVIDER_TIMEOUT',
-      message: 'Nhà cung cấp fulfillment phản hồi quá chậm. Vui lòng thử lại.',
-    });
+  constructor(message = 'Nhà cung cấp fulfillment phản hồi quá chậm. Vui lòng thử lại.') {
+    super({ code: 'FULFILLMENT_PROVIDER_TIMEOUT', message });
   }
 }
 
 export class FulfillmentRateLimitedException extends HttpException {
-  constructor() {
-    super(
-      {
-        code: 'FULFILLMENT_RATE_LIMITED',
-        message: 'Đang bị nhà cung cấp giới hạn tần suất. Vui lòng thử lại sau ít phút.',
-      },
-      HttpStatus.TOO_MANY_REQUESTS,
-    );
+  constructor(message = 'Đang bị nhà cung cấp giới hạn tần suất. Vui lòng thử lại sau ít phút.') {
+    super({ code: 'FULFILLMENT_RATE_LIMITED', message }, HttpStatus.TOO_MANY_REQUESTS);
   }
 }
 
 export class FulfillmentProviderException extends BadGatewayException {
   constructor(message = 'Nhà cung cấp fulfillment trả về lỗi. Vui lòng thử lại sau.') {
     super({ code: 'FULFILLMENT_PROVIDER_ERROR', message });
+  }
+}
+
+/**
+ * Lỗi của nhà cung cấp → exception HTTP, THÔNG ĐIỆP GẮN TÊN NHÀ CUNG CẤP.
+ *
+ * Giao diện hiển thị "<Nhà cung cấp> fulfillment failed — Reason: <lý do thật>", không bao giờ quy
+ * mọi lỗi thành "System error". `code` giữ nguyên bộ mã chung (FULFILLMENT_PROVIDER_*) để frontend
+ * xử lý như nhau cho mọi nhà cung cấp; lỗi theo field đi trong `errors`.
+ */
+export function toProviderHttpException(providerLabel: string, error: unknown): Error {
+  if (!(error instanceof FulfillmentClientError)) {
+    return error instanceof Error ? error : new FulfillmentProviderException();
+  }
+  const reason = `${providerLabel} fulfillment failed — Reason: ${error.message}`;
+  switch (error.errorClass) {
+    case FulfillmentErrorClass.AUTH:
+      return new FulfillmentProviderAuthException(reason);
+    case FulfillmentErrorClass.VALIDATION:
+    case FulfillmentErrorClass.NOT_FOUND:
+      return new FulfillmentValidationException(reason, error.validationErrors);
+    case FulfillmentErrorClass.RATE_LIMIT:
+      return new FulfillmentRateLimitedException(reason);
+    case FulfillmentErrorClass.NETWORK:
+      return new FulfillmentProviderTimeoutException(reason);
+    default:
+      return new FulfillmentProviderException(reason);
   }
 }
 

@@ -172,6 +172,16 @@ export default () => ({
       timeoutMs: parseInt(process.env.MANGO_HTTP_TIMEOUT_MS ?? '30000', 10),
     },
 
+    /**
+     * Sellerwix Public API (docs/fulfillment/sellerwix.md). Thông tin xác thực (API Key, Public
+     * Key ID, private key RSA, Store ID) nằm trong DB của từng tài khoản — KHÔNG ở đây.
+     */
+    sellerwix: {
+      /** Base URL mặc định khi tài khoản không ghi đè (biến `baseUrl` của collection Postman). */
+      baseUrl: process.env.SELLERWIX_API_BASE_URL ?? 'https://api.sellerwix.com/public-api',
+      timeoutMs: parseInt(process.env.SELLERWIX_HTTP_TIMEOUT_MS ?? '30000', 10),
+    },
+
     sync: {
       enabled: (process.env.FULFILLMENT_SYNC_ENABLED ?? 'false') === 'true',
       /** Cron 5 trường — mặc định mỗi 5 phút. */
@@ -345,6 +355,16 @@ export default () => ({
     flashSaleSync: {
       enabled: (process.env.TIKTOK_FLASH_SALE_SYNC_ENABLED ?? 'true') === 'true',
       cron: process.env.TIKTOK_FLASH_SALE_SYNC_CRON ?? '*/5 * * * *',
+    },
+
+    /**
+     * Auto Flash Sale — nhịp QUÉT (không phải giờ chạy). Giờ chạy mỗi ngày do Admin cấu hình
+     * theo tổ chức (`pod_flash_sale_auto_configs`); nhịp này chỉ quyết định độ trễ tối đa so
+     * với giờ đó (mặc định mỗi phút).
+     */
+    flashSaleAuto: {
+      enabled: (process.env.TIKTOK_FLASH_SALE_AUTO_ENABLED ?? 'true') === 'true',
+      tickCron: process.env.TIKTOK_FLASH_SALE_AUTO_TICK_CRON ?? '* * * * *',
     },
 
     /**

@@ -28,8 +28,16 @@ import {
   FulfillmentProviderException,
   FulfillmentProviderTimeoutException,
   FulfillmentRateLimitedException,
+  FulfillmentSubmittedToOtherProviderException,
   FulfillmentValidationException,
 } from '../../exceptions/fulfillment.exceptions';
+import { FULFILLMENT_PROVIDER_LABELS } from '../../constants/fulfillment-provider.constants';
+import type {
+  FulfillOptionsInput,
+  FulfillmentProviderAdapter,
+  ProviderConnectionResult,
+  ProviderShippingMethods,
+} from '../../services/fulfillment-provider.adapter';
 import {
   FulfillmentOrderWithRelations,
   FulfillmentRepository,
@@ -43,10 +51,14 @@ import { MangoApiClient, MangoCallContext } from '../clients/mango-api.client';
 import { MangoCredentialService } from './mango-credential.service';
 import { FulfillmentOptionsService } from '../../services/fulfillment-options.service';
 import { MangoOrderMapper, type ResolvedItem } from '../mappers/mango-order.mapper';
-import type {
-  MangoPreferredCarrier,
-  MangoShippingMethod,
-  MangoSpeedType,
+import {
+  MANGO_FACILITIES,
+  MANGO_PREFERRED_CARRIERS,
+  MANGO_SHIPPING_METHODS,
+  MANGO_SPEED_TYPES,
+  type MangoPreferredCarrier,
+  type MangoShippingMethod,
+  type MangoSpeedType,
 } from '../constants/mango.constants';
 import type { MangoOrderResponse } from '../types/mango-api.types';
 
@@ -91,28 +103,13 @@ const UPDATABLE_STATUSES: readonly FulfillmentStatus[] = [
 const FULFILL_LOCK_MS = 60_000;
 
 /**
- * Tuỳ chọn gửi đơn người vận hành chọn trên màn hình Fulfill.
+ * Tuỳ chọn gửi đơn người vận hành chọn trên màn hình Fulfill (hợp đồng chung của mọi nhà cung
+ * cấp — `FulfillOptionsInput`). Bỏ trống ⇒ mặc định của tài khoản (hành vi cũ, không đổi).
  *
- * Bỏ trống ⇒ lấy mặc định của tài khoản nhà cung cấp (hành vi cũ, không đổi).
+ * `fulfillmentAccountId`: tài khoản người dùng CHỌN (ưu tiên số một); bỏ trống thì lùi về nhà cung
+ * cấp gán cho kết nối TikTok, rồi "đúng một nhà cung cấp khả dụng" — xem `resolveProviderAccount`.
  */
-export interface MangoFulfillOptionsInput {
-  /**
-   * Nhà cung cấp fulfillment người dùng CHỌN cho lần gửi này (`fulfillment_accounts.id`).
-   *
-   * 🔴 Đây là nguồn ưu tiên số một — thay cho việc suy ra nhà cung cấp từ TikTok Account.
-   * Bỏ trống thì hệ thống lùi về nhà cung cấp đã gán cho kết nối TikTok (dữ liệu cũ), rồi tới
-   * "chỉ có đúng một nhà cung cấp khả dụng". Xem `resolveProviderAccount`.
-   */
-  fulfillmentAccountId?: string | null;
-  shippingMethod?: MangoShippingMethod | null;
-  facility?: string | null;
-  speedType?: MangoSpeedType | null;
-  preferredCarrier?: MangoPreferredCarrier | null;
-  isScanLabel?: boolean;
-  /** Nhãn vận chuyển người bán tự mua (PDF/PNG/JPG, URL công khai). */
-  labelUrl?: string | null;
-  note?: string | null;
-}
+export type MangoFulfillOptionsInput = FulfillOptionsInput;
 
 /**
  * MangoFulfillmentService — nghiệp vụ gửi đơn sang MangoTeePrints.
@@ -127,10 +124,12 @@ export interface MangoFulfillOptionsInput {
  *  - Mọi bước đều ghi vào nhật ký append-only, kể cả khi thất bại.
  */
 @Injectable()
-export class MangoFulfillmentService {
+export class MangoFulfillmentService implements FulfillmentProviderAdapter {
   private readonly logger = new Logger(MangoFulfillmentService.name);
 
   private static readonly PROVIDER = FulfillmentProvider.MANGO;
+
+  readonly provider = MangoFulfillmentService.PROVIDER;
 
   constructor(
     private readonly config: ConfigService,
@@ -177,6 +176,8 @@ export class MangoFulfillmentService {
     trigger: FulfillmentTrigger,
     options: MangoFulfillOptionsInput,
   ): Promise<FulfillmentOrderWithRelations> {
+    this.assertMangoOptions(options);
+
     const existing = await this.repo.findByPodOrder(
       organizationId,
       podOrderId,
@@ -185,6 +186,18 @@ export class MangoFulfillmentService {
     // Đã gửi thành công rồi thì tuyệt đối không gửi lại — sản xuất trùng tốn tiền thật.
     if (existing && !RESUBMITTABLE_STATUSES.includes(existing.status)) {
       throw new FulfillmentAlreadySubmittedException(existing.status);
+    }
+    // Đơn đang được nhà cung cấp KHÁC sản xuất ⇒ gửi thêm sang Mango là sản xuất hai lần.
+    const other = await this.repo.findBlockingRecordOfOtherProvider(
+      organizationId,
+      podOrderId,
+      MangoFulfillmentService.PROVIDER,
+    );
+    if (other) {
+      throw new FulfillmentSubmittedToOtherProviderException(
+        FULFILLMENT_PROVIDER_LABELS[other.provider],
+        other.status,
+      );
     }
 
     const order = await this.podOrderRepo.findById(organizationId, podOrderId);
@@ -238,6 +251,8 @@ export class MangoFulfillmentService {
     // nguyên hành vi cũ (mặc định tài khoản, ghi chú của người bán).
     const shippingMethod = (options.shippingMethod ??
       account.defaultShippingMethod) as MangoShippingMethod;
+    const speedType = (options.speedType ?? null) as MangoSpeedType | null;
+    const preferredCarrier = (options.preferredCarrier ?? null) as MangoPreferredCarrier | null;
     const facility = options.facility ?? account.defaultFacility;
     const note = options.note ?? order.sellerNote;
     // 🔴 Nhãn ĐÃ LƯU của đơn là nguồn chính; body chỉ để ghi đè trong đúng lần gửi này.
@@ -290,7 +305,7 @@ export class MangoFulfillmentService {
       items: itemsWithId,
       productionLine,
       facility,
-      speedType: options.speedType ?? null,
+      speedType,
       isScanLabel: options.isScanLabel === true,
       labelUrl,
     });
@@ -302,8 +317,8 @@ export class MangoFulfillmentService {
       shippingMethod,
       productionLineId: productionLine,
       facility,
-      speedType: options.speedType ?? null,
-      preferredCarrier: options.preferredCarrier ?? null,
+      speedType,
+      preferredCarrier,
       isScanLabel: options.isScanLabel === true,
       // Nhãn vận chuyển: đơn 4PL của TikTok đã có nhãn sẵn, hoặc người bán tự mua rồi dán link.
       labelUrl,
@@ -319,7 +334,7 @@ export class MangoFulfillmentService {
       facility,
       // Gửi lại một đơn cũ sau khi sửa ánh xạ ⇒ bản ghi phải mang line MỚI, không giữ line cũ.
       productionLine,
-      speedType: options.speedType ?? null,
+      speedType,
       labelUrl,
       rawRequest: this.mapper.maskRequestForStorage(request) as Prisma.InputJsonValue,
       updatedBy: actorUserId,
@@ -816,12 +831,7 @@ export class MangoFulfillmentService {
    * Không bao giờ ném lỗi ra ngoài: đây là thao tác CHẨN ĐOÁN, người dùng cần đọc được
    * thông báo lỗi của nhà cung cấp chứ không phải nhận một trang lỗi.
    */
-  async testConnection(account: FulfillmentAccount): Promise<{
-    connected: boolean;
-    message: string;
-    durationMs: number | null;
-    productionLineCount: number | null;
-  }> {
+  async testConnection(account: FulfillmentAccount): Promise<ProviderConnectionResult> {
     try {
       const result = await this.client.listProductionLines(this.credentials.buildContext(account));
       const count = result.data?.items?.length ?? 0;
@@ -843,6 +853,7 @@ export class MangoFulfillmentService {
         message: 'Connected',
         durationMs: result.durationMs,
         productionLineCount: count,
+        categoryCount: null,
       };
     } catch (error) {
       // Thông báo NGUYÊN VĂN từ nhà cung cấp — người vận hành cần biết chính xác vì sao hỏng.
@@ -865,8 +876,54 @@ export class MangoFulfillmentService {
         msg: `Kiểm tra kết nối thất bại: ${message}`,
       });
 
-      return { connected: false, message, durationMs: null, productionLineCount: null };
+      return {
+        connected: false,
+        message,
+        durationMs: null,
+        productionLineCount: null,
+        categoryCount: null,
+      };
     }
+  }
+
+  /** Mango dùng luật vị trí in MẶC ĐỊNH của readiness (`MangoOrderMapper.resolvePlacement`). */
+  placementResolver(): Promise<undefined> {
+    return Promise.resolve(undefined);
+  }
+
+  /** `ShippingMethod` của Mango là enum CỐ ĐỊNH theo tài liệu — không phụ thuộc đơn. */
+  shippingMethods(): Promise<ProviderShippingMethods> {
+    return Promise.resolve({
+      options: MANGO_SHIPPING_METHODS.map((value) => ({ value, label: value })),
+      warnings: [],
+    });
+  }
+
+  /**
+   * Giá trị tuỳ chọn phải thuộc enum của Mango (DTO nay dùng chung cho mọi nhà cung cấp nên không
+   * còn `@IsIn` theo Mango), và tuỳ chọn Mango KHÔNG có thì bị từ chối thay vì lặng lẽ bỏ qua.
+   */
+  private assertMangoOptions(options: MangoFulfillOptionsInput): void {
+    const errors: Array<{ field: string; message: string }> = [];
+    const check = (field: string, value: string | null | undefined, allowed: readonly string[]) => {
+      if (value && !allowed.includes(value)) {
+        errors.push({ field, message: `"${value}" không thuộc: ${allowed.join(', ')}.` });
+      }
+    };
+    check('shippingMethod', options.shippingMethod, MANGO_SHIPPING_METHODS);
+    check('facility', options.facility, MANGO_FACILITIES);
+    check('speedType', options.speedType, MANGO_SPEED_TYPES);
+    check('preferredCarrier', options.preferredCarrier, MANGO_PREFERRED_CARRIERS);
+    if (options.rushService) {
+      errors.push({ field: 'rushService', message: 'MangoTeePrints không có tuỳ chọn rush service.' });
+    }
+    if (errors.length === 0) return;
+    throw new FulfillmentValidationException(
+      `Tuỳ chọn gửi MangoTeePrints không hợp lệ: ${errors
+        .map((error) => `${error.field} — ${error.message}`)
+        .join(' · ')}`,
+      errors,
+    );
   }
 
   // ---------------------------------------------------------------------------
@@ -919,7 +976,10 @@ export class MangoFulfillmentService {
     const selected = selectedAccountId?.trim();
     if (selected) {
       const account = await this.repo.findAccountById(organizationId, selected);
-      if (!account) throw new FulfillmentAccountNotFoundException();
+      // Tài khoản của nhà cung cấp KHÁC không bao giờ được gửi bằng client Mango.
+      if (!account || account.provider !== MangoFulfillmentService.PROVIDER) {
+        throw new FulfillmentAccountNotFoundException();
+      }
       return account;
     }
 

@@ -7,6 +7,7 @@ import {
 } from '../constants/pod-flash-sale.constants';
 import type {
   PodFlashSaleItemCountsDto,
+  PodFlashSaleItemStatsDto,
   PodFlashSaleItemDto,
   PodFlashSaleListItemDto,
   PodFlashSaleLogDto,
@@ -82,7 +83,58 @@ function iso(value: Date | null): string | null {
   return value === null ? null : value.toISOString();
 }
 
-export function toFlashSaleListItem(row: FlashSaleListRow): PodFlashSaleListItemDto {
+/** Thống kê rỗng — đợt chưa có dòng nào (truy vấn gộp không trả về hàng cho nó). */
+export const EMPTY_FLASH_SALE_STATS: PodFlashSaleItemStatsDto = {
+  totalItems: 0,
+  publishedItems: 0,
+  failedItems: 0,
+  pendingItems: 0,
+  removedItems: 0,
+  totalProducts: 0,
+  publishedProducts: 0,
+  failedProducts: 0,
+};
+
+/**
+ * Thống kê từ các dòng ĐÃ NẠP (màn hình chi tiết). Màn hình danh sách dùng một truy vấn gộp
+ * cùng định nghĩa — xem `PodFlashSaleService.loadStats`.
+ */
+export function computeItemStats(
+  items: Array<{ status: PodFlashSaleItemStatus; productId: string }>,
+): PodFlashSaleItemStatsDto {
+  const stats = { ...EMPTY_FLASH_SALE_STATS };
+  const products = new Set<string>();
+  const publishedProducts = new Set<string>();
+  const failedProducts = new Set<string>();
+  for (const item of items) {
+    stats.totalItems += 1;
+    products.add(item.productId);
+    switch (item.status) {
+      case PodFlashSaleItemStatus.PUBLISHED:
+        stats.publishedItems += 1;
+        publishedProducts.add(item.productId);
+        break;
+      case PodFlashSaleItemStatus.FAILED:
+        stats.failedItems += 1;
+        failedProducts.add(item.productId);
+        break;
+      case PodFlashSaleItemStatus.REMOVED:
+        stats.removedItems += 1;
+        break;
+      default:
+        stats.pendingItems += 1;
+    }
+  }
+  stats.totalProducts = products.size;
+  stats.publishedProducts = publishedProducts.size;
+  stats.failedProducts = failedProducts.size;
+  return stats;
+}
+
+export function toFlashSaleListItem(
+  row: FlashSaleListRow,
+  stats: PodFlashSaleItemStatsDto = EMPTY_FLASH_SALE_STATS,
+): PodFlashSaleListItemDto {
   return {
     id: row.id,
     name: row.name,
@@ -108,6 +160,13 @@ export function toFlashSaleListItem(row: FlashSaleListRow): PodFlashSaleListItem
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     live: FLASH_SALE_LIVE_STATUSES.includes(row.status),
+    source: row.source,
+    lastRunAt: iso(row.publishFinishedAt),
+    stats,
+    autoMode: row.autoMode,
+    autoChainId: row.autoChainId,
+    autoParentId: row.autoParentId,
+    autoSequence: row.autoSequence,
   };
 }
 

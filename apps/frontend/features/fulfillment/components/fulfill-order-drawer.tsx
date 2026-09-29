@@ -33,7 +33,9 @@ import {
   useFulfillmentActions,
   useFulfillmentErrors,
   useFulfillmentHistory,
+  useFulfillmentOptions,
   useFulfillmentState,
+  useOrderShippingMethods,
   useShippingLabelActions,
 } from '../hooks/use-fulfillment';
 import {
@@ -109,11 +111,16 @@ function isHttpUrl(value: string): boolean {
  *     ├─ Cấu hình Design      (từng vị trí in: có file hay chưa, xem được file)
  *     └─ footer ghim          [Huỷ] [Đẩy sang Fulfill]
  *          ↓ submit
- *   POST /fulfillment/orders/{id}/fulfill → MangoTee Create Order
+ *   POST /fulfillment/orders/{id}/fulfill → adapter của nhà cung cấp đang chọn (Mango / Sellerwix)
  *          ↓
  *   Kết quả NGAY TRONG DRAWER: mã đơn nhà cung cấp · trạng thái · giá vốn từng dòng · tổng
  *   (hoặc lỗi nhà cung cấp + nút Chạy lại, dùng đúng order_id cũ)
  * ```
+ *
+ * 🔴 Ô cấu hình hiện theo `capabilities` của NHÀ CUNG CẤP ĐANG CHỌN (backend trả): Facility / Speed
+ * type / Preferred carrier / Scan label chỉ có ở Mango; Rush service chỉ có ở Sellerwix; phương thức
+ * vận chuyển Sellerwix phụ thuộc SKU của đơn nên hỏi backend theo đơn. Ô không có ý nghĩa với nhà
+ * cung cấp thì KHÔNG hiện — không gửi một tuỳ chọn mà nhà cung cấp sẽ bỏ qua hoặc từ chối.
  *
  * 🔴 Mọi lý do "chưa gửi được" do BACKEND quyết định (`readiness`), và hiện ngay tại khối cần
  * sửa nhờ `issue.section` — không dồn hết vào một toast chung chung.
@@ -138,6 +145,17 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
   const [providerId, setProviderId] = useState('');
   const stateQuery = useFulfillmentState(podOrderId, open, providerId || undefined);
   const state = stateQuery.data;
+  /** Nhà cung cấp đang áp dụng: người dùng chọn, hoặc nhà cung cấp backend đang dùng cho đơn. */
+  const activeProviderId = providerId || state?.provider?.id || '';
+  const optionsQuery = useFulfillmentOptions(open && activeProviderId ? activeProviderId : undefined);
+  /** Chưa tải xong ⇒ `undefined` ⇒ chưa hiện ô tuỳ chọn riêng nào (không đoán nhà cung cấp). */
+  const capabilities = optionsQuery.data?.capabilities;
+  const shippingByOrder = capabilities?.shippingMethodsByOrder === true;
+  const orderShipping = useOrderShippingMethods(
+    podOrderId,
+    activeProviderId || undefined,
+    open && shippingByOrder,
+  );
   const orderQuery = usePodOrder(open ? podOrderId : undefined);
   const actions = useFulfillmentActions(podOrderId);
 
@@ -202,6 +220,12 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
   useEffect(() => {
     if (!open) setProviderId('');
   }, [open]);
+
+  // Đổi nhà cung cấp ⇒ bỏ các tuỳ chọn RIÊNG của nhà cung cấp cũ (mã vận chuyển Mango không có
+  // nghĩa với Sellerwix và ngược lại). Ghi chú là của đơn nên giữ lại.
+  useEffect(() => {
+    setForm((prev) => (prev.note ? { note: prev.note } : {}));
+  }, [activeProviderId]);
 
   const savedLabelUrl = stateQuery.data?.shippingLabel?.labelUrl ?? '';
   useEffect(() => {
@@ -316,6 +340,7 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
         ...(form.speedType ? { speedType: form.speedType } : {}),
         ...(form.preferredCarrier ? { preferredCarrier: form.preferredCarrier } : {}),
         ...(form.isScanLabel ? { isScanLabel: true } : {}),
+        ...(form.rushService ? { rushService: true } : {}),
         // Nhãn KHÔNG đi trong body nữa: backend đọc nhãn ĐÃ LƯU của đơn (xem
         // `MangoFulfillmentService`). Gửi kèm một giá trị thứ hai chỉ tạo ra hai nguồn sự thật.
 
@@ -539,20 +564,39 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                     <Combobox
                       value={form.shippingMethod ?? ''}
                       onChange={(value) =>
-                        setForm((prev) => ({
-                          ...prev,
-                          shippingMethod: (value || undefined) as FulfillPayload['shippingMethod'],
-                        }))
+                        setForm((prev) => ({ ...prev, shippingMethod: value || undefined }))
                       }
-                      options={[
-                        option('', t('fulfill.useAccountDefault')),
-                        ...FULFILL_SHIPPING_METHODS.map((value) =>
-                          option(value, t(`fulfill.shippingMethod.${value}`)),
-                        ),
-                      ]}
+                      options={
+                        shippingByOrder
+                          ? [
+                              // Sellerwix: danh sách do backend tính theo SKU của đơn + quốc gia
+                              // người nhận. Nhãn là tên · hãng · loại, giá trị là `code`.
+                              option('', t('fulfill.selectShippingMethod')),
+                              ...(orderShipping.data?.options ?? []),
+                            ]
+                          : [
+                              option('', t('fulfill.useAccountDefault')),
+                              ...FULFILL_SHIPPING_METHODS.map((value) =>
+                                option(value, t(`fulfill.shippingMethod.${value}`)),
+                              ),
+                            ]
+                      }
+                      loading={shippingByOrder && orderShipping.isLoading}
                     />
+                    {shippingByOrder && (
+                      <p className="text-[11px] text-muted-foreground">
+                        {t('fulfill.shippingByOrderHint')}
+                      </p>
+                    )}
+                    {shippingByOrder &&
+                      (orderShipping.data?.warnings ?? []).map((warning, index) => (
+                        <p key={index} className="text-[11px] text-amber-700 dark:text-amber-400">
+                          {warning}
+                        </p>
+                      ))}
                   </div>
 
+                  {capabilities?.speedType && (
                   <div className="space-y-1">
                     <Label>{t('fulfill.speedTypeLabel')}</Label>
                     <Combobox
@@ -572,7 +616,9 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                     />
                     <p className="text-[11px] text-muted-foreground">{t('fulfill.speedTypeHint')}</p>
                   </div>
+                  )}
 
+                  {capabilities?.facility && (
                   <div className="space-y-1">
                     <Label>{t('fulfill.facilityLabel')}</Label>
                     <Combobox
@@ -590,7 +636,9 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                     />
                     <p className="text-[11px] text-muted-foreground">{t('fulfill.facilityHint')}</p>
                   </div>
+                  )}
 
+                  {capabilities?.preferredCarrier && (
                   <div className="space-y-1">
                     <Label>{t('fulfill.preferredCarrierLabel')}</Label>
                     <Combobox
@@ -610,6 +658,7 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                       ]}
                     />
                   </div>
+                  )}
                 </div>
 
                 {/* ------------------------------------------------- Nhãn vận chuyển */}
@@ -679,15 +728,32 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                   )}
                 </div>
 
-                <label className="flex items-center gap-2 text-sm">
-                  <Checkbox
-                    checked={form.isScanLabel === true}
-                    onChange={(event) =>
-                      setForm((prev) => ({ ...prev, isScanLabel: event.target.checked }))
-                    }
-                  />
-                  {t('fulfill.scanLabel')}
-                </label>
+                {capabilities?.scanLabel && (
+                  <label className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={form.isScanLabel === true}
+                      onChange={(event) =>
+                        setForm((prev) => ({ ...prev, isScanLabel: event.target.checked }))
+                      }
+                    />
+                    {t('fulfill.scanLabel')}
+                  </label>
+                )}
+
+                {capabilities?.rushService && (
+                  <div className="space-y-0.5">
+                    <label className="flex items-center gap-2 text-sm">
+                      <Checkbox
+                        checked={form.rushService === true}
+                        onChange={(event) =>
+                          setForm((prev) => ({ ...prev, rushService: event.target.checked }))
+                        }
+                      />
+                      {t('fulfill.rushService')}
+                    </label>
+                    <p className="text-[11px] text-muted-foreground">{t('fulfill.rushServiceHint')}</p>
+                  </div>
+                )}
 
                 <div className="space-y-1">
                   <Label>{t('fulfill.noteLabel')}</Label>
@@ -713,7 +779,7 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                     <ProductConfigPanel
                       key={item.id}
                       item={item}
-                      accountId={providerId || state?.provider?.id || order?.fulfillmentAccountId || null}
+                      accountId={activeProviderId || order?.fulfillmentAccountId || null}
                       mapping={mappingByItemId.get(item.id) ?? null}
                       designs={item.designs}
                       issues={(issuesBySection.get('MAPPING') ?? [])

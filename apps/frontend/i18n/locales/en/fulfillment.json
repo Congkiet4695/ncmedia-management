@@ -57,6 +57,11 @@
       "noPrintLocations": "The provider exposes no print location.",
       "noProductFound": "No product matches that keyword",
       "noProvider": "The TikTok connection of this order has no fulfilment provider assigned.",
+      "printAreaRequired": "required",
+      "printAreaUnused": "Not used",
+      "printAreas": "Print areas of this variant",
+      "printAreasEmpty": "This variant has no print areas in the synced catalog — sync the provider catalog first.",
+      "printAreasHint": "Choose which design position prints on each print area. Front/Back are matched automatically; other areas must be chosen here.",
       "productCount": "Showing {{shown}} / {{total}} products (server-side search)",
       "productUnavailable": "The saved product is no longer in the synced catalogue. Your configuration is kept — re-sync the catalogue or pick another product, then save.",
       "productionConfig": "Print size configuration",
@@ -138,6 +143,8 @@
     "resultHint": "The print shop accepted the order. Close to go back to the list.",
     "retry": "Retry fulfilment",
     "retryHint": "A retry reuses the SAME order id, so the print shop never creates a second order.",
+    "rushService": "Rush service",
+    "rushServiceHint": "Allowed only when every product variant in the order supports rush service.",
     "scanLabel": "Scan label (TIKTOK production line only)",
     "section": {
       "config": "Fulfilment configuration",
@@ -146,6 +153,8 @@
       "product": "Product configuration",
       "type": "Fulfilment type"
     },
+    "selectShippingMethod": "Choose a shipping method",
+    "shippingByOrderHint": "Only methods supported by EVERY product in this order and deliverable to the recipient country are listed.",
     "shippingFee": "Shipping fee",
     "shippingMethod": {
       "by_seller": "By Seller",
@@ -332,6 +341,17 @@
     "pageTitle": "Fulfillment Providers",
     "replaceApiKey": "Replace API key",
     "replaceApiKeyHint": "Enter a new key to replace it. Leave empty to keep the current key.",
+    "sellerwix": {
+      "apiKey": "API Key (Settings → Public API → Generate API Key)",
+      "baseUrlPlaceholder": "Leave empty to use the system default (https://api.sellerwix.com/public-api)",
+      "privateKey": "Private key (PEM)",
+      "privateKeyConfigured": "Saved — hidden",
+      "privateKeyHint": "The RSA 2048 private key whose public key you uploaded to Sellerwix (Settings → Public API → Manage Public Key). It is encrypted and never shown again.",
+      "privateKeyMissing": "Not configured",
+      "publicKeyId": "Public Key ID",
+      "replacePrivateKey": "Replace private key",
+      "storeId": "Sellerwix Store ID"
+    },
     "status": "Status",
     "statusValue": {
       "ACTIVE": "ACTIVE",
@@ -340,6 +360,13 @@
     "testConnection": "Test connection",
     "testing": "Testing…",
     "type": "Provider",
+    "typeValue": {
+      "CUSTOM": "Custom (not integrated)",
+      "MANGO": "MangoTeePrints",
+      "PRINTFUL": "Printful (not integrated)",
+      "PRINTIFY": "Printify (not integrated)",
+      "SELLERWIX": "Sellerwix"
+    },
     "updateSuccess": "Provider updated",
     "updated": "Updated",
     "webhookUrlOnce": "Webhook URL (shown ONCE — save it now)"

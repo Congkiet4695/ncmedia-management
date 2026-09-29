@@ -24,6 +24,7 @@ import { TiktokPromotionApiService } from '../../tiktok-sdk/tiktok-promotion-api
 import {
   TIKTOK_ACTIVITY_COMMAND_IMMUTABLE,
   TIKTOK_ACTIVITY_PRODUCT_LEVEL,
+  TIKTOK_ACTIVITY_STATUS,
   TIKTOK_ACTIVITY_TYPE,
 } from '../../tiktok-sdk/tiktok-sdk.constants';
 import type {
@@ -37,6 +38,7 @@ import {
   FLASH_SALE_BATCH_RETRY_BASE_MS,
   FLASH_SALE_BATCH_RETRY_MAX_MS,
   FLASH_SALE_CANCELLABLE_STATUSES,
+  FLASH_SALE_ITEM_ERROR_CODES,
   FLASH_SALE_PUBLISHABLE_STATUSES,
   FLASH_SALE_PUBLISH_LOCK_PREFIX,
   FLASH_SALE_PUBLISH_LOCK_RENEW_MS,
@@ -52,6 +54,7 @@ import {
 import type { PodFlashSalePublishResultDto } from '../dto/pod-flash-sale-response.dto';
 import {
   PodFlashSaleInvalidStateException,
+  PodFlashSaleNotEditableOnProviderException,
   PodFlashSaleNotPublishableException,
   PodFlashSaleProviderException,
   PodFlashSaleShopContextException,
@@ -87,8 +90,19 @@ type ProviderBatchResult = Awaited<
   ReturnType<TiktokPromotionApiService['updateActivityProducts']>
 >;
 
+/**
+ * Kiểu một lượt gửi lô.
+ *
+ * - `PUBLISH` — đưa một đợt CHƯA lên sàn lên sàn. Hỏng ⇒ đợt về `FAILED` (Retry).
+ * - `PUSH`    — gửi THÊM dòng mới vào một đợt ĐANG CHẠY trên sàn. Hỏng ⇒ đợt VẪN `RUNNING`
+ *               (khuyến mãi trên TikTok vẫn đang chạy với các dòng cũ), lỗi ghi lên đợt và
+ *               lên từng dòng hỏng; bấm gửi lại chỉ gửi phần còn thiếu.
+ */
+type PublishRunMode = 'PUBLISH' | 'PUSH';
+
 /** Mọi thứ một lượt gửi lô chạy nền cần — gom lại để chữ ký hàm không dài mười tham số. */
 interface PublishRunParams {
+  mode: PublishRunMode;
   flashSale: FlashSaleDetailRow;
   /** Token của lượt. Mọi câu ghi tiến độ đều kèm điều kiện này. */
   runId: string;
@@ -100,7 +114,7 @@ interface PublishRunParams {
 }
 
 /** Lỗi đã bóc tách thành ba mảnh mà mọi nơi trong module đều cần. */
-interface ProviderFailure {
+export interface ProviderFailure {
   code: string | null;
   message: string;
   requestId: string | null;
@@ -297,7 +311,7 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
       activityId = await this.ensureActivity(context, flashSale, userId, attempt);
     } catch (error) {
       const failure = this.describeFailure(error);
-      await this.failPublishRun(flashSale, runId, failure, userId, null);
+      await this.failPublishRun(flashSale, runId, failure, userId, null, 'PUBLISH');
       this.logger.error({
         module: 'pod-flash-sale',
         operation: 'flashSale.publish.activity',
@@ -330,9 +344,9 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
 
     // Không còn gì để gửi (mọi dòng đã lên sàn ở lượt trước) ⇒ chốt luôn, không chạy nền.
     if (batches.length === 0) {
-      await this.finishPublishRun(flashSale, runId, activityId, userId);
+      await this.finishPublishRun(flashSale, runId, activityId, userId, 'PUBLISH');
     } else {
-      this.launchPublishRun({ flashSale, runId, activityId, batches, userId, attempt });
+      this.launchPublishRun({ mode: 'PUBLISH', flashSale, runId, activityId, batches, userId, attempt });
     }
 
     return {
@@ -379,6 +393,187 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
     });
 
     return this.publish(organizationId, userId, flashSaleId, options, scope);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Gửi THÊM sản phẩm vào đợt ĐANG CHẠY
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Gửi các dòng CHƯA lên sàn của một đợt ĐANG CHẠY vào CÙNG hoạt động trên TikTok.
+   *
+   * ```
+   *   đợt RUNNING (A1 A2 B1 đã PUBLISHED) + người dùng thêm C1 C2 (READY)
+   *        ▼
+   *   Get Activity — còn sửa được không?  (DEACTIVATED/EXPIRED/IMMUTABLE ⇒ chặn, nói rõ)
+   *        ▼
+   *   GIÀNH lượt: RUNNING ─▶ PUBLISHING (nguyên tử)
+   *        ▼
+   *   Update Activity Products với ĐÚNG C1 C2  ─▶ RUNNING
+   * ```
+   *
+   * 🔴 **Incremental, không gửi lại toàn bộ.** Tài liệu Update Activity Products: `products` là
+   * "the items to ADD to the list or the existing items … to edit" ⇒ gửi riêng phần mới là đủ;
+   * dòng đã `PUBLISHED` không bị gửi lại, không bị gỡ, không bị ghi đè giá.
+   *
+   * 🔴 **Không tạo hoạt động mới, không gọi Update Activity** (tên/khung giờ của một hoạt động
+   * đang chạy không phải thứ người dùng yêu cầu đổi ở đây).
+   *
+   * 🔴 Hỏng giữa chừng ⇒ đợt VẪN `RUNNING` (khuyến mãi vẫn chạy với dòng cũ); dòng hỏng mang lỗi
+   * TikTok; gọi lại chỉ gửi phần còn thiếu — cùng cơ chế "tiếp tục theo trạng thái dòng" của publish.
+   */
+  async pushPendingItems(
+    organizationId: string,
+    userId: string | null,
+    flashSaleId: string,
+    scope: PodAccessScope,
+  ): Promise<PodFlashSalePublishResultDto> {
+    const flashSale = await this.flashSales.get(organizationId, flashSaleId, scope);
+    if (flashSale.status !== PodFlashSaleStatus.RUNNING || !flashSale.providerFlashSaleId) {
+      throw new PodFlashSaleInvalidStateException('gửi thêm sản phẩm lên TikTok', flashSale.status);
+    }
+    if (flashSale.endAt.getTime() <= Date.now()) {
+      throw new PodFlashSaleInvalidStateException('gửi thêm sản phẩm lên TikTok', PodFlashSaleStatus.ENDED);
+    }
+    const activityId = flashSale.providerFlashSaleId;
+
+    // Dòng CHƯA lên sàn và hợp lệ. Tính hai lần: trước khi hỏi TikTok (thoát sớm, không tốn một
+    // lời gọi) và SAU khi giành lượt (xem chú thích ở bước giành lượt).
+    const collectPending = (row: FlashSaleDetailRow) => {
+      const ready = new Set(this.flashSales.validateItemsOnly(row).readyItemIds);
+      const notOnProvider = row.items.filter(
+        (item) =>
+          item.status !== PodFlashSaleItemStatus.PUBLISHED &&
+          item.status !== PodFlashSaleItemStatus.REMOVED,
+      );
+      const pending = notOnProvider.filter((item) => ready.has(item.id));
+      return { pending, skipped: notOnProvider.length - pending.length };
+    };
+    let { pending, skipped: skippedItems } = collectPending(flashSale);
+
+    const noop = (): PodFlashSalePublishResultDto => ({
+      flashSaleId,
+      status: PodFlashSaleStatus.RUNNING,
+      providerFlashSaleId: activityId,
+      publishedItems: 0,
+      skippedItems,
+      errorCode: null,
+      errorMessage: null,
+      totalItems: 0,
+      totalBatches: 0,
+      doneBatches: 0,
+    });
+    if (pending.length === 0) return noop();
+
+    // Hỏi TikTok TRƯỚC khi giành lượt: hoạt động hết hạn/bị huỷ/bị khoá thì không có gì để gửi.
+    const context = await this.resolveContext(organizationId, flashSale.shopId);
+    let activity: TiktokActivityDetail;
+    try {
+      activity = (await this.withRequestTimeout(this.promotionApi.getActivity(context, activityId)))
+        .data;
+    } catch (error) {
+      const failure = this.describeFailure(error);
+      throw new PodFlashSaleProviderException(failure.code, failure.message, failure.requestId ?? undefined);
+    }
+    const immutable = Boolean(activity.activityCommands?.includes(TIKTOK_ACTIVITY_COMMAND_IMMUTABLE));
+    const closed = [
+      TIKTOK_ACTIVITY_STATUS.DEACTIVATED,
+      TIKTOK_ACTIVITY_STATUS.EXPIRED,
+      TIKTOK_ACTIVITY_STATUS.NOT_EFFECTIVE,
+    ].includes(activity.status as never);
+    if (immutable || closed) {
+      await this.flashSales.writeLog({
+        organizationId,
+        flashSaleId,
+        action: PodFlashSaleLogAction.UPDATE_PRODUCTS,
+        level: PodFlashSaleLogLevel.ERROR,
+        message: `Không gửi thêm sản phẩm: hoạt động TikTok ${activity.status ?? 'không rõ'}${immutable ? ' (IMMUTABLE)' : ''}.`,
+        response: activity as unknown as Prisma.InputJsonValue,
+        userId,
+      });
+      throw new PodFlashSaleNotEditableOnProviderException(activity.status ?? null, immutable);
+    }
+
+    const runId = randomUUID();
+    const startedAt = new Date();
+    // Cùng phép so-sánh-và-đổi nguyên tử như publish: hai lượt bấm cùng lúc ⇒ đúng một lượt chạy.
+    const claim = await this.prisma.podFlashSale.updateMany({
+      where: { id: flashSaleId, deletedAt: null, status: PodFlashSaleStatus.RUNNING },
+      data: {
+        status: PodFlashSaleStatus.PUBLISHING,
+        publishRunId: runId,
+        publishDoneBatches: 0,
+        publishCurrentBatch: 0,
+        publishFailedBatch: null,
+        publishStartedAt: startedAt,
+        publishFinishedAt: null,
+        publishHeartbeatAt: startedAt,
+        ...(userId ? { updatedBy: userId } : {}),
+      },
+    });
+    if (claim.count === 0) {
+      throw new PodFlashSaleInvalidStateException('gửi thêm sản phẩm lên TikTok', PodFlashSaleStatus.PUBLISHING);
+    }
+
+    // 🔴 Tính lại danh sách cần gửi SAU khi đã giữ lượt. Danh sách đọc lúc đầu có thể đã cũ: một
+    // lượt gửi khác có thể đã chạy XONG giữa lúc đọc và lúc giành lượt (bấm hai lần liên tiếp)
+    // ⇒ gửi theo danh sách cũ là gửi lại những dòng vừa lên sàn.
+    const fresh = await this.flashSales.get(organizationId, flashSaleId, scope);
+    ({ pending, skipped: skippedItems } = collectPending(fresh));
+    if (pending.length === 0) {
+      await this.prisma.podFlashSale.updateMany({
+        where: { id: flashSaleId, publishRunId: runId },
+        data: {
+          status: PodFlashSaleStatus.RUNNING,
+          publishTotalItems: 0,
+          publishTotalBatches: 0,
+          publishFinishedAt: new Date(),
+        },
+      });
+      return noop();
+    }
+    const plans = this.buildProductPlans(fresh.productLevel, pending);
+    const batches = chunkBySkuLimit(plans, (plan) => countActivitySkus(plan.input));
+    await this.prisma.podFlashSale.updateMany({
+      where: { id: flashSaleId, publishRunId: runId },
+      data: { publishTotalItems: pending.length, publishTotalBatches: batches.length },
+    });
+
+    this.logger.log({
+      module: 'pod-flash-sale',
+      operation: 'flashSale.update.start',
+      organizationId,
+      flashSaleId,
+      runId,
+      activityId,
+      totalItems: pending.length,
+      totalBatches: batches.length,
+      skipped: skippedItems,
+      msg: `FLASH_SALE_UPDATE_STARTED: gửi thêm ${pending.length} dòng (${batches.length} lô) vào hoạt động ${activityId}`,
+    });
+
+    this.launchPublishRun({
+      mode: 'PUSH',
+      flashSale: fresh,
+      runId,
+      activityId,
+      batches,
+      userId,
+      attempt: flashSale.retryCount,
+    });
+
+    return {
+      flashSaleId,
+      status: PodFlashSaleStatus.PUBLISHING,
+      providerFlashSaleId: activityId,
+      publishedItems: 0,
+      skippedItems,
+      errorCode: null,
+      errorMessage: null,
+      totalItems: pending.length,
+      totalBatches: batches.length,
+      doneBatches: 0,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -452,7 +647,14 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
         runId,
         msg: `Lượt publish nền dừng bất thường: ${error instanceof Error ? error.message : 'lỗi lạ'}`,
       });
-      await this.failPublishRun(flashSale, runId, this.describeFailure(error), params.userId, null);
+      await this.failPublishRun(
+        flashSale,
+        runId,
+        this.describeFailure(error),
+        params.userId,
+        null,
+        params.mode,
+      );
     } finally {
       clearInterval(watchdog);
       await this.locks.release(lock);
@@ -461,7 +663,7 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
 
   /** Vòng gửi lô — tách khỏi phần khoá để đọc được mạch nghiệp vụ mà không lẫn hạ tầng. */
   private async sendBatches(params: PublishRunParams, lock: AcquiredLock): Promise<void> {
-    const { flashSale, runId, activityId, batches, userId, attempt } = params;
+    const { flashSale, runId, activityId, batches, userId, attempt, mode } = params;
     const context = await this.resolveContext(flashSale.organizationId, flashSale.shopId);
 
     for (let index = 0; index < batches.length; index += 1) {
@@ -494,6 +696,15 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
 
       try {
         const result = await this.sendBatchWithRetry(context, activityId, batch, lock);
+        // 🔴 Lượt gọi thành công KHÔNG có nghĩa mọi dòng đã vào hoạt động: response chỉ có
+        // `total_count`. Ít hơn số đã gửi ⇒ hỏi Get Activity xem dòng nào thực sự có mặt.
+        const rejected = await this.verifyBatchAcceptance(
+          context,
+          flashSale,
+          activityId,
+          batch,
+          result,
+        );
         await this.markBatchPublished({
           flashSale,
           runId,
@@ -501,6 +712,7 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
           batch,
           batchNo,
           result,
+          rejected,
           userId,
           attempt,
         });
@@ -516,7 +728,14 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
         });
       } catch (error) {
         const failure = this.describeFailure(error);
-        await this.failPublishRun(flashSale, runId, failure, userId, batchNo);
+        // Dòng của lô hỏng ⇒ FAILED kèm ĐÚNG lỗi TikTok (đếm được ở danh sách, gửi lại được).
+        // Dòng của các lô SAU chưa từng được gửi ⇒ giữ nguyên (chưa gửi ≠ thất bại).
+        await this.markItemsFailed(
+          batch.flatMap((plan) => plan.itemIds),
+          FLASH_SALE_ITEM_ERROR_CODES.BATCH_REJECTED,
+          failure.code ? `[${failure.code}] ${failure.message}` : failure.message,
+        );
+        await this.failPublishRun(flashSale, runId, failure, userId, batchNo, mode);
 
         this.logger.error({
           module: 'pod-flash-sale',
@@ -536,7 +755,7 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
       }
     }
 
-    await this.finishPublishRun(flashSale, runId, activityId, userId);
+    await this.finishPublishRun(flashSale, runId, activityId, userId, mode);
     this.logger.log({
       module: 'pod-flash-sale',
       operation: 'flashSale.publish.done',
@@ -621,7 +840,25 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
     id: string;
     organizationId: string;
     publishRunId: string | null;
+    publishedAt: Date | null;
   }): Promise<boolean> {
+    // 🔴 Đợt ĐÃ từng lên sàn (`publishedAt`) mà kẹt ở PUBLISHING nghĩa là lượt GỬI THÊM dòng mới
+    // bị đứt. Hoạt động trên TikTok vẫn đang chạy ⇒ trả về RUNNING rồi gửi nốt phần còn thiếu —
+    // KHÔNG đưa về FAILED (đợt đang chạy không phải "publish hỏng") và KHÔNG gọi Update Activity.
+    if (flashSale.publishedAt) {
+      const releasedRunning = await this.prisma.podFlashSale.updateMany({
+        where: {
+          id: flashSale.id,
+          status: PodFlashSaleStatus.PUBLISHING,
+          publishRunId: flashSale.publishRunId,
+        },
+        data: { status: PodFlashSaleStatus.RUNNING, publishFinishedAt: new Date() },
+      });
+      if (releasedRunning.count === 0) return false;
+      await this.pushPendingItems(flashSale.organizationId, null, flashSale.id, POD_SCOPE_SYSTEM);
+      return true;
+    }
+
     // Đưa về FAILED để `publish` nhận lại được (PUBLISHING không nằm trong nhóm publishable).
     // Có điều kiện `publishRunId` để không cướp việc của một lượt vừa hồi sinh.
     const released = await this.prisma.podFlashSale.updateMany({
@@ -782,6 +1019,18 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
     try {
       const context = await this.resolveContext(flashSale.organizationId, flashSale.shopId);
       const result = await this.promotionApi.getActivity(context, flashSale.providerFlashSaleId);
+
+      // 🔴 Đang có lượt gửi lô (PUBLISHING): KHÔNG đổi trạng thái và KHÔNG đối soát dòng. Lượt
+      // gửi đang dở nên "chưa có trên TikTok" là chuyện bình thường của các lô sau — trước đây
+      // lượt đồng bộ 5 phút/lần đánh dấu chúng REMOVED giữa chừng, và Retry/Duplicate bỏ luôn.
+      if (flashSale.status === PodFlashSaleStatus.PUBLISHING) {
+        await this.prisma.podFlashSale.update({
+          where: { id: flashSale.id },
+          data: { providerStatus: result.data.status ?? null, lastSyncedAt: new Date() },
+        });
+        return flashSale.status;
+      }
+
       const next = this.mapProviderStatus(result.data, flashSale.endAt);
 
       await this.prisma.podFlashSale.update({
@@ -797,7 +1046,7 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
         },
       });
 
-      await this.syncItemConfirmations(flashSale.id, result.data);
+      await this.reconcileItemsWithActivity(flashSale.id, result.data);
 
       await this.flashSales.writeLog({
         organizationId: flashSale.organizationId,
@@ -836,7 +1085,8 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
   // Private — các bước của một lượt publish
   // ---------------------------------------------------------------------------
 
-  private async resolveContext(organizationId: string, shopId: string): Promise<TiktokShopContext> {
+  /** Ngữ cảnh gọi TikTok của một shop — lỗi ngữ cảnh đổi thành lỗi của module. Dùng chung với lượt đồng bộ. */
+  async resolveContext(organizationId: string, shopId: string): Promise<TiktokShopContext> {
     try {
       return await this.shopContext.resolve(organizationId, shopId);
     } catch (error) {
@@ -1021,35 +1271,32 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
     batch: ActivityProductPlan[];
     batchNo: number;
     result: ProviderBatchResult;
+    /** Dòng TikTok KHÔNG nhận dù lượt gọi thành công (xem `verifyBatchAcceptance`). */
+    rejected: Map<string, string>;
     userId: string | null;
     attempt: number;
   }): Promise<void> {
-    const { flashSale, runId, activityId, batch, batchNo, result, userId, attempt } = params;
+    const { flashSale, runId, activityId, batch, batchNo, result, rejected, userId, attempt } =
+      params;
 
     const itemIds = batch.flatMap((plan) => plan.itemIds);
-    // `sku_id` mà TikTok XÁC NHẬN đã vào hoạt động — chỉ ghi khi sàn thực sự trả về.
-    const confirmed = new Map<string, string>();
-    for (const product of result.data.products ?? []) {
-      for (const sku of product.skus ?? []) {
-        if (!sku.id) continue;
-        for (const plan of batch) {
-          const itemId = plan.itemByVariantId.get(sku.id);
-          if (itemId) confirmed.set(itemId, sku.id);
-        }
-      }
-    }
+    const acceptedIds = itemIds.filter((id) => !rejected.has(id));
 
     await this.prisma.$transaction(async (tx) => {
-      if (itemIds.length > 0) {
+      if (acceptedIds.length > 0) {
         await tx.podFlashSaleItem.updateMany({
-          where: { id: { in: itemIds } },
+          where: { id: { in: acceptedIds } },
           data: { status: PodFlashSaleItemStatus.PUBLISHED, errorCode: null, error: null },
         });
       }
-      for (const [itemId, skuId] of confirmed) {
+      for (const [itemId, message] of rejected) {
         await tx.podFlashSaleItem.update({
           where: { id: itemId },
-          data: { providerSkuId: skuId },
+          data: {
+            status: PodFlashSaleItemStatus.FAILED,
+            errorCode: FLASH_SALE_ITEM_ERROR_CODES.NOT_ACCEPTED,
+            error: message.slice(0, 2000),
+          },
         });
       }
       await tx.podFlashSale.updateMany({
@@ -1062,7 +1309,10 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
       organizationId: flashSale.organizationId,
       flashSaleId: flashSale.id,
       action: PodFlashSaleLogAction.UPDATE_PRODUCTS,
-      message: `Lô ${batchNo}: đã gửi ${batch.length} sản phẩm (${itemIds.length} dòng) vào hoạt động khuyến mãi.`,
+      level: rejected.size > 0 ? PodFlashSaleLogLevel.WARN : PodFlashSaleLogLevel.INFO,
+      message:
+        `Lô ${batchNo}: đã gửi ${batch.length} sản phẩm (${itemIds.length} dòng); TikTok nhận ` +
+        `${acceptedIds.length}${rejected.size > 0 ? `, KHÔNG nhận ${rejected.size}` : ''}.`,
       request: { activityId, batch: batchNo, products: batch.map((plan) => plan.input) } as unknown as Prisma.InputJsonValue,
       response: result.data as unknown as Prisma.InputJsonValue,
       requestId: result.requestId ?? null,
@@ -1071,12 +1321,13 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
     });
   }
 
-  /** Cả lượt đã xong: đợt sale lên sàn. */
+  /** Cả lượt đã xong: đợt sale lên sàn (hoặc — lượt PUSH — đã nhận thêm dòng mới). */
   private async finishPublishRun(
     flashSale: FlashSaleDetailRow,
     runId: string,
     activityId: string,
     userId: string | null,
+    mode: PublishRunMode,
   ): Promise<void> {
     const now = new Date();
     await this.prisma.podFlashSale.updateMany({
@@ -1084,7 +1335,8 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
       data: {
         status: PodFlashSaleStatus.RUNNING,
         providerFlashSaleId: activityId,
-        publishedAt: now,
+        // Lượt PUSH không đổi mốc lên sàn — đợt đã lên sàn từ trước.
+        ...(mode === 'PUBLISH' ? { publishedAt: now } : {}),
         lastSyncedAt: now,
         publishFinishedAt: now,
         publishHeartbeatAt: now,
@@ -1111,12 +1363,14 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
     failure: ProviderFailure,
     userId: string | null,
     batchNo: number | null,
+    mode: PublishRunMode,
   ): Promise<void> {
     const now = new Date();
     const changed = await this.prisma.podFlashSale.updateMany({
       where: { id: flashSale.id, publishRunId: runId },
       data: {
-        status: PodFlashSaleStatus.FAILED,
+        // 🔴 Lượt PUSH hỏng: đợt VẪN đang chạy trên TikTok với các dòng cũ ⇒ RUNNING, không FAILED.
+        status: mode === 'PUSH' ? PodFlashSaleStatus.RUNNING : PodFlashSaleStatus.FAILED,
         lastErrorCode: failure.code,
         lastErrorMessage: failure.message.slice(0, 2000),
         lastErrorRequestId: failure.requestId,
@@ -1135,14 +1389,95 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
       action: PodFlashSaleLogAction.UPDATE_PRODUCTS,
       level: PodFlashSaleLogLevel.ERROR,
       message:
-        batchNo === null
-          ? 'Publish Flash Sale thất bại.'
-          : `Publish Flash Sale thất bại ở lô ${batchNo}.`,
+        mode === 'PUSH'
+          ? `Gửi thêm sản phẩm vào Flash Sale đang chạy thất bại${batchNo === null ? '' : ` ở lô ${batchNo}`}.`
+          : batchNo === null
+            ? 'Publish Flash Sale thất bại.'
+            : `Publish Flash Sale thất bại ở lô ${batchNo}.`,
       errorCode: failure.code,
       errorMessage: failure.message,
       requestId: failure.requestId,
       attempt: flashSale.retryCount,
       userId,
+    });
+  }
+
+  /**
+   * Lượt gọi thành công mà `total_count` < số mục đã gửi ⇒ TikTok không nhận hết. Hỏi Get
+   * Activity để biết CHÍNH XÁC dòng nào không có mặt.
+   *
+   * 🔴 Trước đây mọi dòng của lô thành công đều được đánh dấu `PUBLISHED` — kể cả dòng TikTok bỏ
+   * qua — nên danh sách báo "thành công" trong khi hoạt động trên sàn thiếu sản phẩm.
+   *
+   * Không đọc được Get Activity ⇒ KHÔNG đoán: coi như đã nhận (giữ hành vi cũ), ghi cảnh báo; lượt
+   * đồng bộ định kỳ sẽ đối soát lại (`reconcileItemsWithActivity`).
+   *
+   * @returns id dòng bị từ chối ⇒ thông điệp lỗi của dòng đó.
+   */
+  private async verifyBatchAcceptance(
+    context: TiktokShopContext,
+    flashSale: FlashSaleDetailRow,
+    activityId: string,
+    batch: ActivityProductPlan[],
+    result: ProviderBatchResult,
+  ): Promise<Map<string, string>> {
+    const rejected = new Map<string, string>();
+    const isProductLevel = flashSale.productLevel === PodFlashSaleProductLevel.PRODUCT;
+    const expected = isProductLevel
+      ? batch.length
+      : batch.reduce((sum, plan) => sum + plan.input.skus.length, 0);
+    const reported = result.data.totalCount;
+    if (typeof reported !== 'number' || reported >= expected) return rejected;
+
+    let activity: TiktokActivityDetail;
+    try {
+      activity = (await this.withRequestTimeout(this.promotionApi.getActivity(context, activityId)))
+        .data;
+    } catch (error) {
+      this.logger.warn({
+        module: 'pod-flash-sale',
+        operation: 'flashSale.publish.verify',
+        flashSaleId: flashSale.id,
+        activityId,
+        expected,
+        reported,
+        msg: `TikTok báo nhận ${reported}/${expected} mục nhưng không đọc lại được hoạt động: ${this.describeFailure(error).message}`,
+      });
+      return rejected;
+    }
+
+    const presentProducts = new Set<string>();
+    const presentSkus = new Set<string>();
+    for (const product of activity.products ?? []) {
+      if (product.id) presentProducts.add(product.id);
+      for (const sku of product.skus ?? []) if (sku.id) presentSkus.add(sku.id);
+    }
+    const message =
+      `TikTok chỉ nhận ${reported}/${expected} mục của lô; SKU/sản phẩm này không có trong hoạt ` +
+      'động sau khi cập nhật (TikTok không trả lý do theo từng mục).';
+
+    for (const plan of batch) {
+      if (isProductLevel) {
+        if (!presentProducts.has(plan.input.id)) plan.itemIds.forEach((id) => rejected.set(id, message));
+        continue;
+      }
+      for (const [skuId, itemId] of plan.itemByVariantId) {
+        if (!presentSkus.has(skuId)) rejected.set(itemId, message);
+      }
+    }
+    return rejected;
+  }
+
+  /** Đánh dấu các dòng thất bại kèm lỗi — KHÔNG xoá dòng (FAILED ≠ DELETE). */
+  private async markItemsFailed(itemIds: string[], code: string, message: string): Promise<void> {
+    if (itemIds.length === 0) return;
+    await this.prisma.podFlashSaleItem.updateMany({
+      where: { id: { in: itemIds }, status: { not: PodFlashSaleItemStatus.PUBLISHED } },
+      data: {
+        status: PodFlashSaleItemStatus.FAILED,
+        errorCode: code.slice(0, 32),
+        error: message.slice(0, 2000),
+      },
     });
   }
 
@@ -1162,16 +1497,20 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
   }
 
   /**
-   * Ghi ngược `sku_id` mà TikTok xác nhận trong hoạt động (dùng ở lượt sync).
+   * Đối soát dòng trong database với danh sách sản phẩm của hoạt động trên TikTok.
    *
-   * Dòng nào có trong database mà KHÔNG có trong danh sách TikTok trả về nghĩa là sàn đã gỡ
-   * nó ra (hết hàng, sản phẩm bị khoá) — đánh dấu `REMOVED` để người vận hành thấy đúng thứ
-   * đang thực sự chạy, thay vì một danh sách đẹp không phản ánh hiện trạng.
+   * 🔴 CHỈ dòng đã `PUBLISHED` mới có thể trở thành `REMOVED` ("sàn đã gỡ ra"). Dòng chưa
+   * gửi (READY/PENDING — vd vừa thêm vào đợt đang chạy) hay gửi hỏng (FAILED) vốn KHÔNG có trên
+   * sàn; trước đây chúng cũng bị đánh `REMOVED`, rồi Retry và Duplicate bỏ qua ⇒ mất dòng.
+   *
+   * `REMOVED` vẫn là một DÒNG (không xoá) — Duplicate chép lại nó như mọi dòng khác.
+   * Dùng chung cho lượt đồng bộ trạng thái và lượt đồng bộ Flash Sale từ TikTok.
    */
-  private async syncItemConfirmations(
+  async reconcileItemsWithActivity(
     flashSaleId: string,
     activity: TiktokActivityDetail,
-  ): Promise<void> {
+    tx: Prisma.TransactionClient | PrismaService = this.prisma,
+  ): Promise<number> {
     const confirmedSkuIds = new Set<string>();
     const confirmedProductIds = new Set<string>();
     for (const product of activity.products ?? []) {
@@ -1181,10 +1520,10 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
 
     // TikTok trả `products` rỗng cho hoạt động đã kết thúc quá 180 ngày (theo tài liệu) —
     // trong trường hợp đó danh sách rỗng KHÔNG có nghĩa là mọi dòng đã bị gỡ.
-    if (confirmedProductIds.size === 0) return;
+    if (confirmedProductIds.size === 0) return 0;
 
-    const items = await this.prisma.podFlashSaleItem.findMany({
-      where: { flashSaleId, status: { not: PodFlashSaleItemStatus.REMOVED } },
+    const items = await tx.podFlashSaleItem.findMany({
+      where: { flashSaleId, status: PodFlashSaleItemStatus.PUBLISHED },
       select: { id: true, providerProductId: true, providerVariantId: true },
     });
 
@@ -1197,12 +1536,13 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
     }
 
     if (removedIds.length > 0) {
-      await this.prisma.podFlashSaleItem.updateMany({
+      await tx.podFlashSaleItem.updateMany({
         where: { id: { in: removedIds } },
         data: { status: PodFlashSaleItemStatus.REMOVED },
       });
-      await this.flashSales.refreshItemCount(flashSaleId);
+      await this.flashSales.refreshItemCount(flashSaleId, tx);
     }
+    return removedIds.length;
   }
 
   /**
@@ -1211,7 +1551,7 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
    * Hết giờ mà TikTok vẫn báo `ONGOING` (sàn cập nhật trễ) thì tin ĐỒNG HỒ: `endAt` là con
    * số hệ thống đã gửi đi và người vận hành đang nhìn vào nó.
    */
-  private mapProviderStatus(activity: TiktokActivityDetail, endAt: Date): PodFlashSaleStatus {
+  mapProviderStatus(activity: { status?: string; activityCommands?: string[] }, endAt: Date): PodFlashSaleStatus {
     const mapped = activity.status
       ? TIKTOK_TO_FLASH_SALE_STATUS[activity.status as keyof typeof TIKTOK_TO_FLASH_SALE_STATUS]
       : undefined;
@@ -1230,7 +1570,7 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
   }
 
   /** Bóc lỗi TikTok thành `{code, message, requestId}` — dùng chung cho mọi đường. */
-  private describeFailure(error: unknown): ProviderFailure {
+  describeFailure(error: unknown): ProviderFailure {
     if (error instanceof TiktokClientError) {
       return {
         code: String(error.tiktokCode),

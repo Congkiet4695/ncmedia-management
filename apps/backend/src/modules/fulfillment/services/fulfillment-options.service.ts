@@ -10,6 +10,10 @@ import {
 } from '../mango/constants/mango.constants';
 import { DEFAULT_PLACEMENT_MAP } from '../mango/mappers/mango-order.mapper';
 import { MangoCatalogService } from '../mango/services/mango-catalog.service';
+import {
+  SELLERWIX_DEFAULT_PLACEMENT_DISPLAY_NAMES,
+  SELLERWIX_PROVIDER_NOTICE,
+} from '../sellerwix/constants/sellerwix.constants';
 
 /** Một lựa chọn cho ô chọn ở giao diện: giá trị gửi lên + nhãn hiển thị. */
 export interface FulfillmentOption {
@@ -25,6 +29,32 @@ export interface PrintLocationOption {
   providerKey: string;
 }
 
+/** Nhà cung cấp hỗ trợ tuỳ chọn nào — giao diện ẩn hẳn ô không có ý nghĩa. */
+export interface FulfillmentCapabilities {
+  productionLine: boolean;
+  productionConfig: boolean;
+  facility: boolean;
+  speedType: boolean;
+  preferredCarrier: boolean;
+  scanLabel: boolean;
+  rushService: boolean;
+  /** Phương thức vận chuyển phụ thuộc sản phẩm của đơn ⇒ hỏi theo đơn. */
+  shippingMethodsByOrder: boolean;
+  updateAfterSubmit: boolean;
+}
+
+const NO_CAPABILITIES: FulfillmentCapabilities = {
+  productionLine: false,
+  productionConfig: false,
+  facility: false,
+  speedType: false,
+  preferredCarrier: false,
+  scanLabel: false,
+  rushService: false,
+  shippingMethodsByOrder: false,
+  updateAfterSubmit: false,
+};
+
 /** Toàn bộ lựa chọn của MỘT tài khoản nhà cung cấp — nguồn duy nhất cho màn hình Fulfill. */
 export interface FulfillmentOptions {
   provider: FulfillmentProvider;
@@ -39,6 +69,7 @@ export interface FulfillmentOptions {
   /** Lấy TRỰC TIẾP từ nhà cung cấp (`GET /production-lines`). Rỗng = chưa hỏi được. */
   productionLines: FulfillmentOption[];
   printLocations: PrintLocationOption[];
+  capabilities: FulfillmentCapabilities;
   /** Lời gọi tới nhà cung cấp hỏng ⇒ nói rõ, không im lặng trả danh sách rỗng. */
   warnings: string[];
 }
@@ -85,8 +116,29 @@ export class FulfillmentOptionsService {
       productionConfigs: [],
       productionLines: [],
       printLocations: [],
+      capabilities: NO_CAPABILITIES,
       warnings,
     };
+
+    if (account.provider === FulfillmentProvider.SELLERWIX) {
+      // 🔴 Sellerwix KHÔNG có production line / production config / facility / speed type /
+      // preferred carrier / scan label trong API Fulfill order ⇒ không trả lựa chọn nào cho chúng.
+      // Phương thức vận chuyển phụ thuộc TỪNG biến thể ⇒ hỏi theo đơn
+      // (`GET /fulfillment/orders/{id}/shipping-methods`), không có danh sách cố định ở đây.
+      // Vị trí in mặc định: chỉ Front/Back có tên hiển thị trong tài liệu; vị trí khác khai theo
+      // `print_areas` của biến thể ở Cấu hình sản phẩm.
+      return {
+        ...base,
+        notice: SELLERWIX_PROVIDER_NOTICE,
+        printLocations: Object.entries(SELLERWIX_DEFAULT_PLACEMENT_DISPLAY_NAMES).map(
+          ([placement, displayName]) => ({
+            placement: placement as PodDesignPlacement,
+            providerKey: displayName,
+          }),
+        ),
+        capabilities: { ...NO_CAPABILITIES, rushService: true, shippingMethodsByOrder: true },
+      };
+    }
 
     if (account.provider !== FulfillmentProvider.MANGO) {
       // Nhà cung cấp khác chưa có tích hợp ⇒ trả danh sách RỖNG kèm cảnh báo, tuyệt đối không
@@ -111,6 +163,17 @@ export class FulfillmentOptionsService {
         placement: placement as PodDesignPlacement,
         providerKey,
       })),
+      capabilities: {
+        productionLine: true,
+        productionConfig: true,
+        facility: true,
+        speedType: true,
+        preferredCarrier: true,
+        scanLabel: true,
+        rushService: false,
+        shippingMethodsByOrder: false,
+        updateAfterSubmit: true,
+      },
     };
   }
 

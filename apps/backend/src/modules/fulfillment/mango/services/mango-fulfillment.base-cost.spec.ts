@@ -137,6 +137,8 @@ function buildService(options: Harness = {}) {
   const createDraft = jest.fn().mockResolvedValue(record);
   const repo = {
     findByPodOrder: jest.fn().mockResolvedValue(options.existing ? record : null),
+    // Đơn chưa được nhà cung cấp khác nhận (chống sản xuất hai lần qua hai nhà cung cấp).
+    findBlockingRecordOfOtherProvider: jest.fn().mockResolvedValue(null),
     findAccountById: jest.fn().mockResolvedValue(ACCOUNT),
     createDraft,
     findById: jest.fn().mockImplementation(() => Promise.resolve({ ...record, items: rows })),

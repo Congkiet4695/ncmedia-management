@@ -10,13 +10,16 @@
  */
 
 import {
+  assignPlacement,
   canSubmitFulfillment,
   configBlockers,
+  defaultPlacementMap,
   isBusinessSku,
   isFulfillmentConfigValid,
   mergeProductOptions,
   providerProductLabel,
   providerVariantLabel,
+  sanitizePlacementMap,
   submitBlockers,
 } from '../features/fulfillment/product-config.ts';
 import { providerErrorText, providerFieldErrors } from '../features/fulfillment/provider-error.ts';
@@ -275,6 +278,53 @@ check(
     providerError({ errors: [{ field: 'label_url', message: 'must be a public URL' }] }),
   ),
   ['label_url: must be a public URL'],
+);
+
+// ---------------------------------------------------------------------------
+console.log('Sellerwix: SKU sản phẩm & vùng in theo biến thể');
+
+check(
+  'SKU sản phẩm Sellerwix TRÙNG id nhà cung cấp vẫn là mã nghiệp vụ (không phải uuid)',
+  isBusinessSku('SW-MD-MPTG', 'SW-MD-MPTG'),
+  true,
+);
+check(
+  'nhãn sản phẩm Sellerwix: Tên · SKU',
+  providerProductLabel({ name: 'Most Popular Tee', sku: 'SW-MD-MPTG', externalProductId: 'SW-MD-MPTG' }),
+  'Most Popular Tee · SW-MD-MPTG',
+);
+
+const AREAS = [
+  { key: 'CF', displayName: 'Front', required: false },
+  { key: 'FB', displayName: 'Back', required: false },
+  { key: 'LS', displayName: 'Left Sleeve', required: false },
+];
+const PLACEMENTS = ['FRONT', 'BACK', 'LEFT', 'RIGHT', 'SLEEVE'] as const;
+
+check(
+  'mặc định chỉ ghép Front/Back theo tên hiển thị, KHÔNG đoán Left Sleeve',
+  defaultPlacementMap(AREAS),
+  { FRONT: 'CF', BACK: 'FB' },
+);
+check(
+  'gán LEFT cho vùng LS',
+  assignPlacement({ FRONT: 'CF', BACK: 'FB' }, 'LS', 'LEFT'),
+  { FRONT: 'CF', BACK: 'FB', LEFT: 'LS' },
+);
+check(
+  'gán lại một vùng ⇒ vị trí cũ của vùng đó bị gỡ (một vùng một vị trí)',
+  assignPlacement({ FRONT: 'CF', BACK: 'FB' }, 'CF', 'BACK'),
+  { BACK: 'CF' },
+);
+check(
+  'bỏ gán một vùng',
+  assignPlacement({ FRONT: 'CF', BACK: 'FB' }, 'FB', ''),
+  { FRONT: 'CF' },
+);
+check(
+  'ánh xạ đã lưu trỏ tới vùng không còn trong biến thể ⇒ bỏ',
+  sanitizePlacementMap({ FRONT: 'CF', LEFT: 'XX', LABEL: 'CF' }, AREAS, PLACEMENTS),
+  { FRONT: 'CF' },
 );
 
 // ---------------------------------------------------------------------------

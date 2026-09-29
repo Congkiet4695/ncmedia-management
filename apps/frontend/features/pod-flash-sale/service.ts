@@ -10,7 +10,11 @@ import type {
   PodFlashSaleBatchResult,
   PodFlashSaleBatchUpdateResponse,
   PodFlashSaleChunkProgress,
+  PodFlashSaleAutoChain,
+  PodFlashSaleAutoConfig,
+  PodFlashSaleAutoRunResult,
   PodFlashSaleDetail,
+  PodFlashSaleImportResult,
   PodFlashSaleListResult,
   PodFlashSaleLogResult,
   PodFlashSaleProductQuery,
@@ -23,12 +27,15 @@ import type {
   PodFlashSaleTemplateResult,
   PodFlashSaleValidation,
   SaveFlashSaleTemplatePayload,
+  SyncFlashSalesFromTiktokPayload,
+  UpdateFlashSaleAutoConfigPayload,
   UpdateFlashSaleItemPayload,
   UpdateFlashSalePayload,
 } from './types';
 
 const BASE = '/pod/flash-sales';
 const TEMPLATE_BASE = '/pod/flash-sale-templates';
+const AUTO_BASE = '/pod/flash-sale-auto';
 
 /**
  * Bỏ trường rỗng khỏi payload/query — `?status=` gửi lên là một bộ lọc RỖNG, không phải
@@ -47,7 +54,8 @@ function clean<T extends object>(obj: T): Partial<T> {
 /**
  * API module Flash Sale.
  *
- * 🔴 Chỉ **bốn** hàm dưới đây chạm tới TikTok: `publish`, `retry`, `cancel`, `sync`. Mọi
+ * 🔴 Chỉ **sáu** hàm dưới đây chạm tới TikTok: `publish`, `retry`, `pushItems`, `cancel`,
+ * `sync`, `syncFromTiktok`. Mọi
  * hàm còn lại — kể cả danh sách và chi tiết — chỉ đọc/ghi database của hệ thống. Nhịp tự
  * làm mới 30 giây dùng `list`/`get`, KHÔNG dùng `sync`; nếu không thì mỗi màn hình đang mở
  * là một dòng request đều đặn đổ vào quota của cả tổ chức.
@@ -258,6 +266,57 @@ export const podFlashSaleService = {
         skipInvalidItems,
       },
     );
+    return res.data.data;
+  },
+
+  /**
+   * Gửi các dòng CHƯA lên sàn của một đợt ĐANG CHẠY vào CÙNG hoạt động TikTok. Dòng đã lên sàn
+   * không bị gửi lại. Chạy nền — theo dõi qua `publishStatus`.
+   */
+  async pushItems(id: string): Promise<PodFlashSalePublishResult> {
+    const res = await apiClient.post<ApiResponse<PodFlashSalePublishResult>>(
+      `${BASE}/${id}/push-items`,
+    );
+    return res.data.data;
+  },
+
+  /** Đồng bộ Flash Sale từ TikTok về hệ thống (chỉ ĐỌC từ TikTok). */
+  async syncFromTiktok(payload: SyncFlashSalesFromTiktokPayload = {}): Promise<PodFlashSaleImportResult> {
+    const res = await apiClient.post<ApiResponse<PodFlashSaleImportResult>>(
+      `${BASE}/sync-from-tiktok`,
+      clean(payload),
+    );
+    return res.data.data;
+  },
+
+  // --- Auto Flash Sale ---
+
+  /** Bật/tắt Auto ở một đợt (chỉ ghi database; job hằng ngày mới gọi TikTok). */
+  async setAutoMode(id: string, enabled: boolean): Promise<PodFlashSaleDetail> {
+    const res = await apiClient.patch<ApiResponse<PodFlashSaleDetail>>(`${BASE}/${id}/auto-mode`, {
+      enabled,
+    });
+    return res.data.data;
+  },
+
+  async autoChain(id: string): Promise<PodFlashSaleAutoChain> {
+    const res = await apiClient.get<ApiResponse<PodFlashSaleAutoChain>>(`${BASE}/${id}/auto-chain`);
+    return res.data.data;
+  },
+
+  async autoConfig(): Promise<PodFlashSaleAutoConfig> {
+    const res = await apiClient.get<ApiResponse<PodFlashSaleAutoConfig>>(`${AUTO_BASE}/config`);
+    return res.data.data;
+  },
+
+  async updateAutoConfig(payload: UpdateFlashSaleAutoConfigPayload): Promise<PodFlashSaleAutoConfig> {
+    const res = await apiClient.put<ApiResponse<PodFlashSaleAutoConfig>>(`${AUTO_BASE}/config`, payload);
+    return res.data.data;
+  },
+
+  /** 🔴 Chạy ngay — cùng service với cron, có thể tạo đợt sale thật trên TikTok. */
+  async runAutoNow(): Promise<PodFlashSaleAutoRunResult> {
+    const res = await apiClient.post<ApiResponse<PodFlashSaleAutoRunResult>>(`${AUTO_BASE}/run-now`);
     return res.data.data;
   },
 

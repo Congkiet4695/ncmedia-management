@@ -103,10 +103,18 @@ export interface TiktokActivityDetail {
   products?: TiktokActivityProductResult[];
 }
 
-/** Kết quả Update Activity Products — TikTok trả lại danh sách đã nhận. */
+/**
+ * Update Activity Products — ĐÚNG các field của `UpdatePromotionActivityProductsResponseData`
+ * trong SDK. 🔴 Response KHÔNG có danh sách sản phẩm: chỉ có `total_count` = "số mục trong
+ * request này" (PRODUCT: số sản phẩm · VARIATION: số SKU). Muốn biết SKU nào thực sự vào hoạt
+ * động phải hỏi Get Activity.
+ */
 export interface TiktokUpdateActivityProductsResult {
   activityId?: string;
-  products?: TiktokActivityProductResult[];
+  status?: string;
+  title?: string;
+  totalCount?: number;
+  updateTime?: number;
 }
 
 /** Bộ lọc của Search Activities. */
@@ -118,12 +126,20 @@ export interface TiktokActivitySearchFilter {
 }
 
 /** Bản tóm tắt trong Search Activities. */
+/**
+ * Một hoạt động trong kết quả Search Activities — ĐÚNG field của
+ * `SearchPromotionActivitiesResponseDataActivities`. 🔴 Id nằm ở `id` (không phải `activityId`
+ * như Get Activity).
+ */
 export interface TiktokActivitySummary {
-  activityId?: string;
+  id?: string;
   activityType?: string;
   title?: string;
   status?: string;
   beginTime?: number;
   endTime?: number;
   productLevel?: string;
+  createTime?: number;
+  updateTime?: number;
+  activityCommands?: string[];
 }

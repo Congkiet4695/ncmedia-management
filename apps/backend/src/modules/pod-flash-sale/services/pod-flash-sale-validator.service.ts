@@ -68,15 +68,9 @@ export class PodFlashSaleValidatorService {
       ...this.validateCurrency(flashSale.items),
     ];
 
-    const readyItemIds: string[] = [];
-    for (const item of flashSale.items) {
-      // Dòng đã bị gỡ khỏi sàn không còn tham gia đợt này — kiểm nó chỉ tạo nhiễu.
-      if (item.status === PodFlashSaleItemStatus.REMOVED) continue;
-
-      const itemIssues = this.validateItem(item);
-      issues.push(...itemIssues);
-      if (!itemIssues.some((issue) => issue.level === 'ERROR')) readyItemIds.push(item.id);
-    }
+    const itemResult = this.validateItems(flashSale.items);
+    issues.push(...itemResult.issues);
+    const readyItemIds = itemResult.readyItemIds;
 
     if (readyItemIds.length === 0) {
       issues.push({
@@ -88,6 +82,29 @@ export class PodFlashSaleValidatorService {
     }
 
     return { ok: !issues.some((issue) => issue.level === 'ERROR'), issues, readyItemIds };
+  }
+
+  /**
+   * Kiểm RIÊNG các dòng — không kiểm phần đầu (tên, khung giờ).
+   *
+   * Dùng khi thêm sản phẩm vào đợt ĐANG CHẠY: giờ bắt đầu đã qua là chuyện bình thường của
+   * một đợt đang chạy, không phải lỗi; chỉ từng dòng mới cần hợp lệ trước khi gửi lên sàn.
+   */
+  validateItems(items: ValidatableFlashSaleItem[]): {
+    issues: PodFlashSaleIssueDto[];
+    readyItemIds: string[];
+  } {
+    const issues: PodFlashSaleIssueDto[] = [];
+    const readyItemIds: string[] = [];
+    for (const item of items) {
+      // Dòng đã bị gỡ khỏi sàn không còn tham gia đợt này — kiểm nó chỉ tạo nhiễu.
+      if (item.status === PodFlashSaleItemStatus.REMOVED) continue;
+
+      const itemIssues = this.validateItem(item);
+      issues.push(...itemIssues);
+      if (!itemIssues.some((issue) => issue.level === 'ERROR')) readyItemIds.push(item.id);
+    }
+    return { issues, readyItemIds };
   }
 
   /** Kiểm phần đầu: tên + khung giờ. */
@@ -195,6 +212,21 @@ export class PodFlashSaleValidatorService {
 
     // Dòng ở mức biến thể bắt buộc phải có `sku_id`; thiếu nó thì TikTok không biết áp giá
     // cho SKU nào.
+    // 🔴 Dòng mức biến thể đã mất `variant_id` (FK SET NULL) nhưng còn `provider_variant_id`:
+    // người bán đã XOÁ SKU này trên TikTok. Giữ dòng lại (FAILED ≠ DELETE) và nói rõ vì sao nó
+    // không gửi được, thay vì để dòng biến mất trong im lặng như trước.
+    if (!item.variantId && item.providerVariantId) {
+      issues.push({
+        level: 'ERROR',
+        code: FLASH_SALE_ISSUE_CODES.VARIANT_REMOVED,
+        field: 'variantId',
+        message:
+          `SKU ${item.providerVariantId} không còn tồn tại trên TikTok (đã bị xoá khỏi sản phẩm) — ` +
+          'xoá dòng này hoặc chọn SKU khác.',
+        itemId: item.id,
+      });
+    }
+
     if (item.variantId && !item.providerVariantId) {
       issues.push({
         level: 'ERROR',

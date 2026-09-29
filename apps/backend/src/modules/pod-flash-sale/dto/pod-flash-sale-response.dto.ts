@@ -25,6 +25,22 @@ export class PodFlashSaleItemCountsDto {
   @ApiProperty() REMOVED!: number;
 }
 
+/**
+ * Kết quả chạy của một đợt sale — theo DÒNG (biến thể, hoặc sản phẩm ở mức PRODUCT) và theo
+ * SẢN PHẨM. Tính từ trạng thái THẬT của từng dòng trong database, không phải con số lưu sẵn:
+ * thử lại một dòng hỏng chỉ đổi trạng thái dòng đó ⇒ không bao giờ đếm đôi.
+ */
+export class PodFlashSaleItemStatsDto {
+  @ApiProperty({ description: 'Tổng số dòng (kể cả REMOVED)' }) totalItems!: number;
+  @ApiProperty({ description: 'Dòng đã lên TikTok (PUBLISHED)' }) publishedItems!: number;
+  @ApiProperty({ description: 'Dòng thất bại (FAILED)' }) failedItems!: number;
+  @ApiProperty({ description: 'Dòng chưa gửi (PENDING + READY)' }) pendingItems!: number;
+  @ApiProperty({ description: 'Dòng bị gỡ khỏi hoạt động trên TikTok (REMOVED)' }) removedItems!: number;
+  @ApiProperty({ description: 'Số sản phẩm khác nhau trong đợt' }) totalProducts!: number;
+  @ApiProperty({ description: 'Sản phẩm có ít nhất một dòng PUBLISHED' }) publishedProducts!: number;
+  @ApiProperty({ description: 'Sản phẩm có ít nhất một dòng FAILED' }) failedProducts!: number;
+}
+
 /** Shop rút gọn — đủ để vẽ cột "Shop" mà không phải gọi thêm API. */
 export class PodFlashSaleShopRefDto {
   @ApiProperty() id!: string;
@@ -77,6 +93,28 @@ export class PodFlashSaleListItemDto {
       'backend để frontend không tự đoán danh sách trạng thái.',
   })
   live!: boolean;
+
+  @ApiProperty({
+    enum: ['SYSTEM', 'TIKTOK'],
+    description: 'Nguồn: tạo trong hệ thống, hoặc đồng bộ về từ TikTok',
+  })
+  source!: string;
+
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'Lần chạy (publish / gửi thêm sản phẩm) gần nhất kết thúc lúc nào',
+  })
+  lastRunAt!: string | null;
+
+  @ApiProperty({ type: PodFlashSaleItemStatsDto }) stats!: PodFlashSaleItemStatsDto;
+
+  @ApiProperty({ description: 'Đợt này đang bật Auto Flash Sale (nút đang hoạt động của chuỗi)' })
+  autoMode!: boolean;
+  @ApiProperty({ nullable: true, type: String, description: 'Id chuỗi Auto' }) autoChainId!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'Đợt đã sinh ra đợt này' }) autoParentId!: string | null;
+  @ApiProperty({ nullable: true, type: Number, description: 'Số thứ tự trong chuỗi (đợt đầu = 1)' })
+  autoSequence!: number | null;
 }
 
 /** Một dòng sản phẩm trong đợt sale. */
@@ -356,4 +394,50 @@ export class PaginatedPodFlashSaleProductDto {
 export class PodFlashSaleBatchUpdateResponseDto extends PodFlashSaleDetailDto {
   @ApiProperty({ type: PodFlashSaleBatchResultDto })
   batchResult!: PodFlashSaleBatchResultDto;
+}
+
+/** Kết quả đồng bộ Flash Sale từ TikTok của MỘT shop. */
+export class PodFlashSaleImportShopResultDto {
+  @ApiProperty() shopId!: string;
+  @ApiProperty() shopName!: string;
+  @ApiProperty({
+    enum: ['SUCCESS', 'FAILED', 'BUSY'],
+    description: 'BUSY = shop đang có lượt đồng bộ khác chạy — không làm gì, thử lại sau.',
+  })
+  result!: 'SUCCESS' | 'FAILED' | 'BUSY';
+  @ApiProperty({ nullable: true, type: String }) errorCode!: string | null;
+  @ApiProperty({ nullable: true, type: String }) errorMessage!: string | null;
+
+  @ApiProperty({ description: 'Số hoạt động Flash Sale TikTok trả về (mọi trang)' }) scanned!: number;
+  @ApiProperty({ description: 'Đợt mới tạo trong hệ thống' }) created!: number;
+  @ApiProperty({ description: 'Đợt đã có, được cập nhật từ TikTok' }) updated!: number;
+  @ApiProperty({ description: 'Đợt đã có, TikTok không đổi gì kể từ lần đồng bộ trước' }) unchanged!: number;
+  @ApiProperty({
+    description:
+      'Đợt bỏ qua: đang gửi lô (PUBLISHING), đã xoá trong hệ thống, hoặc mức SHOP (không hỗ trợ)',
+  })
+  skipped!: number;
+  @ApiProperty({ description: 'Đợt đọc chi tiết thất bại' }) failed!: number;
+
+  @ApiProperty({ description: 'Dòng mới tạo từ TikTok' }) itemsCreated!: number;
+  @ApiProperty({ description: 'Dòng đã có, cập nhật theo TikTok' }) itemsUpdated!: number;
+  @ApiProperty({ description: 'Dòng đã PUBLISHED nhưng TikTok không còn ⇒ REMOVED' }) itemsRemoved!: number;
+  @ApiProperty({
+    description: 'SKU/sản phẩm trên TikTok chưa có trong hệ thống — đồng bộ sản phẩm trước rồi chạy lại',
+  })
+  unmatchedItems!: number;
+  @ApiProperty({
+    description: 'SKU có giá/giới hạn không ghi được (vd giá deal > giá gốc đang lưu) — xem log',
+  })
+  invalidItems!: number;
+}
+
+export class PodFlashSaleImportResultDto {
+  @ApiProperty({ type: [PodFlashSaleImportShopResultDto] }) shops!: PodFlashSaleImportShopResultDto[];
+  @ApiProperty() created!: number;
+  @ApiProperty() updated!: number;
+  @ApiProperty() unchanged!: number;
+  @ApiProperty() skipped!: number;
+  @ApiProperty() failed!: number;
+  @ApiProperty() unmatchedItems!: number;
 }

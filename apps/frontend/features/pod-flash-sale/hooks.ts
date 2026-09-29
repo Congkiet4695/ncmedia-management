@@ -12,12 +12,15 @@ import type {
   PodFlashSaleQuery,
   PodFlashSaleTemplateQuery,
   SaveFlashSaleTemplatePayload,
+  SyncFlashSalesFromTiktokPayload,
+  UpdateFlashSaleAutoConfigPayload,
   UpdateFlashSaleItemPayload,
   UpdateFlashSalePayload,
 } from './types';
 
 const KEY = 'pod-flash-sale';
 const TEMPLATE_KEY = 'pod-flash-sale-template';
+const AUTO_KEY = 'pod-flash-sale-auto';
 
 /**
  * Nhịp tự làm mới khi có đợt sale đang PUBLISHING/RUNNING — 30 giây theo yêu cầu sprint.
@@ -237,6 +240,77 @@ export function useRetryFlashSale() {
       podFlashSaleService.retry(id, skipInvalidItems ?? false),
     (vars) => vars.id,
   );
+}
+
+/** Gửi sản phẩm mới thêm vào đợt ĐANG CHẠY lên TikTok. */
+export function usePushFlashSaleItems() {
+  return useProviderMutation(
+    (id: string) => podFlashSaleService.pushItems(id),
+    (id) => id,
+  );
+}
+
+/** Đồng bộ Flash Sale từ TikTok — xong thì làm mới danh sách (có thể có đợt mới). */
+export function useSyncFlashSalesFromTiktok() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: SyncFlashSalesFromTiktokPayload) => podFlashSaleService.syncFromTiktok(payload),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: [KEY] });
+    },
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Auto Flash Sale
+// ---------------------------------------------------------------------------
+
+/** Bật/tắt Auto ở một đợt — cập nhật chi tiết, danh sách và chuỗi. */
+export function useSetFlashSaleAutoMode() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, enabled }: { id: string; enabled: boolean }) => podFlashSaleService.setAutoMode(id, enabled),
+    onSuccess: (data) => {
+      queryClient.setQueryData([KEY, 'detail', data.id], data);
+      void queryClient.invalidateQueries({ queryKey: [KEY, 'list'] });
+      void queryClient.invalidateQueries({ queryKey: [AUTO_KEY, 'chain'] });
+    },
+  });
+}
+
+export function useFlashSaleAutoChain(id?: string) {
+  return useQuery({
+    queryKey: [AUTO_KEY, 'chain', id],
+    queryFn: () => podFlashSaleService.autoChain(id as string),
+    enabled: Boolean(id),
+  });
+}
+
+export function useFlashSaleAutoConfig(enabled = true) {
+  return useQuery({
+    queryKey: [AUTO_KEY, 'config'],
+    queryFn: () => podFlashSaleService.autoConfig(),
+    enabled,
+  });
+}
+
+export function useUpdateFlashSaleAutoConfig() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: UpdateFlashSaleAutoConfigPayload) => podFlashSaleService.updateAutoConfig(payload),
+    onSuccess: (data) => queryClient.setQueryData([AUTO_KEY, 'config'], data),
+  });
+}
+
+export function useRunFlashSaleAutoNow() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: () => podFlashSaleService.runAutoNow(),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: [AUTO_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [KEY] });
+    },
+  });
 }
 
 export function useCancelFlashSale() {

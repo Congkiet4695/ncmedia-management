@@ -4,6 +4,7 @@ import { SchedulerRegistry } from '@nestjs/schedule';
 import { CronJob } from 'cron';
 import { FulfillmentTrigger } from '@prisma/client';
 import { MangoWebhookService } from '../mango/webhook/mango-webhook.service';
+import { SellerwixWebhookService } from '../sellerwix/webhook/sellerwix-webhook.service';
 import { FulfillmentSyncService } from '../services/fulfillment-sync.service';
 
 /**
@@ -30,6 +31,7 @@ export class FulfillmentSyncJob implements OnModuleInit {
     private readonly registry: SchedulerRegistry,
     private readonly syncService: FulfillmentSyncService,
     private readonly webhookService: MangoWebhookService,
+    private readonly sellerwixWebhookService: SellerwixWebhookService,
   ) {}
 
   onModuleInit(): void {
@@ -80,6 +82,7 @@ export class FulfillmentSyncJob implements OnModuleInit {
       // Webhook đã nhận nhưng xử lý lỗi thường phản ánh trạng thái MỚI NHẤT,
       // xử lý trước để lượt hỏi trạng thái phía sau không phải gọi lại API cho cùng đơn.
       await this.webhookService.retryPending();
+      await this.sellerwixWebhookService.retryPending();
       await this.syncService.runAll(FulfillmentTrigger.CRON);
     } catch (error) {
       this.logger.error({

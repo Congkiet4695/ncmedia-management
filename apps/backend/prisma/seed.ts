@@ -159,6 +159,7 @@ const PERMISSIONS: Array<{
   { code: 'pod.flashsale.read',        module: 'POD_TIKTOK', resource: 'pod.flashsale',     action: 'read',    description: 'Xem Flash Sale, san pham trong dot sale, template va nhat ky' },
   { code: 'pod.flashsale.write',       module: 'POD_TIKTOK', resource: 'pod.flashsale',     action: 'write',   description: 'Tao/sua/xoa Flash Sale, them-sua san pham, nhan ban va luu Template' },
   { code: 'pod.flashsale.publish',     module: 'POD_TIKTOK', resource: 'pod.flashsale',     action: 'publish', description: 'Publish Flash Sale len TikTok, retry va huy hoat dong khuyen mai' },
+  { code: 'pod.flashsale.auto.config', module: 'POD_TIKTOK', resource: 'pod.flashsale.auto', action: 'config',  description: 'Cau hinh lich chay Auto Flash Sale cua to chuc va chay ngay (Run Now)' },
 
   { code: 'pod.tiktok.payout.read',    module: 'POD_TIKTOK', resource: 'pod.tiktok.payout',  action: 'read',   description: 'Xem báo cáo Payout TikTok' },
   { code: 'pod.tiktok.payout.sync',    module: 'POD_TIKTOK', resource: 'pod.tiktok.payout',  action: 'sync',   description: 'Đồng bộ dữ liệu Payout từ TikTok Finance API' },

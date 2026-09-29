@@ -1,4 +1,6 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { FulfillmentProvider } from '@prisma/client';
+import { sellerwixPrintAreasOf } from '../sellerwix/mappers/sellerwix-order.mapper';
 import { FulfillmentCatalogRepository } from '../repositories/fulfillment-catalog.repository';
 import { businessProductSku } from './fulfillment-catalog-sync.service';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
@@ -143,6 +145,15 @@ export class FulfillmentCatalogQueryService {
       size: row.size,
       price: row.price,
       isAvailable: true,
+      // Sellerwix: vị trí in THEO biến thể — giao diện dùng để khai `placementMap`.
+      printAreas:
+        row.provider === FulfillmentProvider.SELLERWIX
+          ? sellerwixPrintAreasOf(row.rawData).map((area) => ({
+              key: area.key as string,
+              displayName: area.display_name?.trim() || null,
+              required: area.required === true,
+            }))
+          : null,
     }));
   }
 

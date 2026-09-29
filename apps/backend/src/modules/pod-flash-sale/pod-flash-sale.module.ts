@@ -2,9 +2,13 @@ import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '../auth/auth.module';
 import { PodTiktokModule } from '../pod-tiktok/pod-tiktok.module';
+import { PodFlashSaleAutoController } from './pod-flash-sale-auto.controller';
 import { PodFlashSaleController } from './pod-flash-sale.controller';
 import { PodFlashSaleTemplateController } from './pod-flash-sale-template.controller';
+import { PodFlashSaleAutoJob } from './schedulers/pod-flash-sale-auto.job';
 import { PodFlashSaleSyncJob } from './schedulers/pod-flash-sale-sync.job';
+import { PodFlashSaleAutoService } from './services/pod-flash-sale-auto.service';
+import { PodFlashSaleImportService } from './services/pod-flash-sale-import.service';
 import { PodFlashSaleItemService } from './services/pod-flash-sale-item.service';
 import { PodFlashSalePublisherService } from './services/pod-flash-sale-publisher.service';
 import { PodFlashSaleSyncService } from './services/pod-flash-sale-sync.service';
@@ -35,7 +39,7 @@ import { PodFlashSaleService } from './services/pod-flash-sale.service';
   // `ScheduleModule.forRoot()` khai báo tại chính module có scheduler — cùng khuôn với
   // PodProduct / PodListing / Fulfillment. Module này là global nên gọi nhiều lần vô hại.
   imports: [AuthModule, PodTiktokModule, ScheduleModule.forRoot()],
-  controllers: [PodFlashSaleController, PodFlashSaleTemplateController],
+  controllers: [PodFlashSaleController, PodFlashSaleTemplateController, PodFlashSaleAutoController],
   providers: [
     PodFlashSaleService,
     PodFlashSaleItemService,
@@ -43,7 +47,10 @@ import { PodFlashSaleService } from './services/pod-flash-sale.service';
     PodFlashSalePublisherService,
     PodFlashSaleTemplateService,
     PodFlashSaleSyncService,
+    PodFlashSaleImportService,
+    PodFlashSaleAutoService,
     PodFlashSaleSyncJob,
+    PodFlashSaleAutoJob,
   ],
   exports: [
     // Sprint Promotion (sau này) dùng lại đúng hai thứ: bộ kiểm tra và cửa ra sàn.

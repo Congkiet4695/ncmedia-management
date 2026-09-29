@@ -34,11 +34,19 @@ import {
   UpsertProductMappingDto,
 } from '../dto/fulfillment.dto';
 import {
+  FULFILLMENT_PROVIDER_LABELS,
+  FULFILLMENT_WEBHOOK_PATHS,
+} from '../constants/fulfillment-provider.constants';
+import {
   FulfillmentAccountNotFoundException,
   FulfillmentMappingConflictException,
   FulfillmentMappingNotFoundException,
   FulfillmentOrderNotFoundException,
+  FulfillmentValidationException,
 } from '../exceptions/fulfillment.exceptions';
+import { MANGO_SHIPPING_METHODS } from '../mango/constants/mango.constants';
+import { SellerwixCredentialService } from '../sellerwix/services/sellerwix-credential.service';
+import { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 import { ProductDesignMapper, type DesignForDto } from '../mappers/product-design.mapper';
 import {
   FulfillmentOrderWithRelations,
@@ -84,6 +92,7 @@ export class FulfillmentService {
     private readonly designMapper: ProductDesignMapper,
     private readonly encryption: TiktokEncryptionService,
     private readonly accessScope: PodAccessScopeService,
+    private readonly gateway: FulfillmentProviderGateway,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -104,9 +113,10 @@ export class FulfillmentService {
     actorUserId: string,
     dto: CreateFulfillmentAccountDto,
   ): Promise<FulfillmentAccountDto> {
-    // Secret webhook sinh ngay lúc tạo: Mango không ký payload nên đây là lớp xác thực
-    // duy nhất cho request gọi về (xem docs/fulfillment/README.md §Webhook).
+    // Secret webhook sinh ngay lúc tạo: Mango lẫn Sellerwix đều không ký payload nên đây là lớp
+    // xác thực duy nhất cho request gọi về (xem docs/fulfillment/README.md §Webhook).
     const webhookSecret = randomBytes(24).toString('hex');
+    this.assertProviderFields(dto.provider, dto, true);
 
     const account = await this.repo.createAccount({
       organizationId,
@@ -118,8 +128,17 @@ export class FulfillmentService {
       apiKeyHint: dto.apiKey.slice(-4),
       baseUrlOverride: dto.baseUrl ?? null,
       defaultProductionLine: dto.defaultProductionLine ?? null,
-      defaultShippingMethod: dto.defaultShippingMethod ?? 'standard',
+      // Sellerwix: phương thức vận chuyển phụ thuộc TỪNG biến thể ⇒ không có mặc định chung
+      // (chuỗi rỗng = "chọn ở màn hình Fulfill"). Mango giữ mặc định cũ.
+      defaultShippingMethod:
+        dto.defaultShippingMethod ??
+        (dto.provider === FulfillmentProvider.SELLERWIX ? '' : 'standard'),
       defaultFacility: dto.defaultFacility ?? null,
+      secretEnc: dto.privateKey ? this.encryption.encrypt(dto.privateKey) : null,
+      providerConfig:
+        dto.provider === FulfillmentProvider.SELLERWIX
+          ? { storeId: dto.storeId ?? '', publicKeyId: dto.publicKeyId ?? '' }
+          : Prisma.JsonNull,
       webhookSecretEnc: this.encryption.encrypt(webhookSecret),
       isDefault: dto.isDefault ?? true,
       createdBy: actorUserId,
@@ -148,9 +167,24 @@ export class FulfillmentService {
     // cho tất cả những tổ chức còn lại.
     const existing = await this.repo.findOwnedAccountById(organizationId, id);
     if (!existing) throw new FulfillmentAccountNotFoundException();
+    this.assertProviderFields(existing.provider, dto, false);
+
+    const currentConfig = SellerwixCredentialService.readConfig(existing.providerConfig);
+    const configChanged = dto.storeId !== undefined || dto.publicKeyId !== undefined;
 
     const account = await this.repo.updateAccount(id, {
       ...(dto.name !== undefined ? { name: dto.name } : {}),
+      ...(dto.baseUrl !== undefined ? { baseUrlOverride: dto.baseUrl || null } : {}),
+      // Chỉ đổi private key khi người dùng thực sự dán key mới — giống API key.
+      ...(dto.privateKey ? { secretEnc: this.encryption.encrypt(dto.privateKey) } : {}),
+      ...(configChanged
+        ? {
+            providerConfig: {
+              storeId: dto.storeId ?? currentConfig.storeId,
+              publicKeyId: dto.publicKeyId ?? currentConfig.publicKeyId,
+            },
+          }
+        : {}),
       // Chỉ đổi khoá khi người dùng thực sự gửi khoá mới.
       ...(dto.apiKey
         ? { apiKeyEnc: this.encryption.encrypt(dto.apiKey), apiKeyHint: dto.apiKey.slice(-4) }
@@ -220,7 +254,7 @@ export class FulfillmentService {
   async listProviderOptions(organizationId: string): Promise<FulfillmentProviderOptionDto[]> {
     const accounts = await this.repo.listAccounts(organizationId);
     return accounts
-      .filter((account) => account.isActive)
+      .filter((account) => account.isActive && this.gateway.isSupported(account.provider))
       .map((account) => ({
         id: account.id,
         name: account.name,
@@ -452,8 +486,15 @@ export class FulfillmentService {
     await this.assertMappingKeyInScope(organizationId, existing.tiktokProductId, scope);
     await this.assertMappingKeyInScope(organizationId, dto.tiktokProductId, scope);
     await this.assertNoConflict(organizationId, dto, id);
+    // 🔴 Đổi nhà cung cấp của sản phẩm (vd Mango → Sellerwix) là một thao tác SỬA ánh xạ: danh tính
+    // (Product ID + Seller SKU) giữ nguyên, chỉ tài khoản/SKU nhà cung cấp đổi. Bỏ qua `accountId`
+    // ở đây thì ánh xạ kẹt ở nhà cung cấp cũ và đơn bị MAPPING_PROVIDER_MISMATCH mãi.
+    const account = dto.accountId
+      ? await this.resolveMappingAccount(organizationId, existing.provider, dto.accountId)
+      : null;
 
     const mapping = await this.repo.updateMapping(id, {
+      ...(account ? { accountId: account.id, provider: account.provider } : {}),
       tiktokProductId: dto.tiktokProductId,
       tiktokSkuId: dto.tiktokSkuId ?? null,
       sellerSku: dto.sellerSku,
@@ -583,7 +624,6 @@ export class FulfillmentService {
     organizationId: string,
     podOrderId: string,
     scope: PodAccessScope,
-    provider: FulfillmentProvider = FulfillmentProvider.MANGO,
     selectedAccountId?: string,
   ): Promise<FulfillmentStateDto> {
     const order = await this.podOrderRepo.findById(organizationId, podOrderId);
@@ -591,17 +631,16 @@ export class FulfillmentService {
     // 🔴 Seller chỉ xem được trạng thái fulfillment của đơn thuộc shop mình được gán.
     this.accessScope.assertShopAllowed(scope, order.shopId);
 
-    const record = await this.repo.findByPodOrder(organizationId, podOrderId, provider);
+    // Bản ghi HIỆN HÀNH bất kể nhà cung cấp — đơn đã gửi Sellerwix mở ra phải thấy Sellerwix.
+    const current = await this.repo.findCurrentByPodOrder(organizationId, podOrderId);
 
-    // Nhà cung cấp lấy TỪ TIKTOK ACCOUNT của đơn — cùng một nguồn với luồng gửi thật,
-    // nên màn hình không bao giờ báo "sẵn sàng" cho một đơn mà submit sẽ từ chối.
-    // 🔴 Thứ tự ưu tiên GIỐNG HỆT `MangoFulfillmentService.resolveProviderAccount`: người
-    // dùng chọn → nhà cung cấp gán cho kết nối TikTok (dữ liệu cũ) → nhà cung cấp DUY NHẤT
-    // khả dụng. Hai nơi lệch nhau là màn hình đánh giá một nhà cung cấp còn luồng gửi dùng
-    // nhà cung cấp khác.
+    // 🔴 Thứ tự chọn nhà cung cấp GIỐNG HỆT `FulfillmentProviderGateway.resolveAccountForFulfill`:
+    // người dùng chọn → bản ghi hiện hành → nhà cung cấp gán cho kết nối TikTok → nhà cung cấp
+    // DUY NHẤT khả dụng. Hai nơi lệch nhau là màn hình đánh giá một nhà cung cấp còn luồng gửi
+    // dùng nhà cung cấp khác. Danh sách gồm MỌI nhà cung cấp đã tích hợp (Mango, Sellerwix…).
     const assignedId = order.account?.fulfillmentAccountId ?? null;
     const usable = (await this.repo.listAccounts(organizationId)).filter(
-      (entry) => entry.isActive && entry.provider === provider,
+      (entry) => entry.isActive && this.gateway.isSupported(entry.provider),
     );
     const availableProviders = usable.map((entry) => ({
       id: entry.id,
@@ -613,14 +652,16 @@ export class FulfillmentService {
     }));
 
     const selected = selectedAccountId?.trim();
+    const single = usable.length === 1 ? usable[0] : null;
+    const fallbackId = current?.accountId ?? assignedId;
     const account = selected
       ? await this.repo.findAccountById(organizationId, selected)
-      : assignedId
-        ? ((await this.repo.findAccountById(organizationId, assignedId)) ??
-          (usable.length === 1 ? usable[0] : null))
-        : usable.length === 1
-          ? usable[0]
-          : null;
+      : fallbackId
+        ? ((await this.repo.findAccountById(organizationId, fallbackId)) ?? single)
+        : single;
+    const record = account
+      ? await this.repo.findByPodOrder(organizationId, podOrderId, account.provider)
+      : current;
 
     // Chưa cấu hình nhà cung cấp ⇒ không thể kiểm tra ánh xạ, báo rõ thay vì báo "thiếu design".
     if (!account || !account.isActive) {
@@ -668,19 +709,41 @@ export class FulfillmentService {
     // Ánh xạ khai cho nhà cung cấp khác được `check()` báo bằng MAPPING_PROVIDER_MISMATCH.
     const mappings = await this.repo.listMappingsForOrganization(organizationId);
     const designsByKey = await this.loadDesignsByKey(organizationId);
+    // Luật vị trí in của ĐÚNG nhà cung cấp đang chọn (Sellerwix: `print_areas` của biến thể).
     const check = this.readiness.check(
       order,
       mappings,
       designsByKey,
       this.publicBaseUrl(),
       account.id,
+      await this.gateway.placementResolver(account, mappings),
     );
     const status = record?.status ?? FulfillmentStatus.DRAFT;
+    // Đơn đang ở xưởng của nhà cung cấp KHÁC ⇒ không cho gửi thêm (sản xuất hai lần).
+    const blocking = await this.repo.findBlockingRecordOfOtherProvider(
+      organizationId,
+      podOrderId,
+      account.provider,
+    );
+    const blockingIssue = blocking
+      ? [
+          {
+            section: 'PROVIDER' as const,
+            code: 'SUBMITTED_TO_OTHER_PROVIDER',
+            message:
+              `Đơn đã được gửi sang ${FULFILLMENT_PROVIDER_LABELS[blocking.provider]} ` +
+              `(${blocking.status}). Huỷ ở đó trước khi gửi sang nhà cung cấp khác.`,
+            podOrderItemId: null,
+          },
+        ]
+      : [];
 
     return {
       fulfillment: record ? this.toOrderDto(record) : null,
-      ready: check.ready,
-      issues: check.issues.map((issue) => ({
+      ready: check.ready && !blocking,
+      issues: [
+        ...blockingIssue,
+        ...check.issues.map((issue) => ({
         section: issueSectionOf(issue.code),
         code: issue.code,
         message: issue.message,
@@ -693,7 +756,8 @@ export class FulfillmentService {
         skuName: issue.skuName ?? null,
         productCategory: issue.productCategory ?? null,
       })),
-      canFulfill: check.ready && FULFILLABLE_STATUSES.includes(status),
+      ],
+      canFulfill: check.ready && !blocking && FULFILLABLE_STATUSES.includes(status),
       canCancel: Boolean(record) && CANCELLABLE_STATUSES.includes(status),
       provider: { id: account.id, name: account.name, type: account.provider, isActive: true },
       // 🔴 Ghép bằng ĐÚNG chỉ mục mà `readiness.check()` vừa dùng ở trên: màn hình và luồng
@@ -759,10 +823,9 @@ export class FulfillmentService {
     organizationId: string,
     podOrderId: string,
     scope: PodAccessScope,
-    provider: FulfillmentProvider = FulfillmentProvider.MANGO,
   ): Promise<FulfillmentHistoryDto[]> {
     await this.assertPodOrderInScope(organizationId, podOrderId, scope);
-    const record = await this.repo.findByPodOrder(organizationId, podOrderId, provider);
+    const record = await this.repo.findCurrentByPodOrder(organizationId, podOrderId);
     if (!record) throw new FulfillmentOrderNotFoundException();
     const histories = await this.repo.listHistory(organizationId, record.id);
     return histories.map((history) => ({
@@ -785,10 +848,9 @@ export class FulfillmentService {
     organizationId: string,
     podOrderId: string,
     scope: PodAccessScope,
-    provider: FulfillmentProvider = FulfillmentProvider.MANGO,
   ): Promise<FulfillmentErrorDto[]> {
     await this.assertPodOrderInScope(organizationId, podOrderId, scope);
-    const record = await this.repo.findByPodOrder(organizationId, podOrderId, provider);
+    const record = await this.repo.findCurrentByPodOrder(organizationId, podOrderId);
     if (!record) throw new FulfillmentOrderNotFoundException();
     const errors = await this.repo.listErrors(organizationId, record.id);
     return errors.map((error) => ({
@@ -860,6 +922,67 @@ export class FulfillmentService {
     if (conflict) throw new FulfillmentMappingConflictException();
   }
 
+  /**
+   * Trường cấu hình nào thuộc nhà cung cấp nào — từ chối trường KHÔNG có ý nghĩa với nhà cung cấp
+   * (vd Private Key cho Mango, production line cho Sellerwix) thay vì lưu một giá trị không ai dùng.
+   *
+   * @param creating `true` ⇒ kiểm luôn các trường BẮT BUỘC khi tạo.
+   */
+  private assertProviderFields(
+    provider: FulfillmentProvider,
+    dto: {
+      privateKey?: string;
+      storeId?: string;
+      publicKeyId?: string;
+      defaultProductionLine?: string;
+      defaultFacility?: string;
+      defaultShippingMethod?: string;
+    },
+    creating: boolean,
+  ): void {
+    const errors: Array<{ field: string; message: string }> = [];
+    const label = FULFILLMENT_PROVIDER_LABELS[provider];
+    const notFor = (field: string, value: unknown) => {
+      if (value !== undefined && value !== null && value !== '') {
+        errors.push({ field, message: `${label} không dùng trường này.` });
+      }
+    };
+
+    if (provider === FulfillmentProvider.SELLERWIX) {
+      notFor('defaultProductionLine', dto.defaultProductionLine);
+      notFor('defaultFacility', dto.defaultFacility);
+      if (creating) {
+        if (!dto.privateKey) errors.push({ field: 'privateKey', message: 'Bắt buộc với Sellerwix.' });
+        if (!dto.storeId) errors.push({ field: 'storeId', message: 'Bắt buộc với Sellerwix.' });
+        if (!dto.publicKeyId) errors.push({ field: 'publicKeyId', message: 'Bắt buộc với Sellerwix.' });
+      }
+      if (dto.privateKey) {
+        const problem = SellerwixCredentialService.validatePrivateKey(dto.privateKey);
+        if (problem) errors.push({ field: 'privateKey', message: problem });
+      }
+    } else {
+      notFor('privateKey', dto.privateKey);
+      notFor('storeId', dto.storeId);
+      notFor('publicKeyId', dto.publicKeyId);
+      if (
+        provider === FulfillmentProvider.MANGO &&
+        dto.defaultShippingMethod &&
+        !(MANGO_SHIPPING_METHODS as readonly string[]).includes(dto.defaultShippingMethod)
+      ) {
+        errors.push({
+          field: 'defaultShippingMethod',
+          message: `Phải thuộc: ${MANGO_SHIPPING_METHODS.join(', ')}.`,
+        });
+      }
+    }
+
+    if (errors.length === 0) return;
+    throw new FulfillmentValidationException(
+      `Cấu hình ${label} chưa hợp lệ: ${errors.map((error) => `${error.field} — ${error.message}`).join(' · ')}`,
+      errors,
+    );
+  }
+
   private publicBaseUrl(): string | undefined {
     return this.config.get<string>('storage.local.publicBaseUrl') || undefined;
   }
@@ -877,6 +1000,11 @@ export class FulfillmentService {
     linkedTiktokAccounts = 0,
   ): FulfillmentAccountDto {
     const base = this.config.get<string>('fulfillment.webhookBaseUrl', '');
+    const webhookPath = FULFILLMENT_WEBHOOK_PATHS[account.provider];
+    const sellerwix =
+      account.provider === FulfillmentProvider.SELLERWIX
+        ? SellerwixCredentialService.readConfig(account.providerConfig)
+        : null;
     return {
       id: account.id,
       provider: account.provider,
@@ -889,9 +1017,14 @@ export class FulfillmentService {
       defaultShippingMethod: account.defaultShippingMethod,
       defaultFacility: account.defaultFacility,
       webhookUrl:
-        plainWebhookSecret && base
-          ? `${base.replace(/\/+$/, '')}/api/v1/fulfillment/webhooks/mango/${plainWebhookSecret}`
+        plainWebhookSecret && base && webhookPath
+          ? `${base.replace(/\/+$/, '')}/api/v1/fulfillment/webhooks/${webhookPath}/${plainWebhookSecret}`
           : null,
+      // Cấu hình KHÔNG bí mật của Sellerwix — được phép hiển thị để người dùng đối chiếu.
+      storeId: sellerwix?.storeId || null,
+      publicKeyId: sellerwix?.publicKeyId || null,
+      // Private key KHÔNG BAO GIỜ trả về — chỉ cho biết đã cấu hình hay chưa.
+      privateKeyConfigured: Boolean(account.secretEnc),
       providerWebhookId: account.providerWebhookId,
       lastUsedAt: account.lastUsedAt?.toISOString() ?? null,
       lastErrorMsg: account.lastErrorMsg,

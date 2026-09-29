@@ -11,6 +11,7 @@ import type {
   FulfillmentProviderOption,
   FulfillmentHistoryEntry,
   FulfillmentOrder,
+  OrderShippingMethods,
   FulfillmentOptions,
   FulfillmentState,
   UpdateFulfillmentPayload,
@@ -125,6 +126,18 @@ export const fulfillmentService = {
   /** Gỡ nhãn khỏi đơn. */
   async clearShippingLabel(podOrderId: string): Promise<void> {
     await apiClient.delete(`/pod/orders/${podOrderId}/fulfillment/label`);
+  },
+
+  /**
+   * Phương thức vận chuyển hợp lệ cho đơn với MỘT nhà cung cấp (Sellerwix: phụ thuộc SKU của đơn
+   * và quốc gia người nhận — backend tính, giao diện không tự lọc).
+   */
+  async shippingMethods(podOrderId: string, providerId: string): Promise<OrderShippingMethods> {
+    const res = await apiClient.get<ApiResponse<OrderShippingMethods>>(
+      `${BASE_PATH}/orders/${podOrderId}/shipping-methods`,
+      { params: { providerId } },
+    );
+    return res.data.data;
   },
 
   async history(podOrderId: string): Promise<FulfillmentHistoryEntry[]> {

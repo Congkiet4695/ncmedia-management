@@ -57,6 +57,11 @@
       "noPrintLocations": "Nhà cung cấp chưa khai báo vị trí in nào.",
       "noProductFound": "Không tìm thấy sản phẩm nào khớp từ khoá",
       "noProvider": "Kết nối TikTok của đơn chưa gán nhà cung cấp fulfillment.",
+      "printAreaRequired": "bắt buộc",
+      "printAreaUnused": "Không dùng",
+      "printAreas": "Vùng in của biến thể",
+      "printAreasEmpty": "Biến thể này chưa có vùng in trong danh mục đã đồng bộ — hãy đồng bộ danh mục nhà cung cấp.",
+      "printAreasHint": "Chọn vị trí design in lên từng vùng in. Front/Back được ghép tự động; vùng khác phải chọn tại đây.",
       "productCount": "Hiện {{shown}} / {{total}} sản phẩm (tìm kiếm chạy phía máy chủ)",
       "productUnavailable": "Sản phẩm đã lưu không còn trong danh mục đã đồng bộ. Cấu hình cũ vẫn được giữ — đồng bộ lại danh mục hoặc chọn sản phẩm khác rồi lưu.",
       "productionConfig": "Cấu hình kích thước hình in",
@@ -138,6 +143,8 @@
     "resultHint": "Đơn đã được xưởng in tiếp nhận. Đóng để quay lại danh sách.",
     "retry": "Chạy lại Fulfill",
     "retryHint": "Chạy lại dùng ĐÚNG mã đơn cũ nên xưởng in không tạo đơn thứ hai.",
+    "rushService": "Rush service (làm gấp)",
+    "rushServiceHint": "Chỉ dùng được khi mọi biến thể trong đơn đều hỗ trợ rush service.",
     "scanLabel": "Scan label (chỉ line sản xuất TIKTOK)",
     "section": {
       "config": "Thiết lập Fulfill",
@@ -146,6 +153,8 @@
       "product": "Cấu hình sản phẩm",
       "type": "Loại fulfill"
     },
+    "selectShippingMethod": "Chọn phương thức vận chuyển",
+    "shippingByOrderHint": "Chỉ hiện phương thức MỌI sản phẩm trong đơn cùng hỗ trợ và giao được tới quốc gia người nhận.",
     "shippingFee": "Phí vận chuyển",
     "shippingMethod": {
       "by_seller": "By Seller",
@@ -332,6 +341,17 @@
     "pageTitle": "Fulfillment Providers",
     "replaceApiKey": "Replace API Key",
     "replaceApiKeyHint": "Nhập khoá mới để thay. Bỏ trống ⇒ giữ nguyên khoá hiện tại.",
+    "sellerwix": {
+      "apiKey": "API Key (Settings → Public API → Generate API Key)",
+      "baseUrlPlaceholder": "Để trống để dùng mặc định của hệ thống (https://api.sellerwix.com/public-api)",
+      "privateKey": "Private key (PEM)",
+      "privateKeyConfigured": "Đã lưu — đang ẩn",
+      "privateKeyHint": "Private key RSA 2048 tương ứng với public key đã upload lên Sellerwix (Settings → Public API → Manage Public Key). Key được mã hoá và không bao giờ hiển thị lại.",
+      "privateKeyMissing": "Chưa cấu hình",
+      "publicKeyId": "Public Key ID",
+      "replacePrivateKey": "Thay private key",
+      "storeId": "Store ID Sellerwix"
+    },
     "status": "Status",
     "statusValue": {
       "ACTIVE": "ACTIVE",
@@ -340,6 +360,13 @@
     "testConnection": "Test Connection",
     "testing": "Đang kiểm tra…",
     "type": "Provider",
+    "typeValue": {
+      "CUSTOM": "Tự khai báo (chưa tích hợp)",
+      "MANGO": "MangoTeePrints",
+      "PRINTFUL": "Printful (chưa tích hợp)",
+      "PRINTIFY": "Printify (chưa tích hợp)",
+      "SELLERWIX": "Sellerwix"
+    },
     "updateSuccess": "Đã cập nhật nhà cung cấp",
     "updated": "Updated",
     "webhookUrlOnce": "URL webhook (chỉ hiện MỘT LẦN — hãy lưu lại ngay)"

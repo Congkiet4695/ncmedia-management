@@ -45,8 +45,13 @@ interface FlashSaleItemTableProps {
   groups: PodFlashSaleProductGroup[];
   /** `PRODUCT`: mỗi nhóm đúng một dòng, hiển thị phẳng. `VARIATION`: nhóm mở/đóng được. */
   productLevel: PodFlashSaleProductLevel;
-  /** Đợt sale còn sửa được không — trạng thái RUNNING/ENDED khoá toàn bộ thao tác ghi. */
+  /** Đợt sale còn sửa được không — trạng thái ENDED/CANCELLED… khoá toàn bộ thao tác ghi. */
   editable: boolean;
+  /**
+   * Dòng nào bị KHOÁ dù bảng đang sửa được. Đợt ĐANG CHẠY: dòng đã lên TikTok (PUBLISHED /
+   * REMOVED) không sửa/xoá/chọn được — chỉ dòng mới thêm hoặc gửi hỏng. Server kiểm lại.
+   */
+  isItemLocked?: (item: PodFlashSaleItem) => boolean;
   selectedIds: string[];
   onSelectionChange: (ids: string[]) => void;
   onSaveItem: (itemId: string, payload: UpdateFlashSaleItemPayload) => void;
@@ -91,6 +96,7 @@ export function FlashSaleItemTable({
   groups,
   productLevel,
   editable,
+  isItemLocked,
   selectedIds,
   onSelectionChange,
   onSaveItem,
@@ -121,7 +127,8 @@ export function FlashSaleItemTable({
   const selected = new Set(selectedIds);
   // Mọi dòng của TRANG HIỆN TẠI — "chọn tất cả" chỉ có nghĩa trong phạm vi trang đang xem.
   const items = groups.flatMap((group) => group.items);
-  const selectableIds = items.map((item) => item.id);
+  const locked = (item: PodFlashSaleItem): boolean => isItemLocked?.(item) ?? false;
+  const selectableIds = items.filter((item) => !locked(item)).map((item) => item.id);
   const allSelected = selectableIds.length > 0 && selectableIds.every((id) => selected.has(id));
 
   const toggleAll = (): void => {
@@ -130,7 +137,7 @@ export function FlashSaleItemTable({
 
   /** Tick/bỏ tick MỌI dòng của một sản phẩm bằng một thao tác. */
   const toggleGroup = (group: PodFlashSaleProductGroup): void => {
-    const ids = group.items.map((item) => item.id);
+    const ids = group.items.filter((item) => !locked(item)).map((item) => item.id);
     const allOn = ids.length > 0 && ids.every((id) => selected.has(id));
     onSelectionChange(
       allOn
@@ -314,7 +321,7 @@ export function FlashSaleItemTable({
                     </TableCell>
 
                     <TableCell className="text-right">
-                      {editable && (
+                      {editable && !groupItems.some(locked) && (
                         <Button
                           size="icon"
                           variant="ghost"
@@ -350,6 +357,7 @@ export function FlashSaleItemTable({
                         <TableCell className="pr-0">
                           <Checkbox
                             checked={selected.has(item.id)}
+                            disabled={locked(item)}
                             onChange={() => toggleOne(item.id)}
                             aria-label={item.productTitle ?? item.id}
                           />
@@ -478,7 +486,7 @@ export function FlashSaleItemTable({
                         </TableCell>
 
                         <TableCell className="text-right">
-                          {!editable ? null : isEditing ? (
+                          {!editable || locked(item) ? null : isEditing ? (
                             <div className="flex justify-end gap-1">
                               <Button
                                 size="icon"

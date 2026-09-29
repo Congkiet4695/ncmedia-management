@@ -7,8 +7,8 @@ import {
   MangoOrderMapper,
   NormalizedAddress,
   ResolvedItem,
+  type ResolvedPrintFile,
 } from '../mango/mappers/mango-order.mapper';
-import type { MangoPrintFile } from '../mango/types/mango-api.types';
 import { createMappingIndex, findMappingInIndex, mappingKeyOf } from '../shared/mapping-match';
 import {
   FulfillmentShippingLabelService,
@@ -43,6 +43,18 @@ export interface ReadinessDesign {
  * hàng loạt đơn trong một vòng lặp; cho nó tự query là mở đường cho N+1.
  */
 export type DesignsByProductKey = Map<string, ReadinessDesign[]>;
+
+/**
+ * Khoá vị trí in PHÍA NHÀ CUNG CẤP cho một design của một ánh xạ — `null` = không in được ở đó.
+ *
+ * 🔴 Mỗi nhà cung cấp một luật: Mango dùng danh sách `print_files[].key` cố định trong tài liệu;
+ * Sellerwix dùng `print_areas[].key` của CHÍNH biến thể (khác nhau theo sản phẩm). Nơi gọi truyền
+ * luật của nhà cung cấp đang xét; bỏ trống ⇒ luật Mango (hành vi cũ).
+ */
+export type PlacementResolver = (
+  placement: PodDesignPlacement,
+  mapping: MappingWithDesigns,
+) => string | null;
 
 /** Một lý do khiến đơn chưa gửi được — `code` để FE dịch/nhóm, `message` để hiển thị. */
 export interface ReadinessIssue {
@@ -211,8 +223,13 @@ export class FulfillmentReadinessService {
      * cung cấp khác; bỏ trống thì bỏ qua phép kiểm đó.
      */
     expectedAccountId?: string,
+    /** Luật vị trí in của nhà cung cấp — xem `PlacementResolver`. */
+    placementResolver?: PlacementResolver,
   ): ReadinessResult {
     const issues: ReadinessIssue[] = [];
+    const resolvePlacement: PlacementResolver =
+      placementResolver ??
+      ((placement, mapping) => this.mapper.resolvePlacement(placement, mapping.placementMap));
 
     if (UNFULFILLABLE_TIKTOK_STATUSES.has(order.status)) {
       issues.push({
@@ -246,6 +263,7 @@ export class FulfillmentReadinessService {
       designsByKey,
       publicBaseUrl,
       issues,
+      resolvePlacement,
       expectedAccountId,
     );
 
@@ -345,6 +363,7 @@ export class FulfillmentReadinessService {
     designsByKey: DesignsByProductKey,
     publicBaseUrl: string | undefined,
     issues: ReadinessIssue[],
+    resolvePlacement: PlacementResolver,
     expectedAccountId?: string,
   ): ResolvedItem[] {
     const resolved: ResolvedItem[] = [];
@@ -393,11 +412,19 @@ export class FulfillmentReadinessService {
         continue;
       }
 
-      const printFiles = this.resolvePrintFiles(item, mapping, designsByKey, publicBaseUrl, issues);
+      const printFiles = this.resolvePrintFiles(
+        item,
+        mapping,
+        designsByKey,
+        publicBaseUrl,
+        issues,
+        resolvePlacement,
+      );
       if (printFiles.length === 0) continue;
 
       resolved.push({
         podOrderItemId: item.id,
+        tiktokLineItemId: item.tiktokLineItemId,
         providerSku: mapping.providerSku,
         // TikTok trả 1 line item = 1 đơn vị sản phẩm (Order API overview).
         quantity: 1,
@@ -425,7 +452,8 @@ export class FulfillmentReadinessService {
     designsByKey: DesignsByProductKey,
     publicBaseUrl: string | undefined,
     issues: ReadinessIssue[],
-  ): MangoPrintFile[] {
+    resolvePlacement: PlacementResolver,
+  ): ResolvedPrintFile[] {
     // 🔴 Design tra theo (Product ID + Seller SKU) của CHÍNH line item, KHÔNG qua ánh xạ.
     // Design và ánh xạ là hai nghiệp vụ độc lập: đơn có thể đã có design từ trước khi ai đó
     // khai ánh xạ, và đổi ánh xạ sang nhà cung cấp khác không được làm mất file in.
@@ -445,9 +473,9 @@ export class FulfillmentReadinessService {
       return [];
     }
 
-    const files: MangoPrintFile[] = [];
+    const files: ResolvedPrintFile[] = [];
     for (const design of designs) {
-      const key = this.mapper.resolvePlacement(design.placement, mapping.placementMap);
+      const key = resolvePlacement(design.placement, mapping);
       if (!key) {
         issues.push({
           code: READINESS_CODES.PLACEMENT_UNSUPPORTED,

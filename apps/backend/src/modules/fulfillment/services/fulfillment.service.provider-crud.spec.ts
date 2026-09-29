@@ -10,6 +10,7 @@ import { ProductDesignMapper } from '../mappers/product-design.mapper';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import { FulfillmentReadinessService } from './fulfillment-readiness.service';
 import { FulfillmentService } from './fulfillment.service';
+import type { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 
 const PLAIN_KEY = 'mango-live-key-ABCD';
 
@@ -78,6 +79,10 @@ function build(repoOverrides: Record<string, jest.Mock> = {}) {
     {} as unknown as ProductDesignMapper,
     encryption,
     {} as unknown as PodAccessScopeService,
+    {
+      isSupported: () => true,
+      placementResolver: jest.fn().mockResolvedValue(undefined),
+    } as unknown as FulfillmentProviderGateway,
   );
   return { service, repo: repo as unknown as Record<string, jest.Mock> };
 }

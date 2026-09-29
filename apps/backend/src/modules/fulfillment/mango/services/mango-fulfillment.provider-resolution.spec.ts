@@ -47,6 +47,8 @@ function buildService(overrides: {
 
   const repo = {
     findByPodOrder,
+    // Đơn chưa được nhà cung cấp khác nhận (chống sản xuất hai lần qua hai nhà cung cấp).
+    findBlockingRecordOfOtherProvider: jest.fn().mockResolvedValue(null),
     findAccountById,
     createOrder,
     // Danh sách nhà cung cấp khả dụng của tổ chức (riêng + dùng chung) — mặc định RỖNG để
@@ -190,7 +192,11 @@ describe('MangoFulfillmentService.fulfill — chống gửi trùng', () => {
       id: 'ff-1',
       status: FulfillmentStatus.IN_PRODUCTION,
     });
-    const repo = { findByPodOrder, findAccountById } as unknown as FulfillmentRepository;
+    const repo = {
+      findByPodOrder,
+      findAccountById,
+      findBlockingRecordOfOtherProvider: jest.fn().mockResolvedValue(null),
+    } as unknown as FulfillmentRepository;
 
     const service = new MangoFulfillmentService(
       { get: () => undefined } as unknown as ConfigService,

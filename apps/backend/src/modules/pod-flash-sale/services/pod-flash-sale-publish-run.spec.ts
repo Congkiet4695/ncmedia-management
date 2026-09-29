@@ -570,6 +570,7 @@ describe('Nhặt lại lượt publish đứt gánh', () => {
       id: 'fs-1',
       organizationId: 'org-1',
       publishRunId: 'run-cu',
+      publishedAt: null,
     });
     await service.whenPublishIdle();
 
@@ -581,5 +582,182 @@ describe('Nhặt lại lượt publish đứt gánh', () => {
     expect(writes.every((data) => !('updatedBy' in data))).toBe(true);
     // Và vẫn dùng lại đúng hoạt động cũ, không tạo hoạt động thứ hai.
     expect(promotionApi.createActivity).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// TikTok nhận THIẾU trong một lô thành công — không được đánh dấu cả lô PUBLISHED
+// ---------------------------------------------------------------------------
+
+describe('Lô thành công nhưng TikTok nhận thiếu (total_count < số mục gửi)', () => {
+  it('🔴 25/30: đúng 5 dòng vắng trong Get Activity ⇒ FAILED (NOT_ACCEPTED_BY_TIKTOK), 25 PUBLISHED', async () => {
+    const flashSale = buildFlashSale({ items: buildItems(30), itemCount: 30 });
+    const { publishAndSettle, promotionApi, tx, publishedItemIds } = buildService(flashSale);
+    promotionApi.updateActivityProducts.mockResolvedValue({ data: { totalCount: 25 }, requestId: 'r3' });
+    promotionApi.getActivity.mockResolvedValue({
+      data: {
+        products: Array.from({ length: 25 }, (_, index) => ({
+          id: `TT-P-${index}`,
+          skus: [{ id: `TT-SKU-${index}` }],
+        })),
+      },
+      requestId: 'r4',
+    });
+
+    await publishAndSettle();
+
+    expect(publishedItemIds()).toHaveLength(25);
+    const failed = (
+      tx.podFlashSaleItem.update.mock.calls as unknown as Array<
+        [{ where: { id: string }; data: { status: string; errorCode: string } }]
+      >
+    )
+      .map((c) => c[0])
+      .filter((c) => c.data.status === PodFlashSaleItemStatus.FAILED);
+    expect(failed.map((c) => c.where.id).sort()).toEqual(['item-25', 'item-26', 'item-27', 'item-28', 'item-29']);
+    expect(failed.every((c) => c.data.errorCode === 'NOT_ACCEPTED_BY_TIKTOK')).toBe(true);
+  });
+
+  it('total_count đủ ⇒ KHÔNG gọi Get Activity (không tốn thêm lời gọi)', async () => {
+    const { publishAndSettle, promotionApi } = buildService(buildFlashSale({ items: buildItems(3) }));
+    promotionApi.updateActivityProducts.mockResolvedValue({ data: { totalCount: 3 }, requestId: 'r3' });
+
+    await publishAndSettle();
+
+    expect(promotionApi.getActivity).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Gửi THÊM sản phẩm vào đợt đang chạy
+// ---------------------------------------------------------------------------
+
+describe('pushPendingItems — thêm sản phẩm vào đợt ĐANG CHẠY', () => {
+  const running = (items: ReturnType<typeof buildItems>) =>
+    buildFlashSale({
+      status: PodFlashSaleStatus.RUNNING,
+      providerFlashSaleId: 'TT-ACT-1',
+      endAt: new Date(Date.now() + 3_600_000),
+      items,
+    });
+
+  function withValidation(harness: ReturnType<typeof buildService>, row: FlashSaleDetailRow) {
+    Object.assign(harness.flashSales, {
+      validateItemsOnly: jest.fn().mockReturnValue({ issues: [], readyItemIds: row.items.map((i) => i.id) }),
+    });
+    harness.promotionApi.getActivity.mockResolvedValue({ data: { status: 'ONGOING', products: [] }, requestId: 'g' });
+  }
+
+  it('🔴 chỉ gửi dòng CHƯA lên sàn; dòng PUBLISHED không bị gửi lại; đợt về RUNNING', async () => {
+    const row = running(
+      buildItems(4, (index) => ({
+        status: index < 2 ? PodFlashSaleItemStatus.PUBLISHED : PodFlashSaleItemStatus.READY,
+      })),
+    );
+    const harness = buildService(row);
+    withValidation(harness, row);
+    harness.promotionApi.updateActivityProducts.mockResolvedValue({ data: { totalCount: 2 }, requestId: 'r3' });
+
+    const result = await harness.service.pushPendingItems('org-1', 'user-1', 'fs-1', SCOPE);
+    await harness.service.whenPublishIdle();
+
+    expect(result.status).toBe(PodFlashSaleStatus.PUBLISHING);
+    expect(result.totalItems).toBe(2);
+    const sent = harness.calls().flatMap((c) => c.products.flatMap((p) => p.skus.map((s) => s.id)));
+    expect(sent).toEqual(['TT-SKU-2', 'TT-SKU-3']);
+    expect(harness.calls().every((c) => c.activityId === 'TT-ACT-1')).toBe(true);
+    expect(harness.promotionApi.createActivity).not.toHaveBeenCalled();
+    expect(harness.writes().some((w) => w.status === PodFlashSaleStatus.RUNNING)).toBe(true);
+    expect(harness.writes().some((w) => w.status === PodFlashSaleStatus.FAILED)).toBe(false);
+  });
+
+  it('🔴 TikTok từ chối lô khi đang chạy ⇒ đợt VẪN RUNNING (khuyến mãi cũ vẫn bán), dòng mới FAILED', async () => {
+    const row = running(buildItems(2, () => ({ status: PodFlashSaleItemStatus.READY })));
+    const harness = buildService(row);
+    withValidation(harness, row);
+    harness.promotionApi.updateActivityProducts.mockRejectedValue(
+      new TiktokClientError(TiktokErrorClass.CLIENT_BUG, 17000999, 'not eligible', 200, 'rq'),
+    );
+
+    await harness.service.pushPendingItems('org-1', 'user-1', 'fs-1', SCOPE);
+    await harness.service.whenPublishIdle();
+
+    expect(harness.writes().some((w) => w.status === PodFlashSaleStatus.RUNNING)).toBe(true);
+    expect(harness.writes().some((w) => w.status === PodFlashSaleStatus.FAILED)).toBe(false);
+    const failedWrite = (
+      harness.prisma.podFlashSaleItem.updateMany.mock.calls as unknown as Array<
+        [{ data: { status?: string; errorCode?: string } }]
+      >
+    )
+      .map((c) => c[0].data)
+      .find((d) => d.status === PodFlashSaleItemStatus.FAILED);
+    expect(failedWrite?.errorCode).toBe('BATCH_REJECTED');
+  });
+
+  it('không còn dòng nào chưa gửi ⇒ không gọi TikTok, không giành lượt', async () => {
+    const row = running(buildItems(2, () => ({ status: PodFlashSaleItemStatus.PUBLISHED })));
+    const harness = buildService(row);
+    withValidation(harness, row);
+
+    const result = await harness.service.pushPendingItems('org-1', 'user-1', 'fs-1', SCOPE);
+
+    expect(result.totalItems).toBe(0);
+    expect(result.status).toBe(PodFlashSaleStatus.RUNNING);
+    expect(harness.promotionApi.getActivity).not.toHaveBeenCalled();
+    expect(harness.prisma.podFlashSale.updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['DEACTIVATED', []],
+    ['EXPIRED', []],
+    ['ONGOING', ['IMMUTABLE']],
+  ])('hoạt động TikTok %s %j ⇒ 409 NOT_EDITABLE_ON_PROVIDER, không gửi gì', async (status, commands) => {
+    const row = running(buildItems(1, () => ({ status: PodFlashSaleItemStatus.READY })));
+    const harness = buildService(row);
+    withValidation(harness, row);
+    harness.promotionApi.getActivity.mockResolvedValue({ data: { status, activityCommands: commands }, requestId: 'g' });
+
+    await expect(harness.service.pushPendingItems('org-1', 'user-1', 'fs-1', SCOPE)).rejects.toMatchObject({
+      response: { code: 'POD_FLASH_SALE_NOT_EDITABLE_ON_PROVIDER' },
+    });
+    expect(harness.promotionApi.updateActivityProducts).not.toHaveBeenCalled();
+    expect(harness.prisma.podFlashSale.updateMany).not.toHaveBeenCalled();
+  });
+
+  it.each([PodFlashSaleStatus.READY, PodFlashSaleStatus.PUBLISHING, PodFlashSaleStatus.ENDED])(
+    'đợt %s ⇒ từ chối (chỉ đợt RUNNING mới gửi thêm)',
+    async (status) => {
+      const harness = buildService(buildFlashSale({ status, providerFlashSaleId: 'TT-ACT-1' }));
+      await expect(harness.service.pushPendingItems('org-1', 'user-1', 'fs-1', SCOPE)).rejects.toMatchObject({
+        response: { code: 'POD_FLASH_SALE_INVALID_STATE' },
+      });
+    },
+  );
+
+  it('🔴 lượt khác giành mất (claim = 0) ⇒ 409, không gửi gì', async () => {
+    const row = running(buildItems(1, () => ({ status: PodFlashSaleItemStatus.READY })));
+    const harness = buildService(row);
+    withValidation(harness, row);
+    harness.prisma.podFlashSale.updateMany.mockResolvedValueOnce({ count: 0 });
+
+    await expect(harness.service.pushPendingItems('org-1', 'user-1', 'fs-1', SCOPE)).rejects.toMatchObject({
+      response: { code: 'POD_FLASH_SALE_INVALID_STATE' },
+    });
+    expect(harness.promotionApi.updateActivityProducts).not.toHaveBeenCalled();
+  });
+
+  it('🔴 lượt trước đã gửi xong trước khi giành lượt ⇒ tính lại, không gửi lại dòng vừa lên sàn', async () => {
+    const stale = running(buildItems(2, () => ({ status: PodFlashSaleItemStatus.READY })));
+    const fresh = running(buildItems(2, () => ({ status: PodFlashSaleItemStatus.PUBLISHED })));
+    const harness = buildService(stale);
+    withValidation(harness, stale);
+    harness.flashSales.get.mockResolvedValueOnce(stale).mockResolvedValueOnce(fresh);
+
+    const result = await harness.service.pushPendingItems('org-1', 'user-1', 'fs-1', SCOPE);
+
+    expect(result.totalItems).toBe(0);
+    expect(result.status).toBe(PodFlashSaleStatus.RUNNING);
+    expect(harness.promotionApi.updateActivityProducts).not.toHaveBeenCalled();
+    expect(harness.writes().some((w) => w.status === PodFlashSaleStatus.RUNNING)).toBe(true);
   });
 });

@@ -146,7 +146,9 @@
       "end": "End",
       "items": "Products",
       "createdBy": "Created by",
-      "updated": "Updated"
+      "updated": "Updated",
+      "result": "Run result",
+      "lastRun": "Last run"
     },
     "actions": {
       "publish": "Publish",
@@ -155,13 +157,18 @@
       "duplicate": "Duplicate",
       "saveTemplate": "Save as Template",
       "addProducts": "Add products",
-      "batchEdit": "Batch edit"
+      "batchEdit": "Batch edit",
+      "syncFromTiktok": "Sync from TikTok",
+      "pushItems": "Push new products to TikTok"
     },
     "confirm": {
       "publish": "Publish \"{{name}}\" to TikTok? Deal prices go live for real buyers.",
       "cancel": "Cancel \"{{name}}\" on TikTok? The promotion stops immediately.",
       "delete": "Delete \"{{name}}\"?",
-      "deleteItems": "Remove {{count}} product rows from this flash sale?"
+      "deleteItems": "Remove {{count}} product rows from this flash sale?",
+      "syncFromTiktokShop": "Sync Flash Sales of the selected shop from TikTok? This only READS from TikTok.",
+      "syncFromTiktokAll": "Sync Flash Sales of ALL shops you manage from TikTok? This only READS from TikTok.",
+      "pushItems": "Push {{count}} rows of \"{{name}}\" that are not on TikTok yet into the running promotion? Rows already on TikTok are not re-sent."
     },
     "toast": {
       "created": "Flash sale created",
@@ -179,7 +186,13 @@
       "batchAppliedPartial": "Updated {{updated}} / {{requested}} SKUs · {{skipped}} skipped",
       "batchSkippedReasons": "Skipped: {{reasons}}",
       "templateSaved": "Template saved",
-      "publishStarted": "Publishing started — sending {{count}} batch(es) to TikTok in the background."
+      "publishStarted": "Publishing started — sending {{count}} batch(es) to TikTok in the background.",
+      "importDone": "Sync finished: {{created}} new · {{updated}} updated · {{unchanged}} unchanged",
+      "importUnmatched": "{{count}} TikTok SKUs are not in the system yet — sync products, then run again.",
+      "importShopFailed": "Shop {{shop}}: {{message}}",
+      "importShopBusy": "Shop {{shop}} is being synced by another session — try again later.",
+      "pushStarted": "Sending {{count}} new rows to TikTok…",
+      "pushNothing": "There are no rows waiting to be sent to TikTok."
     },
     "form": {
       "shop": "Shop",
@@ -228,7 +241,9 @@
       "syncHint": "Re-read the status from TikTok. This is the ONLY button on this screen that calls the platform.",
       "itemQuota": "Selected SKUs: {{total, number}} / {{max, number}}",
       "issueAffected": "— {{count}} SKU",
-      "issueSamples": "Show examples"
+      "issueSamples": "Show examples",
+      "pendingPushHint": "{{count}} rows are not on TikTok yet. Click \"Push new products to TikTok\" to add them to the running promotion.",
+      "runningEditHint": "Running sale: you can only add new products and edit/delete rows not yet on TikTok."
     },
     "items": {
       "empty": "No products yet. Use Add products to start.",
@@ -333,6 +348,78 @@
       "activityId": "Promotion {{id}}",
       "failedAtBatch": "Stopped at batch {{batch}}/{{total}}. {{message}} Retry resumes on the same promotion — no second promotion is created.",
       "asyncHint": "Products are sent to TikTok in batches of up to 300 SKUs. You can leave this page; publishing continues in the background."
+    },
+    "stats": {
+      "success": "{{count}} succeeded",
+      "failed": "{{count}} failed",
+      "pending": "{{count}} pending",
+      "removed": "{{count}} removed",
+      "products": "Products: {{published}}/{{total}} succeeded · {{failed}} failed",
+      "tooltip": "Counted per row (variant) — {{total}} rows"
+    },
+    "source": {
+      "SYSTEM": "System",
+      "TIKTOK": "From TikTok"
+    },
+    "auto": {
+      "column": "Auto",
+      "on": "ON",
+      "off": "OFF",
+      "sequence": "#{{n}}",
+      "confirmOn": "Turn on Auto for \"{{name}}\"? When it has ≤ {{hours}} hours left, the system creates the next sale (all products copied, discounts kept) and pushes it to TikTok.",
+      "confirmOff": "Turn off Auto for \"{{name}}\"? The chain stops at this sale.",
+      "turnedOn": "Auto Flash Sale turned on",
+      "turnedOff": "Auto Flash Sale turned off",
+      "settingsButton": "Auto Scheduler",
+      "chainTitle": "Auto Flash Sale chain",
+      "chainHint": "Each chain has exactly one sale with Auto on. The next sale is created when that one has ≤ {{hours}} hours left.",
+      "chainEmpty": "This sale is not part of an Auto chain.",
+      "createdFrom": "Created from",
+      "next": "Next sale",
+      "thisSale": "this sale",
+      "activeNode": "Auto on",
+      "turnOn": "Turn on Auto",
+      "turnOff": "Turn off Auto",
+      "trigger": {
+        "CRON": "Scheduled",
+        "MANUAL": "Run now"
+      },
+      "runStatus": {
+        "SUCCESS": "Success",
+        "PARTIAL": "Some chains failed",
+        "FAILED": "Failed"
+      },
+      "action": {
+        "NOT_DUE": "Not due",
+        "CREATED": "Next sale created",
+        "TRANSFERRED": "Auto handed over",
+        "IN_PROGRESS": "Sending to TikTok",
+        "SKIPPED": "Skipped",
+        "FAILED": "Failed"
+      },
+      "settings": {
+        "title": "Auto Flash Sale Scheduler",
+        "subtitle": "Daily run time of the job that creates the next Flash Sale for sales with Auto on.",
+        "noPermission": "You do not have permission to configure Auto Flash Sale.",
+        "enabled": "Enable the Auto Flash Sale job",
+        "runTime": "Run time",
+        "runTimeHint": "Runs exactly once a day. If the server is down at run time, the run is caught up as soon as it is back.",
+        "timezone": "Time zone",
+        "lastRun": "Last run",
+        "nextRun": "Next run",
+        "lastResult": "Last result",
+        "never": "Never run",
+        "disabled": "Disabled",
+        "save": "Save configuration",
+        "saved": "Auto Flash Sale configuration saved",
+        "runNow": "Run now",
+        "runNowConfirm": "Run Auto Flash Sale now? Due sales with Auto on will get their next sale created on TikTok for real.",
+        "runDone": "Done: {{created}} created · {{transferred}} handed over · {{failed}} failed",
+        "rulesTitle": "Chain rules",
+        "rules": "Create the next sale when the active sale has ≤ {{leadHours}} hours left · it starts {{gapMinutes}} minutes after the previous one ends · lasts {{durationDays}} days − {{endTrimMinutes}} minute(s).",
+        "summary": "Checked {{checked}} · created {{created}} · handed over {{transferred}} · sending {{inProgress}} · skipped {{skipped}} · failed {{failed}}",
+        "invalidTime": "Run time must be HH:mm."
+      }
     }
   },
   "link": {

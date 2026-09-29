@@ -22,6 +22,33 @@ import {
 /** Giá trị cột `provider`. Hôm nay chỉ có TikTok — thêm sàn khác không phải migration enum. */
 export const POD_FLASH_SALE_PROVIDER_TIKTOK = 'TIKTOK';
 
+/** Nguồn của một đợt sale (`pod_flash_sales.source`). */
+export const FLASH_SALE_SOURCE = {
+  /** Tạo trong hệ thống. */
+  SYSTEM: 'SYSTEM',
+  /** Đồng bộ về từ TikTok (tạo ở Seller Center, hoặc chưa có trong hệ thống). */
+  TIKTOK: 'TIKTOK',
+} as const;
+export type FlashSaleSource = (typeof FLASH_SALE_SOURCE)[keyof typeof FLASH_SALE_SOURCE];
+
+/**
+ * Mã lỗi ghi lên TỪNG DÒNG (`pod_flash_sale_items.error_code`) — hệ thống tự đặt, khác mã lỗi
+ * TikTok (TikTok không trả lỗi theo dòng cho Update Activity Products).
+ */
+export const FLASH_SALE_ITEM_ERROR_CODES = {
+  /** Lô chứa dòng này bị TikTok từ chối (hoặc hết lượt thử lại). Thông điệp = lỗi TikTok. */
+  BATCH_REJECTED: 'BATCH_REJECTED',
+  /** Lô thành công nhưng Get Activity KHÔNG có SKU/sản phẩm này. */
+  NOT_ACCEPTED: 'NOT_ACCEPTED_BY_TIKTOK',
+} as const;
+
+/** Khoá phân tán cho lượt đồng bộ Flash Sale từ TikTok — theo shop. */
+export const FLASH_SALE_IMPORT_LOCK_PREFIX = 'pod:flash-sale:import:lock:';
+export const FLASH_SALE_IMPORT_LOCK_TTL_MS = 10 * 60_000;
+export const FLASH_SALE_IMPORT_LOCK_RENEW_MS = 60_000;
+/** Số dòng lỗi (không khớp / không hợp lệ) tối đa ghi vào nhật ký của MỘT đợt mỗi lượt đồng bộ. */
+export const FLASH_SALE_IMPORT_MAX_REPORTED_ISSUES = 50;
+
 // ---------------------------------------------------------------------------
 // Giới hạn số lượng mua (dùng lại đúng dải của TikTok, không tự định nghĩa dải khác)
 // ---------------------------------------------------------------------------
@@ -317,6 +344,8 @@ export const FLASH_SALE_ISSUE_CODES = {
   ITEM_LIMIT_EXCEEDED: 'FLASH_SALE_ITEM_LIMIT_EXCEEDED',
   CURRENCY_MISMATCH: 'FLASH_SALE_CURRENCY_MISMATCH',
   PRODUCT_NOT_ACTIVE: 'FLASH_SALE_PRODUCT_NOT_ACTIVE',
+  /** SKU đã bị người bán xoá trên TikTok — dòng còn giữ, nhưng không gửi lên sàn được. */
+  VARIANT_REMOVED: 'FLASH_SALE_VARIANT_REMOVED',
 } as const;
 export type PodFlashSaleIssueCode =
   (typeof FLASH_SALE_ISSUE_CODES)[keyof typeof FLASH_SALE_ISSUE_CODES];
@@ -329,4 +358,65 @@ export const FLASH_SALE_PERMISSIONS = {
   READ: 'pod.flashsale.read',
   WRITE: 'pod.flashsale.write',
   PUBLISH: 'pod.flashsale.publish',
+  /** Cấu hình lịch chạy Auto Flash Sale + Run Now — mặc định chỉ role Admin (seed cấp mọi quyền cho Admin). */
+  AUTO_CONFIG: 'pod.flashsale.auto.config',
 } as const;
+
+// ---------------------------------------------------------------------------
+// Auto Flash Sale — luật nghiệp vụ của chuỗi (A → B → C …)
+// ---------------------------------------------------------------------------
+
+/**
+ * Luật tạo đợt kế tiếp. Đặt tên ở MỘT chỗ để không có con số ma nào rải trong code:
+ *
+ * ```
+ *   điều kiện tạo : A.endAt − now ≤ LEAD_MS                     (còn ≤ 24 giờ)
+ *   START(B)      : A.endAt + GAP_MS                            (sau 10 phút)
+ *   END(B)        : START(B) + DURATION_DAYS ngày LỊCH − END_TRIM_MS   (3 ngày − 1 phút)
+ * ```
+ *
+ * "Ngày lịch" cộng theo múi giờ của CHÍNH đợt sale (`pod_flash_sales.timezone`) — qua mốc đổi giờ
+ * mùa hè vẫn giữ đúng giờ treo tường, không phải cộng cứng 72 giờ.
+ */
+export const FLASH_SALE_AUTO_RULES = {
+  LEAD_MS: 24 * 60 * 60_000,
+  GAP_MS: 10 * 60_000,
+  DURATION_DAYS: 3,
+  END_TRIM_MS: 60_000,
+} as const;
+
+/** Khoá phân tán cho MỘT lượt chạy Auto của một tổ chức (cron và Run Now dùng chung). */
+export const FLASH_SALE_AUTO_LOCK_PREFIX = 'pod:flash-sale:auto:lock:';
+export const FLASH_SALE_AUTO_LOCK_TTL_MS = 30 * 60_000;
+export const FLASH_SALE_AUTO_LOCK_RENEW_MS = 60_000;
+/** Số đợt Auto nạp mỗi trang khi quét — duyệt theo con trỏ, không nạp cả bảng. */
+export const FLASH_SALE_AUTO_PAGE_SIZE = 50;
+/** Hậu tố tên đợt sinh tự động: `<tên gốc> - Auto #<số thứ tự>`. */
+export const FLASH_SALE_AUTO_NAME_SUFFIX = ' - Auto #';
+
+export const FLASH_SALE_AUTO_TRIGGER = { CRON: 'CRON', MANUAL: 'MANUAL' } as const;
+export type FlashSaleAutoTrigger = (typeof FLASH_SALE_AUTO_TRIGGER)[keyof typeof FLASH_SALE_AUTO_TRIGGER];
+
+export const FLASH_SALE_AUTO_RUN_STATUS = {
+  SUCCESS: 'SUCCESS',
+  /** Có ít nhất một chuỗi lỗi — các chuỗi khác vẫn được xử lý. */
+  PARTIAL: 'PARTIAL',
+  FAILED: 'FAILED',
+} as const;
+
+/** Kết quả xử lý MỘT nút đang bật Auto trong một lượt chạy. */
+export const FLASH_SALE_AUTO_ACTION = {
+  /** Chưa tới hạn (còn > LEAD). */
+  NOT_DUE: 'NOT_DUE',
+  /** Đã tạo đợt kế tiếp và nó đã lên sàn (RUNNING) ⇒ Auto đã chuyển sang đợt mới. */
+  CREATED: 'CREATED',
+  /** Đợt kế tiếp đã có từ trước và nay đã RUNNING ⇒ chỉ chuyển Auto. */
+  TRANSFERRED: 'TRANSFERRED',
+  /** Đợt kế tiếp đang gửi lô — chờ lượt sau. */
+  IN_PROGRESS: 'IN_PROGRESS',
+  /** Bỏ qua có lý do (đợt kế tiếp bị huỷ, đợt hiện tại không đủ điều kiện …). */
+  SKIPPED: 'SKIPPED',
+  /** Lỗi — Auto của đợt hiện tại vẫn BẬT, lượt sau thử lại. */
+  FAILED: 'FAILED',
+} as const;
+export type FlashSaleAutoAction = (typeof FLASH_SALE_AUTO_ACTION)[keyof typeof FLASH_SALE_AUTO_ACTION];

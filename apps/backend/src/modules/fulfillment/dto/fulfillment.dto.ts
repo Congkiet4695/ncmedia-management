@@ -79,12 +79,15 @@ export class CreateFulfillmentAccountDto {
   defaultProductionLine?: string;
 
   @ApiPropertyOptional({
-    enum: MANGO_SHIPPING_METHODS,
-    default: 'standard',
-    description: 'Phương thức vận chuyển mặc định (giá trị theo enum của nhà cung cấp).',
+    description:
+      'Phương thức vận chuyển mặc định THEO nhà cung cấp. Mango: một trong ' +
+      `${MANGO_SHIPPING_METHODS.join(' | ')} (mặc định standard). Sellerwix: \`code\` của ` +
+      'Get available shipping methods (phụ thuộc biến thể — thường để trống và chọn khi Fulfill).',
   })
   @IsOptional()
-  @IsIn(MANGO_SHIPPING_METHODS, { message: 'Phương thức vận chuyển không hợp lệ' })
+  @Transform(trim)
+  @IsString()
+  @MaxLength(255)
   defaultShippingMethod?: string;
 
   @ApiPropertyOptional({ description: '`facility` mặc định (chỉ production line TIKTOK).' })
@@ -99,6 +102,36 @@ export class CreateFulfillmentAccountDto {
   @Transform(toBool)
   @IsBoolean()
   isDefault?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Sellerwix: private key RSA 2048 (PEM, gồm dòng BEGIN/END) dùng ký JWT assertion RS256. ' +
+      'MÃ HOÁ AES-256-GCM trước khi lưu và KHÔNG BAO GIỜ trả lại qua API. Bắt buộc với Sellerwix, ' +
+      'bị từ chối với nhà cung cấp khác.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  privateKey?: string;
+
+  @ApiPropertyOptional({
+    description: 'Sellerwix: Store ID (field bắt buộc `store_id` của Fulfill order).',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(128)
+  storeId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Sellerwix: Public Key ID do Sellerwix trả khi upload public key (header `kid` của JWT).',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(128)
+  publicKeyId?: string;
 }
 
 export class UpdateFulfillmentAccountDto {
@@ -116,6 +149,43 @@ export class UpdateFulfillmentAccountDto {
   @MaxLength(500)
   apiKey?: string;
 
+  @ApiPropertyOptional({ description: 'Đổi base URL (chuỗi rỗng ⇒ dùng mặc định của hệ thống).' })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(500)
+  baseUrl?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Sellerwix: private key RSA 2048 (PEM, gồm dòng BEGIN/END) dùng ký JWT assertion RS256. ' +
+      'MÃ HOÁ AES-256-GCM trước khi lưu và KHÔNG BAO GIỜ trả lại qua API. Bắt buộc với Sellerwix, ' +
+      'bị từ chối với nhà cung cấp khác.',
+  })
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  privateKey?: string;
+
+  @ApiPropertyOptional({
+    description: 'Sellerwix: Store ID (field bắt buộc `store_id` của Fulfill order).',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(128)
+  storeId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Sellerwix: Public Key ID do Sellerwix trả khi upload public key (header `kid` của JWT).',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(128)
+  publicKeyId?: string;
+
   @ApiPropertyOptional()
   @IsOptional()
   @Transform(trim)
@@ -123,9 +193,11 @@ export class UpdateFulfillmentAccountDto {
   @MaxLength(64)
   defaultProductionLine?: string;
 
-  @ApiPropertyOptional({ enum: MANGO_SHIPPING_METHODS })
+  @ApiPropertyOptional({ description: 'Xem `CreateFulfillmentAccountDto.defaultShippingMethod`.' })
   @IsOptional()
-  @IsIn(MANGO_SHIPPING_METHODS)
+  @Transform(trim)
+  @IsString()
+  @MaxLength(255)
   defaultShippingMethod?: string;
 
   @ApiPropertyOptional()
@@ -181,6 +253,16 @@ export class FulfillmentAccountDto {
   baseUrl!: string | null;
   @ApiProperty({ description: 'Số kết nối TikTok đang dùng nhà cung cấp này.' })
   linkedTiktokAccounts!: number;
+  @ApiProperty({ nullable: true, type: String, description: 'Sellerwix: Store ID (không bí mật).' })
+  storeId!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'Sellerwix: Public Key ID (không bí mật).',
+  })
+  publicKeyId!: string | null;
+  @ApiProperty({ description: 'Đã lưu private key (Sellerwix) — bản thân key KHÔNG BAO GIỜ trả về.' })
+  privateKeyConfigured!: boolean;
 }
 
 /** Nhà cung cấp gán cho đơn — hiển thị ở Order Detail. KHÔNG chứa API key. */
@@ -217,9 +299,15 @@ export class TestConnectionResultDto {
   @ApiProperty({
     nullable: true,
     type: Number,
-    description: 'Số production line đọc được — bằng chứng key thực sự dùng được.',
+    description: 'Mango: số production line đọc được — bằng chứng key thực sự dùng được.',
   })
   productionLineCount!: number | null;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description: 'Sellerwix: số danh mục đọc được sau khi đổi access token thành công.',
+  })
+  categoryCount!: number | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -296,6 +384,13 @@ export class PaginatedCatalogProductDto {
 }
 
 /** Biến thể trong danh mục nhà cung cấp. `sku` là giá trị gửi khi tạo đơn. */
+/** Một vùng in của biến thể nhà cung cấp (Sellerwix `print_areas[]`). */
+export class ProviderPrintAreaDto {
+  @ApiProperty({ description: 'Khoá gửi đi (vd CF, FB).' }) key!: string;
+  @ApiProperty({ nullable: true, type: String }) displayName!: string | null;
+  @ApiProperty({ description: 'Vùng in bắt buộc có artwork (theo tài liệu).' }) required!: boolean;
+}
+
 export class ProviderCatalogVariationDto {
   @ApiProperty({ description: 'Khoá nội bộ (uuid).' }) id!: string;
   @ApiProperty({ description: 'ID biến thể phía nhà cung cấp.' }) externalVariantId!: string;
@@ -305,6 +400,15 @@ export class ProviderCatalogVariationDto {
   @ApiProperty({ nullable: true, type: String }) size!: string | null;
   @ApiProperty({ nullable: true, type: String }) price!: string | null;
   @ApiProperty() isAvailable!: boolean;
+  @ApiProperty({
+    nullable: true,
+    type: ProviderPrintAreaDto,
+    isArray: true,
+    description:
+      'Sellerwix: `print_areas` của biến thể (khoá gửi trong `line_items[].print_areas[].key`). ' +
+      'NULL với nhà cung cấp có bộ vị trí in cố định (Mango).',
+  })
+  printAreas!: ProviderPrintAreaDto[] | null;
 }
 
 export class CatalogProductQueryDto {
@@ -717,12 +821,17 @@ export class PaginatedProductMappingDto {
  */
 export class FulfillPodOrderDto {
   @ApiPropertyOptional({
-    enum: MANGO_SHIPPING_METHODS,
-    description: 'Bỏ trống ⇒ dùng phương thức mặc định của tài khoản nhà cung cấp.',
+    description:
+      'Mã phương thức vận chuyển THEO nhà cung cấp — lấy từ ' +
+      '`GET /fulfillment/orders/{podOrderId}/shipping-methods`. Mango: enum cố định; Sellerwix: ' +
+      '`code` mọi biến thể trong đơn cùng hỗ trợ. Adapter của nhà cung cấp kiểm tra giá trị. ' +
+      'Bỏ trống ⇒ mặc định của tài khoản.',
   })
   @IsOptional()
-  @IsIn(MANGO_SHIPPING_METHODS)
-  shippingMethod?: (typeof MANGO_SHIPPING_METHODS)[number];
+  @Transform(trim)
+  @IsString()
+  @MaxLength(255)
+  shippingMethod?: string;
 
   @ApiPropertyOptional({
     enum: MANGO_FACILITIES,
@@ -764,6 +873,15 @@ export class FulfillPodOrderDto {
   @IsOptional()
   @IsBoolean()
   isScanLabel?: boolean;
+
+  @ApiPropertyOptional({
+    description:
+      'Sellerwix `rush_service` (mặc định false). Chỉ hợp lệ khi MỌI biến thể trong đơn có ' +
+      '`is_rush_service = true`. Nhà cung cấp khác từ chối tuỳ chọn này.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  rushService?: boolean;
 
   @ApiPropertyOptional({
     description: 'URL nhãn vận chuyển người bán tự mua (PDF/PNG/JPG, phải truy cập công khai).',
@@ -812,6 +930,34 @@ export class FulfillmentOptionDto {
   @ApiProperty() label!: string;
 }
 
+/**
+ * Nhà cung cấp hỗ trợ tuỳ chọn nào — giao diện ẩn hẳn ô KHÔNG có ý nghĩa với nhà cung cấp đang
+ * chọn (vd Facility/Speed type/Scan label chỉ của Mango, Rush service chỉ của Sellerwix).
+ */
+export class FulfillmentCapabilitiesDto {
+  @ApiProperty() productionLine!: boolean;
+  @ApiProperty() productionConfig!: boolean;
+  @ApiProperty() facility!: boolean;
+  @ApiProperty() speedType!: boolean;
+  @ApiProperty() preferredCarrier!: boolean;
+  @ApiProperty() scanLabel!: boolean;
+  @ApiProperty() rushService!: boolean;
+  @ApiProperty({
+    description:
+      'Phương thức vận chuyển phụ thuộc SẢN PHẨM của đơn (Sellerwix) ⇒ lấy từ ' +
+      '`GET /fulfillment/orders/{podOrderId}/shipping-methods` thay vì danh sách cố định.',
+  })
+  shippingMethodsByOrder!: boolean;
+  @ApiProperty({ description: 'Sửa đơn đã gửi (nhãn/ghi chú/vận chuyển) qua API nhà cung cấp.' })
+  updateAfterSubmit!: boolean;
+}
+
+/** Phương thức vận chuyển dùng được cho MỘT đơn với MỘT tài khoản nhà cung cấp. */
+export class OrderShippingMethodsDto {
+  @ApiProperty({ type: FulfillmentOptionDto, isArray: true }) options!: FulfillmentOptionDto[];
+  @ApiProperty({ type: String, isArray: true }) warnings!: string[];
+}
+
 export class PrintLocationOptionDto {
   @ApiProperty({ enum: PodDesignPlacement, description: 'Vị trí in phía NCMedia (khoá upload design).' })
   placement!: PodDesignPlacement;
@@ -844,6 +990,7 @@ export class FulfillmentOptionsDto {
   productionLines!: FulfillmentOptionDto[];
   @ApiProperty({ type: PrintLocationOptionDto, isArray: true })
   printLocations!: PrintLocationOptionDto[];
+  @ApiProperty({ type: FulfillmentCapabilitiesDto }) capabilities!: FulfillmentCapabilitiesDto;
   @ApiProperty({ type: String, isArray: true }) warnings!: string[];
 }
 

@@ -69,6 +69,7 @@ function build(rows: FakeItem[]) {
   const flashSales = {
     get: jest.fn().mockResolvedValue(flashSale),
     assertEditable: jest.fn(),
+    assertItemsMutable: jest.fn(),
   };
   const service = new PodFlashSaleItemService(prisma as never, flashSales as never);
 
