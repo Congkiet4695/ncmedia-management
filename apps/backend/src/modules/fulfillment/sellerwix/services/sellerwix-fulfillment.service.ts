@@ -188,8 +188,10 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
       organizationId,
       options.fulfillmentAccountId,
     );
-    // Thiếu API Key / Public Key ID / Private Key / Store ID ⇒ báo NGAY, trước khi chạm dữ liệu đơn.
+    // Thiếu API Key, hoặc thiếu Store ID (field bắt buộc `store_id` của Create Order) ⇒ báo NGAY,
+    // trước khi chạm dữ liệu đơn.
     const ctx = this.credentials.buildContext(account);
+    const storeId = this.credentials.requireStoreId(ctx);
 
     const mappings = await this.repo.listMappingsForOrganization(organizationId);
     const designsByKey = await this.loadDesignsByKey(organizationId);
@@ -308,7 +310,7 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     }
 
     const request = this.mapper.buildCreateOrderRequest({
-      storeId: ctx.storeId,
+      storeId,
       referenceId,
       address: check.address,
       lines,
@@ -432,7 +434,11 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
       const ctx = this.credentials.buildContext(account);
       const result = record.providerOrderId
         ? await this.client.getOrder(ctx, record.providerOrderId)
-        : await this.client.getOrderByReference(ctx, record.externalOrderId);
+        : await this.client.getOrderByReference(
+            ctx,
+            this.credentials.requireStoreId(ctx),
+            record.externalOrderId,
+          );
       const changed = await this.applyProviderState(record, result.data, trigger, {
         durationMs: result.durationMs,
         requestId: result.requestId,
@@ -633,8 +639,8 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
   // ---------------------------------------------------------------------------
 
   /**
-   * (1) đổi JWT assertion lấy access token — chứng minh API Key + Public Key ID + Private Key đúng;
-   * (2) `GET /v1/category` — endpoint chỉ đọc, chứng minh token dùng được với Public API.
+   * `GET /v1/category` với header `X-Api-Key` — endpoint chỉ đọc; thành công ⇒ API Key dùng được
+   * với Public API. CHỈ cần API Key.
    *
    * ⚠️ Store ID KHÔNG kiểm được: tài liệu không có endpoint đọc thông tin store. Sai Store ID chỉ
    * lộ ra khi tạo đơn (thông điệp của Sellerwix được trả nguyên văn).
@@ -643,7 +649,6 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     const startedAt = Date.now();
     try {
       const ctx = this.credentials.buildContext(account);
-      await this.client.verifyCredentials(ctx);
       const categories = await this.client.listCategories(ctx);
       const categoryCount = Array.isArray(categories.data) ? categories.data.length : 0;
       await this.repo.updateAccount(account.id, { lastUsedAt: new Date(), lastErrorMsg: null });
@@ -873,7 +878,11 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     referenceId: string,
   ): Promise<SellerwixOrder | null> {
     try {
-      const result = await this.client.getOrderByReference(ctx, referenceId);
+      const result = await this.client.getOrderByReference(
+        ctx,
+        this.credentials.requireStoreId(ctx),
+        referenceId,
+      );
       return result.data?.id ? result.data : null;
     } catch (error) {
       if (
@@ -958,7 +967,7 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     try {
       const result = providerOrderId
         ? await this.client.getOrder(ctx, providerOrderId)
-        : await this.client.getOrderByReference(ctx, referenceId);
+        : await this.client.getOrderByReference(ctx, this.credentials.requireStoreId(ctx), referenceId);
       await this.applyProviderState(record, result.data, trigger, {
         durationMs: result.durationMs,
         requestId: result.requestId,

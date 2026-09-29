@@ -16,6 +16,7 @@ import {
   MaxLength,
   MinLength,
   Min,
+  type ValidationArguments,
 } from 'class-validator';
 import { FulfillmentProvider, FulfillmentStatus, PodDesignPlacement } from '@prisma/client';
 import { PodDesignDto } from '../../pod-tiktok/dto/pod-design.dto';
@@ -62,6 +63,12 @@ export class CreateFulfillmentAccountDto {
   })
   @Transform(trim)
   @IsString()
+  @IsNotEmpty({
+    message: (args: ValidationArguments) =>
+      (args.object as { provider?: string }).provider === FulfillmentProvider.SELLERWIX
+        ? 'Sellerwix API Key is required.'
+        : 'API Key is required.',
+  })
   @MinLength(8, { message: 'API key quá ngắn — kiểm tra lại khoá đã sao chép' })
   @MaxLength(500)
   apiKey!: string;
@@ -104,10 +111,10 @@ export class CreateFulfillmentAccountDto {
   isDefault?: boolean;
 
   @ApiPropertyOptional({
+    deprecated: true,
     description:
-      'Sellerwix: private key RSA 2048 (PEM, gồm dòng BEGIN/END) dùng ký JWT assertion RS256. ' +
-      'MÃ HOÁ AES-256-GCM trước khi lưu và KHÔNG BAO GIỜ trả lại qua API. Bắt buộc với Sellerwix, ' +
-      'bị từ chối với nhà cung cấp khác.',
+      '[CŨ] Sellerwix nay xác thực CHỈ bằng API Key — trường này được nhận nhưng BỎ QUA (không ' +
+      'kiểm, không lưu). Bị từ chối với nhà cung cấp khác.',
   })
   @IsOptional()
   @IsString()
@@ -115,7 +122,9 @@ export class CreateFulfillmentAccountDto {
   privateKey?: string;
 
   @ApiPropertyOptional({
-    description: 'Sellerwix: Store ID (field bắt buộc `store_id` của Fulfill order).',
+    description:
+      'Sellerwix: Store ID — TUỲ CHỌN khi lưu; chỉ bắt buộc khi tạo/tra đơn (field `store_id` ' +
+      'của Fulfill order).',
   })
   @IsOptional()
   @Transform(trim)
@@ -124,8 +133,9 @@ export class CreateFulfillmentAccountDto {
   storeId?: string;
 
   @ApiPropertyOptional({
+    deprecated: true,
     description:
-      'Sellerwix: Public Key ID do Sellerwix trả khi upload public key (header `kid` của JWT).',
+      '[CŨ] Sellerwix nay xác thực CHỈ bằng API Key — trường này được nhận nhưng BỎ QUA.',
   })
   @IsOptional()
   @Transform(trim)
@@ -157,10 +167,10 @@ export class UpdateFulfillmentAccountDto {
   baseUrl?: string;
 
   @ApiPropertyOptional({
+    deprecated: true,
     description:
-      'Sellerwix: private key RSA 2048 (PEM, gồm dòng BEGIN/END) dùng ký JWT assertion RS256. ' +
-      'MÃ HOÁ AES-256-GCM trước khi lưu và KHÔNG BAO GIỜ trả lại qua API. Bắt buộc với Sellerwix, ' +
-      'bị từ chối với nhà cung cấp khác.',
+      '[CŨ] Sellerwix nay xác thực CHỈ bằng API Key — trường này được nhận nhưng BỎ QUA (không ' +
+      'kiểm, không lưu). Bị từ chối với nhà cung cấp khác.',
   })
   @IsOptional()
   @IsString()
@@ -168,7 +178,9 @@ export class UpdateFulfillmentAccountDto {
   privateKey?: string;
 
   @ApiPropertyOptional({
-    description: 'Sellerwix: Store ID (field bắt buộc `store_id` của Fulfill order).',
+    description:
+      'Sellerwix: Store ID — TUỲ CHỌN khi lưu; chỉ bắt buộc khi tạo/tra đơn (field `store_id` ' +
+      'của Fulfill order).',
   })
   @IsOptional()
   @Transform(trim)
@@ -177,8 +189,9 @@ export class UpdateFulfillmentAccountDto {
   storeId?: string;
 
   @ApiPropertyOptional({
+    deprecated: true,
     description:
-      'Sellerwix: Public Key ID do Sellerwix trả khi upload public key (header `kid` của JWT).',
+      '[CŨ] Sellerwix nay xác thực CHỈ bằng API Key — trường này được nhận nhưng BỎ QUA.',
   })
   @IsOptional()
   @Transform(trim)
@@ -255,14 +268,6 @@ export class FulfillmentAccountDto {
   linkedTiktokAccounts!: number;
   @ApiProperty({ nullable: true, type: String, description: 'Sellerwix: Store ID (không bí mật).' })
   storeId!: string | null;
-  @ApiProperty({
-    nullable: true,
-    type: String,
-    description: 'Sellerwix: Public Key ID (không bí mật).',
-  })
-  publicKeyId!: string | null;
-  @ApiProperty({ description: 'Đã lưu private key (Sellerwix) — bản thân key KHÔNG BAO GIỜ trả về.' })
-  privateKeyConfigured!: boolean;
 }
 
 /** Nhà cung cấp gán cho đơn — hiển thị ở Order Detail. KHÔNG chứa API key. */

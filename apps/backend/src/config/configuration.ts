@@ -173,8 +173,8 @@ export default () => ({
     },
 
     /**
-     * Sellerwix Public API (docs/fulfillment/sellerwix.md). Thông tin xác thực (API Key, Public
-     * Key ID, private key RSA, Store ID) nằm trong DB của từng tài khoản — KHÔNG ở đây.
+     * Sellerwix Public API (docs/fulfillment/sellerwix.md). Thông tin xác thực (API Key — header
+     * `X-Api-Key`) và Store ID nằm trong DB của từng tài khoản — KHÔNG ở đây.
      */
     sellerwix: {
       /** Base URL mặc định khi tài khoản không ghi đè (biến `baseUrl` của collection Postman). */

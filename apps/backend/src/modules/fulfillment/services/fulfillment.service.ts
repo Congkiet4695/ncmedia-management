@@ -116,7 +116,7 @@ export class FulfillmentService {
     // Secret webhook sinh ngay lúc tạo: Mango lẫn Sellerwix đều không ký payload nên đây là lớp
     // xác thực duy nhất cho request gọi về (xem docs/fulfillment/README.md §Webhook).
     const webhookSecret = randomBytes(24).toString('hex');
-    this.assertProviderFields(dto.provider, dto, true);
+    this.assertProviderFields(dto.provider, dto);
 
     const account = await this.repo.createAccount({
       organizationId,
@@ -134,11 +134,10 @@ export class FulfillmentService {
         dto.defaultShippingMethod ??
         (dto.provider === FulfillmentProvider.SELLERWIX ? '' : 'standard'),
       defaultFacility: dto.defaultFacility ?? null,
-      secretEnc: dto.privateKey ? this.encryption.encrypt(dto.privateKey) : null,
+      // Sellerwix xác thực CHỈ bằng API Key — `privateKey`/`publicKeyId` (cũ) không còn được lưu.
+      secretEnc: null,
       providerConfig:
-        dto.provider === FulfillmentProvider.SELLERWIX
-          ? { storeId: dto.storeId ?? '', publicKeyId: dto.publicKeyId ?? '' }
-          : Prisma.JsonNull,
+        dto.provider === FulfillmentProvider.SELLERWIX ? { storeId: dto.storeId ?? '' } : Prisma.JsonNull,
       webhookSecretEnc: this.encryption.encrypt(webhookSecret),
       isDefault: dto.isDefault ?? true,
       createdBy: actorUserId,
@@ -167,23 +166,20 @@ export class FulfillmentService {
     // cho tất cả những tổ chức còn lại.
     const existing = await this.repo.findOwnedAccountById(organizationId, id);
     if (!existing) throw new FulfillmentAccountNotFoundException();
-    this.assertProviderFields(existing.provider, dto, false);
+    this.assertProviderFields(existing.provider, dto);
 
-    const currentConfig = SellerwixCredentialService.readConfig(existing.providerConfig);
-    const configChanged = dto.storeId !== undefined || dto.publicKeyId !== undefined;
+    // Giữ NGUYÊN mọi khoá cũ trong `provider_config` (vd `publicKeyId` của tài khoản tạo trước khi
+    // chuyển sang xác thực API Key) — chỉ ghi đè `storeId` khi người dùng gửi.
+    const currentConfig =
+      existing.providerConfig && typeof existing.providerConfig === 'object' && !Array.isArray(existing.providerConfig)
+        ? (existing.providerConfig)
+        : {};
 
     const account = await this.repo.updateAccount(id, {
       ...(dto.name !== undefined ? { name: dto.name } : {}),
       ...(dto.baseUrl !== undefined ? { baseUrlOverride: dto.baseUrl || null } : {}),
-      // Chỉ đổi private key khi người dùng thực sự dán key mới — giống API key.
-      ...(dto.privateKey ? { secretEnc: this.encryption.encrypt(dto.privateKey) } : {}),
-      ...(configChanged
-        ? {
-            providerConfig: {
-              storeId: dto.storeId ?? currentConfig.storeId,
-              publicKeyId: dto.publicKeyId ?? currentConfig.publicKeyId,
-            },
-          }
+      ...(existing.provider === FulfillmentProvider.SELLERWIX && dto.storeId !== undefined
+        ? { providerConfig: { ...currentConfig, storeId: dto.storeId } }
         : {}),
       // Chỉ đổi khoá khi người dùng thực sự gửi khoá mới.
       ...(dto.apiKey
@@ -925,8 +921,6 @@ export class FulfillmentService {
   /**
    * Trường cấu hình nào thuộc nhà cung cấp nào — từ chối trường KHÔNG có ý nghĩa với nhà cung cấp
    * (vd Private Key cho Mango, production line cho Sellerwix) thay vì lưu một giá trị không ai dùng.
-   *
-   * @param creating `true` ⇒ kiểm luôn các trường BẮT BUỘC khi tạo.
    */
   private assertProviderFields(
     provider: FulfillmentProvider,
@@ -938,7 +932,6 @@ export class FulfillmentService {
       defaultFacility?: string;
       defaultShippingMethod?: string;
     },
-    creating: boolean,
   ): void {
     const errors: Array<{ field: string; message: string }> = [];
     const label = FULFILLMENT_PROVIDER_LABELS[provider];
@@ -951,15 +944,9 @@ export class FulfillmentService {
     if (provider === FulfillmentProvider.SELLERWIX) {
       notFor('defaultProductionLine', dto.defaultProductionLine);
       notFor('defaultFacility', dto.defaultFacility);
-      if (creating) {
-        if (!dto.privateKey) errors.push({ field: 'privateKey', message: 'Bắt buộc với Sellerwix.' });
-        if (!dto.storeId) errors.push({ field: 'storeId', message: 'Bắt buộc với Sellerwix.' });
-        if (!dto.publicKeyId) errors.push({ field: 'publicKeyId', message: 'Bắt buộc với Sellerwix.' });
-      }
-      if (dto.privateKey) {
-        const problem = SellerwixCredentialService.validatePrivateKey(dto.privateKey);
-        if (problem) errors.push({ field: 'privateKey', message: problem });
-      }
+      // 🔴 Sellerwix chỉ cần API Key (DTO đã bắt buộc). `privateKey` / `publicKeyId` là trường CŨ:
+      // được nhận để client cũ không vỡ, nhưng bị BỎ QUA — không kiểm, không chặn, không lưu.
+      // Store ID tuỳ chọn ở đây; chỉ bắt buộc khi tạo/tra đơn (`requireStoreId`).
     } else {
       notFor('privateKey', dto.privateKey);
       notFor('storeId', dto.storeId);
@@ -1022,9 +1009,6 @@ export class FulfillmentService {
           : null,
       // Cấu hình KHÔNG bí mật của Sellerwix — được phép hiển thị để người dùng đối chiếu.
       storeId: sellerwix?.storeId || null,
-      publicKeyId: sellerwix?.publicKeyId || null,
-      // Private key KHÔNG BAO GIỜ trả về — chỉ cho biết đã cấu hình hay chưa.
-      privateKeyConfigured: Boolean(account.secretEnc),
       providerWebhookId: account.providerWebhookId,
       lastUsedAt: account.lastUsedAt?.toISOString() ?? null,
       lastErrorMsg: account.lastErrorMsg,

@@ -122,6 +122,8 @@ interface Harness {
   variantActive?: boolean;
   rushVariant?: boolean;
   twoItems?: boolean;
+  /** Ghi đè tài khoản Sellerwix (mặc định: tài khoản CŨ còn Public Key ID / Private Key). */
+  account?: Record<string, unknown>;
 }
 
 function notFound(): FulfillmentClientError {
@@ -237,7 +239,7 @@ function build(options: Harness = {}) {
   const repo = {
     findByPodOrder: jest.fn(() => Promise.resolve(options.existingStatus ? record : null)),
     findBlockingRecordOfOtherProvider: jest.fn().mockResolvedValue(options.blockingOther ?? null),
-    findAccountById: jest.fn().mockResolvedValue(ACCOUNT),
+    findAccountById: jest.fn().mockResolvedValue({ ...ACCOUNT, ...options.account }),
     listMappingsForOrganization: jest.fn().mockResolvedValue(mappings),
     listProductDesigns: jest.fn().mockResolvedValue(designs),
     createDraft: jest.fn(() => Promise.resolve(record)),
@@ -539,6 +541,56 @@ describe('SellerwixFulfillmentService.fulfill — request thật gửi Sellerwix
       city: 'Tampa',
       zip: '33602',
     });
+  });
+});
+
+describe('SellerwixFulfillmentService.fulfill — xác thực CHỈ bằng API Key', () => {
+  const API_KEY_ONLY = { secretEnc: null, providerConfig: { storeId: 'store-1' } };
+
+  it('Create Order với tài khoản CHỈ có API Key (+ Store ID), không Public Key ID / Private Key ⇒ tạo đơn', async () => {
+    const h = build({ account: API_KEY_ONLY });
+
+    const result = await h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND);
+
+    expect(h.createOrder).toHaveBeenCalledTimes(1);
+    const [ctx, request] = h.createOrder.mock.calls[0] as unknown as [Record<string, unknown>, SellerwixCreateOrderRequest];
+    expect(ctx).toMatchObject({ apiKey: 'api-key-123', storeId: 'store-1' });
+    expect(ctx).not.toHaveProperty('privateKeyPem');
+    expect(ctx).not.toHaveProperty('publicKeyId');
+    expect(request.store_id).toBe('store-1');
+    expect(result.providerOrderId).toBe('swx-order-1');
+    expect(result.status).toBe(FulfillmentStatus.SUBMITTED);
+  });
+
+  it('tài khoản CŨ (còn Public Key ID / Private Key trong DB) vẫn tạo đơn bình thường', async () => {
+    const h = build();
+    await h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND);
+    expect(h.createOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it('thiếu Store ID ⇒ FULFILLMENT_PROVIDER_MISCONFIGURED nêu rõ Store ID, KHÔNG gọi Sellerwix', async () => {
+    const h = build({ account: { secretEnc: null, providerConfig: {} } });
+
+    const error = await h.service
+      .fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND)
+      .catch((caught: unknown) => caught);
+
+    const body = (error as { response: { code: string; message: string } }).response;
+    expect(body.code).toBe('FULFILLMENT_PROVIDER_MISCONFIGURED');
+    expect(body.message).toContain('Store ID');
+    expect(h.getOrderByReference).not.toHaveBeenCalled();
+    expect(h.createOrder).not.toHaveBeenCalled();
+  });
+
+  it('thiếu API Key ⇒ FULFILLMENT_PROVIDER_MISCONFIGURED nêu rõ API Key, KHÔNG gọi Sellerwix', async () => {
+    const h = build({ account: { apiKeyEnc: null } });
+
+    const error = await h.service
+      .fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND)
+      .catch((caught: unknown) => caught);
+
+    expect((error as { response: { message: string } }).response.message).toContain('API Key');
+    expect(h.createOrder).not.toHaveBeenCalled();
   });
 });
 

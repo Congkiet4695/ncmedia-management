@@ -13,8 +13,6 @@ import { FulfillmentStatus } from '@prisma/client';
 export const SELLERWIX_DEFAULT_BASE_URL = 'https://api.sellerwix.com/public-api';
 
 export const SELLERWIX_ENDPOINTS = {
-  /** POST — đổi JWT assertion lấy access token (x-www-form-urlencoded). */
-  token: '/oauth2/token',
   /** GET — danh sách danh mục. */
   categories: '/v1/category',
   /** GET — sản phẩm trong một danh mục. */
@@ -36,24 +34,12 @@ export const SELLERWIX_ENDPOINTS = {
   cancelOrder: (id: string) => `/v1/order/${encodeURIComponent(id)}/cancel`,
 } as const;
 
-/** Giá trị cố định của form đổi token (Authentication → Exchange Token). */
-export const SELLERWIX_TOKEN_REQUEST = {
-  grantType: 'client_credentials',
-  clientAssertionType: 'urn:ietf:params:oauth:client-assertion-type:jwt-bearer',
-} as const;
-
-/** JWT assertion: RS256, `kid` = Public Key ID, `iss` = `sub` = API Key, `jti` mới mỗi lần. */
-export const SELLERWIX_JWT = {
-  algorithm: 'RS256',
-  /** Ví dụ Node.js trong tài liệu dùng `expiresIn: "10m"`. */
-  assertionTtlSeconds: 600,
-} as const;
-
 /**
- * Làm mới access token sớm hơn hạn thật (tài liệu: token hết hạn sau 30 phút, `expires_in`).
- * Chừa một khoảng để request đang bay không mang token vừa hết hạn tới nơi.
+ * Header xác thực — khai báo `auth` cấp collection của Postman "Sellerwix API":
+ * `{"type":"apikey","apikey":[{"key":"key","value":"X-Api-Key"}, …]}`, được MỌI request `/v1/*`
+ * kế thừa. Giá trị = API Key (Settings → Public API → Generate API Key).
  */
-export const SELLERWIX_TOKEN_REFRESH_MARGIN_MS = 60_000;
+export const SELLERWIX_API_KEY_HEADER = 'X-Api-Key';
 
 /**
  * Giới hạn tần suất theo tài liệu (khoảng tối thiểu giữa hai request, ms).

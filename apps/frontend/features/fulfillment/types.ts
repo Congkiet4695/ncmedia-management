@@ -24,12 +24,8 @@ export interface FulfillmentProviderAccount {
   webhookUrl: string | null;
   /** Tài khoản DÙNG CHUNG toàn nền tảng — tổ chức đọc được nhưng không sửa/xoá được. */
   isGlobal: boolean;
-  /** Sellerwix: Store ID (không bí mật). */
+  /** Sellerwix: Store ID (không bí mật) — chỉ cần khi đẩy đơn. */
   storeId: string | null;
-  /** Sellerwix: Public Key ID (không bí mật). */
-  publicKeyId: string | null;
-  /** Sellerwix: đã lưu private key chưa — bản thân key KHÔNG BAO GIỜ về tới giao diện. */
-  privateKeyConfigured: boolean;
 }
 
 /** Mục trong dropdown chọn nhà cung cấp ở màn hình TikTok Account. */
@@ -46,19 +42,16 @@ export interface TestConnectionResult {
   durationMs: number | null;
   /** Mango: số production line đọc được. */
   productionLineCount: number | null;
-  /** Sellerwix: số danh mục đọc được sau khi đổi access token. */
+  /** Sellerwix: số danh mục đọc được bằng API Key. */
   categoryCount: number | null;
 }
 
 /**
- * Trường thông tin xác thực RIÊNG của Sellerwix (OAuth2 JWT Bearer RS256). Chỉ gửi khi nhà cung
- * cấp là SELLERWIX — backend từ chối các trường này với nhà cung cấp khác.
+ * Trường cấu hình RIÊNG của Sellerwix. Sellerwix xác thực CHỈ bằng API Key; Store ID tuỳ chọn
+ * (chỉ bắt buộc khi đẩy đơn). Chỉ gửi khi nhà cung cấp là SELLERWIX.
  */
 export interface SellerwixCredentialInput {
-  /** Private key RSA (PEM) — ghi một chiều, không bao giờ đọc lại. */
-  privateKey?: string;
   storeId?: string;
-  publicKeyId?: string;
 }
 
 export interface CreateFulfillmentProviderInput extends SellerwixCredentialInput {

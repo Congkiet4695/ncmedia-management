@@ -344,13 +344,10 @@
     "sellerwix": {
       "apiKey": "API Key (Settings → Public API → Generate API Key)",
       "baseUrlPlaceholder": "Để trống để dùng mặc định của hệ thống (https://api.sellerwix.com/public-api)",
-      "privateKey": "Private key (PEM)",
-      "privateKeyConfigured": "Đã lưu — đang ẩn",
-      "privateKeyHint": "Private key RSA 2048 tương ứng với public key đã upload lên Sellerwix (Settings → Public API → Manage Public Key). Key được mã hoá và không bao giờ hiển thị lại.",
-      "privateKeyMissing": "Chưa cấu hình",
-      "publicKeyId": "Public Key ID",
-      "replacePrivateKey": "Thay private key",
-      "storeId": "Store ID Sellerwix"
+      "storeId": "Store ID Sellerwix (tuỳ chọn)",
+      "storeIdHint": "Không bắt buộc khi lưu. Chỉ cần khi đẩy đơn sang Sellerwix (field store_id của Create Order).",
+      "apiKeyHint": "Sellerwix hiện dùng API Key để xác thực cho danh mục, sản phẩm, biến thể và đơn hàng.",
+      "apiKeyRequired": "Sellerwix API Key is required."
     },
     "status": "Status",
     "statusValue": {

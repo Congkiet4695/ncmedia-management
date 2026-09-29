@@ -1,11 +1,12 @@
 import { ConfigService } from '@nestjs/config';
 import { FulfillmentProvider } from '@prisma/client';
-import { generateKeyPairSync } from 'node:crypto';
+import { plainToInstance } from 'class-transformer';
+import { validate } from 'class-validator';
 import { PrismaService } from '../../../database/prisma.service';
 import { PodOrderRepository } from '../../pod-tiktok/repositories/pod-order.repository';
 import { PodAccessScopeService } from '../../pod-tiktok/services/pod-access-scope.service';
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
-import { FulfillmentValidationException } from '../exceptions/fulfillment.exceptions';
+import { CreateFulfillmentAccountDto } from '../dto/fulfillment.dto';
 import { ProductDesignMapper } from '../mappers/product-design.mapper';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import type { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
@@ -13,17 +14,12 @@ import { FulfillmentReadinessService } from './fulfillment-readiness.service';
 import { FulfillmentService } from './fulfillment.service';
 
 /**
- * **CASE 1 — cấu hình nhà cung cấp Sellerwix.**
+ * **CASE 1 — cấu hình nhà cung cấp Sellerwix: CHỈ API Key.**
  *
- * Bí mật (API Key, Private Key) được MÃ HOÁ khi lưu và KHÔNG BAO GIỜ đi ra API; cấu hình không bí
- * mật (Store ID, Public Key ID) lưu ở `provider_config`; trường vô nghĩa với Sellerwix bị từ chối.
+ * API Key được MÃ HOÁ khi lưu và KHÔNG BAO GIỜ đi ra API (chỉ 4 ký tự cuối). Store ID tuỳ chọn.
+ * Public Key ID / Private Key là trường CŨ: được nhận nhưng bỏ qua — không bắt buộc, không kiểm,
+ * không lưu, không chặn Save. Trường vô nghĩa với Sellerwix (của Mango) vẫn bị từ chối.
  */
-
-const { privateKey } = generateKeyPairSync('rsa', {
-  modulusLength: 2048,
-  privateKeyEncoding: { type: 'pkcs8', format: 'pem' },
-  publicKeyEncoding: { type: 'spki', format: 'pem' },
-});
 
 function build() {
   const created: Array<Record<string, unknown>> = [];
@@ -74,80 +70,80 @@ function build() {
   return { service, repo, created };
 }
 
-const VALID = {
+const API_KEY_ONLY = {
   provider: FulfillmentProvider.SELLERWIX,
-  name: 'Sellerwix US',
+  name: 'Sellerwix',
   apiKey: 'sw-api-key-1234',
-  privateKey,
-  storeId: '01c1cb78-9a2f-4d7e-bf5f-fee3c3cb7d2b',
+};
+const LEGACY = {
+  privateKey: '-----BEGIN PRIVATE KEY-----\nnot-even-a-real-key\n-----END PRIVATE KEY-----',
   publicKeyId: '91cabfd5-78fb-4bbd-9000-a4c0fa258c20',
 };
 
-describe('FulfillmentService.createAccount — Sellerwix', () => {
-  it('mã hoá API Key + Private Key, lưu Store ID/Public Key ID; DTO KHÔNG chứa bí mật', async () => {
+async function dtoErrors(dto: object): Promise<string[]> {
+  const errors = await validate(plainToInstance(CreateFulfillmentAccountDto, dto));
+  return errors.flatMap((error) => Object.values(error.constraints ?? {}));
+}
+
+describe('FulfillmentService.createAccount — Sellerwix (API Key only)', () => {
+  it('Sellerwix + API Key only ⇒ SUCCESS; mã hoá API Key, không lưu gì khác; DTO không chứa bí mật', async () => {
     const { service, created } = build();
 
-    const dto = await service.createAccount('org-1', 'user-1', VALID);
+    const dto = await service.createAccount('org-1', 'user-1', API_KEY_ONLY);
 
     expect(created[0]).toMatchObject({
       provider: FulfillmentProvider.SELLERWIX,
       apiKeyEnc: 'enc:sw-api-key-1234',
       apiKeyHint: '1234',
-      secretEnc: `enc:${privateKey}`,
-      providerConfig: { storeId: VALID.storeId, publicKeyId: VALID.publicKeyId },
+      secretEnc: null,
+      providerConfig: { storeId: '' },
       // Sellerwix không có mặc định vận chuyển chung (phụ thuộc biến thể).
       defaultShippingMethod: '',
     });
-    const serialized = JSON.stringify(dto);
-    expect(serialized).not.toContain('PRIVATE KEY');
-    expect(serialized).not.toContain('sw-api-key-1234');
-    expect(dto).toMatchObject({
-      storeId: VALID.storeId,
-      publicKeyId: VALID.publicKeyId,
-      privateKeyConfigured: true,
-      apiKeyHint: '1234',
-    });
+    expect(JSON.stringify(dto)).not.toContain('sw-api-key-1234');
+    expect(dto).toMatchObject({ apiKeyHint: '1234', storeId: null });
+    expect(dto).not.toHaveProperty('publicKeyId');
+    expect(dto).not.toHaveProperty('privateKeyConfigured');
     // URL webhook Sellerwix (hiện MỘT lần) trỏ đúng controller Sellerwix.
     expect(dto.webhookUrl).toMatch(
       /^https:\/\/api\.ncmedia\.vn\/api\/v1\/fulfillment\/webhooks\/sellerwix\/[0-9a-f]{48}$/,
     );
   });
 
-  it('thiếu Private Key / Store ID / Public Key ID ⇒ từ chối, nêu đủ các field', async () => {
+  it('không có Public Key ID / Store ID / Private Key ⇒ vẫn SUCCESS (DTO + service)', async () => {
     const { service } = build();
-
-    const error = await service
-      .createAccount('org-1', 'user-1', {
-        provider: FulfillmentProvider.SELLERWIX,
-        name: 'x',
-        apiKey: 'sw-api-key-1234',
-      })
-      .catch((caught: unknown) => caught);
-
-    expect(error).toBeInstanceOf(FulfillmentValidationException);
-    const fields = (
-      (error as FulfillmentValidationException).getResponse() as {
-        errors: Array<{ field: string }>;
-      }
-    ).errors.map((entry) => entry.field);
-    expect(fields).toEqual(['privateKey', 'storeId', 'publicKeyId']);
+    expect(await dtoErrors(API_KEY_ONLY)).toEqual([]);
+    await expect(service.createAccount('org-1', 'user-1', API_KEY_ONLY)).resolves.toBeDefined();
   });
 
-  it('private key không phải PEM RSA ⇒ từ chối NGAY lúc lưu', async () => {
-    const { service } = build();
-    await expect(
-      service.createAccount('org-1', 'user-1', { ...VALID, privateKey: 'not-a-key' }),
-    ).rejects.toThrow(/Private key không đọc được/);
+  it('API Key + trường CŨ (kể cả private key không hợp lệ) ⇒ SUCCESS, trường cũ bị bỏ qua, không lưu', async () => {
+    const { service, created } = build();
+
+    await service.createAccount('org-1', 'user-1', { ...API_KEY_ONLY, ...LEGACY, storeId: 'store-9' });
+
+    expect(created[0]).toMatchObject({ secretEnc: null, providerConfig: { storeId: 'store-9' } });
+    expect(JSON.stringify(created[0])).not.toContain('PRIVATE KEY');
+    expect(JSON.stringify(created[0])).not.toContain(LEGACY.publicKeyId);
+  });
+
+  it('API Key rỗng ⇒ lỗi validation "Sellerwix API Key is required."', async () => {
+    expect(await dtoErrors({ ...API_KEY_ONLY, apiKey: '' })).toContain('Sellerwix API Key is required.');
+    expect(await dtoErrors({ ...API_KEY_ONLY, apiKey: '   ' })).toContain('Sellerwix API Key is required.');
+  });
+
+  it('không có lỗi nào nhắc tới Public Key ID / Store ID / Private key', async () => {
+    const messages = await dtoErrors({ provider: FulfillmentProvider.SELLERWIX, name: 'x', apiKey: '' });
+    expect(messages.join(' ')).not.toMatch(/public key|store id|private key/i);
   });
 
   it('trường chỉ của Mango (production line / facility) bị từ chối cho Sellerwix', async () => {
     const { service } = build();
     await expect(
-      service.createAccount('org-1', 'user-1', { ...VALID, defaultProductionLine: 'TIKTOK' }),
+      service.createAccount('org-1', 'user-1', { ...API_KEY_ONLY, defaultProductionLine: 'TIKTOK' }),
     ).rejects.toThrow(/defaultProductionLine/);
   });
 
-  it('trường của Sellerwix bị từ chối cho Mango', async () => {
+  it('Mango KHÔNG đổi: trường của Sellerwix vẫn bị từ chối cho Mango', async () => {
     const { service } = build();
     await expect(
       service.createAccount('org-1', 'user-1', {
@@ -161,12 +157,13 @@ describe('FulfillmentService.createAccount — Sellerwix', () => {
 });
 
 describe('FulfillmentService.updateAccount — Sellerwix', () => {
-  it('đổi Store ID giữ nguyên Public Key ID; không gửi private key ⇒ không đổi key', async () => {
+  it('tài khoản CŨ: đổi Store ID giữ nguyên mọi khoá cũ trong provider_config; không đụng private key đã lưu', async () => {
     const { service, repo } = build();
     repo.findOwnedAccountById.mockResolvedValue({
       id: 'acc-swx',
       provider: FulfillmentProvider.SELLERWIX,
       providerConfig: { storeId: 'old-store', publicKeyId: 'kid-1' },
+      secretEnc: 'enc:old-private-key',
     });
 
     await service.updateAccount('org-1', 'user-1', 'acc-swx', { storeId: 'new-store' });
@@ -174,6 +171,22 @@ describe('FulfillmentService.updateAccount — Sellerwix', () => {
     const data = repo.updateAccount.mock.calls[0][1];
     expect(data.providerConfig).toEqual({ storeId: 'new-store', publicKeyId: 'kid-1' });
     expect(data).not.toHaveProperty('secretEnc');
+  });
+
+  it('sửa tài khoản CŨ không cần nhập lại trường cũ; gửi trường cũ cũng không bị chặn, không bị lưu', async () => {
+    const { service, repo } = build();
+    repo.findOwnedAccountById.mockResolvedValue({
+      id: 'acc-swx',
+      provider: FulfillmentProvider.SELLERWIX,
+      providerConfig: { storeId: 's', publicKeyId: 'kid-1' },
+    });
+
+    await service.updateAccount('org-1', 'user-1', 'acc-swx', { name: 'Sellerwix 2' });
+    await service.updateAccount('org-1', 'user-1', 'acc-swx', { ...LEGACY });
+
+    expect(repo.updateAccount.mock.calls[0][1]).toMatchObject({ name: 'Sellerwix 2' });
+    expect(repo.updateAccount.mock.calls[1][1]).not.toHaveProperty('secretEnc');
+    expect(repo.updateAccount.mock.calls[1][1]).not.toHaveProperty('providerConfig');
   });
 });
 

@@ -1,18 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { randomUUID, sign } from 'node:crypto';
+import { randomUUID } from 'node:crypto';
 import {
   FulfillmentClientError,
   FulfillmentErrorClass,
 } from '../../exceptions/fulfillment.exceptions';
 import {
+  SELLERWIX_API_KEY_HEADER,
   SELLERWIX_DEFAULT_BASE_URL,
   SELLERWIX_ENDPOINTS,
-  SELLERWIX_JWT,
   SELLERWIX_MIN_INTERVAL_MS,
   SELLERWIX_RETRY,
-  SELLERWIX_TOKEN_REFRESH_MARGIN_MS,
-  SELLERWIX_TOKEN_REQUEST,
   SELLERWIX_VARIANT_PAGE_LIMIT,
 } from '../constants/sellerwix.constants';
 import type { SellerwixCallContext } from '../services/sellerwix-credential.service';
@@ -25,7 +23,6 @@ import type {
   SellerwixErrorBody,
   SellerwixOrder,
   SellerwixShippingMethod,
-  SellerwixTokenResponse,
   SellerwixVariantPage,
 } from '../types/sellerwix-api.types';
 
@@ -46,32 +43,24 @@ export interface SellerwixResult<T> {
 /** Nhóm điều tiết tần suất — mỗi nhóm một mốc "được gửi sớm nhất" riêng. */
 type ThrottleBucket = keyof typeof SELLERWIX_MIN_INTERVAL_MS;
 
-interface CachedToken {
-  token: string;
-  expiresAt: number;
-}
-
 /**
  * SellerwixApiClient — cửa DUY NHẤT ra Sellerwix Public API.
  *
- * - **Xác thực**: OAuth 2.0 Client Credentials + JWT Bearer Assertion RS256 (tài liệu
- *   Authentication, 2026-06-03). Access token (30 phút) được nhớ trong bộ nhớ theo tài khoản và
- *   làm mới trước hạn; hai lời gọi song song dùng chung MỘT lần đổi token.
+ * - **Xác thực**: CHỈ API Key, header `X-Api-Key` — đúng khai báo `auth` cấp collection của
+ *   Postman "Sellerwix API" (`{"type":"apikey","key":"X-Api-Key"}`), kế thừa bởi mọi endpoint
+ *   `/v1/*`: danh mục, sản phẩm, biến thể, vận chuyển, đơn hàng. Không OAuth2, không ký JWT.
  * - **Điều tiết**: 100 req/60s toàn API, riêng Get order details 15 req/phút (tài liệu).
  * - **Thử lại**: chỉ GET, chỉ lỗi tạm thời (RATE_LIMIT/NETWORK/SERVER). POST tạo đơn KHÔNG BAO
  *   GIỜ tự thử lại — request timeout có thể đã tới nơi; tầng service kiểm tra tồn tại theo
  *   `reference_id` trước khi gửi lại.
- * - **401 một lần**: token có thể bị thu hồi trước hạn ⇒ bỏ token, đổi token mới, gửi lại ĐÚNG MỘT
- *   lần. An toàn cả với POST vì 401 nghĩa là request bị từ chối trước khi được xử lý.
+ * - **401/403**: API Key sai/bị thu hồi ⇒ lỗi AUTH, KHÔNG thử lại.
  *
- * 🔴 KHÔNG ghi API key, private key, JWT, access token hay body request/response vào log.
+ * 🔴 KHÔNG ghi API key hay body request/response vào log.
  */
 @Injectable()
 export class SellerwixApiClient {
   private readonly logger = new Logger(SellerwixApiClient.name);
 
-  private readonly tokens = new Map<string, CachedToken>();
-  private readonly pendingTokens = new Map<string, Promise<string>>();
   private readonly nextSlotAt = new Map<ThrottleBucket, number>();
 
   constructor(private readonly config: ConfigService) {}
@@ -132,11 +121,12 @@ export class SellerwixApiClient {
    */
   getOrderByReference(
     ctx: SellerwixCallContext,
+    storeId: string,
     referenceId: string,
   ): Promise<SellerwixResult<SellerwixOrder>> {
     return this.call(ctx, 'GET', SELLERWIX_ENDPOINTS.orderDetail(referenceId), {
       bucket: 'orderDetail',
-      query: { store_id: ctx.storeId },
+      query: { store_id: storeId },
     });
   }
 
@@ -148,126 +138,11 @@ export class SellerwixApiClient {
     return this.call(ctx, 'POST', SELLERWIX_ENDPOINTS.cancelOrder(orderId), { body });
   }
 
-  /**
-   * Chỉ đổi token — dùng cho Test Connection để tách rõ "sai khoá" với "sai quyền/endpoint".
-   * Luôn đổi token MỚI (bỏ qua bộ nhớ đệm) vì mục đích là kiểm tra khoá hiện tại.
-   */
-  async verifyCredentials(ctx: SellerwixCallContext): Promise<{ durationMs: number }> {
-    const startedAt = Date.now();
-    this.tokens.delete(ctx.tokenCacheKey);
-    await this.accessToken(ctx);
-    return { durationMs: Date.now() - startedAt };
-  }
-
-  // ---------------------------------------------------------------------------
-  // Xác thực
-  // ---------------------------------------------------------------------------
-
-  /** Access token còn hạn, hoặc đổi token mới (dùng chung một lần đổi cho lời gọi song song). */
-  private async accessToken(ctx: SellerwixCallContext): Promise<string> {
-    const cached = this.tokens.get(ctx.tokenCacheKey);
-    if (cached && cached.expiresAt - SELLERWIX_TOKEN_REFRESH_MARGIN_MS > Date.now()) {
-      return cached.token;
-    }
-
-    const pending = this.pendingTokens.get(ctx.tokenCacheKey);
-    if (pending) return pending;
-
-    const request = this.exchangeToken(ctx).finally(() =>
-      this.pendingTokens.delete(ctx.tokenCacheKey),
-    );
-    this.pendingTokens.set(ctx.tokenCacheKey, request);
-    return request;
-  }
-
-  private async exchangeToken(ctx: SellerwixCallContext): Promise<string> {
-    const assertion = this.buildAssertion(ctx);
-    const form = new URLSearchParams({
-      grant_type: SELLERWIX_TOKEN_REQUEST.grantType,
-      client_assertion_type: SELLERWIX_TOKEN_REQUEST.clientAssertionType,
-      client_assertion: assertion,
-    });
-
-    const response = await this.send<SellerwixTokenResponse>(
-      ctx,
-      'POST',
-      SELLERWIX_ENDPOINTS.token,
-      {
-        rawBody: form.toString(),
-        contentType: 'application/x-www-form-urlencoded',
-        authorization: null,
-      },
-    );
-
-    const token = response.data?.access_token?.trim();
-    if (!token) {
-      throw new FulfillmentClientError(
-        FulfillmentErrorClass.AUTH,
-        'Sellerwix không trả access_token khi đổi JWT assertion.',
-        response.httpStatus,
-        undefined,
-        undefined,
-        response.requestId,
-        undefined,
-        `POST ${SELLERWIX_ENDPOINTS.token}`,
-      );
-    }
-
-    const expiresInSeconds =
-      typeof response.data.expires_in === 'number' && response.data.expires_in > 0
-        ? response.data.expires_in
-        : null;
-    // Không có `expires_in` ⇒ KHÔNG đoán hạn: dùng token cho đúng lời gọi này, lần sau đổi lại.
-    if (expiresInSeconds) {
-      this.tokens.set(ctx.tokenCacheKey, {
-        token,
-        expiresAt: Date.now() + expiresInSeconds * 1000,
-      });
-    }
-    return token;
-  }
-
-  /**
-   * JWT assertion theo tài liệu (Step 5.1): header `alg=RS256`, `kid` = Public Key ID; payload
-   * `iss` = `sub` = API Key, `jti` là UUID MỚI mỗi lần (chống replay), `exp` (giây).
-   *
-   * Tự ký bằng `node:crypto` thay vì thêm thư viện: đúng một thuật toán, không cần gì khác.
-   */
-  private buildAssertion(ctx: SellerwixCallContext): string {
-    const now = Math.floor(Date.now() / 1000);
-    const header = { alg: SELLERWIX_JWT.algorithm, typ: 'JWT', kid: ctx.publicKeyId };
-    const payload = {
-      iss: ctx.apiKey,
-      sub: ctx.apiKey,
-      jti: randomUUID(),
-      iat: now,
-      exp: now + SELLERWIX_JWT.assertionTtlSeconds,
-    };
-    const signingInput = `${this.base64Url(JSON.stringify(header))}.${this.base64Url(
-      JSON.stringify(payload),
-    )}`;
-
-    let signature: Buffer;
-    try {
-      signature = sign('RSA-SHA256', Buffer.from(signingInput), ctx.privateKeyPem);
-    } catch {
-      throw new FulfillmentClientError(
-        FulfillmentErrorClass.AUTH,
-        'Không ký được JWT bằng private key đã lưu — kiểm tra lại Private Key của tài khoản Sellerwix.',
-      );
-    }
-    return `${signingInput}.${signature.toString('base64url')}`;
-  }
-
-  private base64Url(value: string): string {
-    return Buffer.from(value, 'utf8').toString('base64url');
-  }
-
   // ---------------------------------------------------------------------------
   // Gửi request
   // ---------------------------------------------------------------------------
 
-  /** Lời gọi có xác thực + điều tiết + thử lại (chỉ GET) + đổi token lại một lần khi 401. */
+  /** Lời gọi có xác thực (API Key) + điều tiết + thử lại (chỉ GET, chỉ lỗi tạm thời). */
   private async call<T>(
     ctx: SellerwixCallContext,
     method: 'GET' | 'POST',
@@ -280,26 +155,15 @@ export class SellerwixApiClient {
   ): Promise<SellerwixResult<T>> {
     const maxAttempts = method === 'GET' ? SELLERWIX_RETRY.maxAttempts : 1;
     const fullPath = this.withQuery(path, options.query ?? {});
-    let tokenRefreshed = false;
-
     for (let attempt = 1; ; attempt += 1) {
       try {
-        const token = await this.accessToken(ctx);
         return await this.send<T>(ctx, method, fullPath, {
           rawBody: options.body === undefined ? undefined : JSON.stringify(options.body),
           contentType: 'application/json',
-          authorization: token,
           bucket: options.bucket,
         });
       } catch (error) {
         const clientError = error instanceof FulfillmentClientError ? error : undefined;
-
-        if (clientError?.httpStatus === 401 && !tokenRefreshed) {
-          tokenRefreshed = true;
-          this.tokens.delete(ctx.tokenCacheKey);
-          attempt -= 1;
-          continue;
-        }
         if (!clientError?.retryable || attempt >= maxAttempts) throw error;
 
         const delayMs = this.retryDelayMs(attempt);
@@ -328,7 +192,6 @@ export class SellerwixApiClient {
     options: {
       rawBody?: string;
       contentType: string;
-      authorization: string | null;
       bucket?: ThrottleBucket;
     },
   ): Promise<SellerwixResult<T>> {
@@ -346,8 +209,8 @@ export class SellerwixApiClient {
     const headers: Record<string, string> = {
       accept: 'application/json',
       'content-type': options.contentType,
+      [SELLERWIX_API_KEY_HEADER]: ctx.apiKey,
     };
-    if (options.authorization) headers.authorization = `Bearer ${options.authorization}`;
 
     const startedAt = Date.now();
     const controller = new AbortController();

@@ -344,13 +344,10 @@
     "sellerwix": {
       "apiKey": "API Key (Settings → Public API → Generate API Key)",
       "baseUrlPlaceholder": "Leave empty to use the system default (https://api.sellerwix.com/public-api)",
-      "privateKey": "Private key (PEM)",
-      "privateKeyConfigured": "Saved — hidden",
-      "privateKeyHint": "The RSA 2048 private key whose public key you uploaded to Sellerwix (Settings → Public API → Manage Public Key). It is encrypted and never shown again.",
-      "privateKeyMissing": "Not configured",
-      "publicKeyId": "Public Key ID",
-      "replacePrivateKey": "Replace private key",
-      "storeId": "Sellerwix Store ID"
+      "storeId": "Sellerwix Store ID (optional)",
+      "storeIdHint": "Not required to save. Only needed when pushing orders to Sellerwix (store_id of Create Order).",
+      "apiKeyHint": "Sellerwix integration currently uses API Key authentication for catalog, category, product, variant and order APIs.",
+      "apiKeyRequired": "Sellerwix API Key is required."
     },
     "status": "Status",
     "statusValue": {

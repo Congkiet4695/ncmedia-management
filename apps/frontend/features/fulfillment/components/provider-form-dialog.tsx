@@ -42,10 +42,10 @@ interface ProviderFormDialogProps {
  *
  * 🔴 Ở chế độ SỬA, ô API key mặc định KHÔNG hiện và KHÔNG gửi đi — backend không bao giờ trả
  * khoá cũ về, nên không có gì để điền sẵn. Muốn đổi thì bấm "Replace API Key" và nhập khoá
- * mới; không bấm thì khoá hiện tại giữ nguyên. Private key của Sellerwix theo đúng luật đó.
+ * mới; không bấm thì khoá hiện tại giữ nguyên.
  *
- * Sellerwix (OAuth2 JWT Bearer RS256) cần thêm: Public Key ID, Private Key (PEM) và Store ID —
- * các ô này CHỈ hiện khi nhà cung cấp là Sellerwix.
+ * Sellerwix xác thực CHỈ bằng API Key (catalog, danh mục, sản phẩm, biến thể, đơn hàng). Store ID
+ * là ô TUỲ CHỌN — không chặn Save; chỉ bắt buộc lúc đẩy đơn (field `store_id` của Create Order).
  */
 export function ProviderFormDialog({
   open,
@@ -64,9 +64,6 @@ export function ProviderFormDialog({
   const [apiKey, setApiKey] = useState('');
   const [replacingKey, setReplacingKey] = useState(false);
   const [storeId, setStoreId] = useState('');
-  const [publicKeyId, setPublicKeyId] = useState('');
-  const [privateKey, setPrivateKey] = useState('');
-  const [replacingPrivateKey, setReplacingPrivateKey] = useState(false);
 
   const isSellerwix = type === 'SELLERWIX';
 
@@ -80,9 +77,6 @@ export function ProviderFormDialog({
     setApiKey('');
     setReplacingKey(false);
     setStoreId(provider?.storeId ?? '');
-    setPublicKeyId(provider?.publicKeyId ?? '');
-    setPrivateKey('');
-    setReplacingPrivateKey(false);
   }, [open, provider]);
 
   const changeType = (next: FulfillmentProviderType) => {
@@ -93,16 +87,7 @@ export function ProviderFormDialog({
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    const sellerwixFields = isSellerwix
-      ? {
-          storeId: storeId.trim(),
-          publicKeyId: publicKeyId.trim(),
-          // Private key chỉ gửi khi có giá trị mới — không gửi chuỗi rỗng đè lên key đã lưu.
-          ...((!isEdit || replacingPrivateKey) && privateKey.trim()
-            ? { privateKey: privateKey.trim() }
-            : {}),
-        }
-      : {};
+    const sellerwixFields = isSellerwix ? { storeId: storeId.trim() } : {};
     if (isEdit) {
       onUpdate({
         name,
@@ -122,13 +107,10 @@ export function ProviderFormDialog({
     });
   };
 
+  // Sellerwix: CHỈ tên + API Key bắt buộc (sửa: API Key đã lưu, chỉ bắt buộc khi đang thay khoá).
+  const apiKeyMissing = (!isEdit || replacingKey) && !apiKey.trim();
   const canSubmit = isSellerwix
-    ? Boolean(
-        name.trim() &&
-          storeId.trim() &&
-          publicKeyId.trim() &&
-          (isEdit || (apiKey.trim() && privateKey.trim())),
-      )
+    ? Boolean(name.trim() && !apiKeyMissing)
     : Boolean(name.trim() && baseUrl.trim() && (isEdit || apiKey.trim()));
 
   return (
@@ -234,96 +216,27 @@ export function ProviderFormDialog({
             </>
           )}
           {!isEdit && <p className="text-xs text-muted-foreground">{t('provider.apiKeyMasked')}</p>}
+          {isSellerwix && (
+            <p className="text-xs text-muted-foreground">{t('provider.sellerwix.apiKeyHint')}</p>
+          )}
+          {isSellerwix && apiKeyMissing && apiKey !== '' && (
+            <p className="text-xs text-destructive">{t('provider.sellerwix.apiKeyRequired')}</p>
+          )}
         </div>
 
         {isSellerwix && (
-          <>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="provider-public-key-id">
-                  {t('provider.sellerwix.publicKeyId')} <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="provider-public-key-id"
-                  value={publicKeyId}
-                  onChange={(e) => setPublicKeyId(e.target.value)}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="font-mono"
-                />
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="provider-store-id">
-                  {t('provider.sellerwix.storeId')} <span className="text-destructive">*</span>
-                </Label>
-                <Input
-                  id="provider-store-id"
-                  value={storeId}
-                  onChange={(e) => setStoreId(e.target.value)}
-                  autoComplete="off"
-                  spellCheck={false}
-                  className="font-mono"
-                />
-              </div>
-            </div>
-
-            <div className="space-y-2">
-              <Label htmlFor="provider-private-key">
-                {t('provider.sellerwix.privateKey')}
-                {!isEdit && <span className="text-destructive"> *</span>}
-              </Label>
-              {isEdit && !replacingPrivateKey ? (
-                <div className="flex items-center gap-2">
-                  <Input
-                    id="provider-private-key"
-                    readOnly
-                    value={
-                      provider?.privateKeyConfigured
-                        ? t('provider.sellerwix.privateKeyConfigured')
-                        : t('provider.sellerwix.privateKeyMissing')
-                    }
-                  />
-                  <Button
-                    type="button"
-                    variant="outline"
-                    onClick={() => setReplacingPrivateKey(true)}
-                  >
-                    <KeyRound className="size-4" />
-                    {t('provider.sellerwix.replacePrivateKey')}
-                  </Button>
-                </div>
-              ) : (
-                <>
-                  <textarea
-                    id="provider-private-key"
-                    value={privateKey}
-                    onChange={(e) => setPrivateKey(e.target.value)}
-                    rows={5}
-                    autoComplete="off"
-                    spellCheck={false}
-                    className="w-full rounded-md border bg-background p-2 font-mono text-xs"
-                    placeholder="-----BEGIN PRIVATE KEY-----"
-                  />
-                  {isEdit && (
-                    <div className="flex justify-end">
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        onClick={() => {
-                          setReplacingPrivateKey(false);
-                          setPrivateKey('');
-                        }}
-                      >
-                        {t('provider.cancelReplace')}
-                      </Button>
-                    </div>
-                  )}
-                </>
-              )}
-              <p className="text-xs text-muted-foreground">{t('provider.sellerwix.privateKeyHint')}</p>
-            </div>
-          </>
+          <div className="space-y-2">
+            <Label htmlFor="provider-store-id">{t('provider.sellerwix.storeId')}</Label>
+            <Input
+              id="provider-store-id"
+              value={storeId}
+              onChange={(e) => setStoreId(e.target.value)}
+              autoComplete="off"
+              spellCheck={false}
+              className="font-mono"
+            />
+            <p className="text-xs text-muted-foreground">{t('provider.sellerwix.storeIdHint')}</p>
+          </div>
         )}
 
         <div className="flex justify-end gap-2 pt-2">
