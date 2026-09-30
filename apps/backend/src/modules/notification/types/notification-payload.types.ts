@@ -66,6 +66,10 @@ export interface FulfillmentSubmittedPayload extends FulfillmentPayloadBase {
 export interface FulfillmentCancelledPayload extends FulfillmentPayloadBase {
   cancelledAt: string | null;
   reason: string | null;
+  /** Seller phụ trách kết nối TikTok của đơn (nếu có). Tuỳ chọn: sự kiện ghi trước bản này không có. */
+  sellerName?: string | null;
+  /** Người bấm Huỷ (họ tên, thiếu thì email). Tuỳ chọn: sự kiện ghi trước bản này không có. */
+  cancelledBy?: string | null;
 }
 
 /** Payload theo từng loại sự kiện — formatter dựa vào đây để dựng tin nhắn. */

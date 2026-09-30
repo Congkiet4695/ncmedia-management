@@ -5,6 +5,7 @@ import {
   FulfillmentProvider,
   FulfillmentTrigger,
 } from '@prisma/client';
+import { DistributedLockService } from '../../pod-tiktok/infra/distributed-lock.service';
 import { PodOrderRepository } from '../../pod-tiktok/repositories/pod-order.repository';
 import {
   PodAccessScopeService,
@@ -14,6 +15,7 @@ import { FULFILLMENT_PROVIDER_LABELS } from '../constants/fulfillment-provider.c
 import {
   FulfillmentAccountNotFoundException,
   FulfillmentOperationNotSupportedException,
+  FulfillmentOperationInProgressException,
   FulfillmentOrderNotFoundException,
   FulfillmentProviderNotAssignedException,
   FulfillmentProviderNotSelectedException,
@@ -26,6 +28,7 @@ import {
   FulfillmentRepository,
 } from '../repositories/fulfillment.repository';
 import { SellerwixFulfillmentService } from '../sellerwix/services/sellerwix-fulfillment.service';
+import { fulfillmentOrderLockKey } from '../shared/fulfillment-lifecycle';
 import type {
   FulfillOptionsInput,
   FulfillmentProviderAdapter,
@@ -50,6 +53,9 @@ import type { MappingWithDesigns, PlacementResolver } from './fulfillment-readin
  *   4. đúng MỘT tài khoản khả dụng (mọi nhà cung cấp đã tích hợp)
  * ```
  */
+/** Thời hạn khoá của một lần huỷ (hỏi trạng thái + huỷ + đọc lại ở nhà cung cấp). */
+const CANCEL_LOCK_MS = 60_000;
+
 @Injectable()
 export class FulfillmentProviderGateway {
   private readonly adapters: ReadonlyMap<FulfillmentProvider, FulfillmentProviderAdapter>;
@@ -61,6 +67,7 @@ export class FulfillmentProviderGateway {
     sellerwix: SellerwixFulfillmentService,
     private readonly accessScope: PodAccessScopeService,
     private readonly notifications: FulfillmentNotificationService,
+    private readonly lock: DistributedLockService,
   ) {
     this.adapters = new Map<FulfillmentProvider, FulfillmentProviderAdapter>(
       [mango, sellerwix].map((adapter) => [adapter.provider, adapter]),
@@ -179,15 +186,24 @@ export class FulfillmentProviderGateway {
     podOrderId: string,
     scope: PodAccessScope,
     reason?: string,
+    actorRole?: string,
   ): Promise<FulfillmentOrderWithRelations> {
+    // 🔴 Cùng MỘT đường cho Admin và Seller: quyền `fulfillment.cancel` do controller kiểm, PHẠM VI
+    // shop kiểm ở đây (Seller huỷ đơn shop khác ⇒ 403; đơn tổ chức khác ⇒ 404). Không tin id từ client.
     await this.assertOrderInScope(organizationId, podOrderId, scope);
-    const current = await this.requireCurrent(organizationId, podOrderId);
-    const record = await this.adapterFor(current.provider).cancel(
-      organizationId,
-      actorUserId,
-      podOrderId,
-      reason,
-    );
+    // Khoá chung với gửi đơn: hai người cùng bấm Huỷ, hoặc Huỷ khi đang Fulfill, không chạy chồng —
+    // bên đến sau nhận 409 thay vì gọi nhà cung cấp lần hai trên dữ liệu đã cũ.
+    const record = await this.lock.withLock(fulfillmentOrderLockKey(podOrderId), CANCEL_LOCK_MS, async () => {
+      const current = await this.requireCurrent(organizationId, podOrderId);
+      return this.adapterFor(current.provider).cancel(
+        organizationId,
+        actorUserId,
+        podOrderId,
+        reason,
+        actorRole,
+      );
+    });
+    if (!record) throw new FulfillmentOperationInProgressException();
     // Chỉ phát khi nhà cung cấp XÁC NHẬN huỷ (status CANCELLED); "đang chờ huỷ" không phát.
     await this.notifications.cancelled(record, actorUserId, reason);
     return record;

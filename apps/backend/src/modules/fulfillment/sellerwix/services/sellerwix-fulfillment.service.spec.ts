@@ -923,10 +923,17 @@ describe('SellerwixFulfillmentService.cancel — hỏi trạng thái THẬT trư
   it('Sellerwix xác nhận canceled ⇒ bản ghi CANCELLED', async () => {
     const h = submitted();
 
-    await h.service.cancel(ORG, USER, POD_ORDER, 'khách huỷ');
+    await h.service.cancel(ORG, USER, POD_ORDER, 'khách huỷ', 'EMPLOYEE');
 
     expect(h.cancelOrder).toHaveBeenCalledWith(expect.anything(), 'swx-order-1', { reason: 'khách huỷ' });
     expect(h.record.status).toBe(FulfillmentStatus.CANCELLED);
+    expect(h.repo.addHistory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'CANCEL_REQUEST',
+        performedBy: USER,
+        payload: { reason: 'khách huỷ', actorRole: 'EMPLOYEE' },
+      }),
+    );
   });
 });
 

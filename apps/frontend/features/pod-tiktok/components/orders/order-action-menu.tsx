@@ -27,7 +27,10 @@ interface OrderActionMenuProps {
   /** Quyền `fulfillment.read` — quyết định có hỏi trạng thái xưởng in hay không. */
   canViewFulfillment: boolean;
   canFulfill: boolean;
-  /** Quyền `fulfillment.cancel` — huỷ đơn đã gửi sang xưởng in. */
+  /**
+   * Quyền `fulfillment.cancel` — huỷ đơn đã gửi sang xưởng in (Admin, và Seller với đơn thuộc shop
+   * được gán). Chỉ quyết định HIỆN nút; backend vẫn kiểm quyền + phạm vi shop ở mọi request.
+   */
   canCancel: boolean;
   onUploadDesign: (item: PodOrderItem) => void;
 }
@@ -138,10 +141,12 @@ export function OrderActionMenu({
           {t('pod:orders.actions.syncFulfillment')}
         </DropdownMenuItem>
 
-        {canCancel && (
+        {/* Chỉ hiện khi CÓ quyền và bản ghi đang ở trạng thái huỷ được (backend tính `canCancel`):
+            đơn chưa gửi / đã vào sản xuất / đã huỷ thì không có thao tác này. */}
+        {canCancel && state.data?.canCancel && (
           <DropdownMenuItem
             destructive
-            disabled={!state.data?.canCancel || actions.cancel.isPending}
+            disabled={actions.cancel.isPending}
             onSelect={() => {
               setReason('');
               setCancelOpen(true);

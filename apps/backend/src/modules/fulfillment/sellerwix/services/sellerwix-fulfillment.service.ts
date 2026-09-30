@@ -46,9 +46,9 @@ import {
   type PlacementResolver,
 } from '../../services/fulfillment-readiness.service';
 import { mappingKeyOf } from '../../shared/mapping-match';
-import {
-  CANCELLABLE_FULFILLMENT_STATUSES,
+import {CANCELLABLE_FULFILLMENT_STATUSES,
   SUBMITTABLE_FULFILLMENT_STATUSES,
+  fulfillmentOrderLockKey,
   isNewAttemptOnSubmit,
 } from '../../shared/fulfillment-lifecycle';
 import { SellerwixApiClient } from '../clients/sellerwix-api.client';
@@ -144,7 +144,7 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     options: FulfillOptionsInput,
   ): Promise<FulfillmentOrderWithRelations> {
     const done = await this.lock.withLock(
-      `fulfillment:fulfill:${podOrderId}`,
+      fulfillmentOrderLockKey(podOrderId),
       FULFILL_LOCK_MS,
       () => this.fulfillLocked(organizationId, actorUserId, podOrderId, trigger, options),
     );
@@ -591,6 +591,7 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     actorUserId: string,
     podOrderId: string,
     reason?: string,
+    actorRole?: string,
   ): Promise<FulfillmentOrderWithRelations> {
     const record = await this.repo.findByPodOrder(organizationId, podOrderId, PROVIDER);
     if (!record) throw new FulfillmentOrderNotFoundException();
@@ -638,6 +639,8 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
       trigger: FulfillmentTrigger.MANUAL,
       fromStatus: record.status,
       message: reason ? `Yêu cầu huỷ: ${reason}` : 'Yêu cầu huỷ đơn',
+      // Audit: ai (performedBy) với vai trò gì huỷ, vì lý do gì — truy vết được Seller nào đã huỷ.
+      payload: { reason: reason ?? null, actorRole: actorRole ?? null },
       performedBy: actorUserId,
     });
 

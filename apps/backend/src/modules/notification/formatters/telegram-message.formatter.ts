@@ -100,10 +100,13 @@ function fulfillmentCancelledLines(
     '❌ <b>FULFILLMENT CANCELLED</b>',
     '',
     ...field('🏪', 'Account', payload.accountName),
+    ...field('🧑‍💼', 'Seller', payload.sellerName),
     ...field('🆔', 'Order ID', payload.tiktokOrderId, true),
     ...itemLines(payload.items, false),
     ...field('🏭', 'Fulfillment Provider', providerLabel(payload.provider, payload.fulfilledBy)),
     ...field('🔖', 'Provider Order ID', payload.providerOrderId ?? payload.externalOrderId, true),
+    ...field('📌', 'Status', 'Cancelled'),
+    ...field('🙋', 'Cancelled by', payload.cancelledBy),
     ...field('📅', 'Cancelled at', formatDateTime(payload.cancelledAt, context.timezoneOffsetMinutes)),
     ...field('📝', 'Reason', payload.reason),
   ];

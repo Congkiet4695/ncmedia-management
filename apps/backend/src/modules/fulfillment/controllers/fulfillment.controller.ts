@@ -815,11 +815,19 @@ export class FulfillmentController {
   @ApiOperation({
     summary: 'Huỷ đơn ở xưởng in',
     description:
-      'Chỉ khi đơn chưa vào sản xuất (SUBMITTED hoặc ON_HOLD). Gửi tới đúng nhà cung cấp của bản ' +
-      'ghi hiện hành; nhà cung cấp từ chối thì trả nguyên văn lý do.',
+      'Admin và Seller (đơn thuộc shop được gán) dùng CHUNG endpoint này. Chỉ khi đơn chưa vào ' +
+      'sản xuất (SUBMITTED hoặc ON_HOLD). Hỏi trạng thái thật ở nhà cung cấp trước, gửi tới đúng ' +
+      'nhà cung cấp của bản ghi hiện hành; chỉ đánh CANCELLED khi nhà cung cấp xác nhận. ' +
+      'Response `status = CANCELLED` ⇒ Fulfill lại được (lần thử mới, mã đơn mới).',
   })
   @ApiOkResponse({ type: FulfillmentOrderDto })
-  @ApiConflictResponse({ description: 'FULFILLMENT_CANNOT_CANCEL' })
+  @ApiForbiddenResponse({ description: 'Thiếu quyền fulfillment.cancel · POD_SHOP_FORBIDDEN (đơn shop khác)' })
+  @ApiNotFoundResponse({ description: 'FULFILLMENT_ORDER_NOT_FOUND (không có / tổ chức khác)' })
+  @ApiConflictResponse({
+    description:
+      'FULFILLMENT_CANNOT_CANCEL (đã huỷ / đã vào sản xuất / đã ship) · FULFILLMENT_CANCEL_PENDING · ' +
+      'FULFILLMENT_OPERATION_IN_PROGRESS (đang có lượt gửi / huỷ khác)',
+  })
   async cancel(
     @CurrentUser() user: AuthenticatedUser,
     @PodScope() scope: PodAccessScope,
@@ -832,6 +840,7 @@ export class FulfillmentController {
       podOrderId,
       scope,
       dto.reason,
+      user.role,
     );
     return this.service.toOrderDto(record);
   }

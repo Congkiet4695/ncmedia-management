@@ -1467,14 +1467,16 @@
       "providerOrderId": "Provider order",
       "tracking": "Tracking",
       "refulfill": "Fulfill again",
-      "retry": "Retry fulfill"
+      "retry": "Retry fulfill",
+      "cancelledBy": "Cancelled by {{who}} · {{at}}",
+      "cancelReason": "Reason: {{reason}}"
     },
     "actions": {
       "syncFulfillment": "Sync fulfillment",
       "syncFulfillmentHint": "Pull the latest status from the print facility. This does NOT re-sync the order from TikTok.",
       "syncDone": "Fulfillment status updated",
       "cancelFulfillment": "Cancel fulfillment",
-      "cancelConfirm": "Cancel this order at the print facility? This cannot be undone.",
+      "cancelConfirm": "Cancel this order at the print facility? The provider must confirm the cancellation; once cancelled you can fulfill the order again (a new provider order is created).",
       "cancelReasonPlaceholder": "Reason (optional) — helps reconcile with the facility later",
       "cancelRefulfillHint": "The provider confirmed the cancellation. You can fulfill this order again.",
       "cancelRequested": "Cancellation requested",

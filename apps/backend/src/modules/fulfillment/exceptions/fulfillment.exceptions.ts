@@ -217,6 +217,16 @@ export class FulfillmentCannotCancelException extends ConflictException {
   }
 }
 
+/** Đơn đang có một thao tác fulfillment khác chạy (gửi / huỷ) — không chạy chồng. */
+export class FulfillmentOperationInProgressException extends ConflictException {
+  constructor() {
+    super({
+      code: 'FULFILLMENT_OPERATION_IN_PROGRESS',
+      message: 'Đơn đang được gửi hoặc huỷ bởi một thao tác khác. Vui lòng đợi vài giây rồi tải lại.',
+    });
+  }
+}
+
 /**
  * Nhà cung cấp ĐÃ nhận yêu cầu huỷ và đang xử lý (chưa xác nhận huỷ). Gửi thêm yêu cầu là thừa;
  * đơn chỉ fulfill lại được khi nhà cung cấp báo đã huỷ (đồng bộ / webhook sẽ cập nhật).

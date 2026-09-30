@@ -5,7 +5,10 @@ import { groupOrderLines } from '../../notification/shared/order-items';
 import type { NotificationOrderItem } from '../../notification/types/notification-payload.types';
 import { PodOrderRepository } from '../../pod-tiktok/repositories/pod-order.repository';
 import { FULFILLMENT_PROVIDER_LABELS } from '../constants/fulfillment-provider.constants';
-import type { FulfillmentOrderWithRelations } from '../repositories/fulfillment.repository';
+import {
+  FulfillmentRepository,
+  type FulfillmentOrderWithRelations,
+} from '../repositories/fulfillment.repository';
 import { productCostOf } from '../shared/product-cost';
 
 /**
@@ -40,6 +43,7 @@ export class FulfillmentNotificationService {
   constructor(
     private readonly outbox: NotificationOutboxService,
     private readonly podOrderRepo: PodOrderRepository,
+    private readonly repo: FulfillmentRepository,
   ) {}
 
   async fulfilled(
@@ -90,6 +94,7 @@ export class FulfillmentNotificationService {
     try {
       const order = await this.orderContext(record);
       if (!order) return;
+      const cancelledBy = await this.repo.findUserDisplayName(record.organizationId, actorUserId);
       await this.outbox.publish({
         organizationId: record.organizationId,
         eventType: 'FULFILLMENT_CANCELLED',
@@ -104,6 +109,8 @@ export class FulfillmentNotificationService {
           externalOrderId: record.externalOrderId,
           cancelledAt: (record.cancelledAt ?? new Date()).toISOString(),
           reason: reason?.trim() || null,
+          sellerName: order.sellerName,
+          cancelledBy,
         },
       });
     } catch (error) {
@@ -118,6 +125,7 @@ export class FulfillmentNotificationService {
   private async orderContext(record: FulfillmentOrderWithRelations): Promise<{
     tiktokOrderId: string;
     accountName: string | null;
+    sellerName: string | null;
     items: NotificationOrderItem[];
   } | null> {
     const order = await this.podOrderRepo.findById(record.organizationId, record.podOrderId);
@@ -127,6 +135,7 @@ export class FulfillmentNotificationService {
     return {
       tiktokOrderId: order.tiktokOrderId,
       accountName: order.account?.accountName ?? null,
+      sellerName: order.account?.seller?.user?.fullName ?? null,
       items: groupOrderLines(lines),
     };
   }

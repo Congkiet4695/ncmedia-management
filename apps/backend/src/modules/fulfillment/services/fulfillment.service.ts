@@ -24,6 +24,7 @@ import {
   FulfillmentErrorDto,
   FulfillmentHistoryDto,
   FulfillmentOrderDto,
+  FulfillmentCancellationDto,
   FulfillmentStateDto,
   FulfillmentStateItemDto,
   PaginatedProductMappingDto,
@@ -733,6 +734,7 @@ export class FulfillmentService {
         ],
         canFulfill: false,
         canCancel: false,
+        cancellation: await this.cancellationOf(organizationId, record),
         provider: account
           ? { id: account.id, name: account.name, type: account.provider, isActive: false }
           : null,
@@ -809,6 +811,7 @@ export class FulfillmentService {
       // CANCELLED (nhà cung cấp đã xác nhận huỷ) ⇒ fulfill lại được, như một lần thử mới.
       canFulfill: check.ready && !blocking && SUBMITTABLE_FULFILLMENT_STATUSES.includes(status),
       canCancel: Boolean(record) && CANCELLABLE_FULFILLMENT_STATUSES.includes(status),
+      cancellation: await this.cancellationOf(organizationId, record),
       provider: { id: account.id, name: account.name, type: account.provider, isActive: true },
       // 🔴 Ghép bằng ĐÚNG chỉ mục mà `readiness.check()` vừa dùng ở trên: màn hình và luồng
       // gửi không thể nhìn thấy hai ánh xạ khác nhau cho cùng một dòng hàng.
@@ -1131,6 +1134,32 @@ export class FulfillmentService {
       note: mapping.note,
       createdAt: mapping.createdAt.toISOString(),
       updatedAt: mapping.updatedAt.toISOString(),
+    };
+  }
+
+  /**
+   * Thông tin huỷ của bản ghi ĐÃ HUỶ: thời điểm (`cancelled_at`), người bấm + lý do (nhật ký
+   * CANCEL_REQUEST). Nhật ký cũ không có `payload.reason` ⇒ đọc từ câu "Yêu cầu huỷ: …".
+   */
+  private async cancellationOf(
+    organizationId: string,
+    record: FulfillmentOrder | null,
+  ): Promise<FulfillmentCancellationDto | null> {
+    if (!record || record.status !== FulfillmentStatus.CANCELLED) return null;
+    const request = await this.repo.findLatestCancelRequest(organizationId, record.id);
+    const payloadReason =
+      request?.payload && typeof request.payload === 'object' && !Array.isArray(request.payload)
+        ? (request.payload as { reason?: unknown }).reason
+        : undefined;
+    const messageReason = request?.message?.startsWith('Yêu cầu huỷ: ')
+      ? request.message.slice('Yêu cầu huỷ: '.length)
+      : null;
+    return {
+      cancelledAt: (record.cancelledAt ?? request?.createdAt)?.toISOString() ?? null,
+      cancelledBy: request?.performedBy
+        ? await this.repo.findUserDisplayName(organizationId, request.performedBy)
+        : null,
+      reason: typeof payloadReason === 'string' && payloadReason ? payloadReason : messageReason,
     };
   }
 

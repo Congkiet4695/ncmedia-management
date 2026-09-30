@@ -646,12 +646,20 @@ describe('MangoFulfillmentService.cancel — hỏi trạng thái THẬT trước
       cancelData: { status: 'cancelled' },
     });
 
-    await harness.service.cancel(ORG, USER, POD_ORDER, 'sai size');
+    await harness.service.cancel(ORG, USER, POD_ORDER, 'sai size', 'EMPLOYEE');
 
     expect(harness.cancelOrder).toHaveBeenCalledWith(expect.anything(), 'NC-TT-1', {
       reason: 'sai size',
     });
     expect(harness.record.status).toBe(FulfillmentStatus.CANCELLED);
+    // Audit: truy vết được Seller nào đã huỷ, với vai trò gì, vì sao.
+    expect(harness.repoMocks.addHistory).toHaveBeenCalledWith(
+      expect.objectContaining({
+        eventType: 'CANCEL_REQUEST',
+        performedBy: USER,
+        payload: { reason: 'sai size', actorRole: 'EMPLOYEE' },
+      }),
+    );
   });
 
   it('🔴 Mango CHƯA xác nhận huỷ ⇒ KHÔNG giả thành công, giữ trạng thái thật', async () => {

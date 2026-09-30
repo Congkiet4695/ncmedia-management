@@ -1,7 +1,10 @@
 import { FulfillmentStatus, FulfillmentTrigger, Prisma } from '@prisma/client';
 import { NotificationOutboxService } from '../../notification/services/notification-outbox.service';
 import { PodOrderRepository } from '../../pod-tiktok/repositories/pod-order.repository';
-import type { FulfillmentOrderWithRelations } from '../repositories/fulfillment.repository';
+import type {
+  FulfillmentOrderWithRelations,
+  FulfillmentRepository,
+} from '../repositories/fulfillment.repository';
 import { FulfillmentNotificationService } from './fulfillment-notification.service';
 
 const ORG = 'org-a';
@@ -37,7 +40,7 @@ function build() {
   const podOrderRepo = {
     findById: jest.fn().mockResolvedValue({
       tiktokOrderId: 'TT-1',
-      account: { accountName: 'AZ_VTR_31' },
+      account: { accountName: 'AZ_VTR_31', seller: { user: { fullName: 'Seller Lan' } } },
       items: [
         { id: 'li-1', skuId: 's1', sellerSku: 'SKU1', productName: 'Tee', skuName: 'M / Black' },
         { id: 'li-2', skuId: 's1', sellerSku: 'SKU1', productName: 'Tee', skuName: 'M / Black' },
@@ -45,11 +48,13 @@ function build() {
       ],
     }),
   };
+  const repo = { findUserDisplayName: jest.fn().mockResolvedValue('Seller Lan') };
   const service = new FulfillmentNotificationService(
     outbox as unknown as NotificationOutboxService,
     podOrderRepo as unknown as PodOrderRepository,
+    repo as unknown as FulfillmentRepository,
   );
-  return { service, outbox, podOrderRepo };
+  return { service, outbox, podOrderRepo, repo };
 }
 
 describe('FulfillmentNotificationService', () => {
@@ -105,13 +110,19 @@ describe('FulfillmentNotificationService', () => {
     },
   );
 
-  it('TEST 14 — huỷ đã được xác nhận ⇒ FULFILLMENT_CANCELLED kèm lý do', async () => {
-    const { service, outbox } = build();
+  it('TEST 14 — huỷ đã được xác nhận ⇒ FULFILLMENT_CANCELLED kèm lý do, Seller và NGƯỜI huỷ', async () => {
+    const { service, outbox, repo } = build();
     await service.cancelled(
       record({ status: FulfillmentStatus.CANCELLED, cancelledAt: new Date('2026-09-29T03:30:00Z') }),
-      'admin',
+      'seller-1',
       '  khách đổi ý ',
     );
+    // Tên người huỷ đọc trong ĐÚNG tổ chức của bản ghi.
+    expect(repo.findUserDisplayName).toHaveBeenCalledWith(ORG, 'seller-1');
+    expect(outbox.publish.mock.calls[0][0].payload).toMatchObject({
+      sellerName: 'Seller Lan',
+      cancelledBy: 'Seller Lan',
+    });
     expect(outbox.publish).toHaveBeenCalledWith(
       expect.objectContaining({
         eventType: 'FULFILLMENT_CANCELLED',

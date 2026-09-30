@@ -160,12 +160,37 @@ describe('formatTelegramMessage', () => {
       externalOrderId: 'NC-5775',
       cancelledAt: '2026-09-29T03:30:00.000Z',
       reason: 'Khách huỷ',
+      sellerName: 'Seller Lan',
+      cancelledBy: 'Seller Lan',
     };
     const text = formatTelegramMessage('FULFILLMENT_CANCELLED', payload, CTX);
     expect(text).toContain('❌ <b>FULFILLMENT CANCELLED</b>');
     expect(text).toContain('<b>Fulfillment Provider:</b> MangoTeePrints');
     expect(text).toContain('29/09/2026 10:30');
     expect(text).toContain('<b>Reason:</b> Khách huỷ');
+    expect(text).toContain('<b>Seller:</b> Seller Lan');
+    expect(text).toContain('<b>Status:</b> Cancelled');
+    expect(text).toContain('<b>Cancelled by:</b> Seller Lan');
+  });
+
+  it('FULFILLMENT CANCELLED — sự kiện cũ không có seller / người huỷ ⇒ bỏ dòng, không lỗi', () => {
+    const text = formatTelegramMessage(
+      'FULFILLMENT_CANCELLED',
+      {
+        tiktokOrderId: '5775',
+        accountName: null,
+        items: [],
+        provider: 'Sellerwix',
+        fulfilledBy: null,
+        providerOrderId: 'SW-1',
+        externalOrderId: '5775',
+        cancelledAt: null,
+        reason: null,
+      },
+      CTX,
+    );
+    expect(text).not.toMatch(/Seller:|Cancelled by|undefined|null/);
+    expect(text).toContain('<b>Status:</b> Cancelled');
   });
 
   it('payload hỏng ⇒ ném lỗi (worker đánh FAILED, không gửi tin rỗng)', () => {

@@ -16,6 +16,8 @@ import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import { SellerwixFulfillmentService } from '../sellerwix/services/sellerwix-fulfillment.service';
 import { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 import { FulfillmentNotificationService } from './fulfillment-notification.service';
+import { DistributedLockService } from '../../pod-tiktok/infra/distributed-lock.service';
+import { FulfillmentOperationInProgressException } from '../exceptions/fulfillment.exceptions';
 
 /**
  * **Gateway chọn adapter theo `account.provider`.**
@@ -71,6 +73,19 @@ function build(options: { accounts?: unknown[]; current?: unknown; orderMissing?
     fulfill: jest.fn().mockResolvedValue({ provider: 'SELLERWIX' }),
     cancel: jest.fn().mockResolvedValue({}),
   };
+  // Khoá trong bộ nhớ: giữ đúng ngữ nghĩa "đang có người giữ ⇒ null" của DistributedLockService.
+  const held = new Set<string>();
+  const lock = {
+    withLock: jest.fn(async (key: string, _ttl: number, task: () => Promise<unknown>) => {
+      if (held.has(key)) return null;
+      held.add(key);
+      try {
+        return await task();
+      } finally {
+        held.delete(key);
+      }
+    }),
+  };
   const notifications = {
     fulfilled: jest.fn().mockResolvedValue(undefined),
     cancelled: jest.fn().mockResolvedValue(undefined),
@@ -86,8 +101,9 @@ function build(options: { accounts?: unknown[]; current?: unknown; orderMissing?
     // `assertShopAllowed` là phép so thuần — không cần database.
     new PodAccessScopeService({} as never),
     notifications as unknown as FulfillmentNotificationService,
+    lock as unknown as DistributedLockService,
   );
-  return { gateway, mango, sellerwix, notifications };
+  return { gateway, mango, sellerwix, notifications, lock };
 }
 
 describe('FulfillmentProviderGateway', () => {
@@ -156,7 +172,7 @@ describe('FulfillmentProviderGateway', () => {
 
     await gateway.cancel('org', 'user', 'pod-1', ALL, 'khách đổi ý');
 
-    expect(sellerwix.cancel).toHaveBeenCalledWith('org', 'user', 'pod-1', 'khách đổi ý');
+    expect(sellerwix.cancel).toHaveBeenCalledWith('org', 'user', 'pod-1', 'khách đổi ý', undefined);
     expect(mango.cancel).not.toHaveBeenCalled();
   });
 
@@ -276,5 +292,66 @@ describe('FulfillmentProviderGateway — thông báo Telegram', () => {
 
     await expect(gateway.cancel('org', 'admin', 'pod-1', ALL)).rejects.toThrow('already shipped');
     expect(notifications.cancelled).not.toHaveBeenCalled();
+  });
+});
+
+describe('FulfillmentProviderGateway — Seller huỷ fulfillment', () => {
+  const CURRENT = { accountId: 'acc-mango', provider: FulfillmentProvider.MANGO };
+
+  it('Seller huỷ đơn thuộc shop được gán ⇒ đi qua adapter của bản ghi, ghi kèm role để audit', async () => {
+    const { gateway, mango, notifications } = build({ current: CURRENT });
+    const record = { id: 'fo-1', status: 'CANCELLED' };
+    mango.cancel.mockResolvedValueOnce(record);
+
+    await expect(gateway.cancel('org', 'seller-1', 'pod-1', OWN_SELLER, 'sai size', 'EMPLOYEE')).resolves.toBe(record);
+
+    expect(mango.cancel).toHaveBeenCalledWith('org', 'seller-1', 'pod-1', 'sai size', 'EMPLOYEE');
+    expect(notifications.cancelled).toHaveBeenCalledWith(record, 'seller-1', 'sai size');
+  });
+
+  it('Sellerwix: huỷ đi adapter Sellerwix, Mango không bị gọi (không hard-code Mango)', async () => {
+    const { gateway, mango, sellerwix } = build({
+      current: { accountId: 'acc-swx', provider: FulfillmentProvider.SELLERWIX },
+    });
+    await gateway.cancel('org', 'seller-1', 'pod-1', OWN_SELLER, undefined, 'EMPLOYEE');
+    expect(sellerwix.cancel).toHaveBeenCalledTimes(1);
+    expect(mango.cancel).not.toHaveBeenCalled();
+  });
+
+  it('Seller huỷ đơn của tổ chức khác (không tìm thấy trong tổ chức) ⇒ 404, nhà cung cấp không bị gọi', async () => {
+    const { gateway, mango } = build({ current: CURRENT, orderMissing: true });
+    await expect(gateway.cancel('org', 'seller-1', 'pod-x', OWN_SELLER)).rejects.toBeInstanceOf(
+      FulfillmentOrderNotFoundException,
+    );
+    expect(mango.cancel).not.toHaveBeenCalled();
+  });
+
+  it('đơn chưa từng fulfill ⇒ 404', async () => {
+    const { gateway } = build({ current: null });
+    await expect(gateway.cancel('org', 'admin', 'pod-1', ALL)).rejects.toBeInstanceOf(
+      FulfillmentOrderNotFoundException,
+    );
+  });
+
+  it('huỷ ĐỒNG THỜI (Admin + Seller cùng bấm) ⇒ chỉ một lần gọi nhà cung cấp, bên sau nhận 409', async () => {
+    const { gateway, mango } = build({ current: CURRENT });
+    let release!: (value: unknown) => void;
+    mango.cancel.mockImplementationOnce(() => new Promise((resolve) => (release = resolve)));
+
+    const first = gateway.cancel('org', 'admin', 'pod-1', ALL);
+    await new Promise((resolve) => setImmediate(resolve));
+    await expect(gateway.cancel('org', 'seller-1', 'pod-1', OWN_SELLER)).rejects.toBeInstanceOf(
+      FulfillmentOperationInProgressException,
+    );
+    release({ id: 'fo-1', status: 'CANCELLED' });
+    await first;
+
+    expect(mango.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('huỷ dùng CHUNG khoá với gửi đơn (không huỷ chồng lên một lượt Fulfill đang chạy)', async () => {
+    const { gateway, lock } = build({ current: CURRENT });
+    await gateway.cancel('org', 'admin', 'pod-1', ALL);
+    expect(lock.withLock).toHaveBeenCalledWith('fulfillment:fulfill:pod-1', expect.any(Number), expect.any(Function));
   });
 });

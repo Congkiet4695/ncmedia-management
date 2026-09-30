@@ -96,6 +96,8 @@ export interface FulfillmentProviderAdapter {
     actorUserId: string,
     podOrderId: string,
     reason?: string,
+    /** Mã role của người huỷ — chỉ để ghi audit (quyền đã được kiểm ở controller / gateway). */
+    actorRole?: string,
   ): Promise<FulfillmentOrderWithRelations>;
 
   /** Chẩn đoán — KHÔNG ném lỗi, trả nguyên văn thông báo của nhà cung cấp. */

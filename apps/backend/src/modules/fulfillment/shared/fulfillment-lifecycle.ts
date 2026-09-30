@@ -53,6 +53,15 @@ export const NON_BLOCKING_FULFILLMENT_STATUSES: readonly FulfillmentStatus[] = [
   FulfillmentStatus.REJECTED,
 ];
 
+/**
+ * Khoá phân tán cho MỌI thao tác ghi trạng thái fulfillment của một đơn (gửi / gửi lại / huỷ), dùng
+ * chung cho mọi nhà cung cấp. Cùng một khoá ⇒ hai lần huỷ đồng thời, hoặc huỷ trong lúc đang gửi,
+ * không thể chạy chồng lên nhau.
+ */
+export function fulfillmentOrderLockKey(podOrderId: string): string {
+  return `fulfillment:fulfill:${podOrderId}`;
+}
+
 /** Gửi trên bản ghi này có phải là MỘT LẦN THỬ MỚI (lưu trữ bản ghi cũ, sinh mã đơn mới) không. */
 export function isNewAttemptOnSubmit(status: FulfillmentStatus | null | undefined): boolean {
   return status === FulfillmentStatus.CANCELLED;

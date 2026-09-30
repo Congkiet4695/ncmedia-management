@@ -1467,14 +1467,16 @@
       "providerOrderId": "Mã đơn NCC",
       "tracking": "Tracking",
       "refulfill": "Fulfill lại",
-      "retry": "Gửi lại"
+      "retry": "Gửi lại",
+      "cancelledBy": "Huỷ bởi {{who}} · {{at}}",
+      "cancelReason": "Lý do: {{reason}}"
     },
     "actions": {
       "syncFulfillment": "Đồng bộ xưởng in",
       "syncFulfillmentHint": "Lấy trạng thái mới nhất từ xưởng in. KHÔNG phải kéo lại đơn từ TikTok.",
       "syncDone": "Đã cập nhật trạng thái xưởng in",
       "cancelFulfillment": "Huỷ đơn xưởng in",
-      "cancelConfirm": "Huỷ đơn này tại xưởng in? Thao tác không thể hoàn tác.",
+      "cancelConfirm": "Huỷ đơn này tại xưởng in? Nhà cung cấp phải xác nhận huỷ; sau khi đã huỷ, đơn có thể được Fulfill lại (tạo đơn mới ở nhà cung cấp).",
       "cancelReasonPlaceholder": "Lý do (tuỳ chọn) — giúp đối soát với xưởng in về sau",
       "cancelRefulfillHint": "Nhà cung cấp đã xác nhận huỷ. Có thể Fulfill lại đơn này.",
       "cancelRequested": "Đã gửi yêu cầu huỷ",

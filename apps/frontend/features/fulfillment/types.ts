@@ -391,12 +391,21 @@ export interface CatalogSyncStarted {
   startedAt: string;
 }
 
+export interface FulfillmentCancellation {
+  cancelledAt: string | null;
+  /** Họ tên (thiếu thì email) người bấm Huỷ. */
+  cancelledBy: string | null;
+  reason: string | null;
+}
+
 export interface FulfillmentState {
   fulfillment: FulfillmentOrder | null;
   ready: boolean;
   issues: FulfillmentIssue[];
   canFulfill: boolean;
   canCancel: boolean;
+  /** Ai huỷ / khi nào / vì sao — chỉ có khi bản ghi hiện hành đã CANCELLED. */
+  cancellation: FulfillmentCancellation | null;
   /** Nhà cung cấp gán cho kết nối TikTok của đơn. NULL = chưa cấu hình. */
   provider: FulfillmentStateProvider | null;
   /** Từng dòng hàng kèm ánh xạ đang áp dụng. */

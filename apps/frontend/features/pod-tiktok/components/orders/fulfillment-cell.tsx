@@ -10,7 +10,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { FulfillOrderDrawer } from '@/features/fulfillment/components/fulfill-order-drawer';
 import { useFulfillmentState } from '@/features/fulfillment/hooks/use-fulfillment';
-import type { FulfillmentStatus } from '@/features/fulfillment/types';
+import type { FulfillmentCancellation, FulfillmentStatus } from '@/features/fulfillment/types';
 import { SUBMITTABLE_STATUSES } from '@/features/fulfillment/product-config';
 import { EMPTY, formatOrderDateTime, orderCurrency } from '../../order-view-model';
 
@@ -251,6 +251,10 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
         />
       )}
 
+      {fulfillment.status === 'CANCELLED' && data?.cancellation && (
+        <CancellationLine cancellation={data.cancellation} />
+      )}
+
       {resubmittable && (
         <Button
           variant="outline"
@@ -276,6 +280,21 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
         </Tooltip>
       )}
     </div>
+  );
+}
+
+/** "Huỷ bởi X · lúc Y" + lý do (tooltip) — truy vết được ai đã huỷ, kể cả Seller. */
+function CancellationLine({ cancellation }: { cancellation: FulfillmentCancellation }) {
+  const { t } = useTranslation('pod');
+  const text = t('orders.fulfillment.cancelledBy', {
+    who: cancellation.cancelledBy ?? EMPTY,
+    at: formatOrderDateTime(cancellation.cancelledAt),
+  });
+  const body = <p className="line-clamp-2 text-[10px] text-muted-foreground">{text}</p>;
+  return cancellation.reason ? (
+    <Tooltip content={t('orders.fulfillment.cancelReason', { reason: cancellation.reason })}>{body}</Tooltip>
+  ) : (
+    body
   );
 }
 

@@ -52,12 +52,12 @@ describe('Phân quyền Fulfill', () => {
     },
   );
 
-  it('Seller (EMPLOYEE) có quyền gửi đơn nhưng KHÔNG có huỷ / cấu hình nhà cung cấp / mọi shop', () => {
+  it('Seller (EMPLOYEE) gửi / huỷ đơn được nhưng KHÔNG có cấu hình nhà cung cấp / mọi shop', () => {
     const permissions: readonly string[] = EMPLOYEE_DEFAULT_PERMISSIONS;
     expect(permissions).toContain('fulfillment.create');
     expect(permissions).toContain('fulfillment.read');
     expect(permissions).toContain('fulfillment.mapping');
-    expect(permissions).not.toContain('fulfillment.cancel');
+    expect(permissions).toContain('fulfillment.cancel');
     expect(permissions).not.toContain('fulfillment.config');
     expect(permissions).not.toContain('pod.shop.all');
     expect(ADMIN_ROLE_CODE).toBe('ADMIN');
@@ -68,6 +68,11 @@ describe('Phân quyền Fulfill', () => {
       'fulfillment.create',
       'pod.shop.all',
     ]);
+  });
+
+  it('huỷ đơn xưởng in đòi fulfillment.cancel và nhận phạm vi shop — cùng MỘT endpoint cho Admin / Seller', () => {
+    expect(permissionsOf(FulfillmentController.prototype, 'cancel')).toEqual(['fulfillment.cancel']);
+    expect(hasPodScopeParam(FulfillmentController, 'cancel')).toBe(true);
   });
 
   it('gửi đơn / lấy nhãn vẫn chỉ đòi fulfillment.create (Admin không đổi hành vi)', () => {

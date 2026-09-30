@@ -175,8 +175,12 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   // gửi). An toàn vì MỌI endpoint dùng quyền này đi qua `PodAccessScopeService`: gateway /
   // FulfillmentShippingLabelService kiểm shop của đơn ngay trước khi gọi nhà cung cấp/TikTok.
   // Đồng bộ HÀNG LOẠT cấp tổ chức (`POST /fulfillment/sync`) đòi thêm `pod.shop.all` — Seller
-  // không có. `fulfillment.cancel` (huỷ ở xưởng) và `fulfillment.config` vẫn chỉ Admin.
+  // không có. `fulfillment.config` (thêm/xoá nhà cung cấp, đổi API key) vẫn chỉ Admin.
   'fulfillment.create',
+  // Huỷ đơn ở xưởng in của CHÍNH shop mình (để sửa rồi Fulfill lại). Cùng mức tin cậy với
+  // `fulfillment.create` và cùng hàng rào: `FulfillmentProviderGateway.cancel` kiểm shop của đơn
+  // (`PodAccessScopeService`) ngay trước khi gọi nhà cung cấp — đơn shop khác ⇒ 403, tổ chức khác ⇒ 404.
+  'fulfillment.cancel',
   // Design nằm trên Storage Module.
   'storage.read',
   'storage.upload',

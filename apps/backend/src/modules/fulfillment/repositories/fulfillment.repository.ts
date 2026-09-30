@@ -503,6 +503,31 @@ export class FulfillmentRepository {
     });
   }
 
+  /** Yêu cầu huỷ gần nhất của MỘT bản ghi (lọc theo tổ chức) — nguồn "ai huỷ / vì sao". */
+  findLatestCancelRequest(organizationId: string, fulfillmentOrderId: string) {
+    return this.prisma.fulfillmentHistory.findFirst({
+      where: {
+        organizationId,
+        fulfillmentOrderId,
+        eventType: FulfillmentEventType.CANCEL_REQUEST,
+      },
+      orderBy: { createdAt: 'desc' },
+      select: { performedBy: true, message: true, payload: true, createdAt: true },
+    });
+  }
+
+  /**
+   * Tên hiển thị của người dùng TRONG tổ chức (họ tên, thiếu thì email) — ghi "ai đã huỷ" vào thông
+   * báo. Lọc theo tổ chức: id của tổ chức khác không bao giờ trả tên.
+   */
+  async findUserDisplayName(organizationId: string, userId: string): Promise<string | null> {
+    const user = await this.prisma.user.findFirst({
+      where: { id: userId, organizationId },
+      select: { fullName: true, email: true },
+    });
+    return user ? user.fullName?.trim() || user.email : null;
+  }
+
   /** Tìm theo `order_id` đã gửi sang nhà cung cấp — dùng khi nhận webhook. */
   findByExternalOrderId(externalOrderId: string): Promise<FulfillmentOrder | null> {
     return this.prisma.fulfillmentOrder.findFirst({

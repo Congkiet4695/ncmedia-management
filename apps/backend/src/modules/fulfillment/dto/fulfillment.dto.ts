@@ -1315,6 +1315,14 @@ export class FulfillmentAvailableProviderDto {
   isAssignedToAccount!: boolean;
 }
 
+/** Ai huỷ, khi nào, vì sao — lấy từ nhật ký CANCEL_REQUEST của bản ghi đã huỷ. */
+export class FulfillmentCancellationDto {
+  @ApiProperty({ nullable: true, type: String }) cancelledAt!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'Họ tên (thiếu thì email) người bấm Huỷ' })
+  cancelledBy!: string | null;
+  @ApiProperty({ nullable: true, type: String }) reason!: string | null;
+}
+
 /** Trạng thái fulfillment kèm đánh giá "gửi được chưa" — dùng cho màn hình đơn. */
 export class FulfillmentStateDto {
   @ApiProperty({ nullable: true, type: FulfillmentOrderDto })
@@ -1325,6 +1333,12 @@ export class FulfillmentStateDto {
   issues!: FulfillmentIssueDto[];
   @ApiProperty({ description: 'Có thể bấm Fulfill lúc này không' }) canFulfill!: boolean;
   @ApiProperty({ description: 'Có thể huỷ ở xưởng in không' }) canCancel!: boolean;
+  @ApiProperty({
+    nullable: true,
+    type: FulfillmentCancellationDto,
+    description: 'Chỉ có khi bản ghi hiện hành đã CANCELLED.',
+  })
+  cancellation!: FulfillmentCancellationDto | null;
   @ApiProperty({
     nullable: true,
     type: FulfillmentStateProviderDto,
