@@ -98,6 +98,8 @@
     "AUTH_ORGANIZATION_REJECTED": "Hồ sơ đăng ký Organization của bạn chưa được phê duyệt. Vui lòng kiểm tra email chúng tôi đã gửi để biết lý do.",
     "AUTH_ORGANIZATION_INACTIVE": "Organization của bạn hiện không hoạt động. Vui lòng liên hệ quản trị viên.",
     "PLATFORM_ORGANIZATION_NOT_FOUND": "Không tìm thấy Organization",
-    "PLATFORM_ORGANIZATION_NOT_PENDING": "Hồ sơ này không còn ở trạng thái chờ duyệt — nó đã được xét duyệt trước đó."
+    "PLATFORM_ORGANIZATION_NOT_PENDING": "Hồ sơ này không còn ở trạng thái chờ duyệt — nó đã được xét duyệt trước đó.",
+    "POD_SHOP_FORBIDDEN": "Bạn chỉ thao tác được trên đơn của TikTok Shop đã được Admin gán cho bạn.",
+    "FULFILLMENT_VARIANT_PRICE_UNAVAILABLE": "Không lấy được giá vốn của biến thể này từ nhà cung cấp."
   }
 }

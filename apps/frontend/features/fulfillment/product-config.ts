@@ -63,11 +63,56 @@ export function providerProductLabel(
 
 /** Nhãn của một biến thể: `SKU · tên biến thể` (SKU biến thể LÀ mã gửi sang xưởng in). */
 export function providerVariantLabel(
-  variant: Pick<ProviderCatalogVariation, 'sku' | 'name' | 'externalVariantId'>,
+  variant: Pick<ProviderCatalogVariation, 'sku' | 'name' | 'externalVariantId'> & {
+    productionLine?: string | null;
+  },
 ): string {
   const sku = isBusinessSku(variant.sku, variant.externalVariantId) ? variant.sku : '';
   const name = variant.name?.trim() || '';
-  return [sku, name].filter(Boolean).join(' · ') || name || sku;
+  const label = [sku, name].filter(Boolean).join(' · ') || name || sku;
+  // Mango: SKU nào thuộc xưởng nào phải nhìn thấy được — đó là thứ quyết định xưởng nhận đơn.
+  const line = variant.productionLine?.trim();
+  return line ? `${label} · ${line}` : label;
+}
+
+// ---------------------------------------------------------------------------
+// Line sản xuất (Mango) — chọn line = chọn SKU của line đó
+// ---------------------------------------------------------------------------
+
+/**
+ * Line sản xuất ĐANG ÁP DỤNG (id): người dùng chọn, không chọn thì mặc định của tài khoản.
+ * 🔴 Mặc định chỉ là DỰ PHÒNG — không bao giờ đè lựa chọn của người dùng.
+ */
+export function effectiveProductionLine(
+  selected: string | null | undefined,
+  accountDefault: string | null | undefined,
+): string {
+  return selected || accountDefault || '';
+}
+
+/** Tên (chuẩn hoá chữ HOA) của một line theo id, từ danh sách `productionLines` (value = id, label = tên). */
+export function productionLineName(
+  lines: ReadonlyArray<{ value: string; label: string }>,
+  lineId: string | null | undefined,
+): string | null {
+  if (!lineId) return null;
+  const found = lines.find((line) => line.value === lineId);
+  return found ? found.label.trim().toUpperCase() : null;
+}
+
+/**
+ * Biến thể được phép chọn cho một line. Không có line ⇒ mọi biến thể.
+ *
+ * 🔴 Đây là chỗ sửa lỗi "chọn TIKTOK mà Mango làm ở FASTUS": Mango không nhận trường production line,
+ * nó xếp đơn theo SKU. Trước đây Color + Size lấy biến thể ĐẦU TIÊN khớp — thường là SKU của xưởng
+ * khác. Nay chỉ SKU của đúng xưởng đang chọn mới có mặt; biến thể không rõ xưởng bị loại khi đã chọn line.
+ */
+export function variantsForProductionLine<T extends { productionLine?: string | null }>(
+  variants: readonly T[],
+  lineName: string | null,
+): T[] {
+  if (!lineName) return [...variants];
+  return variants.filter((variant) => variant.productionLine?.trim().toUpperCase() === lineName);
 }
 
 // ---------------------------------------------------------------------------
@@ -164,7 +209,9 @@ export type SubmitBlocker =
   /** Đang có một lượt gửi chạy. */
   | { code: 'BUSY' }
   /** Backend liệt kê lý do cụ thể (thiếu ánh xạ, thiếu design, địa chỉ bị che…). */
-  | { code: 'NOT_READY'; issues: FulfillmentIssue[] };
+  | { code: 'NOT_READY'; issues: FulfillmentIssue[] }
+  /** Phương thức "By TikTok" nhưng đơn chưa có nhãn TikTok. */
+  | { code: 'TIKTOK_LABEL_REQUIRED' };
 
 /**
  * Vì sao nút **Đẩy sang Fulfill** đang tắt — NGUỒN DUY NHẤT cho cả ba nơi: trạng thái
@@ -178,6 +225,8 @@ export function submitBlockers(params: {
   state: FulfillmentState | null | undefined;
   status: FulfillmentStatus;
   submitting?: boolean;
+  /** Kết quả `tiktokLabelRequired()` — "By TikTok" mà chưa có nhãn. */
+  tiktokLabelRequired?: boolean;
 }): SubmitBlocker[] {
   const { state, status } = params;
   if (!state) return [{ code: 'LOADING' }];
@@ -188,6 +237,9 @@ export function submitBlockers(params: {
   if (!state.canFulfill && SUBMITTABLE_STATUSES.includes(status)) {
     blockers.push({ code: 'NOT_READY', issues: state.issues ?? [] });
   }
+  if (params.tiktokLabelRequired && SUBMITTABLE_STATUSES.includes(status)) {
+    blockers.push({ code: 'TIKTOK_LABEL_REQUIRED' });
+  }
   return blockers;
 }
 
@@ -196,6 +248,7 @@ export function canSubmitFulfillment(params: {
   state: FulfillmentState | null | undefined;
   status: FulfillmentStatus;
   submitting?: boolean;
+  tiktokLabelRequired?: boolean;
 }): boolean {
   return submitBlockers(params).length === 0;
 }

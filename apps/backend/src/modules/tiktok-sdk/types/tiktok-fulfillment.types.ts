@@ -67,6 +67,8 @@ export interface TiktokShippingDocument {
  * chừng), kiểu vận chuyển và trạng thái đơn — đúng field của `Order202309GetOrderDetailResponseDataOrders`.
  */
 export interface TiktokOrderFulfillmentInfo {
+  /** TikTok có trả về đơn này không (sai id / đơn của shop khác ⇒ `false`). */
+  found: boolean;
   status?: string;
   /** `TIKTOK` (TikTok Shipping) | `SELLER` (người bán tự vận chuyển). */
   shippingType?: string;

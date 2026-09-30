@@ -41,6 +41,17 @@ export interface TiktokSdkCall<T> {
    * quyết định gửi lại với key mới (xem `PodListingPublisherService.createWithReconcile`).
    */
   retry?: boolean;
+  /**
+   * Thời gian chờ TỐI ĐA của MỘT lần gọi (ms). Bỏ trống ⇒ không giới hạn (hành vi cũ).
+   *
+   * 🔴 Thư viện `request` của SDK KHÔNG đặt timeout mặc định: TikTok treo là request treo tới khi
+   * hệ điều hành cắt socket (vài phút), trong khi trình duyệt/nginx đã bỏ cuộc từ lâu. Hết giờ ⇒ lỗi
+   * lớp `NETWORK` (thử lại theo `retry`). Lưu ý: lời gọi gốc vẫn có thể đang chạy ở phía TikTok —
+   * với lệnh GHI (`retry: false`), nơi gọi phải ĐỐI SOÁT trước khi gửi lại.
+   */
+  timeoutMs?: number;
+  /** Số lần thử lại tối đa cho riêng lời gọi này (mặc định `TIKTOK_SDK_MAX_RETRY`). */
+  maxRetries?: number;
 }
 
 /**
@@ -115,8 +126,9 @@ export class TikTokSdkService implements OnModuleInit {
    */
   async execute<T>(call: TiktokSdkCall<T>): Promise<TiktokSdkResult<T>> {
     let lastError: TiktokClientError | undefined;
+    const maxRetries = call.maxRetries ?? TIKTOK_SDK_MAX_RETRY;
 
-    for (let attempt = 0; attempt <= TIKTOK_SDK_MAX_RETRY; attempt++) {
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
       if (attempt > 0) {
         await this.delay(this.computeBackoff(attempt - 1, lastError?.retryAfterSeconds));
       }
@@ -137,10 +149,10 @@ export class TikTokSdkService implements OnModuleInit {
           tiktokCode: error.tiktokCode,
           tiktokRequestId: error.requestId,
           errorClass: error.errorClass,
-          willRetry: retryable && attempt < TIKTOK_SDK_MAX_RETRY,
+          willRetry: retryable && attempt < maxRetries,
           msg: error.tiktokMessage,
         });
-        if (!retryable || attempt === TIKTOK_SDK_MAX_RETRY) throw error;
+        if (!retryable || attempt === maxRetries) throw error;
       }
     }
 
@@ -156,8 +168,9 @@ export class TikTokSdkService implements OnModuleInit {
     let body: TiktokSdkEnvelope<T>;
 
     try {
-      ({ body } = await call.invoke());
+      ({ body } = await this.withTimeout(call));
     } catch (error) {
+      if (error instanceof TiktokClientError) throw error;
       // Lỗi tầng vận chuyển (DNS, timeout, socket) hoặc HTTP status ≠ 2xx do SDK ném ra.
       throw this.toTransportError(error, call.endpoint);
     }
@@ -205,6 +218,31 @@ export class TikTokSdkService implements OnModuleInit {
       raw?.body?.requestId,
       endpoint,
     );
+  }
+
+  /** Chạy `invoke` với giới hạn `timeoutMs` (nếu có). Hết giờ ⇒ `TiktokClientError` lớp NETWORK. */
+  private withTimeout<T>(call: TiktokSdkCall<T>): Promise<{ body: TiktokSdkEnvelope<T> }> {
+    const timeoutMs = call.timeoutMs;
+    if (!timeoutMs || timeoutMs <= 0) return call.invoke();
+
+    let timer: NodeJS.Timeout | undefined;
+    const timeout = new Promise<never>((_resolve, reject) => {
+      timer = setTimeout(
+        () =>
+          reject(
+            new TiktokClientError(
+              TiktokErrorClass.NETWORK,
+              0,
+              `TikTok không phản hồi trong ${Math.round(timeoutMs / 1000)} giây`,
+              0,
+              undefined,
+              call.endpoint,
+            ),
+          ),
+        timeoutMs,
+      );
+    });
+    return Promise.race([call.invoke(), timeout]).finally(() => clearTimeout(timer));
   }
 
   /** wait = max(retry_after, min(base · 2^n + jitter, cap)) — công thức chính thức. */

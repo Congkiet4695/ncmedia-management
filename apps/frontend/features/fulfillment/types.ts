@@ -246,6 +246,8 @@ export interface FulfillmentOptions {
   preferredCarriers: FulfillmentOption[];
   productionConfigs: FulfillmentOption[];
   productionLines: FulfillmentOption[];
+  /** Line mặc định của tài khoản (id) — chỉ DỰ PHÒNG khi cấu hình sản phẩm không chọn line. */
+  defaultProductionLine: string | null;
   printLocations: PrintLocationOption[];
   capabilities: FulfillmentCapabilities;
   warnings: string[];
@@ -332,6 +334,12 @@ export interface ShippingLabel {
   obtainedAt: string | null;
   /** Lần lấy vừa rồi dùng LẠI gói đã có (không tạo gói mới). */
   reusedPackage?: boolean;
+  /**
+   * `false` ⇒ TikTok không cấp lại được file cho gói đã có (vd gói đã được lấy hàng) — đây là nhãn
+   * ĐÃ LƯU của chính gói đó; lý do ở `warning`.
+   */
+  refreshed?: boolean;
+  warning?: string | null;
 }
 
 /** Một nhà cung cấp tổ chức được chọn khi gửi đơn. */
@@ -471,6 +479,18 @@ export type ProductMappingStatus = 'ACTIVE' | 'INACTIVE';
  */
 export type ProductMappingDesignStatus = 'READY' | 'MISSING_FRONT' | 'MISSING_ALL';
 
+/** Giá vốn của một biến thể nhà cung cấp — backend đọc từ danh mục đã đồng bộ. */
+export interface VariantPrice {
+  accountId: string;
+  variantId: string;
+  externalVariantId: string;
+  sku: string;
+  price: number;
+  currency: string | null;
+  source: 'PROVIDER_CATALOG';
+  syncedAt: string;
+}
+
 export interface ProductMapping {
   id: string;
   /** Nửa đầu khoá nghiệp vụ. NULL = bản ghi cũ chưa đủ khoá, không ghép được đơn nào. */
@@ -481,8 +501,15 @@ export interface ProductMapping {
   tiktokSkuId: string | null;
   /** Fulfillment SKU — giá trị THỰC SỰ gửi đi khi tạo đơn. */
   providerSku: string;
-  /** Giá vốn nhà cung cấp. NULL = chưa khai. */
+  /** Giá vốn nhà cung cấp — backend lấy từ giá biến thể đã đồng bộ khi lưu. NULL = chưa có giá. */
   baseCost: number | null;
+  /**
+   * Chỉ có trong phản hồi TẠO/SỬA: `PROVIDER_PRICE` = đã cập nhật theo giá nhà cung cấp;
+   * `UNCHANGED` = không lấy được giá, GIỮ giá cũ (cùng biến thể); `PRICE_NOT_FOUND` = biến thể mới
+   * không có giá. Lý do ở `baseCostMessage`.
+   */
+  baseCostStatus?: 'PROVIDER_PRICE' | 'UNCHANGED' | 'PRICE_NOT_FOUND';
+  baseCostMessage?: string | null;
   providerProductId: string | null;
   providerVariantId: string | null;
   providerProductName: string | null;
@@ -578,6 +605,11 @@ export interface ProviderCatalogVariation {
   isAvailable: boolean;
   /** Sellerwix: vùng in của biến thể. NULL với nhà cung cấp có bộ vị trí in cố định (Mango). */
   printAreas: ProviderPrintArea[] | null;
+  /**
+   * Mango: xưởng của SKU (vd `TIKTOK`, `FASTUS`). Mango xếp đơn THEO SKU — cùng Color/Size có một SKU
+   * cho mỗi xưởng, nên chọn Line sản xuất = chọn SKU của xưởng đó. `null` với nhà cung cấp khác.
+   */
+  productionLine: string | null;
 }
 
 /** Một vùng in của biến thể nhà cung cấp (Sellerwix `print_areas[]`). */

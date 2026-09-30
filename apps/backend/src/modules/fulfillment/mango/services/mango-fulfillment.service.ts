@@ -42,6 +42,7 @@ import {
   FulfillmentOrderWithRelations,
   FulfillmentRepository,
 } from '../../repositories/fulfillment.repository';
+import { FulfillmentCatalogRepository } from '../../repositories/fulfillment-catalog.repository';
 import {
   FulfillmentReadinessService,
   type DesignsByProductKey,
@@ -50,10 +51,16 @@ import { mappingKeyOf } from '../../shared/mapping-match';
 import { MangoApiClient, MangoCallContext } from '../clients/mango-api.client';
 import { MangoCredentialService } from './mango-credential.service';
 import { FulfillmentOptionsService } from '../../services/fulfillment-options.service';
-import { MangoOrderMapper, type ResolvedItem } from '../mappers/mango-order.mapper';
+import { SHIPPING_LABEL_SOURCE } from '../../services/fulfillment-shipping-label.service';
+import {
+  MangoOrderMapper,
+  mangoVariantProductionLine,
+  type ResolvedItem,
+} from '../mappers/mango-order.mapper';
 import {
   MANGO_FACILITIES,
   MANGO_PREFERRED_CARRIERS,
+  MANGO_BY_TIKTOK_SHIPPING_METHOD,
   MANGO_SHIPPING_METHODS,
   MANGO_SPEED_TYPES,
   type MangoPreferredCarrier,
@@ -142,6 +149,8 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
     private readonly lock: DistributedLockService,
     /** Nguồn tên production line (đã nhớ 10 phút) — dùng cho phép kiểm phụ thuộc xưởng. */
     private readonly options: FulfillmentOptionsService,
+    /** Danh mục đã đồng bộ — nguồn XƯỞNG của từng SKU (`raw_data.production_line`). */
+    private readonly catalogRepo: FulfillmentCatalogRepository,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -259,10 +268,23 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
     // Trước đây chỉ đọc body, nên nhãn người dùng đã lưu (hoặc lấy từ TikTok) biến mất khi
     // bấm Gửi — và readiness thì lại dựa vào nhãn đã lưu để cho phép gửi. Hai bên lệch nhau.
     const labelUrl = options.labelUrl ?? order.shippingLabelUrl ?? null;
+    // Mã vận đơn đi kèm nhãn TikTok đã lưu — CHỈ khi nhãn gửi đi đúng là nhãn đó (URL ghi đè trong
+    // lần gửi này là một nhãn khác, tracking cũ không còn khớp).
+    const labelTrackingNumber =
+      labelUrl &&
+      labelUrl === order.shippingLabelUrl &&
+      order.shippingLabelSource === SHIPPING_LABEL_SOURCE.TIKTOK
+        ? order.shippingLabelTrackingNumber
+        : null;
 
-    // Line sản xuất: ánh xạ của sản phẩm THẮNG mặc định tài khoản (readiness đã bảo đảm cả đơn
-    // chỉ có một line; hai line khác nhau bị chặn từ trước với lý do rõ ràng).
-    const productionLine = check.productionLine ?? account.defaultProductionLine;
+    // Line sản xuất người dùng chọn: ánh xạ của sản phẩm THẮNG mặc định tài khoản (mặc định chỉ là
+    // giá trị DỰ PHÒNG khi ánh xạ không chọn; readiness đã chặn một đơn trộn hai line khác nhau).
+    // 🔴 Mango không nhận trường production line — xưởng đi theo SKU. Vì vậy lựa chọn này KHÔNG
+    // được gửi đi mà được KIỂM: mọi SKU của đơn phải thuộc đúng xưởng đã chọn (xem
+    // `resolveProductionLine`). Trước đây SKU của FASTUS đi kèm lựa chọn TIKTOK ⇒ đơn về FASTUS.
+    const selectedLineId = check.productionLine ?? account.defaultProductionLine ?? null;
+    const line = await this.resolveProductionLine(account, selectedLineId, check.items);
+    const productionLine = line.id;
 
     const record =
       existing ??
@@ -300,10 +322,11 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
 
     // 🔴 Kiểm tra TRƯỚC khi gọi nhà cung cấp: mọi thứ bắt lỗi được tại đây đều rẻ hơn và nói
     // rõ hơn một câu "VALIDATION_ERROR — Request validation failed" trả về từ Mango.
-    await this.assertProviderPayloadValid({
+    this.assertProviderPayloadValid({
       account,
       items: itemsWithId,
-      productionLine,
+      productionLineName: line.name,
+      shippingMethod,
       facility,
       speedType,
       isScanLabel: options.isScanLabel === true,
@@ -315,13 +338,13 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
       address: check.address,
       items: itemsWithId,
       shippingMethod,
-      productionLineId: productionLine,
       facility,
       speedType,
       preferredCarrier,
       isScanLabel: options.isScanLabel === true,
       // Nhãn vận chuyển: đơn 4PL của TikTok đã có nhãn sẵn, hoặc người bán tự mua rồi dán link.
       labelUrl,
+      trackingNumber: labelTrackingNumber,
       note,
       seller: order.shop.name,
       buyerEmail: order.buyerEmail,
@@ -1053,45 +1076,23 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
   }
 
   /**
-   * Tên của một production line (`GET /production-lines`) — `null` khi không tra được.
-   *
-   * Dùng để kiểm tra những tuỳ chọn CHỈ hợp lệ với một xưởng nhất định (`facility`/
-   * `is_scan_label` cho TIKTOK, `speed_type` cho FASTUS — theo tài liệu MangoV3). Danh sách
-   * đã được `FulfillmentOptionsService` nhớ 10 phút nên đây không phải một lời gọi mỗi đơn.
-   */
-  private async productionLineName(
-    account: FulfillmentAccount,
-    productionLineId: string | null,
-  ): Promise<string | null> {
-    if (!productionLineId) return null;
-    try {
-      const options = await this.options.forAccount(account);
-      const line = options.productionLines.find(
-        (entry: { value: string; label: string }) => entry.value === productionLineId,
-      );
-      return line?.label ?? null;
-    } catch {
-      // Không hỏi được nhà cung cấp ⇒ bỏ qua phép kiểm phụ thuộc tên, KHÔNG chặn đơn.
-      return null;
-    }
-  }
-
-  /**
    * Chặn những payload mà **chính hệ thống biết là sai** trước khi tốn một lời gọi API.
    *
    * 🔴 Vì sao cần: Mango trả `VALIDATION_ERROR — Request validation failed` không kèm field,
    * nên mỗi lỗi lọt xuống đó là một vòng đoán mò. Những gì kiểm được ở đây thì phải kiểm ở
    * đây, và thông điệp phải chỉ đúng ô cần sửa trên màn hình.
    */
-  private async assertProviderPayloadValid(params: {
+  private assertProviderPayloadValid(params: {
     account: FulfillmentAccount;
     items: ResolvedItem[];
-    productionLine: string | null;
+    /** Tên xưởng THỰC SỰ nhận đơn (xưởng của SKU), đã chuẩn hoá — `null` khi không xác định được. */
+    productionLineName: string | null;
+    shippingMethod: MangoShippingMethod;
     facility: string | null;
     speedType: string | null;
     isScanLabel: boolean;
     labelUrl: string | null;
-  }): Promise<void> {
+  }): void {
     const errors: Array<{ field: string; message: string }> = [];
 
     params.items.forEach((item, index) => {
@@ -1123,6 +1124,16 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
       });
     });
 
+    // "By TikTok" = xưởng in giao bằng CHÍNH nhãn TikTok cấp ⇒ thiếu nhãn là đơn không giao được.
+    if (params.shippingMethod === MANGO_BY_TIKTOK_SHIPPING_METHOD && !params.labelUrl) {
+      errors.push({
+        field: 'label_url',
+        message:
+          'Phương thức vận chuyển "By TikTok" cần nhãn vận chuyển của TikTok. Bấm "Lấy nhãn từ ' +
+          'TikTok" trước khi gửi đơn này.',
+      });
+    }
+
     if (params.labelUrl && !/^https?:\/\//i.test(params.labelUrl)) {
       errors.push({
         field: 'label_url',
@@ -1131,9 +1142,7 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
     }
 
     // Tuỳ chọn phụ thuộc XƯỞNG (tài liệu MangoV3): gửi sai xưởng là VALIDATION_ERROR.
-    const lineName = (await this.productionLineName(params.account, params.productionLine))
-      ?.trim()
-      .toUpperCase();
+    const lineName = params.productionLineName;
     if (lineName) {
       if (params.speedType && lineName !== 'FASTUS') {
         errors.push({
@@ -1160,6 +1169,94 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
       `Dữ liệu gửi nhà cung cấp chưa hợp lệ: ${errors.map((error) => `${error.field} — ${error.message}`).join(' · ')}`,
       errors,
     );
+  }
+
+  /**
+   * Xưởng THỰC SỰ nhận đơn + kiểm nó khớp lựa chọn của người dùng.
+   *
+   * Mango xếp đơn theo SKU (mỗi SKU thuộc một xưởng — `production_line` trên bản ghi biến thể đã
+   * đồng bộ). Người dùng chọn xưởng ⇒ MỌI SKU phải thuộc xưởng đó; lệch ⇒ chặn TRƯỚC khi gửi, nói
+   * rõ SKU nào thuộc xưởng nào. Không bao giờ âm thầm để đơn chọn TIKTOK sản xuất ở FASTUS.
+   *
+   * @returns `id` xưởng (UUID của Mango, để lưu/đối soát) + `name` đã chuẩn hoá (VD `TIKTOK`).
+   */
+  private async resolveProductionLine(
+    account: FulfillmentAccount,
+    selectedLineId: string | null,
+    items: Array<{ providerSku: string }>,
+  ): Promise<{ id: string | null; name: string | null }> {
+    const skus = [...new Set(items.map((item) => item.providerSku).filter(Boolean))];
+    const variants = await this.catalogRepo.findVariantsForAccount(account.id, skus);
+    const lineOfSku = new Map(
+      variants.map((variant) => [variant.sku, mangoVariantProductionLine(variant.rawData)]),
+    );
+    const lines = await this.productionLineList(account);
+    const nameOf = (id: string | null) =>
+      id ? (lines.find((entry) => entry.value === id)?.label.trim().toUpperCase() ?? null) : null;
+    const idOf = (name: string | null) =>
+      name ? (lines.find((entry) => entry.label.trim().toUpperCase() === name)?.value ?? null) : null;
+
+    const errors: Array<{ field: string; message: string }> = [];
+    const selectedName = nameOf(selectedLineId);
+    if (selectedLineId && !selectedName) {
+      // Không tra được tên ⇒ không chứng minh được SKU thuộc đúng xưởng. Gửi đi là đánh cược.
+      errors.push({
+        field: 'production_line',
+        message:
+          'Không xác định được xưởng đã chọn (không đọc được danh sách production line của Mango hoặc ' +
+          'xưởng đã ngừng). Mở lại Cấu hình sản phẩm, chọn lại Line sản xuất rồi gửi lại.',
+      });
+    }
+
+    const skuLines = new Set<string>();
+    items.forEach((item, index) => {
+      const skuLine = lineOfSku.get(item.providerSku) ?? null;
+      if (skuLine) skuLines.add(skuLine);
+      if (!selectedName) return;
+      if (!skuLine) {
+        errors.push({
+          field: `items[${index}].sku`,
+          message:
+            `Không xác minh được xưởng của SKU ${item.providerSku} (không có trong danh mục đã đồng bộ). ` +
+            'Đồng bộ lại danh mục Mango rồi chọn lại biến thể ở Cấu hình sản phẩm.',
+        });
+      } else if (skuLine !== selectedName) {
+        errors.push({
+          field: `items[${index}].sku`,
+          message:
+            `SKU ${item.providerSku} thuộc xưởng ${skuLine}, nhưng Line sản xuất đã chọn là ${selectedName}. ` +
+            `Mango xếp đơn theo SKU nên đơn sẽ bị sản xuất ở ${skuLine}. Chọn lại Color/Size (hoặc SKU) ` +
+            `của xưởng ${selectedName} ở Cấu hình sản phẩm.`,
+        });
+      }
+    });
+    if (!selectedName && skuLines.size > 1) {
+      errors.push({
+        field: 'production_line',
+        message: `Các SKU của đơn thuộc nhiều xưởng khác nhau (${[...skuLines].join(', ')}) — Mango chỉ nhận đơn của MỘT xưởng.`,
+      });
+    }
+
+    if (errors.length > 0) {
+      throw new FulfillmentValidationException(
+        `Line sản xuất không khớp: ${errors.map((error) => error.message).join(' · ')}`,
+        errors,
+      );
+    }
+
+    const name = selectedName ?? (skuLines.size === 1 ? [...skuLines][0] : null);
+    return { id: selectedLineId ?? idOf(name), name };
+  }
+
+  /** Danh sách xưởng (`value` = id, `label` = tên) — đã nhớ 10 phút ở FulfillmentOptionsService. */
+  private async productionLineList(
+    account: FulfillmentAccount,
+  ): Promise<Array<{ value: string; label: string }>> {
+    try {
+      return (await this.options.forAccount(account)).productionLines;
+    } catch {
+      return [];
+    }
   }
 
   /** Ghi nhật ký + error log cho một lần thất bại, rồi cập nhật tóm tắt lỗi lên bản ghi. */

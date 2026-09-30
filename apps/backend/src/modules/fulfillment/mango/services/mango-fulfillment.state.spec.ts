@@ -37,6 +37,7 @@ function buildService() {
     { withLock: <T>(_k: string, _t: number, task: () => Promise<T>) => task() } as unknown as DistributedLockService,
     // Danh sách production line — spec không kiểm phần phụ thuộc xưởng nên trả rỗng.
     { forAccount: () => Promise.resolve({ productionLines: [] }) } as unknown as FulfillmentOptionsService,
+    { findVariantsForAccount: () => Promise.resolve([]) } as never,
   );
 
   return { service, updateOrder, addHistory };

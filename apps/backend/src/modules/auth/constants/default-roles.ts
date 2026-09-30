@@ -165,9 +165,14 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   // Ánh xạ sản phẩm (API nằm ở module Fulfillment).
   // 🔴 `fulfillment.mapping` chứ KHÔNG phải `fulfillment.config`: quyền config còn cho
   // thêm/xoá Fulfillment Provider và đổi API key của cả tổ chức.
-  // Cũng KHÔNG kéo theo quyền gửi đơn — `fulfillment.create/cancel` là hai quyền riêng.
   'fulfillment.mapping',
   'fulfillment.read',
+  // Fulfill đơn của CHÍNH shop mình (gửi sang xưởng in, lấy/lưu nhãn TikTok, retry, sửa đơn đã
+  // gửi). An toàn vì MỌI endpoint dùng quyền này đi qua `PodAccessScopeService`: gateway /
+  // FulfillmentShippingLabelService kiểm shop của đơn ngay trước khi gọi nhà cung cấp/TikTok.
+  // Đồng bộ HÀNG LOẠT cấp tổ chức (`POST /fulfillment/sync`) đòi thêm `pod.shop.all` — Seller
+  // không có. `fulfillment.cancel` (huỷ ở xưởng) và `fulfillment.config` vẫn chỉ Admin.
+  'fulfillment.create',
   // Design nằm trên Storage Module.
   'storage.read',
   'storage.upload',

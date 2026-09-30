@@ -10,6 +10,7 @@ import { ProductDesignMapper } from '../mappers/product-design.mapper';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import { FulfillmentReadinessService } from './fulfillment-readiness.service';
 import { FulfillmentService } from './fulfillment.service';
+import { FulfillmentVariantPriceService } from './fulfillment-variant-price.service';
 import type { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 
 const PLAIN_KEY = 'mango-live-key-ABCD';
@@ -83,6 +84,9 @@ function build(repoOverrides: Record<string, jest.Mock> = {}) {
       isSupported: () => true,
       placementResolver: jest.fn().mockResolvedValue(undefined),
     } as unknown as FulfillmentProviderGateway,
+    {
+      lookup: jest.fn().mockResolvedValue({ ok: false, reason: 'VARIANT_NOT_FOUND', message: 'none' }),
+    } as unknown as FulfillmentVariantPriceService,
   );
   return { service, repo: repo as unknown as Record<string, jest.Mock> };
 }

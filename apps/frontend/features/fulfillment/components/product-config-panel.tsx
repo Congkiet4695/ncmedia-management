@@ -9,7 +9,6 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Combobox, type ComboboxOption } from '@/components/ui/combobox';
-import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useApiError } from '@/hooks/use-api-error';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
@@ -31,14 +30,19 @@ import {
   assignPlacement,
   configBlockers,
   defaultPlacementMap,
+  effectiveProductionLine,
   mergeProductOptions,
+  productionLineName,
   providerVariantLabel,
   sanitizePlacementMap,
+  variantsForProductionLine,
   type ConfigBlocker,
   type PlacementMap,
 } from '../product-config';
+import { baseCostSaveWarning } from '../base-cost';
 import type { ProductMapping, ProviderCatalogProduct, UpsertProductMappingInput } from '../types';
 import { DesignSlot } from './design-slot';
+import { VariantBaseCost } from './variant-base-cost';
 
 interface ProductConfigPanelProps {
   /** Dòng hàng TikTok đang cấu hình — một khối cho MỖI dòng của đơn. */
@@ -132,7 +136,6 @@ export function ProductConfigPanel({
   const [variantId, setVariantId] = useState('');
   const [productionConfig, setProductionConfig] = useState('');
   const [productionLine, setProductionLine] = useState('');
-  const [baseCost, setBaseCost] = useState('');
   /**
    * Vị trí in NCMedia → vùng in của biến thể (chỉ nhà cung cấp có `print_areas` theo biến thể —
    * Sellerwix). `null` = người dùng chưa đụng tới ⇒ dùng ánh xạ đã lưu / mặc định Front-Back.
@@ -164,9 +167,6 @@ export function ProductConfigPanel({
     setVariantId('');
     setProductionConfig(mapping?.productionConfig ?? '');
     setProductionLine(mapping?.productionLine ?? '');
-    setBaseCost(
-      mapping?.baseCost === null || mapping?.baseCost === undefined ? '' : String(mapping.baseCost),
-    );
     setPlacementDraft(null);
     // Ánh xạ cũ chỉ có SKU mà không có màu/size ⇒ mở thẳng chế độ chọn theo SKU.
     setBySku(Boolean(mapping?.providerSku) && !mapping?.providerColor && !mapping?.providerSize);
@@ -192,7 +192,28 @@ export function ProductConfigPanel({
 
   // ---- Biến thể của sản phẩm đang chọn ----
   const variations = useProviderCatalogVariations(accountId ?? undefined, selectedProduct?.id);
-  const variants = useMemo(() => variations.data ?? [], [variations.data]);
+  const allVariants = useMemo(() => variations.data ?? [], [variations.data]);
+
+  /**
+   * Line sản xuất đang áp dụng (người dùng chọn, không thì mặc định tài khoản) và TÊN của nó.
+   * 🔴 Chỉ SKU của đúng line này được chọn: Mango xếp đơn theo SKU (không có trường production line).
+   */
+  const lineId = effectiveProductionLine(productionLine, options.data?.defaultProductionLine);
+  const lineName = productionLineName(options.data?.productionLines ?? [], lineId);
+  const variants = useMemo(
+    () => variantsForProductionLine(allVariants, lineName),
+    [allVariants, lineName],
+  );
+  /** SKU ĐÃ LƯU thuộc xưởng khác line đang áp dụng (dữ liệu cũ của lỗi TIKTOK → FASTUS). */
+  const savedVariantOtherLine = useMemo(() => {
+    if (!lineName || !mapping) return null;
+    const saved =
+      allVariants.find((variant) => variant.externalVariantId === mapping.providerVariantId) ??
+      allVariants.find((variant) => variant.sku === mapping.providerSku) ??
+      null;
+    const savedLine = saved?.productionLine?.trim().toUpperCase() ?? null;
+    return saved && savedLine && savedLine !== lineName ? { sku: saved.sku, line: savedLine } : null;
+  }, [allVariants, lineName, mapping]);
 
   /**
    * Dựng lại biến thể đã lưu — CHỈ một lần cho mỗi ánh xạ, sau khi danh sách biến thể về.
@@ -360,7 +381,7 @@ export function ProductConfigPanel({
       ...(variant.size ? { providerSize: variant.size } : {}),
       ...(productionConfig ? { productionConfig } : {}),
       ...(productionLine ? { productionLine } : {}),
-      ...(baseCost.trim() ? { baseCost: Number(baseCost) } : {}),
+      // 🔴 KHÔNG gửi Base Cost: backend tự lấy giá của đúng biến thể này từ nhà cung cấp.
       // Vị trí in theo biến thể (Sellerwix) — gửi đúng khoá `print_areas[].key` đã chọn.
       ...(variantPrintAreas ? { placementMap: placementMap as Record<string, string> } : {}),
     };
@@ -369,8 +390,12 @@ export function ProductConfigPanel({
       ? actions.update.mutateAsync({ id: mapping.id, input })
       : actions.create.mutateAsync(input);
     void run
-      .then(() => {
+      .then((saved) => {
         toast.success(t('fulfill.config.saved'), { description: variant.sku });
+        // Lưu được ánh xạ nhưng KHÔNG cập nhật được Base Cost ⇒ nói thẳng, không để người dùng
+        // tưởng giá đã được lấy.
+        const warning = baseCostSaveWarning(saved);
+        if (warning) toast.warning(t(warning.key), { description: warning.message ?? undefined });
         onSaved();
       })
       .catch((error: unknown) =>
@@ -591,6 +616,22 @@ export function ProductConfigPanel({
             </div>
           )}
 
+          {savedVariantOtherLine && (
+            <p className="flex gap-1.5 rounded-md bg-amber-50 p-2 text-[11px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+              <AlertTriangle className="mt-px size-3.5 shrink-0" />
+              {t('fulfill.config.savedSkuOtherLine', {
+                sku: savedVariantOtherLine.sku,
+                savedLine: savedVariantOtherLine.line,
+                line: lineName,
+              })}
+            </p>
+          )}
+          {lineName && allVariants.length > 0 && variants.length === 0 && (
+            <p className="text-xs text-destructive">
+              {t('fulfill.config.noVariantOnLine', { line: lineName })}
+            </p>
+          )}
+
           {/* Chốt được biến thể ⇒ hiện SKU sẽ gửi đi; chưa chốt ⇒ nói rõ còn thiếu gì. */}
           <p
             className={cn(
@@ -602,23 +643,18 @@ export function ProductConfigPanel({
               ? blockers.map((code) => t(BLOCKER_KEY[code])).join(' · ')
               : t('fulfill.config.resolvedSku', {
                   sku: selectedVariant?.sku,
-                  variant: selectedVariant?.name,
+                  variant: selectedVariant?.productionLine
+                    ? `${selectedVariant.name} · ${selectedVariant.productionLine}`
+                    : selectedVariant?.name,
                 })}
           </p>
 
-          <div className="space-y-1">
-            <Label>{t('fulfill.config.baseCost')}</Label>
-            <Input
-              value={baseCost}
-              onChange={(event) => setBaseCost(event.target.value)}
-              type="number"
-              min="0"
-              step="0.01"
-              className="h-8 text-xs"
-              placeholder={t('fulfill.config.baseCostPlaceholder')}
-            />
-            <p className="text-[11px] text-muted-foreground">{t('fulfill.config.baseCostHint')}</p>
-          </div>
+          {/* Base Cost = giá nhà cung cấp của ĐÚNG biến thể đang chọn (backend lấy + lưu). */}
+          <VariantBaseCost
+            accountId={accountId}
+            variantId={selectedVariant?.id}
+            savedBaseCost={mapping?.baseCost}
+          />
 
           {/* ------------------------------------ Vùng in theo biến thể (Sellerwix print_areas) */}
           {variantPrintAreas && (

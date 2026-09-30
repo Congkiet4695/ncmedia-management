@@ -77,6 +77,7 @@ function buildService(overrides: {
     lockStub(),
     // Danh sách production line — spec không kiểm phần phụ thuộc xưởng nên trả rỗng.
     { forAccount: () => Promise.resolve({ productionLines: [] }) } as unknown as FulfillmentOptionsService,
+    { findVariantsForAccount: () => Promise.resolve([]) } as never,
   );
 
   return { service, findAccountById, createOrder };
@@ -209,7 +210,8 @@ describe('MangoFulfillmentService.fulfill — chống gửi trùng', () => {
       lockStub(),
     // Danh sách production line — spec không kiểm phần phụ thuộc xưởng nên trả rỗng.
     { forAccount: () => Promise.resolve({ productionLines: [] }) } as unknown as FulfillmentOptionsService,
-    );
+    { findVariantsForAccount: () => Promise.resolve([]) } as never,
+  );
 
     await expect(service.fulfill('org-1', 'user-1', 'order-1')).rejects.toThrow();
     expect(findAccountById).not.toHaveBeenCalled();

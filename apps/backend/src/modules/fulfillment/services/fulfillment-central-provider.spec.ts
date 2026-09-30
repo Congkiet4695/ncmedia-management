@@ -20,6 +20,7 @@ import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import { FulfillmentOptionsService } from './fulfillment-options.service';
 import { FulfillmentReadinessService } from './fulfillment-readiness.service';
 import { FulfillmentService } from './fulfillment.service';
+import { FulfillmentVariantPriceService } from './fulfillment-variant-price.service';
 import type { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 
 /**
@@ -135,6 +136,9 @@ function buildStateService(
       isSupported: () => true,
       placementResolver: jest.fn().mockResolvedValue(undefined),
     } as unknown as FulfillmentProviderGateway,
+    {
+      lookup: jest.fn().mockResolvedValue({ ok: false, reason: 'VARIANT_NOT_FOUND', message: 'none' }),
+    } as unknown as FulfillmentVariantPriceService,
   );
 
   return { service, repo: repo as unknown as Record<string, jest.Mock> };
@@ -290,6 +294,7 @@ function buildFulfillService(
     } as unknown as TiktokEncryptionService),
     { withLock: <T,>(_k: string, _t: number, task: () => Promise<T>) => task() } as unknown as DistributedLockService,
     { forAccount: () => Promise.resolve({ productionLines: [] }) } as unknown as FulfillmentOptionsService,
+    { findVariantsForAccount: () => Promise.resolve([]) } as never,
   );
 
   return { service, createDraft, repo: repo as unknown as Record<string, jest.Mock> };

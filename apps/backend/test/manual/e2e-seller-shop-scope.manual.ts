@@ -297,9 +297,9 @@ async function main() {
         body: body === undefined ? undefined : JSON.stringify(body),
       });
 
+    // Fulfill / Retry đơn của CHÍNH shop mình nay được phép (Seller có `fulfillment.create`) — kiểm ở
+    // `e2e-seller-fulfill-scope.manual.ts`, kèm ca đơn của shop KHÁC phải 403.
     for (const [label, path, body] of [
-      ['Fulfill', `/fulfillment/orders/${ownOrderId}/fulfill`, undefined],
-      ['Retry', `/fulfillment/orders/${ownOrderId}/retry`, undefined],
       ['Cancel', `/fulfillment/orders/${ownOrderId}/cancel`, { reason: 'e2e' }],
       ['Sync toàn tổ chức', '/fulfillment/sync', {}],
       ['Sync Orders', '/pod/tiktok/orders/sync', {}],

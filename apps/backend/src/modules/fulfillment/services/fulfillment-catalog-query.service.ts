@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { FulfillmentProvider } from '@prisma/client';
 import { sellerwixPrintAreasOf } from '../sellerwix/mappers/sellerwix-order.mapper';
+import { mangoVariantProductionLine } from '../mango/mappers/mango-order.mapper';
 import { FulfillmentCatalogRepository } from '../repositories/fulfillment-catalog.repository';
 import { businessProductSku } from './fulfillment-catalog-sync.service';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
@@ -154,6 +155,9 @@ export class FulfillmentCatalogQueryService {
               required: area.required === true,
             }))
           : null,
+      // Mango: xưởng của SKU — ô chọn Color/Size/SKU chỉ hiện biến thể của Line sản xuất đang chọn.
+      productionLine:
+        row.provider === FulfillmentProvider.MANGO ? mangoVariantProductionLine(row.rawData) : null,
     }));
   }
 

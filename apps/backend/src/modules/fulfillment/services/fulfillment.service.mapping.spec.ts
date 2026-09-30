@@ -1,5 +1,5 @@
 import { ConfigService } from '@nestjs/config';
-import { FulfillmentProvider, PodDesignPlacement } from '@prisma/client';
+import { FulfillmentProvider, PodDesignPlacement, Prisma } from '@prisma/client';
 import { callArg } from '../../../testing/mock-call.util';
 import { PrismaService } from '../../../database/prisma.service';
 import { PodOrderRepository } from '../../pod-tiktok/repositories/pod-order.repository';
@@ -14,6 +14,7 @@ import { ProductDesignMapper } from '../mappers/product-design.mapper';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import { FulfillmentReadinessService } from './fulfillment-readiness.service';
 import { FulfillmentService } from './fulfillment.service';
+import { FulfillmentVariantPriceService } from './fulfillment-variant-price.service';
 import type { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 
 const encryption = {
@@ -75,7 +76,39 @@ function mapping(over: Record<string, unknown> = {}) {
   };
 }
 
-function build(repoOverrides: Record<string, jest.Mock> = {}) {
+/** Giá vốn theo SKU trong danh mục đã đồng bộ. Thiếu SKU ⇒ "không tìm thấy giá". */
+const CATALOG_PRICES: Record<string, number> = {
+  'MANGO-SKU-1': 11.25,
+  'MANGO-SKU-2': 14.9,
+  'MANGO-SKU-9': 23.89,
+};
+
+function build(
+  repoOverrides: Record<string, jest.Mock> = {},
+  prices: Record<string, number> = CATALOG_PRICES,
+) {
+  const variantPrice = {
+    lookup: jest.fn((_org: string, accountId: string, key: { sku?: string | null }) => {
+      const price = key.sku ? prices[key.sku] : undefined;
+      return Promise.resolve(
+        price === undefined
+          ? { ok: false, reason: 'VARIANT_NOT_FOUND', message: `Không tìm thấy biến thể ${key.sku}` }
+          : {
+              ok: true,
+              price: {
+                accountId,
+                variantId: `v-${key.sku}`,
+                externalVariantId: 'x',
+                sku: key.sku,
+                price,
+                currency: 'USD',
+                source: 'PROVIDER_CATALOG',
+                syncedAt: '2026-09-30T00:00:00.000Z',
+              },
+            },
+      );
+    }),
+  };
   const repo = {
     listMappingsPaged: jest.fn().mockResolvedValue({ items: [mapping()], total: 1 }),
     listAccounts: jest.fn().mockResolvedValue([{ id: 'prov-1', name: 'Mango US', isActive: true }]),
@@ -119,8 +152,9 @@ function build(repoOverrides: Record<string, jest.Mock> = {}) {
       isSupported: () => true,
       placementResolver: jest.fn().mockResolvedValue(undefined),
     } as unknown as FulfillmentProviderGateway,
+    variantPrice as unknown as FulfillmentVariantPriceService,
   );
-  return { service, repo: repo as unknown as Record<string, jest.Mock>, findUsers };
+  return { variantPrice,  service, repo: repo as unknown as Record<string, jest.Mock>, findUsers };
 }
 
 describe('FulfillmentService — ánh xạ sản phẩm', () => {
@@ -346,10 +380,10 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
   });
 
   describe('createMapping', () => {
-    it('lưu đủ khoá nghiệp vụ, Fulfillment SKU và Base Cost', async () => {
-      const { service, repo } = build();
+    it('🔴 Base Cost lấy từ GIÁ NHÀ CUNG CẤP của đúng biến thể — BỎ QUA baseCost frontend gửi', async () => {
+      const { service, repo, variantPrice } = build();
 
-      await service.createMapping(
+      const result = await service.createMapping(
         'org-1',
         'user-1',
         FulfillmentProvider.MANGO,
@@ -370,7 +404,13 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
       expect(data.tiktokProductId).toBe('TT-P9');
       expect(data.sellerSku).toBe('SELLER-9');
       expect(data.providerSku).toBe('MANGO-SKU-9');
-      expect(data.baseCost).toBe(12.5);
+      // 12.5 là giá client gửi — KHÔNG được dùng. 23.89 là giá của MANGO-SKU-9 trong danh mục.
+      expect(data.baseCost).toBe(23.89);
+      expect(result.baseCostStatus).toBe('PROVIDER_PRICE');
+      expect(variantPrice.lookup).toHaveBeenCalledWith('org-1', 'prov-1', {
+        externalVariantId: 'MV-9',
+        sku: 'MANGO-SKU-9',
+      });
       expect(data.providerProductId).toBe('MP-9');
       expect(data.providerVariantId).toBe('MV-9');
       expect(data.providerVariantName).toBe('White / M');
@@ -422,7 +462,7 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
   });
 
   describe('updateMapping', () => {
-    it('cho phép đổi biến thể, giá vốn và trạng thái', async () => {
+    it('đổi biến thể ⇒ Base Cost cập nhật theo giá của biến thể MỚI', async () => {
       const { service, repo } = build();
 
       await service.updateMapping(
@@ -443,7 +483,7 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
 
       const data = callArg<Record<string, unknown>>(repo.updateMapping, 0, 1);
       expect(data.providerVariantId).toBe('MV-2');
-      expect(data.baseCost).toBe(9.99);
+      expect(data.baseCost).toBe(14.9);
       expect(data.isActive).toBe(false);
     });
 
@@ -468,5 +508,93 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
         'map-1',
       );
     });
+  });
+});
+
+describe('Base Cost — không lấy được giá', () => {
+  it('tạo ánh xạ mà biến thể KHÔNG có giá ⇒ Base Cost trống + PRICE_NOT_FOUND kèm lý do (không 0)', async () => {
+    const { service, repo } = build();
+
+    const result = await service.createMapping(
+      'org-1',
+      'user-1',
+      FulfillmentProvider.MANGO,
+      { tiktokProductId: 'TT-P7', sellerSku: 'SELLER-7', providerSku: 'NO-PRICE', baseCost: 5 },
+      POD_SCOPE_SYSTEM,
+    );
+
+    const data = callArg<Record<string, unknown>>(repo.createMapping, 0, 0);
+    expect(data.baseCost).toBeNull();
+    expect(result.baseCostStatus).toBe('PRICE_NOT_FOUND');
+    expect(result.baseCostMessage).toContain('NO-PRICE');
+  });
+
+  it('🔴 sửa ánh xạ CÙNG biến thể mà không lấy được giá ⇒ GIỮ Base Cost cũ (không ghi đè null/0)', async () => {
+    const { service, repo } = build(
+      {
+        findMappingById: jest.fn().mockResolvedValue(
+          mapping({ providerSku: 'MANGO-SKU-1', providerVariantId: 'MV-1', baseCost: new Prisma.Decimal('11.25') }),
+        ),
+      },
+      {},
+    );
+
+    const result = await service.updateMapping(
+      'org-1',
+      'user-1',
+      'map-1',
+      { tiktokProductId: 'TT-P1', sellerSku: 'SELLER-1', providerSku: 'MANGO-SKU-1', providerVariantId: 'MV-1' },
+      POD_SCOPE_SYSTEM,
+    );
+
+    const data = callArg<Record<string, unknown>>(repo.updateMapping, 0, 1);
+    expect(data.baseCost).toBe(11.25);
+    expect(result.baseCostStatus).toBe('UNCHANGED');
+  });
+
+  it('đổi sang biến thể KHÁC không có giá ⇒ KHÔNG giữ giá của SKU cũ', async () => {
+    const { service, repo } = build(
+      {
+        findMappingById: jest.fn().mockResolvedValue(
+          mapping({ providerSku: 'MANGO-SKU-1', providerVariantId: 'MV-1', baseCost: new Prisma.Decimal('11.25') }),
+        ),
+      },
+      {},
+    );
+
+    const result = await service.updateMapping(
+      'org-1',
+      'user-1',
+      'map-1',
+      { tiktokProductId: 'TT-P1', sellerSku: 'SELLER-1', providerSku: 'OTHER-SKU', providerVariantId: 'MV-9' },
+      POD_SCOPE_SYSTEM,
+    );
+
+    const data = callArg<Record<string, unknown>>(repo.updateMapping, 0, 1);
+    expect(data.baseCost).toBeNull();
+    expect(result.baseCostStatus).toBe('PRICE_NOT_FOUND');
+  });
+
+  it('nhiều sản phẩm/biến thể ⇒ MỖI ánh xạ một giá riêng (không dùng chung một giá)', async () => {
+    const { service, repo } = build();
+
+    await service.createMapping('org-1', 'user-1', FulfillmentProvider.MANGO,
+      { tiktokProductId: 'TT-A', sellerSku: 'S-A', providerSku: 'MANGO-SKU-1' }, POD_SCOPE_SYSTEM);
+    await service.createMapping('org-1', 'user-1', FulfillmentProvider.MANGO,
+      { tiktokProductId: 'TT-B', sellerSku: 'S-B', providerSku: 'MANGO-SKU-2' }, POD_SCOPE_SYSTEM);
+
+    expect(callArg<Record<string, unknown>>(repo.createMapping, 0, 0).baseCost).toBe(11.25);
+    expect(callArg<Record<string, unknown>>(repo.createMapping, 1, 0).baseCost).toBe(14.9);
+  });
+
+  it('lỗi database khi tra giá ⇒ cả thao tác lưu thất bại, KHÔNG ghi gì', async () => {
+    const { service, repo, variantPrice } = build();
+    variantPrice.lookup.mockRejectedValueOnce(new Error('connection lost'));
+
+    await expect(
+      service.createMapping('org-1', 'user-1', FulfillmentProvider.MANGO,
+        { tiktokProductId: 'TT-C', sellerSku: 'S-C', providerSku: 'MANGO-SKU-1' }, POD_SCOPE_SYSTEM),
+    ).rejects.toThrow('connection lost');
+    expect(repo.createMapping).not.toHaveBeenCalled();
   });
 });

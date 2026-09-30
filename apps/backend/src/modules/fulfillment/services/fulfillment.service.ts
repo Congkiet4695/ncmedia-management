@@ -47,6 +47,7 @@ import {
 import { MANGO_SHIPPING_METHODS } from '../mango/constants/mango.constants';
 import { SellerwixCredentialService } from '../sellerwix/services/sellerwix-credential.service';
 import { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
+import { FulfillmentVariantPriceService } from './fulfillment-variant-price.service';
 import { ProductDesignMapper, type DesignForDto } from '../mappers/product-design.mapper';
 import {
   FulfillmentOrderWithRelations,
@@ -93,6 +94,7 @@ export class FulfillmentService {
     private readonly encryption: TiktokEncryptionService,
     private readonly accessScope: PodAccessScopeService,
     private readonly gateway: FulfillmentProviderGateway,
+    private readonly variantPrice: FulfillmentVariantPriceService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -442,6 +444,7 @@ export class FulfillmentService {
     await this.assertMappingKeyInScope(organizationId, dto.tiktokProductId, scope);
     const account = await this.resolveMappingAccount(organizationId, provider, dto.accountId);
     await this.assertNoConflict(organizationId, dto);
+    const pricing = await this.resolveMappingBaseCost(organizationId, account.id, dto, null);
 
     const mapping = await this.repo.createMapping({
       organizationId,
@@ -451,7 +454,7 @@ export class FulfillmentService {
       tiktokSkuId: dto.tiktokSkuId ?? null,
       sellerSku: dto.sellerSku,
       providerSku: dto.providerSku,
-      baseCost: dto.baseCost ?? null,
+      baseCost: pricing.baseCost,
       providerProductId: dto.providerProductId ?? null,
       providerVariantId: dto.providerVariantId ?? null,
       providerProductName: dto.providerProductName ?? null,
@@ -465,7 +468,11 @@ export class FulfillmentService {
       note: dto.note ?? null,
       createdBy: actorUserId,
     });
-    return this.toMappingDto(mapping, null, null, await this.loadDesignsFor(mapping));
+    return {
+      ...this.toMappingDto(mapping, null, null, await this.loadDesignsFor(mapping)),
+      baseCostStatus: pricing.status,
+      baseCostMessage: pricing.message,
+    };
   }
 
   async updateMapping(
@@ -488,6 +495,12 @@ export class FulfillmentService {
     const account = dto.accountId
       ? await this.resolveMappingAccount(organizationId, existing.provider, dto.accountId)
       : null;
+    const pricing = await this.resolveMappingBaseCost(
+      organizationId,
+      account?.id ?? existing.accountId,
+      dto,
+      existing,
+    );
 
     const mapping = await this.repo.updateMapping(id, {
       ...(account ? { accountId: account.id, provider: account.provider } : {}),
@@ -495,7 +508,7 @@ export class FulfillmentService {
       tiktokSkuId: dto.tiktokSkuId ?? null,
       sellerSku: dto.sellerSku,
       providerSku: dto.providerSku,
-      baseCost: dto.baseCost ?? null,
+      baseCost: pricing.baseCost,
       providerProductId: dto.providerProductId ?? null,
       providerVariantId: dto.providerVariantId ?? null,
       providerProductName: dto.providerProductName ?? null,
@@ -509,7 +522,52 @@ export class FulfillmentService {
       note: dto.note ?? null,
       updatedBy: actorUserId,
     });
-    return this.toMappingDto(mapping, null, null, await this.loadDesignsFor(mapping));
+    return {
+      ...this.toMappingDto(mapping, null, null, await this.loadDesignsFor(mapping)),
+      baseCostStatus: pricing.status,
+      baseCostMessage: pricing.message,
+    };
+  }
+
+  /**
+   * Base Cost của một ánh xạ — **backend tự lấy** từ giá của ĐÚNG biến thể nhà cung cấp đã chọn
+   * (`providerVariantId` + `providerSku` trong tài khoản của ánh xạ). `dto.baseCost` bị bỏ qua: không
+   * nhận giá từ frontend.
+   *
+   * Không lấy được giá:
+   *  - vẫn là biến thể cũ ⇒ GIỮ Base Cost đang có (không ghi đè bằng null/0);
+   *  - biến thể KHÁC ⇒ để trống: giá cũ là của một SKU khác, giữ lại là sai số liệu lợi nhuận.
+   * Lỗi database khi tra giá ⇒ ném ra, cả thao tác lưu thất bại (không ghi gì).
+   */
+  private async resolveMappingBaseCost(
+    organizationId: string,
+    accountId: string,
+    dto: UpsertProductMappingDto,
+    existing: { accountId: string; providerSku: string; providerVariantId: string | null; baseCost: Prisma.Decimal | null } | null,
+  ): Promise<{
+    baseCost: number | null;
+    status: 'PROVIDER_PRICE' | 'UNCHANGED' | 'PRICE_NOT_FOUND';
+    message: string | null;
+  }> {
+    const result = await this.variantPrice.lookup(organizationId, accountId, {
+      externalVariantId: dto.providerVariantId ?? null,
+      sku: dto.providerSku,
+    });
+    if (result.ok) return { baseCost: result.price.price, status: 'PROVIDER_PRICE', message: null };
+
+    const sameVariant =
+      existing !== null &&
+      existing.accountId === accountId &&
+      existing.providerSku === dto.providerSku &&
+      (existing.providerVariantId ?? null) === (dto.providerVariantId ?? null);
+    if (sameVariant) {
+      return {
+        baseCost: existing.baseCost === null ? null : Number(existing.baseCost),
+        status: 'UNCHANGED',
+        message: result.message,
+      };
+    }
+    return { baseCost: null, status: 'PRICE_NOT_FOUND', message: result.message };
   }
 
   /**

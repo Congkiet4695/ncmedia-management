@@ -107,6 +107,16 @@ export const TIKTOK_SHIPPING_DOCUMENT_FORMAT = 'PDF';
 /** Content-Type bắt buộc của mọi call (SDK yêu cầu truyền tường minh). */
 export const TIKTOK_SDK_CONTENT_TYPE = 'application/json';
 
+/**
+ * Giới hạn thời gian của MỘT lời gọi nhóm Fulfillment (chi tiết đơn · dịch vụ vận chuyển · tạo gói ·
+ * tài liệu nhãn). Đủ dài cho TikTok chậm (thường < 3 giây), đủ ngắn để cả lượt "Lấy nhãn" — kể cả vài
+ * lần thử lại — vẫn nằm gọn trong thời gian chờ 240 giây của trình duyệt và 300 giây của Nginx.
+ */
+export const TIKTOK_FULFILLMENT_TIMEOUT_MS = 20_000;
+
+/** Số lần thử lại của lời gọi ĐỌC nhóm Fulfillment (lỗi mạng / 5xx / rate limit). */
+export const TIKTOK_FULFILLMENT_MAX_RETRY = 2;
+
 /** Số lần thử lại tối đa cho một call SDK (chỉ áp dụng nhóm lỗi tạm thời). */
 export const TIKTOK_SDK_MAX_RETRY = 3;
 

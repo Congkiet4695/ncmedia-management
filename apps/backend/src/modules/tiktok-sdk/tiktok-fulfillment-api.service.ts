@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { TikTokSdkService } from './tiktok-sdk.service';
 import {
+  TIKTOK_FULFILLMENT_MAX_RETRY,
+  TIKTOK_FULFILLMENT_TIMEOUT_MS,
   TIKTOK_SDK_CONTENT_TYPE,
   TIKTOK_SHIPPING_DOCUMENT_FORMAT,
   TIKTOK_SHIPPING_DOCUMENT_SIZE,
@@ -38,6 +40,12 @@ import type {
  * 🔴 Không viết cứng dịch vụ vận chuyển, nhà vận chuyển hay tên dịch vụ: mọi giá trị đều lấy
  * từ chính phản hồi của TikTok (mỗi shop/mỗi đơn một danh sách khác nhau).
  */
+/** Lời gọi ĐỌC: có giới hạn thời gian, thử lại có kiểm soát (mạng / 5xx / rate limit). */
+const READ_CALL = {
+  timeoutMs: TIKTOK_FULFILLMENT_TIMEOUT_MS,
+  maxRetries: TIKTOK_FULFILLMENT_MAX_RETRY,
+} as const;
+
 @Injectable()
 export class TiktokFulfillmentApiService {
   constructor(private readonly sdk: TikTokSdkService) {}
@@ -54,6 +62,7 @@ export class TiktokFulfillmentApiService {
   ): Promise<TiktokSdkResult<TiktokEligibleShippingServices>> {
     return this.sdk.execute<TiktokEligibleShippingServices>({
       endpoint: 'FULFILLMENT_SHIPPING_SERVICES',
+      ...READ_CALL,
       invoke: () =>
         this.sdk.api.FulfillmentV202309Api.OrdersOrderIdShippingServicesQueryPost(
           tiktokOrderId,
@@ -79,6 +88,7 @@ export class TiktokFulfillmentApiService {
     return this.sdk.execute<TiktokCreatedPackage>({
       endpoint: 'FULFILLMENT_CREATE_PACKAGE',
       retry: false,
+      timeoutMs: TIKTOK_FULFILLMENT_TIMEOUT_MS,
       invoke: () =>
         this.sdk.api.FulfillmentV202309Api.PackagesPost(
           ctx.accessToken,
@@ -103,6 +113,7 @@ export class TiktokFulfillmentApiService {
     const documentType = options.documentType ?? TIKTOK_SHIPPING_DOCUMENT_TYPE.SHIPPING_LABEL;
     return this.sdk.execute<TiktokShippingDocument>({
       endpoint: 'FULFILLMENT_SHIPPING_DOCUMENT',
+      ...READ_CALL,
       invoke: () =>
         this.sdk.api.FulfillmentV202309Api.PackagesPackageIdShippingDocumentsGet(
           packageId,
@@ -133,6 +144,7 @@ export class TiktokFulfillmentApiService {
       orders?: Array<{ status?: string; shippingType?: string; packages?: Array<{ id?: string }> }>;
     }>({
       endpoint: 'ORDER_DETAIL',
+      ...READ_CALL,
       invoke: () =>
         this.sdk.api.OrderV202309Api.OrdersGet(
           [tiktokOrderId],
@@ -144,6 +156,7 @@ export class TiktokFulfillmentApiService {
     const order = result.data?.orders?.[0];
     return {
       data: {
+        found: Boolean(order),
         status: order?.status,
         shippingType: order?.shippingType,
         packageIds: (order?.packages ?? [])
@@ -161,6 +174,7 @@ export class TiktokFulfillmentApiService {
   ): Promise<TiktokSdkResult<TiktokPackageDetail>> {
     return this.sdk.execute<TiktokPackageDetail>({
       endpoint: 'FULFILLMENT_PACKAGE_DETAIL',
+      ...READ_CALL,
       invoke: () =>
         this.sdk.api.FulfillmentV202309Api.PackagesPackageIdGet(
           packageId,

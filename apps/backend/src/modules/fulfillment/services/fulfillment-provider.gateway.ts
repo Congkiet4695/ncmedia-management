@@ -6,6 +6,10 @@ import {
   FulfillmentTrigger,
 } from '@prisma/client';
 import { PodOrderRepository } from '../../pod-tiktok/repositories/pod-order.repository';
+import {
+  PodAccessScopeService,
+  type PodAccessScope,
+} from '../../pod-tiktok/services/pod-access-scope.service';
 import { FULFILLMENT_PROVIDER_LABELS } from '../constants/fulfillment-provider.constants';
 import {
   FulfillmentAccountNotFoundException,
@@ -54,6 +58,7 @@ export class FulfillmentProviderGateway {
     private readonly podOrderRepo: PodOrderRepository,
     private readonly mango: MangoFulfillmentService,
     sellerwix: SellerwixFulfillmentService,
+    private readonly accessScope: PodAccessScopeService,
   ) {
     this.adapters = new Map<FulfillmentProvider, FulfillmentProviderAdapter>(
       [mango, sellerwix].map((adapter) => [adapter.provider, adapter]),
@@ -81,7 +86,11 @@ export class FulfillmentProviderGateway {
     podOrderId: string,
     trigger: FulfillmentTrigger,
     options: FulfillOptionsInput,
+    scope: PodAccessScope,
   ): Promise<FulfillmentOrderWithRelations> {
+    // 🔴 Kiểm phạm vi shop NGAY TRƯỚC khi gọi nhà cung cấp — không dựa vào việc giao diện có hiện
+    // nút hay không. Seller đổi ID trên URL/request vẫn bị chặn ở đây.
+    await this.assertOrderInScope(organizationId, podOrderId, scope);
     const account = await this.resolveAccountForFulfill(
       organizationId,
       podOrderId,
@@ -162,8 +171,10 @@ export class FulfillmentProviderGateway {
     organizationId: string,
     actorUserId: string,
     podOrderId: string,
+    scope: PodAccessScope,
     reason?: string,
   ): Promise<FulfillmentOrderWithRelations> {
+    await this.assertOrderInScope(organizationId, podOrderId, scope);
     const current = await this.requireCurrent(organizationId, podOrderId);
     return this.adapterFor(current.provider).cancel(
       organizationId,
@@ -179,7 +190,9 @@ export class FulfillmentProviderGateway {
     actorUserId: string,
     podOrderId: string,
     changes: { labelUrl?: string | null; note?: string | null; shippingMethod?: string | null },
+    scope: PodAccessScope,
   ): Promise<FulfillmentOrderWithRelations> {
+    await this.assertOrderInScope(organizationId, podOrderId, scope);
     const current = await this.requireCurrent(organizationId, podOrderId);
     if (current.provider !== FulfillmentProvider.MANGO) {
       throw new FulfillmentOperationNotSupportedException(
@@ -191,6 +204,20 @@ export class FulfillmentProviderGateway {
       ...changes,
       shippingMethod: changes.shippingMethod as MangoShippingMethod | null | undefined,
     });
+  }
+
+  /**
+   * Đơn thuộc phạm vi shop của người gọi (Seller: chỉ shop được Admin gán; Admin: mọi shop).
+   * Đơn của tổ chức khác ⇒ 404 (`findById` lọc theo tổ chức); đơn của shop khác ⇒ 403.
+   */
+  private async assertOrderInScope(
+    organizationId: string,
+    podOrderId: string,
+    scope: PodAccessScope,
+  ): Promise<void> {
+    const order = await this.podOrderRepo.findById(organizationId, podOrderId);
+    if (!order) throw new FulfillmentOrderNotFoundException();
+    this.accessScope.assertShopAllowed(scope, order.shopId);
   }
 
   syncOne(

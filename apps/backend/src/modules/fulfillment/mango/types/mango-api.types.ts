@@ -78,17 +78,12 @@ export interface MangoOrderItemRequest {
 export interface MangoCreateOrderRequest {
   /** Mã do NCMedia sinh, DUY NHẤT, tối đa 40 ký tự — Mango báo lỗi nếu trùng. */
   order_id: string;
-  /**
-   * Xưởng sản xuất (`id` từ `GET /production-lines`).
-   *
-   * 🔴 Không gửi trường này thì Mango TỰ CHỌN xưởng của họ — đó là lý do đơn chọn "TIKTOK"
-   * lại về "FASTUS" trong đơn phía nhà cung cấp (`production_line_id` trong response của
-   * Create Order là bằng chứng: hệ thống không gửi gì, Mango vẫn điền một giá trị).
-   *
-   * ⚠️ Chỉ gửi khi người vận hành THỰC SỰ chọn một line (ánh xạ sản phẩm hoặc mặc định của
-   * tài khoản). Không chọn ⇒ bỏ hẳn trường, giữ nguyên hành vi cũ.
-   */
-  production_line_id?: string;
+  // 🔴 KHÔNG có `production_line_id`. `OrderCreateSchema` của MangoV3 (docs.mangoteeprints.com →
+  // Create Order) KHÔNG có trường production line và đặt `additionalProperties: false` ⇒ gửi kèm là
+  // `VALIDATION_ERROR — production_line_id: Extra inputs are not permitted`. `production_line_id`
+  // chỉ xuất hiện trong RESPONSE. Mango xếp đơn vào xưởng theo **SKU**: mỗi biến thể (SKU) thuộc
+  // đúng MỘT xưởng (Get Product Variations có bộ lọc `production_line_id`; mỗi bản ghi biến thể
+  // mang `production_line`). Chọn xưởng = chọn SKU của xưởng đó — xem MangoFulfillmentService.
   /** Chỉ dùng cho production line TIKTOK. Mặc định AUTO. */
   facility?: string | null;
   /** Chỉ dùng cho production line FASTUS. */
@@ -116,6 +111,11 @@ export interface MangoCreateOrderRequest {
   seller?: string | null;
   is_scan_label?: boolean;
   preferred_carrier?: string;
+  /**
+   * Mã vận đơn của CHÍNH nhãn `label_url` (tài liệu: bắt buộc với HOMI, ATLAS, VERTEX, PRIME, LUMI,
+   * VELORA khi có `label_url`, và phải khớp nhãn). Chỉ gửi khi nhãn do TikTok cấp kèm tracking.
+   */
+  tracking_number?: string | null;
 }
 
 /**

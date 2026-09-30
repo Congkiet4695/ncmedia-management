@@ -4,6 +4,11 @@ import { PodTiktokShopContextService } from '../../pod-tiktok/services/pod-tikto
 import { TiktokClientError } from '../../pod-tiktok/exceptions/pod-tiktok.exceptions';
 import { TiktokErrorClass } from '../../pod-tiktok/constants/tiktok-error-code.constants';
 import { DistributedLockService } from '../../pod-tiktok/infra/distributed-lock.service';
+import {
+  PodAccessScopeService,
+  PodShopForbiddenException,
+  type PodAccessScope,
+} from '../../pod-tiktok/services/pod-access-scope.service';
 import { TiktokFulfillmentApiService } from '../../tiktok-sdk/tiktok-fulfillment-api.service';
 import { PrismaService } from '../../../database/prisma.service';
 import { MangoOrderMapper } from '../mango/mappers/mango-order.mapper';
@@ -206,6 +211,10 @@ describe('Điều kiện gửi khi địa chỉ bị che', () => {
 // Test 5–9: lấy nhãn từ TikTok
 // ---------------------------------------------------------------------------
 
+const ALL_SHOPS: PodAccessScope = { allShops: true, accountIds: [], shopIds: [] };
+const OTHER_SHOP_SELLER: PodAccessScope = { allShops: false, accountIds: ['acc-2'], shopIds: ['shop-2'] };
+const OWN_SHOP_SELLER: PodAccessScope = { allShops: false, accountIds: ['acc-1'], shopIds: ['shop-1'] };
+
 interface LabelHarness {
   service: FulfillmentShippingLabelService;
   tiktok: Record<string, jest.Mock>;
@@ -215,7 +224,7 @@ interface LabelHarness {
 
 function buildLabelService(
   orderOverrides: Record<string, unknown> = {},
-  options: { lockBusy?: boolean } = {},
+  options: { lockBusy?: boolean; repoError?: Error } = {},
 ): LabelHarness {
   const podOrderUpdate = jest.fn().mockResolvedValue({});
   const packageUpsert = jest.fn().mockResolvedValue({});
@@ -228,7 +237,9 @@ function buildLabelService(
   } as unknown as PrismaService;
 
   const podOrderRepo = {
-    findById: jest.fn().mockResolvedValue(order(orderOverrides)),
+    findById: options.repoError
+      ? jest.fn().mockRejectedValue(options.repoError)
+      : jest.fn().mockResolvedValue(order(orderOverrides)),
   } as unknown as PodOrderRepository;
 
   const shopContext = {
@@ -264,7 +275,7 @@ function buildLabelService(
     getPackage: jest.fn(),
     // Mặc định: TikTok Shipping, đơn CHƯA có gói nào trên TikTok.
     getOrderFulfillmentInfo: jest.fn().mockResolvedValue({
-      data: { status: 'AWAITING_SHIPMENT', shippingType: 'TIKTOK', packageIds: [] },
+      data: { found: true, status: 'AWAITING_SHIPMENT', shippingType: 'TIKTOK', packageIds: [] },
       requestId: 'req-0',
     }),
   };
@@ -281,6 +292,7 @@ function buildLabelService(
     shopContext,
     tiktok as unknown as TiktokFulfillmentApiService,
     lock,
+    new PodAccessScopeService({} as never),
   );
 
   // Không chờ thật khi hỏi lại tài liệu của gói vừa tạo.
@@ -295,7 +307,7 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
   it('Test 5 — chưa có gói ⇒ hỏi dịch vụ → tạo gói → lấy nhãn → LƯU đủ nhãn/gói/tracking', async () => {
     const { service, tiktok, podOrderUpdate, packageUpsert } = buildLabelService();
 
-    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1');
+    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS);
 
     expect(tiktok.queryShippingServices).toHaveBeenCalledTimes(1);
     expect(tiktok.createPackage).toHaveBeenCalledTimes(1);
@@ -333,7 +345,7 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
       shippingLabelSource: 'TIKTOK',
     });
 
-    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1');
+    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS);
 
     expect(tiktok.createPackage).not.toHaveBeenCalled();
     expect(tiktok.queryShippingServices).not.toHaveBeenCalled();
@@ -346,7 +358,7 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
       packages: [{ tiktokPackageId: 'PKG-SYNC', shippingServiceName: null }],
     });
 
-    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1');
+    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS);
 
     expect(tiktok.createPackage).not.toHaveBeenCalled();
     expect(label.packageId).toBe('PKG-SYNC');
@@ -356,7 +368,7 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
   it('Test 6b — hai người bấm cùng lúc: lượt thứ hai bị khoá chặn, không tạo gói', async () => {
     const { service, tiktok } = buildLabelService({}, { lockBusy: true });
 
-    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1')).rejects.toBeInstanceOf(
+    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)).rejects.toBeInstanceOf(
       ShippingLabelBusyException,
     );
     expect(tiktok.createPackage).not.toHaveBeenCalled();
@@ -376,7 +388,7 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
     );
 
     const error = await service
-      .fetchFromTiktok('org-1', 'user-1', 'order-1')
+      .fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)
       .then(() => null)
       .catch((caught: unknown) => caught);
 
@@ -402,7 +414,7 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
       ),
     );
 
-    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1')).rejects.toMatchObject({
+    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)).rejects.toMatchObject({
       response: { code: 'TIKTOK_SCOPE_MISSING' },
     });
   });
@@ -411,7 +423,7 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
     const { service, tiktok } = buildLabelService();
     tiktok.queryShippingServices.mockResolvedValueOnce({ data: { shippingServices: [] } });
 
-    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1')).rejects.toMatchObject({
+    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)).rejects.toMatchObject({
       response: { code: 'TIKTOK_NO_ELIGIBLE_SHIPPING_SERVICE' },
     });
     expect(tiktok.createPackage).not.toHaveBeenCalled();
@@ -420,11 +432,11 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
   it('🔴 retry sau timeout: TikTok ĐÃ có gói (database chưa biết) ⇒ dùng lại gói đó, KHÔNG tạo gói thứ hai', async () => {
     const { service, tiktok, podOrderUpdate } = buildLabelService();
     tiktok.getOrderFulfillmentInfo.mockResolvedValueOnce({
-      data: { status: 'AWAITING_COLLECTION', shippingType: 'TIKTOK', packageIds: ['PKG-FROM-TIKTOK'] },
+      data: { found: true, status: 'AWAITING_COLLECTION', shippingType: 'TIKTOK', packageIds: ['PKG-FROM-TIKTOK'] },
       requestId: 'req-0',
     });
 
-    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1');
+    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS);
 
     expect(tiktok.createPackage).not.toHaveBeenCalled();
     expect(tiktok.queryShippingServices).not.toHaveBeenCalled();
@@ -436,7 +448,7 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
   it('đơn KHÔNG thuộc TikTok Shipping (lưu trong đơn) ⇒ báo rõ, KHÔNG gọi TikTok', async () => {
     const { service, tiktok } = buildLabelService({ shippingType: 'SELLER' });
 
-    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1')).rejects.toMatchObject({
+    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)).rejects.toMatchObject({
       response: { code: 'TIKTOK_LABEL_NOT_TIKTOK_SHIPPING' },
     });
     expect(tiktok.getOrderFulfillmentInfo).not.toHaveBeenCalled();
@@ -446,10 +458,10 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
   it('TikTok báo đơn là SELLER shipping (dữ liệu đơn cũ) ⇒ báo rõ, KHÔNG tạo gói', async () => {
     const { service, tiktok } = buildLabelService();
     tiktok.getOrderFulfillmentInfo.mockResolvedValueOnce({
-      data: { status: 'AWAITING_SHIPMENT', shippingType: 'SELLER', packageIds: [] },
+      data: { found: true, status: 'AWAITING_SHIPMENT', shippingType: 'SELLER', packageIds: [] },
     });
 
-    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1')).rejects.toMatchObject({
+    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)).rejects.toMatchObject({
       response: { code: 'TIKTOK_LABEL_NOT_TIKTOK_SHIPPING' },
     });
     expect(tiktok.queryShippingServices).not.toHaveBeenCalled();
@@ -462,7 +474,7 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
       .mockResolvedValueOnce({ data: {}, requestId: 'req-3a' })
       .mockResolvedValueOnce({ data: { docUrl: 'https://label.tiktok.test/late.pdf' }, requestId: 'req-3b' });
 
-    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1');
+    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS);
 
     expect(tiktok.createPackage).toHaveBeenCalledTimes(1);
     expect(tiktok.getShippingDocument).toHaveBeenCalledTimes(2);
@@ -474,7 +486,7 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
     tiktok.getShippingDocument.mockResolvedValue({ data: {}, requestId: 'req-empty' });
 
     const error = (await service
-      .fetchFromTiktok('org-1', 'user-1', 'order-1')
+      .fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)
       .catch((caught: unknown) => caught)) as ShippingLabelUnavailableException;
 
     expect(error.getResponse()).toMatchObject({
@@ -491,7 +503,7 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
     );
 
     const error = (await service
-      .fetchFromTiktok('org-1', 'user-1', 'order-1')
+      .fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)
       .catch((caught: unknown) => caught)) as ShippingLabelUnavailableException;
 
     expect(error.getResponse()).toMatchObject({
@@ -514,7 +526,7 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
     );
 
     const error = (await service
-      .fetchFromTiktok('org-1', 'user-1', 'order-1')
+      .fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)
       .catch((caught: unknown) => caught)) as ShippingLabelUnavailableException;
     const body = error.getResponse() as Record<string, unknown>;
 
@@ -524,6 +536,283 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
     });
     expect(String(body.message)).toContain("couldn't be printed");
     expect(JSON.stringify(body)).not.toContain('token');
+  });
+
+  // -------------------------------------------------------------------------
+  // Dịch vụ vận chuyển: không lấy phần tử đầu tiên vô điều kiện
+  // -------------------------------------------------------------------------
+
+  const TWO_SERVICES_NO_DEFAULT = {
+    data: {
+      shippingServices: [
+        { id: 'SVC-A', name: 'USPS Ground Advantage', shippingProviderName: 'USPS', isDefault: false },
+        { id: 'SVC-B', name: 'UPS Ground', shippingProviderName: 'UPS', isDefault: false },
+      ],
+    },
+    requestId: 'req-svc',
+  };
+
+  it('TikTok trả MỘT dịch vụ (không đánh dấu mặc định) ⇒ dùng đúng dịch vụ đó', async () => {
+    const { service, tiktok } = buildLabelService();
+    tiktok.queryShippingServices.mockResolvedValueOnce({
+      data: { shippingServices: [{ id: 'SVC-ONLY', name: 'USPS', isDefault: false }] },
+    });
+
+    await service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS);
+
+    expect((tiktok.createPackage.mock.calls[0] as unknown[])[1]).toMatchObject({ shippingServiceId: 'SVC-ONLY' });
+  });
+
+  it('🔴 nhiều dịch vụ, KHÔNG có mặc định ⇒ dừng, trả danh sách để chọn, KHÔNG tạo gói', async () => {
+    const { service, tiktok, podOrderUpdate } = buildLabelService();
+    tiktok.queryShippingServices.mockResolvedValueOnce(TWO_SERVICES_NO_DEFAULT);
+
+    const error = (await service
+      .fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)
+      .catch((caught: unknown) => caught)) as ShippingLabelUnavailableException;
+
+    expect(error.getResponse()).toMatchObject({
+      code: 'TIKTOK_SHIPPING_SERVICE_SELECTION_REQUIRED',
+      details: {
+        operation: 'SHIPPING_SERVICES',
+        shippingServices: [
+          { id: 'SVC-A', name: 'USPS Ground Advantage', shippingProviderName: 'USPS' },
+          { id: 'SVC-B', name: 'UPS Ground', shippingProviderName: 'UPS' },
+        ],
+      },
+    });
+    expect(tiktok.createPackage).not.toHaveBeenCalled();
+    expect(podOrderUpdate).not.toHaveBeenCalled();
+  });
+
+  it('hai dịch vụ cùng đánh dấu mặc định ⇒ vẫn phải chọn (không đoán)', async () => {
+    const { service, tiktok } = buildLabelService();
+    tiktok.queryShippingServices.mockResolvedValueOnce({
+      data: {
+        shippingServices: [
+          { id: 'SVC-A', name: 'A', isDefault: true },
+          { id: 'SVC-B', name: 'B', isDefault: true },
+        ],
+      },
+    });
+
+    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)).rejects.toMatchObject({
+      response: { code: 'TIKTOK_SHIPPING_SERVICE_SELECTION_REQUIRED' },
+    });
+    expect(tiktok.createPackage).not.toHaveBeenCalled();
+  });
+
+  it('người vận hành chọn dịch vụ ⇒ tạo gói với ĐÚNG dịch vụ đó', async () => {
+    const { service, tiktok } = buildLabelService();
+    tiktok.queryShippingServices.mockResolvedValueOnce(TWO_SERVICES_NO_DEFAULT);
+
+    await service.fetchFromTiktok('org-1', 'user-1', 'order-1', { shippingServiceId: 'SVC-B' }, ALL_SHOPS);
+
+    expect((tiktok.createPackage.mock.calls[0] as unknown[])[1]).toMatchObject({ shippingServiceId: 'SVC-B' });
+  });
+
+  it('dịch vụ đã chọn KHÔNG nằm trong danh sách TikTok ⇒ TIKTOK_SHIPPING_SERVICE_INVALID, không tạo gói', async () => {
+    const { service, tiktok } = buildLabelService();
+    tiktok.queryShippingServices.mockResolvedValueOnce(TWO_SERVICES_NO_DEFAULT);
+
+    await expect(
+      service.fetchFromTiktok('org-1', 'user-1', 'order-1', { shippingServiceId: 'SVC-HARDCODED' }, ALL_SHOPS),
+    ).rejects.toMatchObject({ response: { code: 'TIKTOK_SHIPPING_SERVICE_INVALID' } });
+    expect(tiktok.createPackage).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Đơn không hợp lệ
+  // -------------------------------------------------------------------------
+
+  it('TikTok không trả về đơn ⇒ TIKTOK_ORDER_NOT_FOUND, không hỏi dịch vụ, không tạo gói', async () => {
+    const { service, tiktok } = buildLabelService();
+    tiktok.getOrderFulfillmentInfo.mockResolvedValueOnce({ data: { found: false, packageIds: [] } });
+
+    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)).rejects.toMatchObject({
+      response: { code: 'TIKTOK_ORDER_NOT_FOUND' },
+    });
+    expect(tiktok.queryShippingServices).not.toHaveBeenCalled();
+    expect(tiktok.createPackage).not.toHaveBeenCalled();
+  });
+
+  it('đơn đã huỷ trên TikTok ⇒ TIKTOK_ORDER_NOT_PACKABLE, không tạo gói', async () => {
+    const { service, tiktok } = buildLabelService();
+    tiktok.getOrderFulfillmentInfo.mockResolvedValueOnce({
+      data: { found: true, status: 'CANCELLED', shippingType: 'TIKTOK', packageIds: [] },
+    });
+
+    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)).rejects.toMatchObject({
+      response: { code: 'TIKTOK_ORDER_NOT_PACKABLE' },
+    });
+    expect(tiktok.createPackage).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Tạo gói: idempotency khi hỏng đường truyền
+  // -------------------------------------------------------------------------
+
+  const networkError = () =>
+    new TiktokClientError(TiktokErrorClass.NETWORK, 0, 'TikTok không phản hồi trong 20 giây', 0, undefined, 'FULFILLMENT_CREATE_PACKAGE');
+
+  it('🔴 CASE 5 — tạo gói TIMEOUT nhưng TikTok ĐÃ tạo ⇒ đối soát thấy gói, dùng nó, KHÔNG gửi lệnh tạo lần 2', async () => {
+    const { service, tiktok, podOrderUpdate } = buildLabelService();
+    tiktok.createPackage.mockRejectedValueOnce(networkError());
+    tiktok.getOrderFulfillmentInfo
+      .mockResolvedValueOnce({ data: { found: true, status: 'AWAITING_SHIPMENT', shippingType: 'TIKTOK', packageIds: [] } })
+      .mockResolvedValueOnce({ data: { found: true, status: 'AWAITING_COLLECTION', shippingType: 'TIKTOK', packageIds: ['PKG-LATE'] } });
+
+    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS);
+
+    expect(tiktok.createPackage).toHaveBeenCalledTimes(1);
+    expect(tiktok.getShippingDocument).toHaveBeenCalledWith(expect.anything(), 'PKG-LATE');
+    expect(label).toMatchObject({ packageId: 'PKG-LATE', labelUrl: 'https://label.tiktok.test/PKG.pdf' });
+    expect(podOrderUpdate).toHaveBeenCalled();
+  });
+
+  it('tạo gói TIMEOUT, đối soát xác nhận CHƯA có gói ⇒ TIKTOK_UNREACHABLE "bấm lại an toàn", tạo gói đúng 1 lần', async () => {
+    const { service, tiktok, podOrderUpdate } = buildLabelService();
+    tiktok.createPackage.mockRejectedValueOnce(networkError());
+
+    const error = (await service
+      .fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)
+      .catch((caught: unknown) => caught)) as ShippingLabelUnavailableException;
+
+    expect(error.getResponse()).toMatchObject({ code: 'TIKTOK_UNREACHABLE', details: { operation: 'CREATE_PACKAGE' } });
+    expect(error.message).toContain('CHƯA tạo gói');
+    expect(tiktok.createPackage).toHaveBeenCalledTimes(1);
+    expect(podOrderUpdate).not.toHaveBeenCalled();
+  });
+
+  it('tạo gói TIMEOUT và KHÔNG đối soát được ⇒ báo chưa xác nhận, KHÔNG tạo lại', async () => {
+    const { service, tiktok } = buildLabelService();
+    tiktok.createPackage.mockRejectedValueOnce(networkError());
+    tiktok.getOrderFulfillmentInfo
+      .mockResolvedValueOnce({ data: { found: true, status: 'AWAITING_SHIPMENT', shippingType: 'TIKTOK', packageIds: [] } })
+      .mockRejectedValue(networkError());
+
+    const error = (await service
+      .fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)
+      .catch((caught: unknown) => caught)) as ShippingLabelUnavailableException;
+
+    expect(error.getResponse()).toMatchObject({ code: 'TIKTOK_UNREACHABLE' });
+    expect(error.message).toContain('chưa xác nhận');
+    expect(tiktok.createPackage).toHaveBeenCalledTimes(1);
+  });
+
+  it('TikTok TỪ CHỐI tạo gói (4xx nghiệp vụ) ⇒ TIKTOK_PACKAGE_CREATE_FAILED kèm lý do nguyên văn, không đối soát', async () => {
+    const { service, tiktok } = buildLabelService();
+    tiktok.createPackage.mockRejectedValueOnce(
+      new TiktokClientError(TiktokErrorClass.BUSINESS, 21011024, 'Shipping service is unavailable', 200, 'req-cp', 'FULFILLMENT_CREATE_PACKAGE'),
+    );
+
+    const error = (await service
+      .fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)
+      .catch((caught: unknown) => caught)) as ShippingLabelUnavailableException;
+
+    expect(error.getResponse()).toMatchObject({
+      code: 'TIKTOK_PACKAGE_CREATE_FAILED',
+      details: { operation: 'CREATE_PACKAGE', providerCode: '21011024', providerMessage: 'Shipping service is unavailable', requestId: 'req-cp' },
+    });
+    // Chỉ lần hỏi chi tiết đơn TRƯỚC khi tạo — không có vòng đối soát.
+    expect(tiktok.getOrderFulfillmentInfo).toHaveBeenCalledTimes(1);
+  });
+
+  it('TikTok giới hạn tần suất ⇒ TIKTOK_RATE_LIMITED', async () => {
+    const { service, tiktok } = buildLabelService();
+    tiktok.getOrderFulfillmentInfo.mockRejectedValueOnce(
+      new TiktokClientError(TiktokErrorClass.RATE_LIMIT, 36009004, 'Too many requests', 429, 'req-rl', 'ORDER_DETAIL'),
+    );
+
+    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)).rejects.toMatchObject({
+      response: { code: 'TIKTOK_RATE_LIMITED' },
+    });
+    expect(tiktok.createPackage).not.toHaveBeenCalled();
+  });
+
+  // -------------------------------------------------------------------------
+  // Nhãn đã có
+  // -------------------------------------------------------------------------
+
+  it('CASE 3 — đơn đã có nhãn TikTok, TikTok không cấp lại được file ⇒ trả NHÃN ĐÃ LƯU kèm cảnh báo, không tạo gói', async () => {
+    const { service, tiktok, podOrderUpdate } = buildLabelService({
+      shippingLabelPackageId: 'PKG-CU',
+      shippingLabelUrl: 'https://label.tiktok.test/cu.pdf',
+      shippingLabelSource: 'TIKTOK',
+      shippingLabelTrackingNumber: 'TRK-CU',
+    });
+    tiktok.getShippingDocument.mockRejectedValueOnce(
+      new TiktokClientError(
+        TiktokErrorClass.BUSINESS,
+        21042102,
+        "Documents couldn't be printed after the package has been pickup.",
+        200,
+        'req-pick',
+        'FULFILLMENT_SHIPPING_DOCUMENT',
+      ),
+    );
+
+    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS);
+
+    expect(label).toMatchObject({
+      labelUrl: 'https://label.tiktok.test/cu.pdf',
+      packageId: 'PKG-CU',
+      trackingNumber: 'TRK-CU',
+      refreshed: false,
+      reusedPackage: true,
+    });
+    expect(label.warning).toContain("couldn't be printed");
+    expect(tiktok.createPackage).not.toHaveBeenCalled();
+    expect(tiktok.getOrderFulfillmentInfo).not.toHaveBeenCalled();
+    expect(podOrderUpdate).not.toHaveBeenCalled();
+  });
+
+  it('CASE 2 — đơn có gói nhưng chưa có nhãn ⇒ dùng lại gói, lấy tài liệu, LƯU nhãn', async () => {
+    const { service, tiktok, podOrderUpdate } = buildLabelService({
+      packages: [{ tiktokPackageId: 'PKG-SYNC', shippingServiceName: 'USPS Ground Advantage' }],
+    });
+
+    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS);
+
+    expect(tiktok.createPackage).not.toHaveBeenCalled();
+    expect(label).toMatchObject({ packageId: 'PKG-SYNC', refreshed: true, shippingServiceName: 'USPS Ground Advantage' });
+    expect(podOrderUpdate).toHaveBeenCalled();
+  });
+
+  it('CASE 4 — bấm hai lần liên tiếp: lần hai thấy gói lần một đã lưu ⇒ KHÔNG tạo gói thứ hai', async () => {
+    const first = buildLabelService();
+    await first.service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS);
+    const saved = (first.podOrderUpdate.mock.calls.at(-1) as unknown[])[0] as { data: Record<string, unknown> };
+
+    const second = buildLabelService({ ...saved.data });
+    await second.service.fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS);
+
+    expect(first.tiktok.createPackage).toHaveBeenCalledTimes(1);
+    expect(second.tiktok.createPackage).not.toHaveBeenCalled();
+    expect(second.tiktok.getShippingDocument).toHaveBeenCalledWith(expect.anything(), 'PKG-NEW');
+  });
+
+  // -------------------------------------------------------------------------
+  // Lỗi hệ thống: không 500 trần, không lộ chi tiết kỹ thuật
+  // -------------------------------------------------------------------------
+
+  it('🔴 lỗi hệ thống (vd Prisma) ⇒ 422 SHIPPING_LABEL_INTERNAL_ERROR + mã tham chiếu, KHÔNG lộ thông điệp kỹ thuật', async () => {
+    const { service, tiktok } = buildLabelService({}, {
+      repoError: new Error('Invalid `prisma.podOrder.findFirst()` invocation: column pod_orders.shipping_label_url does not exist'),
+    });
+
+    const error = (await service
+      .fetchFromTiktok('org-1', 'user-1', 'order-1', {}, ALL_SHOPS)
+      .catch((caught: unknown) => caught)) as ShippingLabelUnavailableException;
+
+    expect(error).toBeInstanceOf(ShippingLabelUnavailableException);
+    expect(error.getStatus()).toBe(422);
+    const body = error.getResponse() as { code: string; message: string; details: { referenceId: string } };
+    expect(body.code).toBe('SHIPPING_LABEL_INTERNAL_ERROR');
+    expect(body.details.referenceId).toMatch(/^[0-9a-f-]{36}$/);
+    expect(body.message).toContain(body.details.referenceId);
+    expect(JSON.stringify(body)).not.toMatch(/prisma|pod_orders|column/i);
+    expect(tiktok.createPackage).not.toHaveBeenCalled();
   });
 
   it('Test 9 — nhãn đã lưu đọc lại được từ bản ghi đơn (sau khi tải lại trang)', () => {
@@ -566,6 +855,7 @@ describe('FulfillmentShippingLabelService.saveManualLabel', () => {
       'user-1',
       'order-1',
       '  https://seller-us.tiktok.com/easesafe/label.pdf  ',
+      ALL_SHOPS,
     );
 
     const data = (podOrderUpdate.mock.calls.at(-1) as unknown[])[0] as {
@@ -577,5 +867,38 @@ describe('FulfillmentShippingLabelService.saveManualLabel', () => {
       shippingLabelPackageId: null,
     });
     expect(label.source).toBe('MANUAL');
+  });
+});
+
+describe('Nhãn TikTok — phạm vi shop (Seller)', () => {
+  it('Seller lấy nhãn cho đơn của CHÍNH shop mình ⇒ được', async () => {
+    const { service, tiktok } = buildLabelService();
+
+    await service.fetchFromTiktok('org-1', 'seller', 'order-1', {}, OWN_SHOP_SELLER);
+
+    expect(tiktok.createPackage).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 Seller lấy nhãn cho đơn shop KHÁC ⇒ 403, KHÔNG gọi TikTok (không tạo gói)', async () => {
+    const { service, tiktok, podOrderUpdate } = buildLabelService();
+
+    await expect(
+      service.fetchFromTiktok('org-1', 'seller', 'order-1', {}, OTHER_SHOP_SELLER),
+    ).rejects.toBeInstanceOf(PodShopForbiddenException);
+    expect(tiktok.getOrderFulfillmentInfo).not.toHaveBeenCalled();
+    expect(tiktok.createPackage).not.toHaveBeenCalled();
+    expect(podOrderUpdate).not.toHaveBeenCalled();
+  });
+
+  it('Seller lưu / gỡ nhãn đơn shop KHÁC ⇒ 403, không ghi database', async () => {
+    const { service, podOrderUpdate } = buildLabelService();
+
+    await expect(
+      service.saveManualLabel('org-1', 'seller', 'order-1', 'https://x.test/l.pdf', OTHER_SHOP_SELLER),
+    ).rejects.toBeInstanceOf(PodShopForbiddenException);
+    await expect(service.clearLabel('org-1', 'order-1', OTHER_SHOP_SELLER)).rejects.toBeInstanceOf(
+      PodShopForbiddenException,
+    );
+    expect(podOrderUpdate).not.toHaveBeenCalled();
   });
 });

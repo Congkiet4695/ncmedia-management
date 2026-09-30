@@ -69,6 +69,8 @@ export interface FulfillmentOptions {
   /** Lấy TRỰC TIẾP từ nhà cung cấp (`GET /production-lines`). Rỗng = chưa hỏi được. */
   productionLines: FulfillmentOption[];
   printLocations: PrintLocationOption[];
+  /** Line mặc định của tài khoản (id) — DỰ PHÒNG khi cấu hình sản phẩm không chọn line. */
+  defaultProductionLine: string | null;
   capabilities: FulfillmentCapabilities;
   /** Lời gọi tới nhà cung cấp hỏng ⇒ nói rõ, không im lặng trả danh sách rỗng. */
   warnings: string[];
@@ -116,6 +118,7 @@ export class FulfillmentOptionsService {
       productionConfigs: [],
       productionLines: [],
       printLocations: [],
+      defaultProductionLine: null,
       capabilities: NO_CAPABILITIES,
       warnings,
     };
@@ -159,6 +162,7 @@ export class FulfillmentOptionsService {
       preferredCarriers: MANGO_PREFERRED_CARRIERS.map((value) => ({ value, label: value })),
       productionConfigs: MANGO_PRODUCTION_CONFIGS.map((value) => ({ value, label: value })),
       productionLines: await this.productionLines(account, warnings),
+      defaultProductionLine: account.defaultProductionLine ?? null,
       printLocations: Object.entries(DEFAULT_PLACEMENT_MAP).map(([placement, providerKey]) => ({
         placement: placement as PodDesignPlacement,
         providerKey,

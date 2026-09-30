@@ -98,6 +98,8 @@
     "AUTH_ORGANIZATION_REJECTED": "Your organization registration was not approved. Please check the email we sent you for details.",
     "AUTH_ORGANIZATION_INACTIVE": "Your organization is not active. Please contact an administrator.",
     "PLATFORM_ORGANIZATION_NOT_FOUND": "Organization not found",
-    "PLATFORM_ORGANIZATION_NOT_PENDING": "This registration is no longer pending — it has already been reviewed."
+    "PLATFORM_ORGANIZATION_NOT_PENDING": "This registration is no longer pending — it has already been reviewed.",
+    "POD_SHOP_FORBIDDEN": "You can only work on orders of TikTok Shops an Admin has assigned to you.",
+    "FULFILLMENT_VARIANT_PRICE_UNAVAILABLE": "Could not get the base cost of this variant from the provider."
   }
 }

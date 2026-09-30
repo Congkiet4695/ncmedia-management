@@ -26,6 +26,7 @@ import type {
   ProductMappingQuery,
   ProviderCatalogue,
   ProviderCatalogVariation,
+  VariantPrice,
   TestConnectionResult,
   TiktokProductOption,
   UpsertProductMappingInput,
@@ -117,10 +118,11 @@ export const fulfillmentService = {
    * mặc định của apiClient. Hết 15s trình duyệt báo "network error" trong khi backend vẫn chạy (và
    * có thể đã tạo gói) — chính là lỗi người dùng gặp. Giữ dưới `proxy_read_timeout 300s` của Nginx.
    */
-  async tiktokLabel(podOrderId: string): Promise<ShippingLabel> {
+  async tiktokLabel(podOrderId: string, shippingServiceId?: string): Promise<ShippingLabel> {
     const res = await apiClient.post<ApiResponse<ShippingLabel>>(
       `/pod/orders/${podOrderId}/fulfillment/tiktok-label`,
-      undefined,
+      // Dịch vụ vận chuyển chỉ gửi khi người vận hành CHỌN (TikTok trả nhiều dịch vụ, không có mặc định).
+      shippingServiceId ? { shippingServiceId } : {},
       { timeout: TIKTOK_LABEL_TIMEOUT_MS },
     );
     return res.data.data;
@@ -323,6 +325,14 @@ export const productMappingService = {
   ): Promise<ProviderCatalogVariation[]> {
     const res = await apiClient.get<ApiResponse<ProviderCatalogVariation[]>>(
       `${BASE_PATH}/accounts/${accountId}/catalog/products/${productId}/variations`,
+    );
+    return res.data.data;
+  },
+
+  /** Giá vốn của MỘT biến thể (`variantId` = khoá nội bộ). Backend đọc từ danh mục đã đồng bộ. */
+  async variantPrice(accountId: string, variantId: string): Promise<VariantPrice> {
+    const res = await apiClient.get<ApiResponse<VariantPrice>>(
+      `${BASE_PATH}/accounts/${accountId}/catalog/variations/${variantId}/price`,
     );
     return res.data.data;
   },

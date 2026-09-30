@@ -414,6 +414,14 @@ export class ProviderCatalogVariationDto {
       'NULL với nhà cung cấp có bộ vị trí in cố định (Mango).',
   })
   printAreas!: ProviderPrintAreaDto[] | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'Mango: xưởng (production line) của SKU này, vd TIKTOK / FASTUS — Mango xếp đơn theo SKU, nên ' +
+      'chọn Line sản xuất = chọn SKU của xưởng đó. null với nhà cung cấp khác / bản ghi không có thông tin.',
+  })
+  productionLine!: string | null;
 }
 
 export class CatalogProductQueryDto {
@@ -591,8 +599,11 @@ export class UpsertProductMappingDto {
   providerSku!: string;
 
   @ApiPropertyOptional({
+    deprecated: true,
     description:
-      'Giá vốn nhà cung cấp cho SKU này. Được chép làm ảnh chụp vào đơn lúc gửi sản xuất.',
+      '🔴 BỊ BỎ QUA. Base Cost do BACKEND lấy từ giá biến thể nhà cung cấp (danh mục đã đồng bộ) ' +
+      'theo `providerVariantId` + `providerSku` — không nhận giá từ frontend. Giữ trường này chỉ để ' +
+      'client cũ gửi kèm không bị lỗi validate.',
     example: 12.5,
   })
   @IsOptional()
@@ -770,9 +781,19 @@ export class ProductMappingDto {
   @ApiProperty({
     nullable: true,
     type: Number,
-    description: 'Giá vốn nhà cung cấp. NULL = chưa khai.',
+    description:
+      'Giá vốn nhà cung cấp — backend lấy từ giá biến thể đã đồng bộ khi lưu ánh xạ. NULL = chưa có giá.',
   })
   baseCost!: number | null;
+  @ApiPropertyOptional({
+    enum: ['PROVIDER_PRICE', 'UNCHANGED', 'PRICE_NOT_FOUND'],
+    description:
+      'Chỉ có trong phản hồi TẠO/SỬA ánh xạ: `PROVIDER_PRICE` = đã cập nhật từ giá nhà cung cấp; ' +
+      '`UNCHANGED` = không lấy được giá, GIỮ nguyên Base Cost cũ (cùng biến thể); ' +
+      '`PRICE_NOT_FOUND` = biến thể mới không có giá (Base Cost để trống). Lý do ở `baseCostMessage`.',
+  })
+  baseCostStatus?: 'PROVIDER_PRICE' | 'UNCHANGED' | 'PRICE_NOT_FOUND';
+  @ApiPropertyOptional({ nullable: true, type: String }) baseCostMessage?: string | null;
   @ApiProperty({ nullable: true, type: String }) providerProductId!: string | null;
   @ApiProperty({ nullable: true, type: String }) providerVariantId!: string | null;
   @ApiProperty({ nullable: true, type: String }) providerProductName!: string | null;
@@ -1003,6 +1024,13 @@ export class FulfillmentOptionsDto {
     description: 'Lấy trực tiếp từ nhà cung cấp; rỗng = chưa hỏi được (xem warnings).',
   })
   productionLines!: FulfillmentOptionDto[];
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'Line sản xuất MẶC ĐỊNH của tài khoản (id) — chỉ là giá trị DỰ PHÒNG khi cấu hình sản phẩm không chọn line.',
+  })
+  defaultProductionLine!: string | null;
   @ApiProperty({ type: PrintLocationOptionDto, isArray: true })
   printLocations!: PrintLocationOptionDto[];
   @ApiProperty({ type: FulfillmentCapabilitiesDto }) capabilities!: FulfillmentCapabilitiesDto;
@@ -1133,6 +1161,35 @@ export class SaveShippingLabelDto {
   labelUrl!: string;
 }
 
+/** Giá vốn của một biến thể nhà cung cấp (đọc từ danh mục đã đồng bộ). */
+export class VariantPriceDto {
+  @ApiProperty({ description: 'Tài khoản nhà cung cấp.' }) accountId!: string;
+  @ApiProperty({ description: '`fulfillment_variants.id`.' }) variantId!: string;
+  @ApiProperty({ description: 'Id biến thể phía nhà cung cấp.' }) externalVariantId!: string;
+  @ApiProperty({ description: 'SKU biến thể — giá trị gửi sang nhà cung cấp.' }) sku!: string;
+  @ApiProperty({ description: 'Giá vốn một đơn vị theo nhà cung cấp.', example: 23.89 }) price!: number;
+  @ApiProperty({ nullable: true, type: String }) currency!: string | null;
+  @ApiProperty({ enum: ['PROVIDER_CATALOG'] }) source!: 'PROVIDER_CATALOG';
+  @ApiProperty({ description: 'Thời điểm giá được đồng bộ từ nhà cung cấp (ISO).' }) syncedAt!: string;
+}
+
+/** Body (tuỳ chọn) của "Lấy nhãn từ TikTok". */
+export class FetchTiktokLabelDto {
+  @ApiPropertyOptional({
+    description:
+      'Dịch vụ vận chuyển TikTok người vận hành chọn — CHỈ cần khi phải tạo gói và TikTok trả ' +
+      'nhiều dịch vụ mà không đánh dấu mặc định (lỗi `TIKTOK_SHIPPING_SERVICE_SELECTION_REQUIRED` ' +
+      'kèm danh sách). Phải là một `id` trong danh sách đó.',
+    maxLength: 64,
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(64)
+  shippingServiceId?: string;
+}
+
 /** Nhãn vận chuyển đang gắn với đơn — ĐỌC TỪ DATABASE, không phải state của giao diện. */
 export class ShippingLabelDto {
   @ApiProperty({ description: 'URL nhãn (PDF/PNG) — xưởng in tải file từ đây.' })
@@ -1151,6 +1208,13 @@ export class ShippingLabelDto {
     description: 'Lần lấy vừa rồi dùng LẠI gói đã có (không tạo gói mới).',
   })
   reusedPackage?: boolean;
+  @ApiPropertyOptional({
+    description:
+      '`false` ⇒ TikTok không cấp lại được file cho gói đã có (vd gói đã được lấy hàng); đây là ' +
+      'nhãn ĐÃ LƯU của chính gói đó. Lý do ở `warning`.',
+  })
+  refreshed?: boolean;
+  @ApiPropertyOptional({ nullable: true, type: String }) warning?: string | null;
 }
 
 /**

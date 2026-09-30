@@ -29,6 +29,16 @@ export interface ProductUpsertInput {
   rawData: Prisma.InputJsonValue;
 }
 
+/** Khoá tra giá của một biến thể — xem `findVariantsForPrice`. */
+export interface VariantPriceKey {
+  /** `fulfillment_variants.id` (id nội bộ — giao diện có sẵn khi chọn biến thể). */
+  id?: string | null;
+  /** Id biến thể phía nhà cung cấp (`provider_variant_id` của ánh xạ). */
+  externalVariantId?: string | null;
+  /** SKU biến thể phía nhà cung cấp (`provider_sku` của ánh xạ). */
+  sku?: string | null;
+}
+
 /** Một biến thể sắp ghi xuống. */
 export interface VariantUpsertInput {
   externalProductId: string;
@@ -501,6 +511,46 @@ export class FulfillmentCatalogRepository {
    * `organization_id` — xem chú thích ở `listCatalogues`: hàng rào tenant là bước kiểm tài khoản
    * (`usableAccountWhere`) ở tầng service.
    */
+  /**
+   * Biến thể để tra GIÁ vốn: của ĐÚNG tài khoản `accountId`, và tài khoản đó dùng được với tổ chức
+   * (riêng của tổ chức hoặc dùng chung). Khoá theo thứ tự tin cậy: id nội bộ → id biến thể phía nhà
+   * cung cấp (+ SKU nếu có) → SKU. Không có khoá nào ⇒ rỗng (không bao giờ trả "biến thể bất kỳ").
+   */
+  findVariantsForPrice(organizationId: string, accountId: string, key: VariantPriceKey) {
+    const id = key.id?.trim();
+    const externalVariantId = key.externalVariantId?.trim();
+    const sku = key.sku?.trim();
+    const match: Prisma.FulfillmentVariantWhereInput | null = id
+      ? { id }
+      : externalVariantId
+        ? { externalVariantId, ...(sku ? { sku } : {}) }
+        : sku
+          ? { sku }
+          : null;
+    if (!match) return Promise.resolve([]);
+    return this.prisma.fulfillmentVariant.findMany({
+      where: {
+        accountId,
+        deletedAt: null,
+        ...match,
+        product: {
+          deletedAt: null,
+          account: FulfillmentRepository.usableAccountWhere(organizationId),
+        },
+      },
+      select: {
+        id: true,
+        externalVariantId: true,
+        sku: true,
+        price: true,
+        status: true,
+        syncedAt: true,
+        product: { select: { currency: true } },
+      },
+      take: 5,
+    });
+  }
+
   findVariantsForAccount(accountId: string, skus: string[]) {
     if (skus.length === 0) return Promise.resolve([]);
     return this.prisma.fulfillmentVariant.findMany({

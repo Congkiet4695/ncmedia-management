@@ -235,8 +235,15 @@ function buildService(options: Harness = {}) {
     new MangoOrderMapper(),
     new MangoCredentialService(encryption),
     lock,
-    // Danh sách production line — spec không kiểm phần phụ thuộc xưởng nên trả rỗng.
-    { forAccount: () => Promise.resolve({ productionLines: [] }) } as unknown as FulfillmentOptionsService,
+    // Xưởng TIKTOK (khớp mặc định tài khoản) — spec không kiểm phần phụ thuộc xưởng, chỉ cần nhất quán.
+    {
+      forAccount: () => Promise.resolve({ productionLines: [{ value: 'TIKTOK', label: 'TIKTOK' }] }),
+    } as unknown as FulfillmentOptionsService,
+    // Mọi SKU của spec thuộc xưởng TIKTOK (raw_data.production_line) — đúng xưởng đang chọn.
+    {
+      findVariantsForAccount: (_id: string, skus: string[]) =>
+        Promise.resolve(skus.map((sku) => ({ sku, status: 'ACTIVE', rawData: { production_line: 'TIKTOK' } }))),
+    } as never,
   );
 
   return { service, repo, createDraft, createOrder, getOrder, updates, histories, record, rows: () => rows };
@@ -468,7 +475,8 @@ describe('MangoFulfillmentService.fulfill — tuỳ chọn gửi đơn', () => {
     await harness.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, {
       shippingMethod: 'by_tiktok',
       facility: 'TX',
-      speedType: 'rush',
+      // speed_type chỉ hợp lệ với xưởng FASTUS (đơn này ở TIKTOK) — tên field của nó được kiểm ở
+      // mango-fulfillment.production-line.spec.ts ('Speed type + xưởng FASTUS').
       preferredCarrier: 'usps',
       isScanLabel: true,
       labelUrl: 'https://labels.example/label.pdf',
@@ -478,7 +486,6 @@ describe('MangoFulfillmentService.fulfill — tuỳ chọn gửi đơn', () => {
     expect(harness.createOrder.mock.calls[0][1]).toMatchObject({
       shipping_method: 'by_tiktok',
       facility: 'TX',
-      speed_type: 'rush',
       preferred_carrier: 'usps',
       is_scan_label: true,
       label_url: 'https://labels.example/label.pdf',

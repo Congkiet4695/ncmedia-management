@@ -171,7 +171,8 @@ export function useShippingLabelActions(podOrderId: string) {
 
   return {
     fetchFromTiktok: useMutation({
-      mutationFn: () => fulfillmentService.tiktokLabel(podOrderId),
+      mutationFn: (shippingServiceId?: string) =>
+        fulfillmentService.tiktokLabel(podOrderId, shippingServiceId),
       onSuccess: refresh,
     }),
     save: useMutation({
@@ -372,6 +373,25 @@ export function useProviderCatalogVariations(accountId?: string, productId?: str
       productMappingService.catalogVariations(accountId as string, productId as string),
     enabled: Boolean(accountId) && Boolean(productId),
     staleTime: 5 * 60 * 1000,
+  });
+}
+
+/**
+ * Giá vốn của biến thể đang chọn.
+ *
+ * Gọi đúng MỘT lần cho mỗi (tài khoản, biến thể): nhớ 5 phút, mở/đóng ô chọn không gọi lại. Chỉ
+ * thử lại khi lỗi tạm thời (mất kết nối / 5xx) — "không có giá" (422) là câu trả lời, không thử lại.
+ */
+export function useProviderVariantPrice(accountId?: string, variantId?: string) {
+  return useQuery({
+    queryKey: [MAPPING_KEY, 'variant-price', accountId, variantId],
+    queryFn: () => productMappingService.variantPrice(accountId as string, variantId as string),
+    enabled: Boolean(accountId) && Boolean(variantId),
+    staleTime: 5 * 60 * 1000,
+    retry: (failureCount, error) => {
+      const status = (error as { response?: { status?: number } }).response?.status;
+      return failureCount < 2 && (status === undefined || status >= 500);
+    },
   });
 }
 

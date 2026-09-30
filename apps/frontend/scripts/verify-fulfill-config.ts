@@ -14,14 +14,23 @@ import {
   canSubmitFulfillment,
   configBlockers,
   defaultPlacementMap,
+  effectiveProductionLine,
   isBusinessSku,
   isFulfillmentConfigValid,
   mergeProductOptions,
+  productionLineName,
   providerProductLabel,
   providerVariantLabel,
   sanitizePlacementMap,
   submitBlockers,
+  variantsForProductionLine,
 } from '../features/fulfillment/product-config.ts';
+import { baseCostSaveWarning } from '../features/fulfillment/base-cost.ts';
+import {
+  shippingServiceLabel,
+  tiktokLabelErrorView,
+  tiktokLabelRequired,
+} from '../features/fulfillment/shipping-label.ts';
 import {
   isNoResponseError,
   providerErrorText,
@@ -73,6 +82,7 @@ const variant = (over: Partial<ProviderCatalogVariation> = {}): ProviderCatalogV
   size: 'S',
   price: null,
   isAvailable: true,
+  productionLine: null,
   ...over,
 });
 
@@ -358,6 +368,165 @@ check(
   false,
 );
 check('lỗi không phải axios ⇒ false', isNoResponseError(new Error('x')), false);
+
+// ---------------------------------------------------------------------------
+// Mango — Line sản xuất quyết định SKU (Mango xếp đơn theo SKU, không có trường production line)
+// ---------------------------------------------------------------------------
+console.log('line sản xuất ⇒ chỉ SKU của đúng xưởng');
+
+const LINES = [
+  { value: 'line-tiktok', label: 'TIKTOK' },
+  { value: 'line-fastus', label: 'FASTUS' },
+];
+// Cùng BLACK / 3XL: mỗi xưởng một SKU (đúng như danh mục Mango thật).
+const lineVariants = [
+  variant({ id: 'v-fu', sku: '12129', color: 'BLACK', size: '3XL', productionLine: 'FASTUS' }),
+  variant({ id: 'v-tt', sku: 'TT-BLACK-3XL', color: 'BLACK', size: '3XL', productionLine: 'TIKTOK' }),
+  variant({ id: 'v-none', sku: 'NOLINE', color: 'BLACK', size: '3XL', productionLine: null }),
+];
+const pickBlack3xl = (lineId: string) =>
+  variantsForProductionLine(lineVariants, productionLineName(LINES, lineId)).find(
+    (entry) => entry.color === 'BLACK' && entry.size === '3XL',
+  )?.sku ?? null;
+
+check('CASE 1 — chọn TIKTOK ⇒ BLACK/3XL ra SKU của TIKTOK', pickBlack3xl('line-tiktok'), 'TT-BLACK-3XL');
+check('CASE 2 — chọn FASTUS ⇒ BLACK/3XL ra SKU của FASTUS', pickBlack3xl('line-fastus'), '12129');
+check(
+  'CASE 4/5 — đổi line ⇒ cùng Color/Size ra SKU của line mới',
+  [pickBlack3xl('line-fastus'), pickBlack3xl('line-tiktok'), pickBlack3xl('line-fastus')],
+  ['12129', 'TT-BLACK-3XL', '12129'],
+);
+check(
+  'người dùng chọn THẮNG mặc định tài khoản',
+  effectiveProductionLine('line-tiktok', 'line-fastus'),
+  'line-tiktok',
+);
+check('CASE 3 — không chọn ⇒ dùng mặc định tài khoản', effectiveProductionLine('', 'line-fastus'), 'line-fastus');
+check('không chọn, không mặc định ⇒ rỗng', effectiveProductionLine(null, null), '');
+check('không có line ⇒ mọi biến thể', variantsForProductionLine(lineVariants, null).length, 3);
+check(
+  'đã chọn line ⇒ biến thể KHÔNG rõ xưởng bị loại',
+  variantsForProductionLine(lineVariants, 'TIKTOK').map((entry) => entry.sku),
+  ['TT-BLACK-3XL'],
+);
+check('id line lạ ⇒ không có tên (không đoán)', productionLineName(LINES, 'line-gone'), null);
+check('tên line chuẩn hoá chữ HOA', productionLineName([{ value: 'x', label: ' tiktok ' }], 'x'), 'TIKTOK');
+check(
+  'nhãn SKU hiện xưởng của nó',
+  providerVariantLabel(variant({ sku: '12129', name: 'Tee - BLACK - 3XL', productionLine: 'FASTUS' })),
+  '12129 · Tee - BLACK - 3XL · FASTUS',
+);
+
+// ---------------------------------------------------------------------------
+// Lấy nhãn từ TikTok — lỗi theo mã, chọn dịch vụ, "By TikTok" cần nhãn
+// ---------------------------------------------------------------------------
+console.log('nhãn TikTok');
+
+const axiosError = (data: unknown) => ({ isAxiosError: true, response: { status: 422, data } });
+
+const unreachable = tiktokLabelErrorView(
+  axiosError({
+    code: 'TIKTOK_UNREACHABLE',
+    message: 'Không kết nối được TikTok…',
+    details: { provider: 'TIKTOK', operation: 'CREATE_PACKAGE', providerCode: '0', requestId: null, providerMessage: 'TikTok không phản hồi trong 20 giây' },
+  }),
+);
+check('mã đã biết ⇒ khoá dịch riêng (không phải "Internal server error")', unreachable.key, 'fulfill.label.error.TIKTOK_UNREACHABLE');
+check('kèm vết đối soát an toàn', unreachable.trace, 'TIKTOK · CREATE_PACKAGE · 0');
+
+const createFailed = tiktokLabelErrorView(
+  axiosError({
+    code: 'TIKTOK_PACKAGE_CREATE_FAILED',
+    message: 'TikTok không tạo được gói hàng (mã 21011024): Shipping service is unavailable',
+    details: { provider: 'TIKTOK', operation: 'CREATE_PACKAGE', providerCode: '21011024', requestId: 'req-cp', providerMessage: 'Shipping service is unavailable' },
+  }),
+);
+check('tạo gói thất bại ⇒ chèn lý do NGUYÊN VĂN của TikTok', createFailed.params.message, 'Shipping service is unavailable');
+
+const internal = tiktokLabelErrorView(
+  axiosError({
+    code: 'SHIPPING_LABEL_INTERNAL_ERROR',
+    message: 'Lỗi hệ thống… (mã tham chiếu 3f0c…)',
+    details: { provider: 'TIKTOK', operation: 'INTERNAL', providerCode: null, requestId: null, referenceId: '3f0c2d7e-0000-4000-8000-000000000000' },
+  }),
+);
+check('lỗi hệ thống ⇒ chỉ mã tham chiếu, không vết kỹ thuật', [internal.key, internal.params.reference, internal.trace], [
+  'fulfill.label.error.SHIPPING_LABEL_INTERNAL_ERROR',
+  '3f0c2d7e-0000-4000-8000-000000000000',
+  '',
+]);
+
+const choose = tiktokLabelErrorView(
+  axiosError({
+    code: 'TIKTOK_SHIPPING_SERVICE_SELECTION_REQUIRED',
+    message: 'TikTok trả về 2 dịch vụ…',
+    details: {
+      provider: 'TIKTOK',
+      operation: 'SHIPPING_SERVICES',
+      providerCode: null,
+      requestId: 'req-svc',
+      shippingServices: [
+        { id: 'SVC-A', name: 'USPS Ground Advantage™', shippingProviderName: 'USPS' },
+        { id: 'SVC-B', name: 'Ground', shippingProviderName: 'UPS' },
+      ],
+    },
+  }),
+);
+check('nhiều dịch vụ không mặc định ⇒ trả danh sách để chọn', choose.services.map((entry) => entry.id), ['SVC-A', 'SVC-B']);
+check('nhãn dịch vụ không lặp tên hãng đã có trong tên', shippingServiceLabel(choose.services[0]), 'USPS Ground Advantage™');
+check('nhãn dịch vụ thêm hãng khi tên chưa có', shippingServiceLabel(choose.services[1]), 'Ground · UPS');
+
+check('lỗi lạ (không có envelope) ⇒ key null (dùng thông điệp chung)', tiktokLabelErrorView(new Error('x')).key, null);
+
+check(
+  '"By TikTok" + chưa có nhãn ⇒ bắt buộc lấy nhãn',
+  tiktokLabelRequired({ shippingMethod: 'by_tiktok', hasSavedLabel: false, labelInput: '' }),
+  true,
+);
+check(
+  '"By TikTok" + đã có nhãn (lấy từ TikTok) ⇒ không chặn',
+  tiktokLabelRequired({ shippingMethod: 'by_tiktok', hasSavedLabel: true, labelInput: '' }),
+  false,
+);
+check(
+  '"By TikTok" + nhãn đang gõ (sẽ được lưu trước khi gửi) ⇒ không chặn',
+  tiktokLabelRequired({ shippingMethod: 'by_tiktok', hasSavedLabel: false, labelInput: 'https://x.test/l.pdf' }),
+  false,
+);
+check(
+  'phương thức khác ⇒ không đòi nhãn',
+  tiktokLabelRequired({ shippingMethod: 'standard', hasSavedLabel: false, labelInput: '' }),
+  false,
+);
+const readyState = { canFulfill: true, issues: [] } as unknown as FulfillmentState;
+check(
+  'CASE 11 — chưa có nhãn ⇒ nút gửi bị chặn với lý do TIKTOK_LABEL_REQUIRED',
+  submitBlockers({ state: readyState, status: 'DRAFT', tiktokLabelRequired: true }).map((b) => b.code),
+  ['TIKTOK_LABEL_REQUIRED'],
+);
+check(
+  'CASE 11 — có nhãn ⇒ gửi được',
+  canSubmitFulfillment({ state: readyState, status: 'DRAFT', tiktokLabelRequired: false }),
+  true,
+);
+
+// ---------------------------------------------------------------------------
+// Base Cost — backend lấy giá nhà cung cấp; giao diện chỉ báo kết quả
+// ---------------------------------------------------------------------------
+console.log('base cost');
+
+check('đã cập nhật theo giá nhà cung cấp ⇒ không cảnh báo', baseCostSaveWarning({ baseCostStatus: 'PROVIDER_PRICE', baseCostMessage: null }), null);
+check(
+  'không lấy được giá, giữ giá cũ ⇒ cảnh báo kèm lý do (không im lặng)',
+  baseCostSaveWarning({ baseCostStatus: 'UNCHANGED', baseCostMessage: 'Không tìm thấy biến thể 10011' }),
+  { key: 'fulfill.config.baseCostUnchanged', message: 'Không tìm thấy biến thể 10011' },
+);
+check(
+  'biến thể mới không có giá ⇒ cảnh báo Base Cost để trống',
+  baseCostSaveWarning({ baseCostStatus: 'PRICE_NOT_FOUND', baseCostMessage: 'x' })?.key,
+  'fulfill.config.baseCostNotFound',
+);
+check('phản hồi cũ không có trạng thái ⇒ không cảnh báo', baseCostSaveWarning({}), null);
 
 // ---------------------------------------------------------------------------
 console.log('');

@@ -20,6 +20,7 @@ import { FulfillmentSyncJob } from './scheduler/fulfillment-sync.job';
 import { AutoMapOrderSyncHook } from './services/auto-map-order-sync.hook';
 import { FulfillmentCatalogQueryService } from './services/fulfillment-catalog-query.service';
 import { FulfillmentOptionsService } from './services/fulfillment-options.service';
+import { FulfillmentVariantPriceService } from './services/fulfillment-variant-price.service';
 import { FulfillmentCatalogSyncService } from './services/fulfillment-catalog-sync.service';
 import { ProductMappingAutoService } from './services/product-mapping-auto.service';
 import { FulfillmentReadinessService } from './services/fulfillment-readiness.service';
@@ -86,6 +87,7 @@ import { SellerwixWebhookService } from './sellerwix/webhook/sellerwix-webhook.s
     FulfillmentCatalogSyncService,
     FulfillmentCatalogQueryService,
     FulfillmentOptionsService,
+    FulfillmentVariantPriceService,
     // Ánh xạ tự động — cùng một luật, ba nguồn kích hoạt (đồng bộ đơn · đồng bộ danh mục · thủ công)
     ProductMappingAutoService,
     AutoMapOrderSyncHook,

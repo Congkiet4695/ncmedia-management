@@ -12,6 +12,7 @@ import { FulfillmentCatalogQueryService } from './fulfillment-catalog-query.serv
 import { businessProductSku } from './fulfillment-catalog-sync.service';
 import { FulfillmentReadinessService } from './fulfillment-readiness.service';
 import { FulfillmentService } from './fulfillment.service';
+import { FulfillmentVariantPriceService } from './fulfillment-variant-price.service';
 import type { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 
 /**
@@ -231,6 +232,9 @@ function buildStateService(over: { mappings?: unknown[]; account?: unknown; read
       isSupported: () => true,
       placementResolver: jest.fn().mockResolvedValue(undefined),
     } as unknown as FulfillmentProviderGateway,
+    {
+      lookup: jest.fn().mockResolvedValue({ ok: false, reason: 'VARIANT_NOT_FOUND', message: 'none' }),
+    } as unknown as FulfillmentVariantPriceService,
   );
 
   return { service, repo: repo as unknown as Record<string, jest.Mock> };

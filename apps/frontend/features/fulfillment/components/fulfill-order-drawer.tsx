@@ -6,6 +6,7 @@ import {
   CheckCircle2,
   Download,
   ChevronDown,
+  ExternalLink,
   ChevronRight,
   Factory,
   ImageOff,
@@ -44,6 +45,12 @@ import {
   submitBlockers,
 } from '../product-config';
 import { isNoResponseError, providerErrorText } from '../provider-error';
+import {
+  shippingServiceLabel,
+  tiktokLabelErrorView,
+  tiktokLabelRequired,
+  type TiktokShippingServiceChoice,
+} from '../shipping-label';
 import {
   FULFILL_FACILITIES,
   FULFILL_PREFERRED_CARRIERS,
@@ -170,6 +177,12 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
    */
   const [labelInput, setLabelInput] = useState('');
   const labelActions = useShippingLabelActions(podOrderId);
+  /**
+   * Dịch vụ vận chuyển TikTok cho người vận hành chọn — CHỈ có khi TikTok trả nhiều dịch vụ mà không
+   * đánh dấu mặc định (backend dừng lại thay vì tự chọn phần tử đầu tiên).
+   */
+  const [serviceChoices, setServiceChoices] = useState<TiktokShippingServiceChoice[]>([]);
+  const [serviceId, setServiceId] = useState('');
   /** Kết quả lần gửi vừa rồi — có giá trị ⇒ thân drawer chuyển sang màn kết quả. */
   const [result, setResult] = useState<FulfillmentOrder | null>(null);
   const [designOpen, setDesignOpen] = useState(true);
@@ -244,8 +257,23 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
    * chốt chặn trong `submit()`. Điều kiện thật nằm ở backend (`canFulfill` + `issues`); đây
    * chỉ là cách đọc lại — không có phép kiểm nào của riêng giao diện.
    */
-  const blockers = submitBlockers({ state, status, submitting: submitting || locked });
-  const canSubmit = canSubmitFulfillment({ state, status, submitting: submitting || locked });
+  const labelRequired = tiktokLabelRequired({
+    shippingMethod: form.shippingMethod,
+    hasSavedLabel: Boolean(state?.shippingLabel?.labelUrl),
+    labelInput,
+  });
+  const blockers = submitBlockers({
+    state,
+    status,
+    submitting: submitting || locked,
+    tiktokLabelRequired: labelRequired,
+  });
+  const canSubmit = canSubmitFulfillment({
+    state,
+    status,
+    submitting: submitting || locked,
+    tiktokLabelRequired: labelRequired,
+  });
 
   /** Lỗi đã nhóm theo khối — backend gửi kèm `section`, giao diện không tự đoán. */
   const issuesBySection = useMemo(() => {
@@ -266,25 +294,45 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
   const labelBusy = labelActions.fetchFromTiktok.isPending || labelActions.save.isPending;
   const labelDirty = labelInput.trim() !== (savedLabel?.labelUrl ?? '');
 
-  /** Lấy nhãn từ TikTok. Bấm lại KHÔNG tạo gói mới — backend tái dùng gói đã có. */
-  const getTiktokLabel = async (): Promise<void> => {
+  /**
+   * Lấy nhãn từ TikTok. Bấm lại KHÔNG tạo gói mới — backend tái dùng gói đã có (database, rồi hỏi
+   * TikTok) trước khi tạo. `shippingServiceId` chỉ có khi người vận hành vừa chọn dịch vụ.
+   */
+  const getTiktokLabel = async (shippingServiceId?: string): Promise<void> => {
     if (labelBusy) return;
     setLabelError(null);
     try {
-      const label = await labelActions.fetchFromTiktok.mutateAsync();
+      const label = await labelActions.fetchFromTiktok.mutateAsync(shippingServiceId);
       setLabelInput(label.labelUrl);
-      toast.success(
-        label.reusedPackage ? t('fulfill.label.reused') : t('fulfill.label.fetched'),
-        label.trackingNumber
-          ? { description: t('fulfill.label.tracking', { value: label.trackingNumber }) }
-          : undefined,
-      );
+      setServiceChoices([]);
+      setServiceId('');
+      const tracking = label.trackingNumber
+        ? t('fulfill.label.tracking', { value: label.trackingNumber })
+        : undefined;
+      if (label.refreshed === false) {
+        // TikTok không cấp lại file (vd gói đã được lấy hàng) ⇒ đang dùng nhãn ĐÃ LƯU của gói đó.
+        toast.warning(t('fulfill.label.storedLabel'), {
+          description: [tracking, label.warning].filter(Boolean).join(' · ') || undefined,
+        });
+      } else {
+        toast.success(
+          label.reusedPackage ? t('fulfill.label.reused') : t('fulfill.label.fetched'),
+          tracking ? { description: tracking } : undefined,
+        );
+      }
     } catch (error) {
+      const view = tiktokLabelErrorView(error);
       // Không nhận được phản hồi ⇒ KHÔNG phải "TikTok từ chối": lượt lấy nhãn có thể vẫn đang chạy
       // hoặc đã xong. Bấm lại an toàn vì backend kiểm tra gói đã có trên TikTok trước khi tạo.
       const description = isNoResponseError(error)
         ? t('fulfill.label.noResponse')
-        : providerErrorText(error, translateApiError(error));
+        : view.key
+          ? [t(view.key, view.params), view.trace ? `[${view.trace}]` : ''].filter(Boolean).join(' ')
+          : providerErrorText(error, translateApiError(error));
+      if (view.services.length > 0) {
+        setServiceChoices(view.services);
+        setServiceId('');
+      }
       setLabelError(description);
       toast.error(t('fulfill.label.fetchFailed'), { description });
       void stateQuery.refetch();
@@ -408,6 +456,8 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                       {blocker.code === 'BUSY' && t('fulfill.blocked.busy')}
                       {blocker.code === 'STATUS' &&
                         t('fulfill.blocked.status', { status: t(`status.${blocker.status}`) })}
+                      {blocker.code === 'TIKTOK_LABEL_REQUIRED' &&
+                        t('fulfill.blocked.tiktokLabelRequired')}
                       {blocker.code === 'NOT_READY' &&
                         (blocker.issues.length > 0
                           ? t('fulfill.blocked.notReady', {
@@ -713,6 +763,42 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                       </Button>
                     )}
                   </div>
+                  {/* TikTok trả nhiều dịch vụ mà không có mặc định ⇒ người vận hành chọn rồi mới tạo gói. */}
+                  {serviceChoices.length > 0 && (
+                    <div className="space-y-1.5 rounded-md border border-amber-300 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950/40">
+                      <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                        {t('fulfill.label.chooseService')}
+                      </p>
+                      <div className="flex flex-wrap items-center gap-2">
+                        <div className="min-w-[220px] flex-1">
+                          <Combobox
+                            value={serviceId}
+                            onChange={setServiceId}
+                            options={[
+                              option('', t('fulfill.label.selectService')),
+                              ...serviceChoices.map((service) =>
+                                option(service.id, shippingServiceLabel(service)),
+                              ),
+                            ]}
+                            disabled={labelBusy}
+                          />
+                        </div>
+                        <Button
+                          type="button"
+                          size="sm"
+                          onClick={() => void getTiktokLabel(serviceId)}
+                          disabled={!serviceId || labelBusy}
+                        >
+                          {labelActions.fetchFromTiktok.isPending ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <Download className="size-3.5" />
+                          )}
+                          {t('fulfill.label.createWithService')}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
                   {savedLabel && !labelDirty && (
                     <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-emerald-700 dark:text-emerald-400">
                       <CheckCircle2 className="size-3.5" />
@@ -729,6 +815,15 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                           · {savedLabel.shippingServiceName}
                         </span>
                       )}
+                      <a
+                        href={savedLabel.labelUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-0.5 text-primary underline-offset-2 hover:underline"
+                      >
+                        <ExternalLink className="size-3" />
+                        {t('fulfill.label.open')}
+                      </a>
                     </p>
                   )}
                   {labelError ? (

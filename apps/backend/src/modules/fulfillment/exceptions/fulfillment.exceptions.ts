@@ -313,6 +313,16 @@ export class FulfillmentMappingConflictException extends ConflictException {
   }
 }
 
+/**
+ * Không lấy được giá vốn của biến thể nhà cung cấp đang chọn. `reason`: VARIANT_NOT_FOUND ·
+ * VARIANT_INACTIVE · PRICE_MISSING · PRICE_INVALID · AMBIGUOUS. Base Cost KHÔNG bị ghi đè.
+ */
+export class FulfillmentVariantPriceUnavailableException extends UnprocessableEntityException {
+  constructor(reason: string, message: string) {
+    super({ code: 'FULFILLMENT_VARIANT_PRICE_UNAVAILABLE', message, details: { reason } });
+  }
+}
+
 export class FulfillmentMappingNotFoundException extends NotFoundException {
   constructor() {
     super({

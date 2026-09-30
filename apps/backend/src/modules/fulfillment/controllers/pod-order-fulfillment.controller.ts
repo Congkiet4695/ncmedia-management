@@ -9,6 +9,7 @@ import {
   Patch,
   Post,
   Put,
+  UseGuards,
 } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
@@ -21,11 +22,17 @@ import {
 } from '@nestjs/swagger';
 import { FulfillmentTrigger } from '@prisma/client';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
+import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
+import { PermissionsGuard } from '../../auth/guards/permissions.guard';
+import { PodScope } from '../../pod-tiktok/decorators/pod-scope.decorator';
+import { PodScopeGuard } from '../../pod-tiktok/guards/pod-scope.guard';
+import type { PodAccessScope } from '../../pod-tiktok/services/pod-access-scope.service';
 import { RequirePermissions } from '../../auth/decorators/require-permissions.decorator';
 import { AuthenticatedUser } from '../../auth/types/authenticated-user.interface';
 import {
   FulfillPodOrderDto,
   FulfillmentOrderDto,
+  FetchTiktokLabelDto,
   SaveShippingLabelDto,
   ShippingLabelDto,
   UpdateFulfillmentOrderDto,
@@ -46,6 +53,11 @@ import { FulfillmentService } from '../services/fulfillment.service';
  */
 @ApiTags('POD Orders — Fulfillment')
 @ApiBearerAuth()
+// 🔴 Controller này từng KHÔNG có guard nào: `@RequirePermissions` chỉ là metadata, không có
+// `PermissionsGuard` thì không ai đọc nó; không có `JwtAuthGuard` thì `request.user` là undefined
+// ⇒ `user.organizationId` ném TypeError ⇒ 500 "Internal server error" (chính là lỗi "Get label
+// from TikTok"). Cả ba guard giống hệt `FulfillmentController`.
+@UseGuards(JwtAuthGuard, PermissionsGuard, PodScopeGuard)
 @Controller('pod/orders')
 export class PodOrderFulfillmentController {
   constructor(
@@ -72,6 +84,7 @@ export class PodOrderFulfillmentController {
   @ApiBadRequestResponse({ description: 'FULFILLMENT_PROVIDER_VALIDATION' })
   async fulfill(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) podOrderId: string,
     @Body() dto: FulfillPodOrderDto,
   ): Promise<FulfillmentOrderDto> {
@@ -81,6 +94,7 @@ export class PodOrderFulfillmentController {
       podOrderId,
       FulfillmentTrigger.MANUAL,
       dto ?? {},
+      scope,
     );
     return this.service.toOrderDto(record);
   }
@@ -91,11 +105,13 @@ export class PodOrderFulfillmentController {
   @ApiOperation({
     summary: 'Lấy nhãn vận chuyển của đơn từ TikTok',
     description:
-      'Dùng khi TikTok che địa chỉ người nhận (đơn 4PL / đơn quá hạn hiển thị): xưởng in chỉ ' +
-      'cần nhãn, địa chỉ thật nằm trên nhãn.\n\n' +
-      '**Không bao giờ tạo gói thứ hai.** Đơn đã có `package` (đồng bộ từ TikTok hoặc do lần ' +
-      'bấm trước tạo ra) ⇒ chỉ gọi Get Package Shipping Document cho đúng gói đó. Chưa có gói ' +
-      '⇒ Get Eligible Shipping Service → Create Packages → Get Package Shipping Document. ' +
+      'Dùng khi giao bằng nhãn TikTok ("By TikTok") hoặc khi TikTok che địa chỉ người nhận: xưởng ' +
+      'in chỉ cần nhãn, địa chỉ thật nằm trên nhãn.\n\n' +
+      '**Không bao giờ tạo gói thứ hai.** Đơn đã có `package` (database, hoặc TikTok qua Get Order ' +
+      'Detail) ⇒ chỉ gọi Get Package Shipping Document cho đúng gói đó. Chưa có gói ⇒ Get Eligible ' +
+      'Shipping Service → chọn dịch vụ (duy nhất / mặc định của TikTok / `shippingServiceId` người ' +
+      'dùng chọn) → Create Packages (không retry; timeout ⇒ đối soát bằng Get Order Detail) → Get ' +
+      'Package Shipping Document. ' +
       'Có khoá phân tán theo đơn nên bấm liên tiếp/hai người cùng bấm đều an toàn.\n\n' +
       'Kết quả được LƯU vào database (nhãn · package id · tracking) rồi mới trả về.',
   })
@@ -103,14 +119,26 @@ export class PodOrderFulfillmentController {
   @ApiConflictResponse({ description: 'SHIPPING_LABEL_BUSY — đang có lượt lấy nhãn khác chạy.' })
   @ApiUnprocessableEntityResponse({
     description:
-      'TIKTOK_NO_ELIGIBLE_SHIPPING_SERVICE · TIKTOK_SHIPPING_DOCUMENT_UNAVAILABLE · ' +
-      'TIKTOK_SCOPE_MISSING · TIKTOK_RATE_LIMITED · TIKTOK_SHIPPING_LABEL_UNAVAILABLE',
+      'TIKTOK_SCOPE_MISSING · TIKTOK_SHOP_CONTEXT_UNAVAILABLE · TIKTOK_ORDER_NOT_FOUND · ' +
+      'TIKTOK_ORDER_NOT_PACKABLE · TIKTOK_LABEL_NOT_TIKTOK_SHIPPING · ' +
+      'TIKTOK_NO_ELIGIBLE_SHIPPING_SERVICE · TIKTOK_SHIPPING_SERVICE_SELECTION_REQUIRED · ' +
+      'TIKTOK_SHIPPING_SERVICE_INVALID · TIKTOK_PACKAGE_CREATE_FAILED · ' +
+      'TIKTOK_SHIPPING_DOCUMENT_UNAVAILABLE · TIKTOK_RATE_LIMITED · TIKTOK_UNREACHABLE · ' +
+      'TIKTOK_SHIPPING_LABEL_UNAVAILABLE · SHIPPING_LABEL_INTERNAL_ERROR (kèm `details` an toàn)',
   })
   getTiktokLabel(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) podOrderId: string,
+    @Body() dto: FetchTiktokLabelDto,
   ): Promise<ShippingLabelDto> {
-    return this.labelService.fetchFromTiktok(user.organizationId, user.userId, podOrderId);
+    return this.labelService.fetchFromTiktok(
+      user.organizationId,
+      user.userId,
+      podOrderId,
+      { shippingServiceId: dto?.shippingServiceId },
+      scope,
+    );
   }
 
   @Put(':id/fulfillment/label')
@@ -126,6 +154,7 @@ export class PodOrderFulfillmentController {
   @ApiOkResponse({ type: ShippingLabelDto })
   saveLabel(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) podOrderId: string,
     @Body() dto: SaveShippingLabelDto,
   ): Promise<ShippingLabelDto> {
@@ -134,6 +163,7 @@ export class PodOrderFulfillmentController {
       user.userId,
       podOrderId,
       dto.labelUrl,
+      scope,
     );
   }
 
@@ -146,9 +176,10 @@ export class PodOrderFulfillmentController {
   })
   clearLabel(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) podOrderId: string,
   ): Promise<void> {
-    return this.labelService.clearLabel(user.organizationId, podOrderId);
+    return this.labelService.clearLabel(user.organizationId, podOrderId, scope);
   }
 
   @Patch(':id/fulfillment')
@@ -168,6 +199,7 @@ export class PodOrderFulfillmentController {
   })
   async updateFulfillment(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) podOrderId: string,
     @Body() dto: UpdateFulfillmentOrderDto,
   ): Promise<FulfillmentOrderDto> {
@@ -180,6 +212,7 @@ export class PodOrderFulfillmentController {
         note: dto.note,
         shippingMethod: dto.shippingMethod,
       },
+      scope,
     );
     return this.service.toOrderDto(record);
   }

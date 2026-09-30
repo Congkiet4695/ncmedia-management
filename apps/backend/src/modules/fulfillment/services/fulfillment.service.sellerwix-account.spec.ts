@@ -12,6 +12,7 @@ import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import type { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 import { FulfillmentReadinessService } from './fulfillment-readiness.service';
 import { FulfillmentService } from './fulfillment.service';
+import { FulfillmentVariantPriceService } from './fulfillment-variant-price.service';
 
 /**
  * **CASE 1 — cấu hình nhà cung cấp Sellerwix: CHỈ API Key.**
@@ -66,6 +67,9 @@ function build() {
     { encrypt: (value: string) => `enc:${value}` } as unknown as TiktokEncryptionService,
     {} as unknown as PodAccessScopeService,
     { isSupported: () => true } as unknown as FulfillmentProviderGateway,
+    {
+      lookup: jest.fn().mockResolvedValue({ ok: false, reason: 'VARIANT_NOT_FOUND', message: 'none' }),
+    } as unknown as FulfillmentVariantPriceService,
   );
   return { service, repo, created };
 }
@@ -229,6 +233,9 @@ describe('FulfillmentService.updateMapping — đổi nhà cung cấp của sả
       {} as unknown as TiktokEncryptionService,
       {} as unknown as PodAccessScopeService,
       { isSupported: () => true } as unknown as FulfillmentProviderGateway,
+    {
+      lookup: jest.fn().mockResolvedValue({ ok: false, reason: 'VARIANT_NOT_FOUND', message: 'none' }),
+    } as unknown as FulfillmentVariantPriceService,
     );
 
     await service.updateMapping(

@@ -34,6 +34,7 @@ import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { MappingDesignCell } from '@/features/fulfillment/components/mapping-design-cell';
 import { MappingDesignDialog } from '@/features/fulfillment/components/mapping-design-dialog';
 import { MappingFormDialog } from '@/features/fulfillment/components/mapping-form-dialog';
+import { baseCostSaveWarning } from '@/features/fulfillment/base-cost';
 import {
   useFulfillmentProviderOptions,
   useProductMappingActions,
@@ -99,12 +100,14 @@ function MappingView() {
 
   const handleSubmit = async (accountId: string, input: UpsertProductMappingInput) => {
     try {
-      if (editing) {
-        await actions.update.mutateAsync({ id: editing.id, input });
-        toast.success(t('mapping.updateSuccess'));
-      } else {
-        await actions.create.mutateAsync(input);
-        toast.success(t('mapping.createSuccess'), { description: input.providerSku });
+      const saved = editing
+        ? await actions.update.mutateAsync({ id: editing.id, input })
+        : await actions.create.mutateAsync(input);
+      if (editing) toast.success(t('mapping.updateSuccess'));
+      else toast.success(t('mapping.createSuccess'), { description: input.providerSku });
+      const warning = baseCostSaveWarning(saved);
+      if (warning) {
+        toast.warning(t(`fulfillment:${warning.key}`), { description: warning.message ?? undefined });
       }
       setFormOpen(false);
       setEditing(null);

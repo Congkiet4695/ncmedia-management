@@ -167,6 +167,57 @@ describe('TikTokSdkService', () => {
     });
   });
 
+  describe('execute — giới hạn thời gian (timeoutMs)', () => {
+    it('TikTok không phản hồi ⇒ lỗi NETWORK có thông điệp rõ, thử lại đúng `maxRetries`', async () => {
+      const service = buildService();
+      // Không bao giờ trả lời — chỉ có bộ hẹn giờ kết thúc được lời gọi.
+      const invoke = jest.fn(() => new Promise<never>(() => undefined));
+
+      const call = service.execute({ endpoint: 'ORDER_DETAIL', invoke, timeoutMs: 20_000, maxRetries: 2 });
+
+      await expect(call).rejects.toMatchObject({
+        errorClass: TiktokErrorClass.NETWORK,
+        httpStatus: 0,
+        endpoint: 'ORDER_DETAIL',
+      });
+      await expect(call).rejects.toThrow(/20 giây/);
+      expect(invoke).toHaveBeenCalledTimes(3);
+    });
+
+    it('🔴 lệnh GHI (`retry: false`) hết giờ ⇒ KHÔNG gửi lại (tránh tạo gói trùng)', async () => {
+      const service = buildService();
+      const invoke = jest.fn(() => new Promise<never>(() => undefined));
+
+      await expect(
+        service.execute({ endpoint: 'FULFILLMENT_CREATE_PACKAGE', invoke, retry: false, timeoutMs: 20_000 }),
+      ).rejects.toMatchObject({ errorClass: TiktokErrorClass.NETWORK });
+      expect(invoke).toHaveBeenCalledTimes(1);
+    });
+
+    it('5xx tạm thời ⇒ thử lại có kiểm soát rồi thành công', async () => {
+      const service = buildService();
+      const invoke = jest
+        .fn()
+        .mockRejectedValueOnce({ statusCode: 503, body: { code: 36009003, message: 'busy' } })
+        .mockResolvedValueOnce({ body: { code: 0, requestId: 'req-ok', data: { ok: true } } });
+
+      const result = await service.execute({ endpoint: 'TEST', invoke, timeoutMs: 20_000, maxRetries: 2 });
+
+      expect(result.data).toEqual({ ok: true });
+      expect(invoke).toHaveBeenCalledTimes(2);
+    });
+
+    it('lỗi 4xx/nghiệp vụ ⇒ KHÔNG thử lại', async () => {
+      const service = buildService();
+      const invoke = jest.fn().mockResolvedValue({ body: { code: 21011001, message: 'invalid order' } });
+
+      await expect(
+        service.execute({ endpoint: 'TEST', invoke, timeoutMs: 20_000, maxRetries: 2 }),
+      ).rejects.toBeInstanceOf(TiktokClientError);
+      expect(invoke).toHaveBeenCalledTimes(1);
+    });
+  });
+
   describe('vòng đời client', () => {
     it('gọi API trước khi module init → báo lỗi rõ ràng thay vì undefined', () => {
       const service = buildService();

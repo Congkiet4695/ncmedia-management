@@ -68,6 +68,7 @@ import {
   UpdateFulfillmentAccountDto,
   TestConnectionResultDto,
   UpsertProductMappingDto,
+  VariantPriceDto,
 } from '../dto/fulfillment.dto';
 import { FulfillmentCatalogQueryService } from '../services/fulfillment-catalog-query.service';
 import { FulfillmentCatalogSyncService } from '../services/fulfillment-catalog-sync.service';
@@ -79,6 +80,7 @@ import { PodScope } from '../../pod-tiktok/decorators/pod-scope.decorator';
 import { PodScopeGuard } from '../../pod-tiktok/guards/pod-scope.guard';
 import type { PodAccessScope } from '../../pod-tiktok/services/pod-access-scope.service';
 import { FulfillmentService } from '../services/fulfillment.service';
+import { FulfillmentVariantPriceService } from '../services/fulfillment-variant-price.service';
 
 /**
  * FulfillmentController — API gửi đơn sang xưởng in.
@@ -105,6 +107,7 @@ export class FulfillmentController {
     private readonly catalogSync: FulfillmentCatalogSyncService,
     private readonly autoMap: ProductMappingAutoService,
     private readonly productDesigns: ProductDesignService,
+    private readonly variantPrice: FulfillmentVariantPriceService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -345,6 +348,25 @@ export class FulfillmentController {
     @Param('productId', ParseUUIDPipe) productId: string,
   ): Promise<ProviderCatalogVariationDto[]> {
     return this.catalogQuery.listVariations(user.organizationId, productId);
+  }
+
+  @Get('accounts/:id/catalog/variations/:variantId/price')
+  @RequirePermissions('fulfillment.mapping')
+  @ApiOperation({
+    summary: 'Giá vốn của một biến thể nhà cung cấp',
+    description:
+      'Đọc giá của ĐÚNG biến thể đang chọn từ danh mục đã đồng bộ (Mango: `price` của Get Product ' +
+      'Variations; Sellerwix: `cost` của Get product variants). Chỉ biến thể của tài khoản tổ chức ' +
+      'được dùng. Không có giá ⇒ 422 `FULFILLMENT_VARIANT_PRICE_UNAVAILABLE` kèm `details.reason`.',
+  })
+  @ApiOkResponse({ type: VariantPriceDto })
+  @ApiUnprocessableEntityResponse({ description: 'FULFILLMENT_VARIANT_PRICE_UNAVAILABLE' })
+  getVariantPrice(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) accountId: string,
+    @Param('variantId', ParseUUIDPipe) variantId: string,
+  ): Promise<VariantPriceDto> {
+    return this.variantPrice.require(user.organizationId, accountId, { id: variantId });
   }
 
   @Get('accounts/:id/catalog/status')
@@ -700,6 +722,7 @@ export class FulfillmentController {
   @ApiBadRequestResponse({ description: 'FULFILLMENT_PROVIDER_VALIDATION' })
   async fulfill(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('podOrderId', ParseUUIDPipe) podOrderId: string,
     @Body() dto: FulfillPodOrderDto,
   ): Promise<FulfillmentOrderDto> {
@@ -709,6 +732,7 @@ export class FulfillmentController {
       podOrderId,
       FulfillmentTrigger.MANUAL,
       dto ?? {},
+      scope,
     );
     return this.service.toOrderDto(record);
   }
@@ -726,6 +750,7 @@ export class FulfillmentController {
   @ApiOkResponse({ type: FulfillmentOrderDto })
   async retry(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('podOrderId', ParseUUIDPipe) podOrderId: string,
     @Body() dto: FulfillPodOrderDto,
   ): Promise<FulfillmentOrderDto> {
@@ -735,6 +760,7 @@ export class FulfillmentController {
       podOrderId,
       FulfillmentTrigger.RETRY,
       dto ?? {},
+      scope,
     );
     return this.service.toOrderDto(record);
   }
@@ -771,6 +797,7 @@ export class FulfillmentController {
   @ApiConflictResponse({ description: 'FULFILLMENT_CANNOT_CANCEL' })
   async cancel(
     @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
     @Param('podOrderId', ParseUUIDPipe) podOrderId: string,
     @Body() dto: CancelFulfillmentDto,
   ): Promise<FulfillmentOrderDto> {
@@ -778,6 +805,7 @@ export class FulfillmentController {
       user.organizationId,
       user.userId,
       podOrderId,
+      scope,
       dto.reason,
     );
     return this.service.toOrderDto(record);
@@ -814,8 +842,10 @@ export class FulfillmentController {
   @HttpCode(HttpStatus.OK)
   // 🔴 `fulfillment.create` chứ không phải `fulfillment.read`: đây là lời gọi HÀNG LOẠT tới
   // nhà cung cấp cho MỌI đơn của tổ chức — không lọc theo shop được vì bản chất nó là thao
-  // tác vận hành cấp tổ chức. Seller không có quyền này (§7), Admin thì có sẵn.
-  @RequirePermissions('fulfillment.create')
+  // tác vận hành cấp tổ chức. Seller nay CÓ `fulfillment.create` (gửi đơn của shop mình), nên
+  // đòi thêm `pod.shop.all` — quyền "thấy mọi shop" chỉ Admin có. Thiếu điều kiện này là Seller
+  // kích hoạt đồng bộ cho đơn của mọi shop khác trong tổ chức.
+  @RequirePermissions('fulfillment.create', 'pod.shop.all')
   @ApiOperation({
     summary: 'Đồng bộ trạng thái toàn bộ đơn đang chạy',
     description: 'Chỉ trong phạm vi tổ chức của người gọi. Thao tác cấp tổ chức — chỉ Admin.',

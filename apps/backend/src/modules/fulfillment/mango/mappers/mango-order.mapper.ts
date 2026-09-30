@@ -261,15 +261,12 @@ export class MangoOrderMapper {
     address: NormalizedAddress;
     items: ResolvedItem[];
     shippingMethod: MangoShippingMethod;
-    /**
-     * Xưởng sản xuất người vận hành đã chọn (`id` của Mango). `null` ⇒ để Mango tự quyết
-     * như trước. Đây là **một nơi duy nhất** ánh xạ nội bộ → trường của nhà cung cấp.
-     */
-    productionLineId?: string | null;
     facility?: string | null;
     speedType?: string | null;
     /** Nhãn vận chuyển do TikTok cấp (đơn 4PL) — Mango dùng thay vì tự mua nhãn. */
     labelUrl?: string | null;
+    /** Mã vận đơn của CHÍNH nhãn `labelUrl` (TikTok trả kèm nhãn). Không có nhãn ⇒ bỏ qua. */
+    trackingNumber?: string | null;
     note?: string | null;
     /** Tên shop/seller để xưởng in đối chiếu. */
     seller?: string | null;
@@ -295,12 +292,15 @@ export class MangoOrderMapper {
     };
 
     // Chỉ gửi field khi thực sự có giá trị — gửi null thừa dễ bị VALIDATION_ERROR.
-    // 🔴 Line sản xuất: người dùng chọn gì thì gửi đúng cái đó, KHÔNG để nhà cung cấp tự gán.
-    if (params.productionLineId) request.production_line_id = params.productionLineId;
+    // 🔴 KHÔNG có production line trong request: Mango không nhận trường đó (Extra inputs are not
+    // permitted). Xưởng được quyết định bởi SKU của từng dòng — đã kiểm khớp với xưởng người dùng
+    // chọn ở MangoFulfillmentService trước khi dựng payload này.
     if (params.buyerEmail) request.email = params.buyerEmail;
     if (params.facility) request.facility = params.facility;
     if (params.speedType) request.speed_type = params.speedType as never;
     if (params.labelUrl) request.label_url = params.labelUrl;
+    // Tracking chỉ có nghĩa khi đi cùng nhãn của nó (tài liệu: phải khớp nhãn).
+    if (params.labelUrl && params.trackingNumber) request.tracking_number = params.trackingNumber;
     if (params.note) request.note = params.note;
     if (params.seller) request.seller = params.seller;
     if (params.isScanLabel) request.is_scan_label = true;
@@ -464,4 +464,17 @@ export class MangoOrderMapper {
     if (value.length <= 2) return '***';
     return `${value.slice(0, 1)}***`;
   }
+}
+
+/**
+ * Xưởng (production line) của một biến thể Mango đã đồng bộ — `raw_data.production_line` (vd `TIKTOK`,
+ * `FASTUS`), chuẩn hoá chữ HOA. `null` khi bản ghi không mang thông tin này.
+ *
+ * 🔴 Đây là thứ QUYẾT ĐỊNH xưởng nhận đơn: Mango không có trường production line trong Create Order,
+ * nó xếp đơn theo SKU, và mỗi SKU thuộc đúng một xưởng. Cùng một Color/Size có nhiều SKU — mỗi xưởng một SKU.
+ */
+export function mangoVariantProductionLine(rawData: unknown): string | null {
+  if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) return null;
+  const value = (rawData as Record<string, unknown>).production_line;
+  return typeof value === 'string' && value.trim() ? value.trim().toUpperCase() : null;
 }

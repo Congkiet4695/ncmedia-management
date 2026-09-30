@@ -148,6 +148,9 @@ export const MANGO_SHIPPING_METHODS = [
 ] as const;
 export type MangoShippingMethod = (typeof MANGO_SHIPPING_METHODS)[number];
 
+/** "By TikTok" — xưởng in giao bằng nhãn TikTok cấp (`label_url`), không tự mua nhãn. */
+export const MANGO_BY_TIKTOK_SHIPPING_METHOD: MangoShippingMethod = 'by_tiktok';
+
 /**
  * `items[].production_config` — tài liệu OrderItemSchema: "Production configuration: default or large".
  * `large` dùng vùng in lớn và **tính thêm phí** ở một số production line.

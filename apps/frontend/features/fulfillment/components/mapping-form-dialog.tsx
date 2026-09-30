@@ -21,6 +21,7 @@ import {
   useTiktokProductOptions,
 } from '../hooks/use-fulfillment';
 import type { ProductMapping, TiktokProductOption, UpsertProductMappingInput } from '../types';
+import { VariantBaseCost } from './variant-base-cost';
 
 /** Ứng viên do ánh xạ tự động tìm được — mở dialog ra là đã lọc sẵn. */
 export interface MappingCandidateHint {
@@ -108,7 +109,6 @@ export function MappingFormDialog({
   const [productId, setProductId] = useState('');
   const [variantId, setVariantId] = useState('');
   const [variantSearch, setVariantSearch] = useState('');
-  const [baseCost, setBaseCost] = useState('');
 
   const debouncedTiktokSearch = useDebouncedValue(tiktokSearch, 350);
   const debouncedCatalogSearch = useDebouncedValue(catalogSearch, 350);
@@ -155,9 +155,6 @@ export function MappingFormDialog({
     setCatalogueId('');
     setProductId('');
     setVariantId('');
-    setBaseCost(
-      mapping?.baseCost === null || mapping?.baseCost === undefined ? '' : String(mapping.baseCost),
-    );
     setTiktokSearch('');
     setCatalogSearch('');
     setVariantSearch('');
@@ -211,10 +208,7 @@ export function MappingFormDialog({
    * sẽ không ghép được với đơn nào — một dòng dữ liệu chết mà người dùng tưởng đã xong việc.
    */
   const keyComplete = Boolean(source?.tiktokProductId && source?.sellerSku);
-  const parsedBaseCost = baseCost.trim() === '' ? null : Number(baseCost);
-  const baseCostValid =
-    parsedBaseCost === null || (Number.isFinite(parsedBaseCost) && parsedBaseCost >= 0);
-  const canSubmit = Boolean(accountId && source && selectedVariant && keyComplete && baseCostValid);
+  const canSubmit = Boolean(accountId && source && selectedVariant && keyComplete);
 
   /** Chọn thẳng một ứng viên do máy gợi ý — nhảy tới đúng sản phẩm và biến thể đó. */
   const pickCandidate = (candidate: MappingCandidateHint) => {
@@ -227,7 +221,7 @@ export function MappingFormDialog({
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
     if (!accountId || !source || !selectedVariant) return;
-    if (!source.tiktokProductId || !source.sellerSku || !baseCostValid) return;
+    if (!source.tiktokProductId || !source.sellerSku) return;
 
     onSubmit(accountId, {
       // 🔴 Gửi tài khoản nhà cung cấp ĐÃ CHỌN. Không gửi thì backend lấy tài khoản mặc định,
@@ -240,7 +234,7 @@ export function MappingFormDialog({
       ...(source.tiktokSkuId ? { tiktokSkuId: source.tiktokSkuId } : {}),
       // Fulfillment SKU — giá trị THỰC SỰ gửi trong items[].sku khi tạo đơn.
       providerSku: selectedVariant.sku,
-      ...(parsedBaseCost === null ? {} : { baseCost: parsedBaseCost }),
+      // 🔴 KHÔNG gửi Base Cost: backend tự lấy giá của đúng biến thể này từ nhà cung cấp.
       // 🔴 Gửi id phía NHÀ CUNG CẤP, không phải khoá nội bộ: đây là thứ dùng để đối chiếu với
       // hệ thống của họ, và khoá nội bộ sẽ đổi nếu bản sao danh mục được dựng lại.
       providerProductId: selectedProduct?.externalProductId ?? '',
@@ -602,22 +596,12 @@ export function MappingFormDialog({
 
         {/* Bước 6 — Base Cost (giá vốn của SẢN PHẨM, không phải của đơn) */}
         <div className="space-y-2">
-          <Label htmlFor="mapping-base-cost">{t('mapping.step5')}</Label>
-          <Input
-            id="mapping-base-cost"
-            type="number"
-            min={0}
-            step="0.01"
-            inputMode="decimal"
-            value={baseCost}
-            onChange={(e) => setBaseCost(e.target.value)}
-            placeholder={selectedVariant?.price ?? '0.00'}
-            className="max-w-[200px]"
+          <p className="text-xs font-medium">{t('mapping.step5')}</p>
+          <VariantBaseCost
+            accountId={accountId}
+            variantId={selectedVariant?.id}
+            savedBaseCost={mapping?.baseCost}
           />
-          <p className="text-xs text-muted-foreground">{t('mapping.baseCostHint')}</p>
-          {!baseCostValid && (
-            <p className="text-xs text-destructive">{t('mapping.baseCostInvalid')}</p>
-          )}
         </div>
       </form>
     </Modal>
