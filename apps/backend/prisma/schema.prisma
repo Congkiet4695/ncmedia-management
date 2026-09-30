@@ -309,6 +309,8 @@ model Organization {
   fulfillmentProductMappings FulfillmentProductMapping[]
   fulfillmentOrders          FulfillmentOrder[]
   approvalLogs               OrganizationApprovalLog[]
+  telegramConfig             OrganizationTelegramConfig?
+  notificationEvents         NotificationEvent[]
 
   /// Màn Super Admin lọc theo trạng thái + sắp theo thời điểm đăng ký.
   @@index([status, createdAt])
@@ -1000,6 +1002,7 @@ model PodTiktokAccount {
   payments              PodTiktokPayment[]
   statements            PodTiktokStatement[]
   statementTransactions PodTiktokStatementTransaction[]
+  unsettledTransactions PodTiktokUnsettledTransaction[]
   flashSales            PodFlashSale[]
   flashSaleTemplates    PodFlashSaleTemplate[]
 
@@ -1086,12 +1089,12 @@ model PodTiktokShop {
   // --- Trạng thái shop phía TikTok (Shop Sync) ---
   /// Kết quả đối chiếu gần nhất với TikTok (Get Authorized Shops + Get Active Shops).
   /// Product Sync BỎ QUA shop khác `ACTIVE` thay vì gọi Product API cho một shop đã ngừng.
-  status              PodTiktokShopStatus @default(ACTIVE)
+  status                 PodTiktokShopStatus @default(ACTIVE)
   /// Lần Shop Sync gần nhất ĐỌC ĐƯỢC trạng thái từ TikTok. NULL = chưa từng đối chiếu.
-  statusCheckedAt     DateTime?           @map("status_checked_at") @db.Timestamptz(6)
+  statusCheckedAt        DateTime?           @map("status_checked_at") @db.Timestamptz(6)
   /// Lỗi của lượt Shop Sync gần nhất (NULL khi lượt đó thành công).
-  lastStatusErrorCode    String?          @map("last_status_error_code") @db.VarChar(20)
-  lastStatusErrorMessage String?          @map("last_status_error_message") @db.VarChar(500)
+  lastStatusErrorCode    String?             @map("last_status_error_code") @db.VarChar(20)
+  lastStatusErrorMessage String?             @map("last_status_error_message") @db.VarChar(500)
 
   // Audit + soft delete (ADR-015)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -1112,6 +1115,7 @@ model PodTiktokShop {
   payments              PodTiktokPayment[]
   statements            PodTiktokStatement[]
   statementTransactions PodTiktokStatementTransaction[]
+  unsettledTransactions PodTiktokUnsettledTransaction[]
   listingSessionShops   PodListingSessionShop[]
   flashSales            PodFlashSale[]
   flashSaleTemplates    PodFlashSaleTemplate[]
@@ -1716,7 +1720,12 @@ model FulfillmentProductDesign {
   placement PodDesignPlacement
 
   /// File thật nằm ở Storage Module — bảng này KHÔNG lặp lại key/URL/mime/size.
-  storageFileId String @map("storage_file_id") @db.Uuid
+  /// NULL khi design lấy từ URL công khai (`sourceUrl`). CHECK ở migration bắt ĐÚNG MỘT nguồn.
+  storageFileId String? @map("storage_file_id") @db.Uuid
+
+  /// URL công khai (HTTPS) người vận hành nhập trực tiếp — file KHÔNG được tải về/upload lại,
+  /// nhà cung cấp tải thẳng từ URL này. NULL khi design là file upload (`storageFileId`).
+  sourceUrl String? @map("source_url") @db.VarChar(2048)
 
   /// Số lần design ở vị trí này bị thay (1 = upload lần đầu).
   version Int @default(1)
@@ -1728,7 +1737,7 @@ model FulfillmentProductDesign {
   updatedBy String?   @map("updated_by") @db.Uuid
 
   /// Restrict: không cho xoá bản ghi file khi vẫn còn design tham chiếu.
-  storageFile StorageFile @relation("FulfillmentProductDesignFile", fields: [storageFileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  storageFile StorageFile? @relation("FulfillmentProductDesignFile", fields: [storageFileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
   /// Mỗi (sản phẩm × vị trí in) chỉ có MỘT design đang hiệu lực.
   /// (Bản đã xoá mềm vẫn nằm lại — xem chỉ mục từng phần ở migration.)
@@ -2024,14 +2033,19 @@ model PodTiktokStatementTransaction {
   /// `order_create_time` (Unix seconds).
   orderCreateTime BigInt? @map("order_create_time")
 
-  currency           String   @db.VarChar(10)
+  currency              String   @db.VarChar(10)
   /// `settlement_amount` của dòng.
-  settlementAmount   Decimal  @map("settlement_amount") @db.Decimal(18, 4)
-  revenueAmount      Decimal? @map("revenue_amount") @db.Decimal(18, 4)
-  feeTaxAmount       Decimal? @map("fee_tax_amount") @db.Decimal(18, 4)
-  shippingCostAmount Decimal? @map("shipping_cost_amount") @db.Decimal(18, 4)
-  adjustmentAmount   Decimal? @map("adjustment_amount") @db.Decimal(18, 4)
-  reserveAmount      Decimal? @map("reserve_amount") @db.Decimal(18, 4)
+  settlementAmount      Decimal  @map("settlement_amount") @db.Decimal(18, 4)
+  revenueAmount         Decimal? @map("revenue_amount") @db.Decimal(18, 4)
+  feeTaxAmount          Decimal? @map("fee_tax_amount") @db.Decimal(18, 4)
+  shippingCostAmount    Decimal? @map("shipping_cost_amount") @db.Decimal(18, 4)
+  adjustmentAmount      Decimal? @map("adjustment_amount") @db.Decimal(18, 4)
+  reserveAmount         Decimal? @map("reserve_amount") @db.Decimal(18, 4)
+  /// `revenue_breakdown` / `fee_tax_breakdown` / `shipping_cost_breakdown` NGUYÊN VĂN (202501).
+  /// NULL với dòng đồng bộ trước khi có cột (chỉ còn 4 tổng ở trên).
+  revenueBreakdown      Json?    @map("revenue_breakdown")
+  feeTaxBreakdown       Json?    @map("fee_tax_breakdown")
+  shippingCostBreakdown Json?    @map("shipping_cost_breakdown")
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -2049,6 +2063,55 @@ model PodTiktokStatementTransaction {
   @@index([accountId, type])
   @@index([shopId])
   @@map("pod_tiktok_statement_transactions")
+}
+
+/// Giao dịch CHƯA quyết toán — GET /finance/202507/orders/unsettled. Nguồn "Tiền thu về ƯỚC TÍNH"
+/// của đơn chưa có statement. Ảnh chụp trạng thái TikTok theo shop: giao dịch không còn trong lượt
+/// đồng bộ gần nhất (đã quyết toán ⇒ TikTok thôi trả về) được xoá mềm.
+model PodTiktokUnsettledTransaction {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+  shopId         String @map("shop_id") @db.Uuid
+
+  /// `transactions[].id`.
+  tiktokTransactionId String  @map("tiktok_transaction_id") @db.VarChar(64)
+  /// `transactions[].type` nguyên văn (ORDER hoặc loại điều chỉnh — TikTok liệt kê rất nhiều).
+  type                String  @db.VarChar(40)
+  /// `order_id` ?? `adjustment_order_id`.
+  tiktokOrderId       String? @map("tiktok_order_id") @db.VarChar(64)
+  adjustmentId        String? @map("adjustment_id") @db.VarChar(64)
+  currency            String  @db.VarChar(10)
+
+  estSettlementAmount   Decimal? @map("est_settlement_amount") @db.Decimal(18, 4)
+  estRevenueAmount      Decimal? @map("est_revenue_amount") @db.Decimal(18, 4)
+  estFeeTaxAmount       Decimal? @map("est_fee_tax_amount") @db.Decimal(18, 4)
+  estShippingCostAmount Decimal? @map("est_shipping_cost_amount") @db.Decimal(18, 4)
+  estAdjustmentAmount   Decimal? @map("est_adjustment_amount") @db.Decimal(18, 4)
+  revenueBreakdown      Json?    @map("revenue_breakdown")
+  feeTaxBreakdown       Json?    @map("fee_tax_breakdown")
+  shippingCostBreakdown Json?    @map("shipping_cost_breakdown")
+  /// `estimated_settlement`: "x days after delivery" hoặc Unix timestamp dạng chuỗi — giữ nguyên văn.
+  estimatedSettlement   String?  @map("estimated_settlement") @db.VarChar(100)
+  unsettledReason       String?  @map("unsettled_reason") @db.VarChar(500)
+  orderCreateTime       BigInt?  @map("order_create_time")
+  orderDeliveryTime     BigInt?  @map("order_delivery_time")
+  /// Lần đồng bộ gần nhất THẤY giao dịch này.
+  fetchedAt             DateTime @map("fetched_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  account PodTiktokAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  shop    PodTiktokShop    @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([organizationId, tiktokTransactionId])
+  @@index([organizationId, tiktokOrderId])
+  @@index([shopId])
+  @@map("pod_tiktok_unsettled_transactions")
 }
 
 // ===========================================================================
@@ -2124,6 +2187,8 @@ enum FulfillmentEventType {
   RETRY
   WEBHOOK_RECEIVED
   VALIDATION_FAILED
+  /// Bản ghi đã huỷ được lưu trữ để nhường chỗ cho một lần fulfill MỚI.
+  SUPERSEDED
 
   @@map("fulfillment_event_type")
 }
@@ -2624,8 +2689,11 @@ model FulfillmentOrder {
   errorLogs    FulfillmentErrorLog[]
   webhookLogs  FulfillmentWebhookLog[]
 
-  @@unique([podOrderId, provider])
   @@unique([organizationId, externalOrderId])
+  /// 🔴 Tối đa MỘT bản ghi ĐANG HIỆU LỰC cho mỗi (đơn, nhà cung cấp): partial unique
+  /// `WHERE deleted_at IS NULL` ở migration 20261002110000 (Prisma không biểu diễn được). Bản ghi
+  /// đã huỷ được LƯU TRỮ (deleted_at) khi fulfill lại — xem shared/fulfillment-lifecycle.ts.
+  @@index([podOrderId, provider])
   @@index([organizationId, status])
   @@index([accountId])
   @@index([providerOrderId])
@@ -2656,10 +2724,14 @@ model FulfillmentOrderItem {
   /// (design có thể bị thay/xoá, bản ghi này phải bất biến).
   printFiles Json? @map("print_files")
 
-  /// Giá vốn nhà cung cấp báo về (Get Order Detail).
-  baseCost Decimal? @map("base_cost") @db.Decimal(18, 4)
-  color    String?  @db.VarChar(100)
-  size     String?  @db.VarChar(100)
+  /// Giá vốn nhà cung cấp báo về (Get Order Detail). Trước khi nhà cung cấp báo giá, cột này giữ
+  /// ảnh chụp giá biến thể lúc gửi — phân biệt bằng `baseCostConfirmedAt`.
+  baseCost            Decimal?  @map("base_cost") @db.Decimal(18, 4)
+  /// Thời điểm `baseCost` được NHÀ CUNG CẤP xác nhận. NULL = mới là ảnh chụp giá catalog ⇒ "chờ
+  /// báo giá", không dùng để tính lợi nhuận.
+  baseCostConfirmedAt DateTime? @map("base_cost_confirmed_at") @db.Timestamptz(6)
+  color               String?   @db.VarChar(100)
+  size                String?   @db.VarChar(100)
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -5795,4 +5867,145 @@ model PodFlashSaleLog {
   @@index([organizationId])
   @@index([flashSaleId, createdAt])
   @@map("pod_flash_sale_logs")
+}
+
+// ===========================================================================
+// Module Notification — Telegram theo Organization (docs/notification/README.md)
+// ===========================================================================
+
+/// Kênh gửi thông báo. Hiện chỉ Telegram; thêm kênh = thêm giá trị + adapter.
+enum NotificationChannel {
+  TELEGRAM
+
+  @@map("notification_channel")
+}
+
+/// Sự kiện nghiệp vụ sinh thông báo.
+enum NotificationEventType {
+  /// Đơn TikTok được INSERT lần đầu vào hệ thống (đồng bộ CRON / thủ công — KHÔNG gồm BACKFILL).
+  ORDER_CREATED
+  /// Nhà cung cấp fulfillment đã tiếp nhận đơn (fulfill thành công).
+  FULFILLMENT_SUBMITTED
+  /// Nhà cung cấp đã XÁC NHẬN huỷ đơn fulfillment.
+  FULFILLMENT_CANCELLED
+
+  @@map("notification_event_type")
+}
+
+/// Loại thực thể mà sự kiện nói về — cùng `entity_id` tạo khoá idempotency.
+enum NotificationEntityType {
+  POD_ORDER
+  FULFILLMENT_ORDER
+
+  @@map("notification_entity_type")
+}
+
+/// Vòng đời một lần gửi.
+///
+/// ```
+///   PENDING ──claim──▶ PROCESSING ──▶ SENT
+///      ▲                   │ ├──────▶ FAILED     (lỗi không thử lại được / hết số lần thử)
+///      └──── lỗi tạm thời ─┘ └──────▶ SKIPPED    (tổ chức tắt / chưa cấu hình Telegram)
+///
+///   PROCESSING quá `locked_until` (worker chết) ⇒ được claim LẠI như PENDING (at-least-once).
+/// ```
+enum NotificationEventStatus {
+  PENDING
+  PROCESSING
+  SENT
+  FAILED
+  SKIPPED
+
+  @@map("notification_event_status")
+}
+
+// ---------------------------------------------------------------------------
+// OrganizationTelegramConfig — cấu hình Telegram Bot của MỘT Organization.
+//
+// 🔴 Bot Token là secret: chỉ lưu bản mã hoá AES-256-GCM (`NOTIFICATION_ENCRYPTION_KEY`, khoá
+// riêng — key separation) cùng vài ký tự cuối để nhận diện. API KHÔNG BAO GIỜ trả token.
+// Mỗi tổ chức tối đa một cấu hình (UNIQUE organization_id) — không dùng chung giữa tổ chức.
+// ---------------------------------------------------------------------------
+model OrganizationTelegramConfig {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @unique @map("organization_id") @db.Uuid
+
+  botTokenEnc  String  @map("bot_token_enc") @db.Text
+  /// 4 ký tự cuối của token — đủ để đối chiếu, không đủ để dùng.
+  botTokenHint String  @map("bot_token_hint") @db.VarChar(8)
+  /// `@username` của bot (đọc bằng getMe khi gửi thử) — chỉ để hiển thị.
+  botUsername  String? @map("bot_username") @db.VarChar(64)
+  /// Chat ID số (`-100…` cho supergroup/channel) hoặc `@channelusername`.
+  chatId       String  @map("chat_id") @db.VarChar(64)
+  enabled      Boolean @default(false)
+
+  /// Kết quả lần gửi gần nhất (gửi thử hoặc thông báo thật) — nguồn của trạng thái Connected /
+  /// Disconnected. Được đặt lại khi đổi token hoặc Chat ID.
+  lastDeliveryOk   Boolean?  @map("last_delivery_ok")
+  lastDeliveryAt   DateTime? @map("last_delivery_at") @db.Timestamptz(6)
+  lastErrorCode    String?   @map("last_error_code") @db.VarChar(64)
+  lastErrorMessage String?   @map("last_error_message") @db.VarChar(1000)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("organization_telegram_configs")
+}
+
+// ---------------------------------------------------------------------------
+// NotificationEvent — OUTBOX: một thông báo cần gửi cho MỘT tổ chức qua MỘT kênh.
+//
+// 🔴 Được ghi trong CÙNG transaction với thay đổi nghiệp vụ (tạo đơn) — hoặc ngay sau khi thay đổi
+// đã commit (fulfill / huỷ) — rồi worker gửi BẤT ĐỒNG BỘ. Telegram lỗi không bao giờ làm hỏng
+// đồng bộ đơn / fulfill.
+//
+// Idempotency: UNIQUE (organization_id, event_type, entity_type, entity_id, channel) — một đơn chỉ
+// có tối đa MỘT thông báo NEW ORDER, dù đồng bộ thủ công / theo lịch / chạy lại / song song.
+// Append-only theo nghĩa nghiệp vụ: không xoá mềm; `payload` là ẢNH CHỤP lúc sự kiện xảy ra.
+// ---------------------------------------------------------------------------
+model NotificationEvent {
+  id             String                  @id @default(uuid()) @db.Uuid
+  organizationId String                  @map("organization_id") @db.Uuid
+  eventType      NotificationEventType   @map("event_type")
+  entityType     NotificationEntityType  @map("entity_type")
+  entityId       String                  @map("entity_id") @db.Uuid
+  channel        NotificationChannel     @default(TELEGRAM)
+  status         NotificationEventStatus @default(PENDING)
+
+  /// Ảnh chụp dữ liệu để dựng tin nhắn (KHÔNG chứa địa chỉ / email / SĐT người mua, token).
+  payload Json
+
+  /// Số lần ĐÃ GỌI Telegram (không tính lần bị hoãn vì rate limit trước khi gọi).
+  attemptCount  Int       @default(0) @map("attempt_count")
+  /// Lượt kế tiếp được phép xử lý (retry backoff / `retry_after` của Telegram).
+  nextAttemptAt DateTime  @default(now()) @map("next_attempt_at") @db.Timestamptz(6)
+  /// Lease của worker đang giữ sự kiện — quá hạn mà vẫn PROCESSING ⇒ worker đã chết.
+  lockedUntil   DateTime? @map("locked_until") @db.Timestamptz(6)
+  /// Token của lượt claim — chỉ đúng worker đang giữ mới được ghi kết quả (fencing).
+  lockToken     String?   @map("lock_token") @db.Uuid
+
+  sentAt            DateTime? @map("sent_at") @db.Timestamptz(6)
+  /// `message_id` Telegram trả về — bằng chứng đã gửi.
+  providerMessageId String?   @map("provider_message_id") @db.VarChar(64)
+  lastErrorCode     String?   @map("last_error_code") @db.VarChar(64)
+  errorMessage      String?   @map("error_message") @db.VarChar(2000)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  /// Người dùng gây ra sự kiện (fulfill / huỷ). NULL = hệ thống (đồng bộ theo lịch).
+  createdBy String?  @map("created_by") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([organizationId, eventType, entityType, entityId, channel], map: "notification_events_idempotency_key")
+  /// Worker: lấy sự kiện đến hạn.
+  @@index([status, nextAttemptAt])
+  /// Màn hình "Thông báo gần đây" của tổ chức.
+  @@index([organizationId, createdAt])
+  @@map("notification_events")
 }

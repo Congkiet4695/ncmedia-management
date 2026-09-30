@@ -32,6 +32,7 @@ import type {
   ProviderConnectionResult,
   ProviderShippingMethods,
 } from './fulfillment-provider.adapter';
+import { FulfillmentNotificationService } from './fulfillment-notification.service';
 import type { MappingWithDesigns, PlacementResolver } from './fulfillment-readiness.service';
 
 /**
@@ -59,6 +60,7 @@ export class FulfillmentProviderGateway {
     private readonly mango: MangoFulfillmentService,
     sellerwix: SellerwixFulfillmentService,
     private readonly accessScope: PodAccessScopeService,
+    private readonly notifications: FulfillmentNotificationService,
   ) {
     this.adapters = new Map<FulfillmentProvider, FulfillmentProviderAdapter>(
       [mango, sellerwix].map((adapter) => [adapter.provider, adapter]),
@@ -96,7 +98,7 @@ export class FulfillmentProviderGateway {
       podOrderId,
       options.fulfillmentAccountId,
     );
-    return this.adapterFor(account.provider).fulfill(
+    const record = await this.adapterFor(account.provider).fulfill(
       organizationId,
       actorUserId,
       podOrderId,
@@ -106,6 +108,10 @@ export class FulfillmentProviderGateway {
         fulfillmentAccountId: account.id,
       },
     );
+    // Adapter chỉ trả về khi nhà cung cấp đã tiếp nhận VÀ DB đã ghi trạng thái / mã đơn / giá vốn;
+    // mọi thất bại đều ném lỗi nên không tới dòng này. Thông báo không bao giờ ném lỗi.
+    await this.notifications.fulfilled(record, actorUserId, trigger);
+    return record;
   }
 
   /**
@@ -176,12 +182,15 @@ export class FulfillmentProviderGateway {
   ): Promise<FulfillmentOrderWithRelations> {
     await this.assertOrderInScope(organizationId, podOrderId, scope);
     const current = await this.requireCurrent(organizationId, podOrderId);
-    return this.adapterFor(current.provider).cancel(
+    const record = await this.adapterFor(current.provider).cancel(
       organizationId,
       actorUserId,
       podOrderId,
       reason,
     );
+    // Chỉ phát khi nhà cung cấp XÁC NHẬN huỷ (status CANCELLED); "đang chờ huỷ" không phát.
+    await this.notifications.cancelled(record, actorUserId, reason);
+    return record;
   }
 
   /** Sửa đơn đã gửi — chỉ MangoTeePrints có API (Sellerwix không có Update Order). */

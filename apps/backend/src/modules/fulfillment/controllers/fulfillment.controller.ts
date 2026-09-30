@@ -10,6 +10,7 @@ import {
   ParseUUIDPipe,
   Patch,
   Post,
+  Put,
   Query,
   UploadedFile,
   UseGuards,
@@ -31,7 +32,7 @@ import {
   ApiUnprocessableEntityResponse,
 } from '@nestjs/swagger';
 import { FulfillmentProvider, FulfillmentTrigger, PodDesignPlacement } from '@prisma/client';
-import { PodDesignDto } from '../../pod-tiktok/dto/pod-design.dto';
+import { PodDesignDto, SetDesignUrlDto } from '../../pod-tiktok/dto/pod-design.dto';
 import { ProductDesignService } from '../services/product-design.service';
 import { CurrentUser } from '../../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../../auth/decorators/require-permissions.decorator';
@@ -551,6 +552,30 @@ export class FulfillmentController {
       file,
       scope,
     );
+  }
+
+  @Put('product-designs/:placement/url')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('pod.tiktok.design.upload')
+  @ApiOperation({
+    summary: 'Đặt / thay thế design tại MỘT vị trí in bằng URL công khai',
+    description:
+      'Không tải file về, không upload lại: nhà cung cấp tải thẳng từ URL khi sản xuất. ' +
+      'Chỉ nhận HTTPS và host công khai (không localhost / IP nội bộ). Thay một design đang là ' +
+      'file upload ⇒ file cũ bị xoá khỏi kho. Cùng quyền và cùng kiểm phạm vi shop như upload.',
+  })
+  @ApiOkResponse({ type: PodDesignDto })
+  @ApiBadRequestResponse({
+    description: 'POD_DESIGN_KEY_INVALID / FULFILLMENT_DESIGN_URL_INVALID (details.reason)',
+  })
+  setProductDesignUrl(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('placement', new ParseEnumPipe(PodDesignPlacement)) placement: PodDesignPlacement,
+    @Query() key: ProductDesignKeyDto,
+    @Body() dto: SetDesignUrlDto,
+  ): Promise<PodDesignDto> {
+    return this.productDesigns.setUrl(user.organizationId, user.userId, key, placement, dto.url, scope);
   }
 
   @Delete('product-designs/:placement')

@@ -1,0 +1,85 @@
+{
+  "pageTitle": "Cài đặt thông báo",
+  "pageDescription": "Gửi thông báo đơn hàng và fulfillment của tổ chức vào group Telegram.",
+  "noPermission": "Chỉ Admin của tổ chức mới cấu hình được thông báo.",
+  "telegram": {
+    "title": "Tích hợp Telegram",
+    "description": "Đơn mới (đồng bộ thủ công và tự động), fulfill thành công và huỷ fulfillment đã được xác nhận sẽ được gửi vào chat này.",
+    "status": {
+      "NOT_CONFIGURED": "Chưa cấu hình",
+      "DISABLED": "Đang tắt",
+      "UNTESTED": "Chưa kiểm tra",
+      "CONNECTED": "Đã kết nối",
+      "DISCONNECTED": "Mất kết nối"
+    },
+    "botToken": "Bot Token",
+    "botTokenPlaceholder": "123456789:AA… (lấy từ @BotFather)",
+    "botTokenHint": "Tạo bot bằng @BotFather rồi dán token vào đây.",
+    "botTokenKeepHint": "Để trống để giữ token đã lưu. Token không bao giờ được hiển thị lại.",
+    "chatId": "Chat ID",
+    "chatIdHint": "ID của group / channel (vd -1001234567890) hoặc @channelusername. Thêm bot vào group trước.",
+    "enable": "Bật thông báo Telegram",
+    "sendTest": "Gửi tin thử",
+    "testSuccess": "Kết nối Telegram thành công. {{bot}}",
+    "testError": {
+      "TELEGRAM_INVALID_TOKEN": "Bot Token không hợp lệ.",
+      "TELEGRAM_CHAT_NOT_FOUND": "Không tìm thấy chat — kiểm tra Chat ID và bot đã được thêm vào group chưa.",
+      "TELEGRAM_FORBIDDEN": "Bot không có quyền gửi tin vào chat này.",
+      "TELEGRAM_BAD_REQUEST": "Telegram từ chối yêu cầu.",
+      "TELEGRAM_RATE_LIMITED": "Telegram đang giới hạn tần suất bot — thử lại sau ít phút.",
+      "TELEGRAM_SERVER_ERROR": "Telegram đang gặp sự cố — thử lại sau ít phút.",
+      "TELEGRAM_NETWORK_ERROR": "Máy chủ không kết nối được tới Telegram.",
+      "TELEGRAM_TIMEOUT": "Telegram không phản hồi kịp."
+    },
+    "saved": "Đã lưu cấu hình Telegram",
+    "saveFailed": "Không lưu được cấu hình Telegram",
+    "remove": "Xoá",
+    "removeTitle": "Xoá tích hợp Telegram?",
+    "removeConfirm": "Bot Token và Chat ID đã lưu sẽ bị xoá và không gửi thông báo nữa.",
+    "removed": "Đã xoá tích hợp Telegram",
+    "removeFailed": "Không xoá được tích hợp Telegram",
+    "encryptionMissing": "Máy chủ chưa cấu hình NOTIFICATION_ENCRYPTION_KEY nên chưa lưu được Bot Token. Liên hệ quản trị hệ thống.",
+    "lastError": "Lần gửi gần nhất thất bại ({{at}}):",
+    "error": {
+      "tokenFormat": "Token phải có dạng <bot id>:<secret> của @BotFather.",
+      "chatRequired": "Nhập Chat ID.",
+      "chatFormat": "Dùng ID dạng số (vd -1001234567890) hoặc @channelusername."
+    }
+  },
+  "events": {
+    "title": "Thông báo gần đây",
+    "description": "Trạng thái gửi của từng thông báo — dùng để tìm lỗi cấu hình.",
+    "filterType": "Loại thông báo",
+    "filterStatus": "Trạng thái",
+    "allTypes": "Tất cả loại",
+    "allStatuses": "Tất cả trạng thái",
+    "type": {
+      "ORDER_CREATED": "Đơn mới",
+      "FULFILLMENT_SUBMITTED": "Đã fulfill",
+      "FULFILLMENT_CANCELLED": "Huỷ fulfillment"
+    },
+    "status": {
+      "PENDING": "Chờ gửi",
+      "PROCESSING": "Đang gửi",
+      "SENT": "Đã gửi",
+      "FAILED": "Lỗi",
+      "SKIPPED": "Bỏ qua"
+    },
+    "column": {
+      "createdAt": "Thời điểm",
+      "type": "Loại",
+      "order": "Mã đơn",
+      "status": "Trạng thái",
+      "attempts": "Số lần thử",
+      "detail": "Chi tiết"
+    },
+    "empty": "Chưa có thông báo nào.",
+    "sentAt": "Đã gửi lúc {{at}}",
+    "nextAttempt": "Thử lại lúc {{at}}",
+    "retry": "Gửi lại",
+    "retryAll": "Gửi lại tất cả lỗi",
+    "retryQueued": "Đã đưa thông báo vào hàng đợi gửi",
+    "retryAllQueued": "Đã đưa {{count}} thông báo vào hàng đợi gửi",
+    "retryFailed": "Không gửi lại được"
+  }
+}

@@ -17,6 +17,7 @@ import { FULFILLMENT_PROVIDER_LABELS } from '../../constants/fulfillment-provide
 import {
   FulfillmentAccountNotFoundException,
   FulfillmentAlreadySubmittedException,
+  FulfillmentCancelPendingException,
   FulfillmentCannotCancelException,
   FulfillmentClientError,
   FulfillmentErrorClass,
@@ -45,6 +46,11 @@ import {
   type PlacementResolver,
 } from '../../services/fulfillment-readiness.service';
 import { mappingKeyOf } from '../../shared/mapping-match';
+import {
+  CANCELLABLE_FULFILLMENT_STATUSES,
+  SUBMITTABLE_FULFILLMENT_STATUSES,
+  isNewAttemptOnSubmit,
+} from '../../shared/fulfillment-lifecycle';
 import { SellerwixApiClient } from '../clients/sellerwix-api.client';
 import {
   SELLERWIX_SHIPPING_METHOD_CACHE_MS,
@@ -69,21 +75,11 @@ import {
 const PROVIDER = FulfillmentProvider.SELLERWIX;
 const LABEL = FULFILLMENT_PROVIDER_LABELS.SELLERWIX;
 
-/** Chỉ bản ghi chưa từng gửi thành công mới gửi (lại) được. */
-const RESUBMITTABLE_STATUSES: readonly FulfillmentStatus[] = [
-  FulfillmentStatus.DRAFT,
-  FulfillmentStatus.FAILED,
-];
-
 /**
- * Trạng thái cho phép gọi Cancel order. Tài liệu Sellerwix KHÔNG nói trạng thái nào huỷ được ⇒
- * dùng đúng tập mà màn hình cho bấm (`FulfillmentService` — SUBMITTED/ON_HOLD); Sellerwix từ chối
- * thì thông điệp của họ được trả nguyên văn.
+ * Trạng thái phía Sellerwix nghĩa là "đã nhận yêu cầu huỷ, đang xử lý" (tài liệu: `cancel processing`,
+ * ánh xạ ON_HOLD). Gửi thêm một yêu cầu huỷ lúc này là thừa — và không được coi là đã huỷ.
  */
-const CANCELLABLE_STATUSES: readonly FulfillmentStatus[] = [
-  FulfillmentStatus.SUBMITTED,
-  FulfillmentStatus.ON_HOLD,
-];
+const CANCEL_PENDING_PROVIDER_STATUS = 'cancel processing';
 
 /** Dùng CHUNG khoá với Mango: hai nhà cung cấp không thể nhận cùng một đơn song song. */
 const FULFILL_LOCK_MS = 60_000;
@@ -165,10 +161,14 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
   ): Promise<FulfillmentOrderWithRelations> {
     this.rejectUnsupportedOptions(options);
 
-    const existing = await this.repo.findByPodOrder(organizationId, podOrderId, PROVIDER);
-    if (existing && !RESUBMITTABLE_STATUSES.includes(existing.status)) {
-      throw new FulfillmentAlreadySubmittedException(existing.status);
+    const current = await this.repo.findByPodOrder(organizationId, podOrderId, PROVIDER);
+    if (current && !SUBMITTABLE_FULFILLMENT_STATUSES.includes(current.status)) {
+      throw new FulfillmentAlreadySubmittedException(current.status);
     }
+    // Bản ghi đã HUỶ (Sellerwix đã xác nhận) ⇒ LẦN THỬ MỚI: lưu trữ bản ghi cũ và gửi với
+    // `reference_id` mới. Dùng lại mã cũ thì bước tra idempotency bên dưới sẽ tìm thấy chính đơn
+    // đã huỷ và "liên kết" lại nó thay vì tạo đơn mới.
+    const existing = current && !isNewAttemptOnSubmit(current.status) ? current : null;
     const other = await this.repo.findBlockingRecordOfOtherProvider(
       organizationId,
       podOrderId,
@@ -223,8 +223,15 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
       throw new FulfillmentNotReadyException(check.issues);
     }
 
+    if (current && !existing) {
+      await this.repo.supersedeCancelled(current, actorUserId, trigger);
+    }
     const referenceId =
-      existing?.externalOrderId ?? this.mapper.buildReferenceId(order.tiktokOrderId);
+      existing?.externalOrderId ??
+      this.mapper.buildReferenceId(
+        order.tiktokOrderId,
+        (await this.repo.countAttempts(organizationId, podOrderId, PROVIDER)) + 1,
+      );
     const shippingMethod =
       options.shippingMethod?.trim() || account.defaultShippingMethod?.trim() || null;
     const labelUrl = options.labelUrl ?? order.shippingLabelUrl ?? null;
@@ -323,6 +330,11 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     await this.repo.updateOrder(record.id, {
       status: FulfillmentStatus.SUBMITTING,
       attemptCount: { increment: 1 },
+      // Đơn vị tiền của giá vốn theo catalog (tài liệu Sellerwix không nêu ⇒ thường NULL — không đoán).
+      currency: await this.catalogRepo.findCostCurrency(
+        account.id,
+        check.items.map((item) => item.providerSku),
+      ),
       shippingMethod,
       productionLine: null,
       facility: null,
@@ -582,12 +594,43 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
   ): Promise<FulfillmentOrderWithRelations> {
     const record = await this.repo.findByPodOrder(organizationId, podOrderId, PROVIDER);
     if (!record) throw new FulfillmentOrderNotFoundException();
-    if (!CANCELLABLE_STATUSES.includes(record.status) || !record.providerOrderId) {
+    if (!CANCELLABLE_FULFILLMENT_STATUSES.includes(record.status) || !record.providerOrderId) {
       throw new FulfillmentCannotCancelException(record.status);
     }
 
     const account = await this.requireAccountById(organizationId, record.accountId);
     const ctx = this.credentials.buildContext(account);
+
+    // 🔴 Hỏi trạng thái THẬT trước khi huỷ — đơn có thể đã vào xưởng / đã ship sau lượt đồng bộ
+    // gần nhất. Áp vào bản ghi (cùng `applyProviderState` của đồng bộ) rồi mới quyết.
+    let live: FulfillmentOrder;
+    try {
+      const detail = await this.client.getOrder(ctx, record.providerOrderId);
+      await this.applyProviderState(record, detail.data, FulfillmentTrigger.MANUAL, {
+        durationMs: detail.durationMs,
+        requestId: detail.requestId,
+        performedBy: actorUserId,
+      });
+      live = await this.requireRecord(organizationId, record.id);
+    } catch (error) {
+      await this.recordFailure(
+        organizationId,
+        record.id,
+        'cancel.lookup',
+        FulfillmentTrigger.MANUAL,
+        actorUserId,
+        error,
+        FulfillmentEventType.CANCEL_FAILED,
+      );
+      throw toProviderHttpException(LABEL, error);
+    }
+    if (live.providerStatus?.toLowerCase().includes(CANCEL_PENDING_PROVIDER_STATUS)) {
+      throw new FulfillmentCancelPendingException(LABEL);
+    }
+    if (!CANCELLABLE_FULFILLMENT_STATUSES.includes(live.status)) {
+      throw new FulfillmentCannotCancelException(live.providerStatus ?? live.status);
+    }
+
     await this.repo.addHistory({
       organizationId,
       fulfillmentOrderId: record.id,
@@ -607,14 +650,16 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
         fulfillmentOrderId: record.id,
         eventType: FulfillmentEventType.CANCEL_SUCCESS,
         trigger: FulfillmentTrigger.MANUAL,
-        fromStatus: record.status,
+        fromStatus: live.status,
+        // "Đã nhận yêu cầu" ≠ "đã huỷ": trạng thái thật (canceled / cancel processing) được áp ngay
+        // dưới đây; chỉ CANCELLED mới mở lại được nút Fulfill.
         message: `${LABEL} đã nhận yêu cầu huỷ`,
         durationMs: result.durationMs,
         requestId: result.requestId,
         performedBy: actorUserId,
       });
       // Response Cancel order = object đơn (tài liệu) ⇒ trạng thái thật (canceled / cancel processing).
-      await this.applyProviderState(record, result.data, FulfillmentTrigger.MANUAL, {
+      await this.applyProviderState(live, result.data, FulfillmentTrigger.MANUAL, {
         durationMs: result.durationMs,
         requestId: result.requestId,
         performedBy: actorUserId,
@@ -714,9 +759,20 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
               entry.isActive && mappingKeyOf(entry.tiktokProductId, entry.sellerSku) === key,
           )
         : undefined;
-      if (!mapping || mapping.accountId !== account.id) {
+      const label = item.productName ?? item.sellerSku ?? item.id;
+      if (!mapping) {
         warnings.push(
-          `"${item.productName ?? item.sellerSku ?? item.id}" chưa có ánh xạ Sellerwix — chưa biết SKU để lấy phương thức vận chuyển.`,
+          `"${label}" chưa được cấu hình sản phẩm ${LABEL} — chọn Provider Product / biến thể ở khối ` +
+            '"Cấu hình sản phẩm" rồi lưu để lấy phương thức vận chuyển.',
+        );
+        continue;
+      }
+      if (mapping.accountId !== account.id) {
+        // 🔴 Ánh xạ là MỘT bản ghi cho mỗi sản phẩm (không theo nhà cung cấp). Đang trỏ sang nhà
+        // cung cấp khác (vd Mango) ⇒ chưa có SKU Sellerwix để hỏi — nói rõ thay vì "chưa có ánh xạ".
+        warnings.push(
+          `"${label}" đang được cấu hình cho nhà cung cấp khác — lưu cấu hình sản phẩm ${LABEL} ` +
+            '(Provider Product / biến thể) cho sản phẩm này để lấy phương thức vận chuyển.',
         );
         continue;
       }
@@ -1033,8 +1089,23 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     if (cached && Date.now() - cached.at < SELLERWIX_SHIPPING_METHOD_CACHE_MS)
       return cached.methods;
     const result = await this.client.listShippingMethods(ctx, variantSku);
-    const methods = Array.isArray(result.data) ? result.data : [];
-    this.shippingCache.set(cacheKey, { at: Date.now(), methods });
+    const methods = this.mapper.shippingMethodsOfResponse(result.data);
+    if (methods === null) {
+      // Response không đúng dạng đã biết ⇒ KHÔNG cache (một lần lệch không được "đóng băng" danh
+      // sách rỗng 10 phút) và nói rõ thay vì trả rỗng im lặng.
+      this.logger.warn({
+        module: 'fulfillment',
+        provider: 'SELLERWIX',
+        operation: 'shipping-methods.shape',
+        accountId: ctx.accountId,
+        variantSku,
+        keys: result.data && typeof result.data === 'object' ? Object.keys(result.data) : typeof result.data,
+        msg: 'Response Get shipping methods không đúng dạng đã biết (mảng hoặc { data: [] })',
+      });
+      throw new Error('Sellerwix trả về danh sách phương thức vận chuyển không đúng định dạng.');
+    }
+    // Rỗng thì không cache: có thể vừa cấu hình xong ở Sellerwix, bấm lại phải thấy ngay.
+    if (methods.length > 0) this.shippingCache.set(cacheKey, { at: Date.now(), methods });
     return methods;
   }
 

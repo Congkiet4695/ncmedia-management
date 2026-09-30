@@ -110,9 +110,9 @@ export class PodOrderQueryDto {
     description:
       'Lọc theo việc đơn đã được đẩy sang xưởng in hay chưa. `false` = CHƯA đẩy, `true` = ĐÃ đẩy. ' +
       '🔴 "Chưa đẩy" = chưa có bản ghi `fulfillment_orders` nào, HOẶC bản ghi đang ở trạng thái ' +
-      'còn gửi lại được (DRAFT | FAILED) — đúng điều kiện `RESUBMITTABLE_STATUSES` mà ' +
-      '`MangoFulfillmentService.fulfill()` dùng để chặn gửi trùng. Đơn đã SUBMITTED / ' +
-      'IN_PRODUCTION / SHIPPED / DELIVERED / REJECTED / CANCELLED đều tính là ĐÃ đẩy.',
+      'còn gửi (lại) được (DRAFT | FAILED | CANCELLED — nhà cung cấp đã xác nhận huỷ) — đúng ' +
+      '`SUBMITTABLE_FULFILLMENT_STATUSES` mà luồng gửi dùng. Đơn đã SUBMITTED / IN_PRODUCTION / ' +
+      'SHIPPED / DELIVERED / REJECTED đều tính là ĐÃ đẩy.',
   })
   @IsOptional()
   @Transform(toBool)

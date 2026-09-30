@@ -212,7 +212,8 @@
     "succeeded": "Order fulfilled successfully",
     "title": "Send order to the print shop",
     "total": "Total",
-    "useAccountDefault": "Provider default"
+    "useAccountDefault": "Provider default",
+    "shippingLoadFailed": "Could not load shipping methods"
   },
   "fulfillNow": "Fulfill now",
   "history": "History",

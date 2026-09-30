@@ -1,8 +1,7 @@
 'use client';
 
-import { ImageIcon, ImageUp, Link2, Link2Off, Palette, RefreshCw } from 'lucide-react';
+import { ImageIcon, ImageUp, Palette, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
-import { useAuth } from '@/hooks/use-auth';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
@@ -21,8 +20,6 @@ import { DesignThumbs } from './design-thumbs';
 interface OrderProductsCellProps {
   items: PodOrderItem[];
   onUploadDesign: (item: PodOrderItem) => void;
-  /** Mở dialog khai Product Mapping cho một dòng sản phẩm chưa ánh xạ. */
-  onMapProduct: (row: OrderProductRow) => void;
   /** Mở bộ xem ảnh — dùng CHUNG cho ảnh sản phẩm và ảnh design. */
   onPreviewImages: (request: LightboxRequest) => void;
 }
@@ -47,7 +44,6 @@ const THUMB = 'size-[60px]';
 export function OrderProductsCell({
   items,
   onUploadDesign,
-  onMapProduct,
   onPreviewImages,
 }: OrderProductsCellProps) {
   const { t } = useTranslation('pod');
@@ -66,7 +62,6 @@ export function OrderProductsCell({
           rowIndex={rowIndex}
           allRows={rows}
           onUploadDesign={onUploadDesign}
-          onMapProduct={onMapProduct}
           onPreviewImages={onPreviewImages}
         />
       ))}
@@ -79,7 +74,6 @@ function ProductRow({
   rowIndex,
   allRows,
   onUploadDesign,
-  onMapProduct,
   onPreviewImages,
 }: {
   row: OrderProductRow;
@@ -88,7 +82,6 @@ function ProductRow({
   /** Mọi dòng của đơn — để lướt qua ảnh các sản phẩm khác mà không phải đóng lightbox. */
   allRows: OrderProductRow[];
   onUploadDesign: (item: PodOrderItem) => void;
-  onMapProduct: (row: OrderProductRow) => void;
   onPreviewImages: (request: LightboxRequest) => void;
 }) {
   const { t } = useTranslation('pod');
@@ -197,13 +190,10 @@ function ProductRow({
           }}
         />
 
-        {/* 🔴 TRẠNG THÁI ÁNH XẠ và TRẠNG THÁI DESIGN hiện SONG SONG, không loại trừ nhau.
-            Design và Product Mapping là hai nghiệp vụ độc lập:
-              · Design  trả lời "in cái gì"  → chỉ cần Product ID + Seller SKU
-              · Mapping trả lời "in ở đâu"   → chỉ cần khi Fulfill
-            Bản trước chỉ hiện MỘT trong hai: chưa ánh xạ là ẩn luôn nút Upload Design, buộc
-            người dùng phải ánh xạ trước mới upload được — một ràng buộc không có thật. */}
-        <MappingAction row={row} onMapProduct={onMapProduct} />
+        {/* 🔴 Cột Product KHÔNG còn cảnh báo / nút ánh xạ ("Missing Product Mapping", "Needs
+            manual mapping", "Map Product") — theo yêu cầu nghiệp vụ. Cấu hình sản phẩm cho nhà
+            cung cấp nằm trong drawer Fulfill (Cấu hình sản phẩm) và màn hình Product Mapping;
+            readiness ở backend vẫn chặn gửi đơn thiếu ánh xạ như cũ. */}
 
         <Tooltip
           content={
@@ -246,84 +236,6 @@ function ProductRow({
         </Button>
       </div>
     </li>
-  );
-}
-
-/**
- * Trạng thái ánh xạ + hành động tương ứng.
- *
- * 🔴 Ba trạng thái, ba hành động khác nhau — gộp lại thành một chữ "thiếu ánh xạ" là lý do
- * người dùng bấm mãi một nút không giải quyết được vấn đề của họ:
- *
- * | Trạng thái     | Nghĩa                                     | Việc phải làm                |
- * |----------------|-------------------------------------------|------------------------------|
- * | `NEED_MANUAL`  | máy tìm được nhiều ứng viên, không dám chọn | bấm Map Product, đã lọc sẵn |
- * | `MISSING`      | rà rồi không thấy gì                      | bấm Map Product, chọn từ đầu |
- * | `NO_PROVIDER`  | kết nối TikTok chưa gán nhà cung cấp      | sửa ở màn hình cấu hình      |
- *
- * `NO_PROVIDER` KHÔNG có nút: bấm vào cũng không khai được vì chưa biết khai cho nhà cung
- * cấp nào. Hiện một nút chắc chắn thất bại còn tệ hơn không hiện.
- */
-function MappingAction({
-  row,
-  onMapProduct,
-}: {
-  row: OrderProductRow;
-  onMapProduct: (row: OrderProductRow) => void;
-}) {
-  const { t } = useTranslation('pod');
-  const { hasPermission } = useAuth();
-  // Khai ánh xạ là một lời GHI (`POST /fulfillment/mappings`, quyền `fulfillment.mapping`).
-  // Seller CÓ quyền này — đây là việc của Designer (§8) — nhưng vai trò tuỳ biến thì chưa
-  // chắc, và nút chắc chắn nhận 403 thì không nên hiện.
-  const canMap = hasPermission('fulfillment.mapping');
-
-  if (row.mappingStatus === 'NO_PROVIDER') {
-    return (
-      <Tooltip content={t('product.mappingNoProviderHint')}>
-        <Badge variant="muted" className="h-6 whitespace-nowrap px-2 text-[11px]">
-          <Link2Off className="mr-1 size-3" />
-          {t('product.mappingNoProvider')}
-        </Badge>
-      </Tooltip>
-    );
-  }
-
-  const needManual = row.mappingStatus === 'NEED_MANUAL';
-
-  return (
-    <>
-      <Tooltip
-        content={
-          needManual
-            ? t('product.mappingNeedManualHint', { count: row.mappingCandidates.length })
-            : t('product.designNoMappingHint')
-        }
-      >
-        <Badge
-          variant={needManual ? 'warning' : 'destructive'}
-          className="h-6 whitespace-nowrap px-2 text-[11px]"
-        >
-          <Link2Off className="mr-1 size-3" />
-          {needManual ? t('product.mappingNeedManual') : t('product.designNoMapping')}
-        </Badge>
-      </Tooltip>
-
-      {canMap && (
-        <Button
-          variant="default"
-          size="sm"
-          className="h-6 whitespace-nowrap px-2 text-[11px]"
-          onClick={(event) => {
-            event.stopPropagation();
-            onMapProduct(row);
-          }}
-        >
-          <Link2 className="size-3" />
-          {t('product.mapProduct')}
-        </Button>
-      )}
-    </>
   );
 }
 

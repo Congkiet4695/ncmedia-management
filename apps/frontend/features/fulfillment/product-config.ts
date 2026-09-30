@@ -198,8 +198,11 @@ export function isFulfillmentConfigValid(draft: ConfigDraft): boolean {
 // "Gửi được chưa" — cả đơn
 // ---------------------------------------------------------------------------
 
-/** Trạng thái còn cho phép gửi (hoặc gửi lại) — CÙNG tập với `FULFILLABLE_STATUSES` ở backend. */
-export const SUBMITTABLE_STATUSES: readonly FulfillmentStatus[] = ['DRAFT', 'FAILED'];
+/**
+ * Trạng thái còn cho phép gửi (hoặc gửi lại) — CÙNG tập với `SUBMITTABLE_FULFILLMENT_STATUSES`
+ * ở backend. `CANCELLED` = nhà cung cấp đã xác nhận huỷ ⇒ Fulfill lại (một lần thử MỚI, mã đơn mới).
+ */
+export const SUBMITTABLE_STATUSES: readonly FulfillmentStatus[] = ['DRAFT', 'FAILED', 'CANCELLED'];
 
 export type SubmitBlocker =
   /** Chưa đọc được trạng thái (đang tải hoặc lỗi mạng). */

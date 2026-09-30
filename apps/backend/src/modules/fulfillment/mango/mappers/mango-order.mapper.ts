@@ -17,6 +17,7 @@ import {
   MangoUpdateOrderRequest,
 } from '../types/mango-api.types';
 import type { TiktokRecipientAddress } from '../../../pod-tiktok/types/tiktok-order.types';
+import { attemptExternalId } from '../../shared/fulfillment-lifecycle';
 
 /** Địa chỉ giao hàng đã chuẩn hoá sang đúng field Mango yêu cầu. */
 export interface NormalizedAddress {
@@ -161,9 +162,10 @@ export class MangoOrderMapper {
    * idempotency: gọi lại với cùng mã sẽ bị từ chối thay vì tạo hai đơn ở xưởng in.
    * Dùng chính `tiktokOrderId` để người vận hành tra cứu hai chiều dễ dàng.
    */
-  buildExternalOrderId(tiktokOrderId: string, prefix = 'NC'): string {
-    const raw = `${prefix}-${tiktokOrderId}`;
-    return raw.length <= MANGO_ORDER_ID_MAX_LENGTH ? raw : raw.slice(0, MANGO_ORDER_ID_MAX_LENGTH);
+  buildExternalOrderId(tiktokOrderId: string, attempt = 1, prefix = 'NC'): string {
+    // Lần 1 giữ nguyên `NC-{tiktokOrderId}`; fulfill lại sau khi huỷ ⇒ `NC-{tiktokOrderId}-R{n}`
+    // (Mango chặn `order_id` trùng — mã của lần đã huỷ không dùng lại được).
+    return attemptExternalId(`${prefix}-${tiktokOrderId}`, attempt, MANGO_ORDER_ID_MAX_LENGTH);
   }
 
   /**

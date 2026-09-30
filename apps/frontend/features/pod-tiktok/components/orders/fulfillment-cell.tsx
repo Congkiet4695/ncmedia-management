@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, Factory, Send } from 'lucide-react';
+import { AlertTriangle, Factory, RotateCcw, Send } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { FulfillOrderDrawer } from '@/features/fulfillment/components/fulfill-order-drawer';
 import { useFulfillmentState } from '@/features/fulfillment/hooks/use-fulfillment';
 import type { FulfillmentStatus } from '@/features/fulfillment/types';
+import { SUBMITTABLE_STATUSES } from '@/features/fulfillment/product-config';
 import { EMPTY, formatOrderDateTime, orderCurrency } from '../../order-view-model';
 
 interface FulfillmentCellProps {
@@ -40,8 +41,9 @@ const STATUS_VARIANT: Record<FulfillmentStatus, 'default' | 'muted' | 'destructi
  * Cột **Fulfillment Info** (§6).
  *
  * ```
- *   chưa gửi  →  "Not Fulfilled" + nút [Fulfill]
- *   đã gửi    →  Provider · Fulfilled At · Fulfilled By · Base Cost   (KHÔNG còn nút Fulfill)
+ *   chưa gửi       →  "Not Fulfilled" + nút [Fulfill]
+ *   đã gửi         →  Provider · Fulfilled By · Fulfilled At · Mã NCC · Base Cost · Tracking
+ *   đã huỷ / hỏng  →  như trên + nút [Fulfill lại] / [Gửi lại] (lần thử mới do backend quyết)
  * ```
  *
  * 🔴 Nút Fulfill **mở Drawer** (`FulfillOrderDrawer`) chứ không POST thẳng: gửi sản xuất là
@@ -160,6 +162,36 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
   }
 
   // ----------------------------------------------------------------- Đã gửi
+  // Đã huỷ (nhà cung cấp xác nhận) / gửi hỏng ⇒ vẫn gửi (lại) được — hiện nút ngay tại cột,
+  // không bắt người dùng phải biết mở drawer bằng cách bấm vào badge trạng thái.
+  const resubmittable = canFulfill && SUBMITTABLE_STATUSES.includes(fulfillment.status);
+  const costCurrency = orderCurrency(fulfillment.currency);
+  // 🔴 Base cost = Σ giá vốn SẢN PHẨM (backend tính theo mọi dòng × số lượng) — KHÔNG phải `total`
+  // của nhà cung cấp (đã gồm phí ship). Chưa được nhà cung cấp xác nhận ⇒ "chờ báo giá", không
+  // hiển thị số tạm như thể là giá thật.
+  const costPending = fulfillment.baseCostPending || !fulfillment.productCostConfirmed;
+  const baseCostValue =
+    fulfillment.status === 'CANCELLED' || fulfillment.status === 'FAILED'
+      ? EMPTY
+      : costPending
+        ? t('pod:orders.fulfillment.baseCostPending')
+        : fulfillment.productCost === null
+          ? EMPTY
+          : formatCurrency(fulfillment.productCost, costCurrency);
+  const costBreakdown = [
+    fulfillment.shippingFee === null
+      ? null
+      : `${t('pod:orders.fulfillment.providerShipping')}: ${formatCurrency(fulfillment.shippingFee, costCurrency)}`,
+    fulfillment.tax === null
+      ? null
+      : `${t('pod:orders.fulfillment.providerTax')}: ${formatCurrency(fulfillment.tax, costCurrency)}`,
+    fulfillment.total === null
+      ? null
+      : `${t('pod:orders.fulfillment.providerTotal')}: ${formatCurrency(fulfillment.total, costCurrency)}`,
+  ]
+    .filter(Boolean)
+    .join(' · ');
+
   return (
     <div className="space-y-0.5 text-[11px] leading-tight">
       {drawer}
@@ -185,31 +217,56 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
 
       <Row
         label={t('pod:orders.fulfillment.provider')}
-        value={data?.provider?.name ?? fulfillment.provider}
+        value={t(`fulfillment:provider.typeValue.${fulfillment.provider}`)}
+      />
+      {/* 🔴 Nhà cung cấp THỰC SỰ nhận đơn (tài khoản của chính bản ghi) — không phải nhà cung cấp
+          mặc định của kết nối TikTok. */}
+      <Row
+        label={t('pod:orders.fulfillment.fulfilledBy')}
+        value={fulfillment.fulfilledBy ?? EMPTY}
       />
       <Row
         label={t('pod:orders.fulfillment.fulfilledAt')}
         value={formatOrderDateTime(fulfillment.submittedAt)}
         mono
       />
-      {/* 🔴 `fulfilledBy` chưa có trong DTO fulfillment — xem "Khoảng trống dữ liệu" ở báo cáo.
-          Hiện `—` kèm giải thích, không bịa ra một cái tên. */}
-      <Row
-        label={t('pod:orders.fulfillment.fulfilledBy')}
-        value={EMPTY}
-        hint={t('pod:orders.fulfillment.fulfilledByHint')}
-      />
+      {fulfillment.providerOrderId && (
+        <Row
+          label={t('pod:orders.fulfillment.providerOrderId')}
+          value={fulfillment.providerOrderId}
+          mono
+        />
+      )}
       <Row
         label={t('pod:orders.fulfillment.baseCost')}
-        value={
-          fulfillment.total === null
-            ? EMPTY
-            : // Cùng quy ước với cột Price: thiếu mã tiền tệ thì mặc định USD, không rơi về
-              // định dạng của ngôn ngữ đang chọn (§3 — không dùng VND).
-              formatCurrency(fulfillment.total, orderCurrency(fulfillment.currency))
-        }
+        value={baseCostValue}
+        hint={costPending ? t('pod:orders.fulfillment.baseCostPendingHint') : costBreakdown || undefined}
         mono
       />
+      {fulfillment.trackingNumber && (
+        <Row
+          label={t('pod:orders.fulfillment.tracking')}
+          value={fulfillment.trackingNumber}
+          mono
+        />
+      )}
+
+      {resubmittable && (
+        <Button
+          variant="outline"
+          size="sm"
+          className="mt-1 h-6 w-full px-2 text-[11px]"
+          onClick={(event) => {
+            event.stopPropagation();
+            setDrawerOpen(true);
+          }}
+        >
+          <RotateCcw className="size-3" />
+          {fulfillment.status === 'CANCELLED'
+            ? t('pod:orders.fulfillment.refulfill')
+            : t('pod:orders.fulfillment.retry')}
+        </Button>
+      )}
 
       {fulfillment.lastErrorMessage && (
         <Tooltip content={fulfillment.lastErrorMessage}>

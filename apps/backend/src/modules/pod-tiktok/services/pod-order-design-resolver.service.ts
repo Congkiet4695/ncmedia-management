@@ -8,6 +8,7 @@ import {
   mappingKeyOf,
 } from '../../fulfillment/shared/mapping-match';
 import { PodDesignDto } from '../dto/pod-design.dto';
+import { toPodDesignDto, type DesignPresentable } from '../mappers/pod-design.presenter';
 import type { PodOrderWithRelations } from '../types/pod-order-with-relations.type';
 
 /** Ánh xạ, đúng những trường dùng để ghép. */
@@ -19,21 +20,9 @@ interface MappingRow {
 }
 
 /** Design của một sản phẩm, đúng những trường cần để hiển thị. */
-interface DesignRow {
-  id: string;
-  placement: PodDesignDto['placement'];
-  version: number;
+interface DesignRow extends DesignPresentable {
   tiktokProductId: string | null;
   sellerSku: string | null;
-  storageFile: {
-    id: string;
-    publicUrl: string | null;
-    originalName: string;
-    mimeType: string;
-    fileSize: number;
-    uploadedAt: Date;
-    uploader: { fullName: string } | null;
-  };
 }
 
 /**
@@ -144,6 +133,8 @@ export class PodOrderDesignResolver {
           version: true,
           tiktokProductId: true,
           sellerSku: true,
+          sourceUrl: true,
+          updatedAt: true,
           storageFile: {
             select: {
               id: true,
@@ -232,18 +223,6 @@ export class PodOrderDesignResolver {
   }
 
   private toDto(design: DesignRow): PodDesignDto {
-    const file = design.storageFile;
-    return {
-      id: design.id,
-      placement: design.placement,
-      // Bucket private ⇒ không có URL công khai, dùng đường tải qua API (có kiểm quyền).
-      fileUrl: file.publicUrl ?? this.storageMapper.buildDownloadUrl(file.id),
-      fileName: file.originalName,
-      mimeType: file.mimeType,
-      fileSize: file.fileSize,
-      version: design.version,
-      uploadedAt: file.uploadedAt.toISOString(),
-      uploadedByName: file.uploader?.fullName ?? null,
-    };
+    return toPodDesignDto(design, (fileId) => this.storageMapper.buildDownloadUrl(fileId));
   }
 }

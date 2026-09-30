@@ -3,6 +3,7 @@ import { FulfillmentOptionsService } from '../../services/fulfillment-options.se
 import { FulfillmentStatus, FulfillmentTrigger, Prisma } from '@prisma/client';
 import {
   FulfillmentAlreadySubmittedException,
+  FulfillmentCannotCancelException,
   FulfillmentClientError,
   FulfillmentErrorClass,
   FulfillmentNotReadyException,
@@ -85,7 +86,11 @@ interface Harness {
   items?: ReturnType<typeof resolvedItem>[];
   ready?: boolean;
   issues?: Array<{ code: string; message: string }>;
-  existing?: { status: FulfillmentStatus } | null;
+  existing?: { status: FulfillmentStatus; attemptCount?: number; providerStatus?: string } | null;
+  /** Lỗi của Get Order Detail (đối soát trước khi gửi lại / hỏi trạng thái trước khi huỷ). */
+  getError?: Error;
+  /** `data` của Cancel Order. */
+  cancelData?: { status?: string };
   /** `data` của Create Order. */
   createData?: MangoOrderResponse | Error;
   /** `data` của Get Order Detail (chỉ dùng khi create thiếu giá vốn). */
@@ -106,6 +111,8 @@ function buildService(options: Harness = {}) {
     color: null as string | null,
     size: null as string | null,
     providerItemId: null as string | null,
+    // Ảnh chụp giá catalog lúc gửi ⇒ CHƯA được nhà cung cấp xác nhận.
+    baseCostConfirmedAt: null as Date | null,
   }));
 
   const updates: Array<Record<string, unknown>> = [];
@@ -117,7 +124,9 @@ function buildService(options: Harness = {}) {
     podOrderId: POD_ORDER,
     externalOrderId: 'NC-TT-1',
     status: options.existing?.status ?? FulfillmentStatus.DRAFT,
-    providerStatus: null,
+    attemptCount: options.existing?.attemptCount ?? 0,
+    providerOrderId: null as string | null,
+    providerStatus: options.existing?.providerStatus ?? null,
     providerFulfillId: null,
     trackingNumber: null,
     trackingUrl: null,
@@ -137,6 +146,8 @@ function buildService(options: Harness = {}) {
   const createDraft = jest.fn().mockResolvedValue(record);
   const repo = {
     findByPodOrder: jest.fn().mockResolvedValue(options.existing ? record : null),
+    countAttempts: jest.fn().mockResolvedValue(0),
+    supersedeCancelled: jest.fn().mockResolvedValue(true),
     // Đơn chưa được nhà cung cấp khác nhận (chống sản xuất hai lần qua hai nhà cung cấp).
     findBlockingRecordOfOtherProvider: jest.fn().mockResolvedValue(null),
     findAccountById: jest.fn().mockResolvedValue(ACCOUNT),
@@ -157,6 +168,8 @@ function buildService(options: Harness = {}) {
           return {
             ...row,
             baseCost: cost.baseCost === null ? row.baseCost : new Prisma.Decimal(cost.baseCost),
+            // Giống repository thật: số do nhà cung cấp báo ⇒ đã xác nhận.
+            baseCostConfirmedAt: cost.baseCost === null ? row.baseCostConfirmedAt : new Date(),
             color: cost.color ?? row.color,
             size: cost.size ?? row.size,
             providerItemId: cost.providerItemId ?? row.providerItemId,
@@ -214,12 +227,17 @@ function buildService(options: Harness = {}) {
       ? Promise.reject(options.createData)
       : Promise.resolve({ data: options.createData ?? {}, requestId: 'req-create', durationMs: 12 }),
   );
-  const getOrder = jest.fn().mockResolvedValue({
-    data: options.getData ?? {},
-    requestId: 'req-get',
-    durationMs: 9,
+  const getOrder = jest.fn(() =>
+    options.getError
+      ? Promise.reject(options.getError)
+      : Promise.resolve({ data: options.getData ?? {}, requestId: 'req-get', durationMs: 9 }),
+  );
+  const cancelOrder = jest.fn().mockResolvedValue({
+    data: options.cancelData ?? {},
+    requestId: 'req-cancel',
+    durationMs: 7,
   });
-  const client = { createOrder, getOrder } as unknown as MangoApiClient;
+  const client = { createOrder, getOrder, cancelOrder } as unknown as MangoApiClient;
 
   const lock = {
     withLock: <T>(_key: string, _ttl: number, task: () => Promise<T>) =>
@@ -241,12 +259,27 @@ function buildService(options: Harness = {}) {
     } as unknown as FulfillmentOptionsService,
     // Mọi SKU của spec thuộc xưởng TIKTOK (raw_data.production_line) — đúng xưởng đang chọn.
     {
+      findCostCurrency: jest.fn().mockResolvedValue('USD'),
       findVariantsForAccount: (_id: string, skus: string[]) =>
         Promise.resolve(skus.map((sku) => ({ sku, status: 'ACTIVE', rawData: { production_line: 'TIKTOK' } }))),
     } as never,
   );
 
-  return { service, repo, createDraft, createOrder, getOrder, updates, histories, record, rows: () => rows };
+  // Mock dạng jest.Mock (repo được ép kiểu thành class nên truy cập method sẽ vướng unbound-method).
+  const repoMocks = repo as unknown as Record<string, jest.Mock>;
+  return {
+    service,
+    repo,
+    repoMocks,
+    createDraft,
+    createOrder,
+    getOrder,
+    cancelOrder,
+    updates,
+    histories,
+    record,
+    rows: () => rows,
+  };
 }
 
 /** Response tạo/đọc đơn của Mango (OrderResponseSchema) — chỉ những field nghiệp vụ dùng tới. */
@@ -505,5 +538,133 @@ describe('MangoFulfillmentService.fulfill — tuỳ chọn gửi đơn', () => {
     expect(request.speed_type).toBeUndefined();
     expect(request.is_scan_label).toBeUndefined();
     expect(request.label_url).toBeUndefined();
+  });
+});
+
+describe('MangoFulfillmentService — Cancel ⇒ Fulfill lại (lần thử mới, không trùng order_id)', () => {
+  it('🔴 bản ghi CANCELLED ⇒ lưu trữ bản ghi cũ, tạo bản ghi MỚI với order_id NC-{id}-R2', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.CANCELLED, attemptCount: 1 },
+      createData: orderResponse([{ item_id: 'fi-1', sku: 'SKU-A', base_cost: 8 }]),
+    });
+    harness.repoMocks.countAttempts.mockResolvedValue(1);
+
+    await harness.service.fulfill(ORG, USER, POD_ORDER);
+
+    expect(harness.repoMocks.supersedeCancelled).toHaveBeenCalledWith(
+      // Mock dùng chung một object (bị cập nhật sau đó) ⇒ chỉ kiểm đúng bản ghi được lưu trữ.
+      expect.objectContaining({ id: 'ful-1' }),
+      USER,
+      FulfillmentTrigger.MANUAL,
+    );
+    expect(harness.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ externalOrderId: 'NC-TT-1-R2' }),
+    );
+    expect(harness.createOrder.mock.calls[0][1].order_id).toBe('NC-TT-1-R2');
+  });
+
+  it('lần gửi ĐẦU TIÊN giữ nguyên mã cũ NC-{id} (hành vi không đổi)', async () => {
+    const harness = buildService({
+      createData: orderResponse([{ item_id: 'fi-1', sku: 'SKU-A', base_cost: 8 }]),
+    });
+
+    await harness.service.fulfill(ORG, USER, POD_ORDER);
+
+    expect(harness.repoMocks.supersedeCancelled).not.toHaveBeenCalled();
+    expect(harness.createOrder.mock.calls[0][1].order_id).toBe('NC-TT-1');
+  });
+
+  it('🔴 đơn đang ở xưởng (SUBMITTED) ⇒ KHÔNG gửi lại', async () => {
+    const harness = buildService({ existing: { status: FulfillmentStatus.SUBMITTED } });
+
+    await expect(harness.service.fulfill(ORG, USER, POD_ORDER)).rejects.toBeInstanceOf(
+      FulfillmentAlreadySubmittedException,
+    );
+    expect(harness.createOrder).not.toHaveBeenCalled();
+    expect(harness.repoMocks.supersedeCancelled).not.toHaveBeenCalled();
+  });
+});
+
+describe('MangoFulfillmentService — retry sau timeout KHÔNG tạo đơn trùng', () => {
+  it('🔴 FAILED sau một lần gửi, Mango THỰC RA đã có đơn ⇒ liên kết, KHÔNG gọi Create Order', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.FAILED, attemptCount: 1 },
+      getData: orderResponse([{ item_id: 'fi-1', sku: 'SKU-A', base_cost: 8 }]),
+    });
+
+    await harness.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.RETRY);
+
+    expect(harness.getOrder).toHaveBeenCalledWith(expect.anything(), 'NC-TT-1');
+    expect(harness.createOrder).not.toHaveBeenCalled();
+    expect(harness.record.providerOrderId).toBe('MG-1001');
+    expect(harness.record.status).toBe(FulfillmentStatus.SUBMITTED);
+  });
+
+  it('FAILED và Mango trả 404 (chưa từng tới) ⇒ gửi lại với ĐÚNG order_id cũ', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.FAILED, attemptCount: 1 },
+      getError: new FulfillmentClientError(FulfillmentErrorClass.NOT_FOUND, 'not found', 404),
+      createData: orderResponse([{ item_id: 'fi-1', sku: 'SKU-A', base_cost: 8 }]),
+    });
+
+    await harness.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.RETRY);
+
+    expect(harness.createOrder).toHaveBeenCalledTimes(1);
+    expect(harness.createOrder.mock.calls[0][1].order_id).toBe('NC-TT-1');
+  });
+
+  it('🔴 tra lại bị lỗi mạng ⇒ KHÔNG gửi (có thể đã có đơn), báo lỗi thử lại được', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.FAILED, attemptCount: 1 },
+      getError: new FulfillmentClientError(FulfillmentErrorClass.NETWORK, 'timeout', 0),
+    });
+
+    await expect(
+      harness.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.RETRY),
+    ).rejects.toBeInstanceOf(FulfillmentProviderTimeoutException);
+    expect(harness.createOrder).not.toHaveBeenCalled();
+  });
+});
+
+describe('MangoFulfillmentService.cancel — hỏi trạng thái THẬT trước khi huỷ', () => {
+  it('🔴 Mango báo đã SHIPPED ⇒ KHÔNG gọi huỷ, báo không huỷ được', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.SUBMITTED },
+      getData: orderResponse([], { status: 'shipped' }),
+    });
+
+    await expect(harness.service.cancel(ORG, USER, POD_ORDER)).rejects.toBeInstanceOf(
+      FulfillmentCannotCancelException,
+    );
+    expect(harness.cancelOrder).not.toHaveBeenCalled();
+  });
+
+  it('Mango xác nhận cancelled ⇒ bản ghi CANCELLED (mở lại nút Fulfill)', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.SUBMITTED },
+      getData: orderResponse([], { status: 'new_order' }),
+      cancelData: { status: 'cancelled' },
+    });
+
+    await harness.service.cancel(ORG, USER, POD_ORDER, 'sai size');
+
+    expect(harness.cancelOrder).toHaveBeenCalledWith(expect.anything(), 'NC-TT-1', {
+      reason: 'sai size',
+    });
+    expect(harness.record.status).toBe(FulfillmentStatus.CANCELLED);
+  });
+
+  it('🔴 Mango CHƯA xác nhận huỷ ⇒ KHÔNG giả thành công, giữ trạng thái thật', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.SUBMITTED },
+      getData: orderResponse([], { status: 'new_order' }),
+      cancelData: {},
+    });
+
+    await harness.service.cancel(ORG, USER, POD_ORDER);
+
+    expect(harness.record.status).toBe(FulfillmentStatus.SUBMITTED);
+    const cancelEntry = harness.histories.find((entry) => entry.eventType === 'CANCEL_SUCCESS');
+    expect(cancelEntry?.success).toBe(false);
   });
 });

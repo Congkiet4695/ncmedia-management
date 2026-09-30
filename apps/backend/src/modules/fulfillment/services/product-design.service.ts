@@ -16,6 +16,7 @@ import { POD_DESIGN_MIME_TYPES } from '../../pod-tiktok/constants/pod-design.con
 import { PodDesignDto } from '../../pod-tiktok/dto/pod-design.dto';
 import { ProductDesignMapper } from '../mappers/product-design.mapper';
 import { mappingKeyOf } from '../shared/mapping-match';
+import { assertPublicHttpsUrl } from '../shared/public-url';
 
 /** Design kèm metadata file — hình dạng dùng chung cho mọi hàm ở đây. */
 const DESIGN_INCLUDE = {
@@ -125,10 +126,7 @@ export class ProductDesignService {
     await this.assertKeyInScope(organizationId, key, scope);
     const where = this.keyWhere(organizationId, key);
 
-    const previous = await this.prisma.fulfillmentProductDesign.findFirst({
-      where: { ...where, placement },
-      select: { id: true, storageFileId: true, version: true },
-    });
+    const previous = await this.findActive(where, placement);
 
     const stored = await this.storage.upload(file, {
       organizationId,
@@ -161,6 +159,8 @@ export class ProductDesignService {
             where: { id: previous.id },
             data: {
               storageFileId: stored.id,
+              // Thay design nguồn URL bằng file ⇒ bỏ URL (CHECK: đúng MỘT nguồn).
+              sourceUrl: null,
               version: previous.version + 1,
               updatedBy: actorUserId,
             },
@@ -187,7 +187,7 @@ export class ProductDesignService {
     }
 
     // Ghi DB xong mới xoá file cũ — tránh mất file khi transaction rollback.
-    if (previous && previous.storageFileId !== stored.id) {
+    if (previous?.storageFileId && previous.storageFileId !== stored.id) {
       await this.storage.removeInternal(organizationId, actorUserId, previous.storageFileId);
     }
 
@@ -223,7 +223,7 @@ export class ProductDesignService {
     const where = this.keyWhere(organizationId, key);
 
     // Gỡ liên kết TRƯỚC khi xoá file: khoá ngoại là `Restrict`.
-    const storageFileId = await this.prisma.$transaction(async (tx) => {
+    const removed = await this.prisma.$transaction(async (tx) => {
       const design = await tx.fulfillmentProductDesign.findFirst({
         where: { ...where, placement },
         select: { id: true, storageFileId: true },
@@ -234,12 +234,16 @@ export class ProductDesignService {
         where: { id: design.id },
         data: { deletedAt: new Date(), updatedBy: actorUserId },
       });
-      return design.storageFileId;
+      return design;
     });
 
-    if (!storageFileId) throw new ProductDesignNotFoundException();
+    if (!removed) throw new ProductDesignNotFoundException();
+    const storageFileId = removed.storageFileId;
 
-    await this.storage.removeInternal(organizationId, actorUserId, storageFileId);
+    // Design nguồn URL không có file trên kho của mình — chỉ xoá mềm bản ghi.
+    if (storageFileId) {
+      await this.storage.removeInternal(organizationId, actorUserId, storageFileId);
+    }
 
     this.logger.log({
       module: 'fulfillment',
@@ -252,9 +256,83 @@ export class ProductDesignService {
     });
   }
 
+  /**
+   * Đặt (hoặc **thay thế**) design tại một vị trí in bằng **URL công khai** — KHÔNG tải file về,
+   * KHÔNG upload lại. Nhà cung cấp tải thẳng từ URL khi sản xuất.
+   *
+   * 🔴 Chỉ nhận HTTPS và host công khai: `localhost`, IP nội bộ, `*.local`… là địa chỉ xưởng in
+   * không bao giờ tới được — nhận chúng là để đơn hỏng ở phía nhà cung cấp, khó chẩn đoán hơn
+   * nhiều so với một lỗi 400 rõ ràng ngay lúc nhập.
+   *
+   * Thay design đang là FILE upload ⇒ file cũ bị xoá khỏi kho SAU khi ghi DB thành công (giống
+   * luồng upload). Cùng luật "một vị trí, một design đang hiệu lực" và cùng kiểm phạm vi shop.
+   */
+  async setUrl(
+    organizationId: string,
+    actorUserId: string,
+    key: ProductDesignKey,
+    placement: PodDesignPlacement,
+    rawUrl: string,
+    scope: PodAccessScope,
+  ): Promise<PodDesignDto> {
+    const url = assertPublicHttpsUrl(rawUrl);
+    await this.assertKeyInScope(organizationId, key, scope);
+    const where = this.keyWhere(organizationId, key);
+    const previous = await this.findActive(where, placement);
+
+    const saved = previous
+      ? await this.prisma.fulfillmentProductDesign.update({
+          where: { id: previous.id },
+          data: {
+            sourceUrl: url,
+            storageFileId: null,
+            version: previous.version + 1,
+            updatedBy: actorUserId,
+          },
+          include: DESIGN_INCLUDE,
+        })
+      : await this.prisma.fulfillmentProductDesign.create({
+          data: {
+            organizationId,
+            tiktokProductId: key.tiktokProductId.trim(),
+            sellerSku: key.sellerSku.trim(),
+            placement,
+            sourceUrl: url,
+            createdBy: actorUserId,
+            updatedBy: actorUserId,
+          },
+          include: DESIGN_INCLUDE,
+        });
+
+    if (previous?.storageFileId) {
+      await this.storage.removeInternal(organizationId, actorUserId, previous.storageFileId);
+    }
+
+    this.logger.log({
+      module: 'fulfillment',
+      operation: 'product-design.set-url',
+      organizationId,
+      productKey: mappingKeyOf(key.tiktokProductId, key.sellerSku),
+      placement,
+      version: saved.version,
+      host: new URL(url).hostname,
+      msg: previous ? 'Đã thay design bằng URL công khai' : 'Đã đặt design bằng URL công khai',
+    });
+
+    return this.designMapper.toDto(saved);
+  }
+
   // ---------------------------------------------------------------------------
   // Private
   // ---------------------------------------------------------------------------
+
+  /** Design đang hiệu lực tại một vị trí (kể cả nguồn URL). */
+  private findActive(where: Prisma.FulfillmentProductDesignWhereInput, placement: PodDesignPlacement) {
+    return this.prisma.fulfillmentProductDesign.findFirst({
+      where: { ...where, placement },
+      select: { id: true, storageFileId: true, version: true },
+    });
+  }
 
   /**
    * Cặp khoá (Product ID + Seller SKU) này có thuộc shop của người dùng không.

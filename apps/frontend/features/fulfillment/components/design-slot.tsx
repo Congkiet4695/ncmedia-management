@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Check, Copy, ImageUp, Loader2, Trash2, Upload } from 'lucide-react';
+import { Check, Copy, ImageUp, Link2, Loader2, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -27,8 +27,33 @@ interface DesignSlotProps {
   onPreview: (src: string) => void;
 }
 
+/** Cách cung cấp file design cho một vị trí in. */
+type DesignSourceMode = 'UPLOAD' | 'URL';
+
 /**
- * Một vị trí in của MỘT Product Mapping: preview · upload · thay thế · xoá.
+ * Kiểm URL design NGAY tại trình duyệt: HTTPS + hostname có tên miền. Chỉ là lớp trải nghiệm —
+ * backend kiểm lại (kể cả chặn localhost / IP nội bộ) và là nơi quyết định cuối cùng.
+ */
+function designUrlProblem(raw: string): 'EMPTY' | 'MALFORMED' | 'NOT_HTTPS' | null {
+  const value = raw.trim();
+  if (!value) return 'EMPTY';
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    return 'MALFORMED';
+  }
+  if (parsed.protocol !== 'https:') return 'NOT_HTTPS';
+  if (!parsed.hostname.includes('.')) return 'MALFORMED';
+  return null;
+}
+
+/**
+ * Một vị trí in của MỘT Product Mapping: preview · upload · dán URL công khai · thay thế · xoá.
+ *
+ * 🔴 Hai nguồn, chọn rõ ràng: **Upload file** (lên kho lưu trữ, lấy URL công khai sau khi xong)
+ * hoặc **Public URL** (file đã có sẵn ở kho công khai — KHÔNG tải về, KHÔNG upload lại). Nhà cung
+ * cấp nhận đúng URL cuối cùng của nguồn đang hiệu lực.
  *
  * 🔴 Dùng chung giữa màn hình **Product Mapping** (nơi quản trị sản phẩm) và dialog trên màn
  * hình **Orders** (nơi phát hiện thiếu design). Hai bản sao của khối này sẽ lệch nhau ở đúng
@@ -57,9 +82,36 @@ export function DesignSlot({ productKey, placement, design, onPreview }: DesignS
   const canUpload = hasPermission('pod.tiktok.design.upload');
   const canDelete = hasPermission('pod.tiktok.design.delete');
 
-  const { upload, remove } = useMappingDesignActions();
+  const { upload, remove, setUrl } = useMappingDesignActions();
+  const [mode, setMode] = useState<DesignSourceMode>(design?.source === 'URL' ? 'URL' : 'UPLOAD');
+  const [urlInput, setUrlInput] = useState('');
+  const [urlError, setUrlError] = useState<string | null>(null);
 
   useEffect(() => setCurrent(design), [design]);
+
+  const handleSetUrl = async () => {
+    const problem = designUrlProblem(urlInput);
+    if (problem) {
+      setUrlError(t(`pod:design.url.error.${problem}`));
+      return;
+    }
+    setUrlError(null);
+    try {
+      const saved = await setUrl.mutateAsync({
+        key: productKey,
+        placement,
+        url: urlInput.trim(),
+      });
+      setCurrent(saved);
+      setUrlInput('');
+      toast.success(t('pod:design.url.saved', { placement: placementLabel }));
+    } catch (error) {
+      // Lỗi nằm ở URL (backend: HTTPS / host công khai) — hiện ngay dưới ô nhập, không chỉ toast.
+      const message = translateApiError(error);
+      setUrlError(message);
+      toast.error(t('pod:design.url.failed'), { description: message });
+    }
+  };
 
   const handleFile = async (file: File | undefined) => {
     if (!file) return;
@@ -85,7 +137,10 @@ export function DesignSlot({ productKey, placement, design, onPreview }: DesignS
       });
       setCurrent(saved);
       toast.success(t('pod:design.uploaded', { placement: placementLabel }), {
-        description: `${saved.fileName} · ${formatFileSize(saved.fileSize)}`,
+        description:
+          saved.fileSize === null
+            ? saved.fileName
+            : `${saved.fileName} · ${formatFileSize(saved.fileSize)}`,
       });
     } catch (error) {
       toast.error(t('pod:design.uploadFailed'), { description: translateApiError(error) });
@@ -117,7 +172,7 @@ export function DesignSlot({ productKey, placement, design, onPreview }: DesignS
     }
   };
 
-  const busy = upload.isPending || remove.isPending;
+  const busy = upload.isPending || remove.isPending || setUrl.isPending;
 
   return (
     <div className="space-y-2 rounded-md border p-3">
@@ -179,9 +234,73 @@ export function DesignSlot({ productKey, placement, design, onPreview }: DesignS
             </Button>
           </div>
           <p className="truncate text-xs text-muted-foreground" title={current.fileName}>
-            {current.fileName} · {formatFileSize(current.fileSize)}
+            {current.source === 'URL' ? `${t('pod:design.url.sourceLabel')} · ` : ''}
+            {current.fileName}
+            {current.fileSize === null ? '' : ` · ${formatFileSize(current.fileSize)}`}
             {current.uploadedByName ? ` · ${current.uploadedByName}` : ''}
           </p>
+        </div>
+      )}
+
+      {/* Chọn nguồn file — hai cách rõ ràng, không gộp vào một ô. */}
+      {canUpload && (
+        <div className="grid grid-cols-2 gap-1 rounded-md bg-muted p-0.5" role="tablist">
+          {(['UPLOAD', 'URL'] as const).map((value) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={mode === value}
+              onClick={() => {
+                setMode(value);
+                setUrlError(null);
+              }}
+              disabled={busy}
+              className={
+                mode === value
+                  ? 'rounded bg-background px-2 py-1 text-xs font-medium shadow-sm'
+                  : 'rounded px-2 py-1 text-xs text-muted-foreground'
+              }
+            >
+              {t(`pod:design.mode.${value}`)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {canUpload && mode === 'URL' && (
+        <div className="space-y-1">
+          <div className="flex gap-1">
+            <Input
+              value={urlInput}
+              onChange={(event) => {
+                setUrlInput(event.target.value);
+                if (urlError) setUrlError(null);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') {
+                  event.preventDefault();
+                  void handleSetUrl();
+                }
+              }}
+              placeholder={t('pod:design.url.placeholder')}
+              className="h-8 text-xs"
+              aria-invalid={urlError ? true : undefined}
+              disabled={busy}
+            />
+            <Button
+              type="button"
+              size="sm"
+              className="h-8 shrink-0"
+              onClick={() => void handleSetUrl()}
+              disabled={busy || !urlInput.trim()}
+            >
+              {setUrl.isPending ? <Loader2 className="size-4 animate-spin" /> : <Link2 className="size-4" />}
+              {current ? t('pod:design.url.replace') : t('pod:design.url.use')}
+            </Button>
+          </div>
+          {urlError && <p className="text-xs text-destructive">{urlError}</p>}
+          <p className="text-xs text-muted-foreground">{t('pod:design.url.hint')}</p>
         </div>
       )}
 
@@ -194,7 +313,7 @@ export function DesignSlot({ productKey, placement, design, onPreview }: DesignS
           className="hidden"
           onChange={(e) => void handleFile(e.target.files?.[0])}
         />
-        {canUpload && (
+        {canUpload && mode === 'UPLOAD' && (
           <Button
             type="button"
             variant={current ? 'outline' : 'default'}
@@ -221,9 +340,11 @@ export function DesignSlot({ productKey, placement, design, onPreview }: DesignS
           </Button>
         )}
       </div>
-      <p className="text-xs text-muted-foreground">
-        {t('pod:design.fileHint', { size: MAX_UPLOAD_MB })}
-      </p>
+      {mode === 'UPLOAD' && (
+        <p className="text-xs text-muted-foreground">
+          {t('pod:design.fileHint', { size: MAX_UPLOAD_MB })}
+        </p>
+      )}
     </div>
   );
 }

@@ -111,6 +111,8 @@ function buildStateService(
 
   const repo = {
     findByPodOrder: jest.fn().mockResolvedValue(null),
+    countAttempts: jest.fn().mockResolvedValue(0),
+    supersedeCancelled: jest.fn().mockResolvedValue(true),
     findCurrentByPodOrder: jest.fn().mockResolvedValue(null),
     findBlockingRecordOfOtherProvider: jest.fn().mockResolvedValue(null),
     findAccountById: jest.fn((_org: string, id: string) =>
@@ -216,6 +218,8 @@ function buildFulfillService(
   const createDraft = jest.fn().mockResolvedValue(record);
   const repo = {
     findByPodOrder: jest.fn().mockResolvedValue(null),
+    countAttempts: jest.fn().mockResolvedValue(0),
+    supersedeCancelled: jest.fn().mockResolvedValue(true),
     findCurrentByPodOrder: jest.fn().mockResolvedValue(null),
     findBlockingRecordOfOtherProvider: jest.fn().mockResolvedValue(null),
     findAccountById: jest.fn((_org: string, id: string) =>
@@ -294,7 +298,7 @@ function buildFulfillService(
     } as unknown as TiktokEncryptionService),
     { withLock: <T,>(_k: string, _t: number, task: () => Promise<T>) => task() } as unknown as DistributedLockService,
     { forAccount: () => Promise.resolve({ productionLines: [] }) } as unknown as FulfillmentOptionsService,
-    { findVariantsForAccount: () => Promise.resolve([]) } as never,
+    { findVariantsForAccount: () => Promise.resolve([]), findCostCurrency: () => Promise.resolve('USD') } as never,
   );
 
   return { service, createDraft, repo: repo as unknown as Record<string, jest.Mock> };

@@ -162,6 +162,32 @@ export default () => ({
    * API key của nhà cung cấp KHÔNG nằm ở đây: mỗi Organization tự cấu hình và khoá được
    * mã hoá trong DB (`fulfillment_accounts.api_key_enc`). Phần này chỉ là tham số vận hành.
    */
+  /**
+   * Module Notification — Telegram theo Organization (docs/notification/README.md).
+   *
+   * Bot Token / Chat ID KHÔNG nằm ở đây: mỗi tổ chức tự cấu hình, token mã hoá trong DB bằng
+   * khoá RIÊNG `NOTIFICATION_ENCRYPTION_KEY`. Thiếu khoá ⇒ chỉ tính năng Telegram báo lỗi cấu
+   * hình, ứng dụng vẫn chạy (không fail-fast như khoá của Account/TikTok).
+   */
+  notification: {
+    encryptionKey: process.env.NOTIFICATION_ENCRYPTION_KEY ?? '',
+    telegram: {
+      apiBaseUrl: process.env.TELEGRAM_API_BASE_URL ?? 'https://api.telegram.org',
+      timeoutMs: parseInt(process.env.TELEGRAM_HTTP_TIMEOUT_MS ?? '10000', 10),
+    },
+    dispatch: {
+      enabled: (process.env.NOTIFICATION_DISPATCH_ENABLED ?? 'true') === 'true',
+      /** Cron 6 trường (có giây) — mặc định mỗi 15 giây. */
+      cron: process.env.NOTIFICATION_DISPATCH_CRON ?? '*/15 * * * * *',
+      /** Số sự kiện xử lý tối đa mỗi lượt. */
+      batchSize: parseInt(process.env.NOTIFICATION_DISPATCH_BATCH_SIZE ?? '20', 10),
+      /** Số lần gọi Telegram tối đa cho một sự kiện trước khi chuyển FAILED. */
+      maxAttempts: parseInt(process.env.NOTIFICATION_MAX_ATTEMPTS ?? '5', 10),
+      /** Lease của một lượt claim (ms) — PHẢI lớn hơn hẳn TELEGRAM_HTTP_TIMEOUT_MS. */
+      leaseMs: parseInt(process.env.NOTIFICATION_LEASE_MS ?? '120000', 10),
+    },
+  },
+
   fulfillment: {
     /** Base URL công khai của hệ thống — dùng để dựng URL webhook đăng ký với nhà cung cấp. */
     webhookBaseUrl: process.env.FULFILLMENT_WEBHOOK_BASE_URL ?? '',

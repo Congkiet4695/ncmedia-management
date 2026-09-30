@@ -1,0 +1,85 @@
+{
+  "pageTitle": "Notification settings",
+  "pageDescription": "Send this organization's order and fulfillment notifications to a Telegram group.",
+  "noPermission": "Only organization admins can configure notifications.",
+  "telegram": {
+    "title": "Telegram Integration",
+    "description": "New orders (from manual and automatic sync), successful fulfillments and confirmed cancellations are sent to this chat.",
+    "status": {
+      "NOT_CONFIGURED": "Not configured",
+      "DISABLED": "Disabled",
+      "UNTESTED": "Not tested yet",
+      "CONNECTED": "Connected",
+      "DISCONNECTED": "Disconnected"
+    },
+    "botToken": "Bot Token",
+    "botTokenPlaceholder": "123456789:AA… (from @BotFather)",
+    "botTokenHint": "Create a bot with @BotFather and paste its token here.",
+    "botTokenKeepHint": "Leave empty to keep the saved token. The token is never shown again.",
+    "chatId": "Chat ID",
+    "chatIdHint": "Group / channel ID (e.g. -1001234567890) or @channelusername. Add the bot to the group first.",
+    "enable": "Enable Telegram notifications",
+    "sendTest": "Send Test Message",
+    "testSuccess": "Telegram connection successful. {{bot}}",
+    "testError": {
+      "TELEGRAM_INVALID_TOKEN": "Invalid Bot Token.",
+      "TELEGRAM_CHAT_NOT_FOUND": "Chat not found — check the Chat ID and that the bot is in the group.",
+      "TELEGRAM_FORBIDDEN": "The bot is not allowed to post in this chat.",
+      "TELEGRAM_BAD_REQUEST": "Telegram rejected the request.",
+      "TELEGRAM_RATE_LIMITED": "Telegram is rate limiting this bot — try again shortly.",
+      "TELEGRAM_SERVER_ERROR": "Telegram is having problems — try again shortly.",
+      "TELEGRAM_NETWORK_ERROR": "Cannot reach Telegram from the server.",
+      "TELEGRAM_TIMEOUT": "Telegram did not respond in time."
+    },
+    "saved": "Telegram settings saved",
+    "saveFailed": "Could not save Telegram settings",
+    "remove": "Remove",
+    "removeTitle": "Remove Telegram integration?",
+    "removeConfirm": "The saved Bot Token and Chat ID are removed and no more notifications are sent.",
+    "removed": "Telegram integration removed",
+    "removeFailed": "Could not remove Telegram integration",
+    "encryptionMissing": "The server has no NOTIFICATION_ENCRYPTION_KEY yet, so the Bot Token cannot be stored. Contact your system administrator.",
+    "lastError": "Last delivery failed ({{at}}):",
+    "error": {
+      "tokenFormat": "The token must look like <bot id>:<secret> from @BotFather.",
+      "chatRequired": "Enter a Chat ID.",
+      "chatFormat": "Use a numeric ID (e.g. -1001234567890) or @channelusername."
+    }
+  },
+  "events": {
+    "title": "Recent notifications",
+    "description": "Delivery status of each notification — use it to find configuration problems.",
+    "filterType": "Notification type",
+    "filterStatus": "Status",
+    "allTypes": "All types",
+    "allStatuses": "All statuses",
+    "type": {
+      "ORDER_CREATED": "New order",
+      "FULFILLMENT_SUBMITTED": "Fulfilled",
+      "FULFILLMENT_CANCELLED": "Fulfillment cancelled"
+    },
+    "status": {
+      "PENDING": "Pending",
+      "PROCESSING": "Sending",
+      "SENT": "Sent",
+      "FAILED": "Failed",
+      "SKIPPED": "Skipped"
+    },
+    "column": {
+      "createdAt": "Time",
+      "type": "Type",
+      "order": "Order ID",
+      "status": "Status",
+      "attempts": "Attempts",
+      "detail": "Detail"
+    },
+    "empty": "No notifications yet.",
+    "sentAt": "Sent {{at}}",
+    "nextAttempt": "Retrying at {{at}}",
+    "retry": "Resend",
+    "retryAll": "Resend all failed",
+    "retryQueued": "Notification queued for sending",
+    "retryAllQueued": "{{count}} notification(s) queued for sending",
+    "retryFailed": "Could not resend"
+  }
+}

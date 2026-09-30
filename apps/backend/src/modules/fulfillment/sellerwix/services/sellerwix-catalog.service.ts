@@ -193,8 +193,10 @@ export class SellerwixCatalogService {
   private toVariantInput(productSku: string, item: SellerwixVariant): VariantUpsertInput | null {
     const sku = item.sku?.trim();
     if (!sku) return null;
-    const color = item.color?.name?.trim() || null;
-    const size = item.size?.name?.trim() || null;
+    // Tài liệu cho `{ name }`; chấp nhận cả chuỗi trần để một khác biệt định dạng không làm rỗng
+    // cả ô Color / Size (không bao giờ rơi về hiển thị id).
+    const color = nameOf(item.color);
+    const size = nameOf(item.size);
     return {
       externalProductId: productSku,
       externalVariantId: sku,
@@ -203,7 +205,10 @@ export class SellerwixCatalogService {
       color,
       size,
       // Giữ nguyên số Sellerwix báo, dạng chuỗi — cột `price` là chuỗi để không mất định dạng.
-      price: typeof item.cost === 'number' ? String(item.cost) : null,
+      price:
+        typeof item.cost === 'number' || (typeof item.cost === 'string' && item.cost.trim() !== '')
+          ? String(item.cost).trim()
+          : null,
       status:
         item.active === false
           ? FulfillmentCatalogItemStatus.INACTIVE
@@ -212,4 +217,10 @@ export class SellerwixCatalogService {
       rawData: item as unknown as Prisma.InputJsonValue,
     };
   }
+}
+
+/** Tên hiển thị của `color` / `size`: `{ name }` (tài liệu) hoặc chuỗi trần. */
+function nameOf(value: { name?: string } | string | null | undefined): string | null {
+  if (typeof value === 'string') return value.trim() || null;
+  return value?.name?.trim() || null;
 }

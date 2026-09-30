@@ -157,3 +157,10 @@ export const SELLERWIX_PROVIDER_NOTICE =
   'Sellerwix nhận đơn theo SKU BIẾN THỂ (vd SW-MD-MPTG-BL-XL) và vị trí in theo `print_areas` của ' +
   'chính biến thể đó. Phương thức vận chuyển phụ thuộc từng biến thể — chỉ những phương thức mọi ' +
   'sản phẩm trong đơn cùng hỗ trợ mới hiện ra.';
+
+/**
+ * Độ dài tối đa của `reference_id` NCMedia sinh ra. Tài liệu Sellerwix không nêu giới hạn ⇒ dùng
+ * giới hạn của cột lưu nó (`fulfillment_orders.external_order_id VARCHAR(40)`): mã đơn TikTok
+ * (18–19 chữ số) + hậu tố lần thử `-R{n}` luôn nằm gọn.
+ */
+export const SELLERWIX_REFERENCE_ID_MAX_LENGTH = 40;

@@ -60,9 +60,11 @@ export interface SellerwixVariant {
   active?: boolean;
   is_rush_service?: boolean;
   label_support?: boolean;
-  cost?: number;
-  color?: { name?: string; code?: string } | null;
-  size?: { name?: string } | null;
+  /** Giá vốn biến thể. Tài liệu ví dụ là số; chấp nhận chuỗi số (không ép kiểu sai sang 0). */
+  cost?: number | string;
+  /** Tài liệu: `{ name, code }`. Chấp nhận chuỗi trần (xem `nameOf` ở catalog service). */
+  color?: { name?: string; code?: string } | string | null;
+  size?: { name?: string } | string | null;
   print_areas?: SellerwixVariantPrintArea[];
 }
 

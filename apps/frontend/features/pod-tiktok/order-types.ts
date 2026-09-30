@@ -32,13 +32,60 @@ export type PodDesignPlacement = (typeof POD_DESIGN_PLACEMENTS)[number];
 export const POD_ACTIVE_PLACEMENTS: PodDesignPlacement[] = ['FRONT', 'BACK'];
 
 /** Một file design đã upload cho sản phẩm. */
+/** Tiền thu về của đơn — do backend lấy từ TikTok Finance (không tính ở giao diện). */
+export interface PodOrderProceeds {
+  /** SETTLED: đã quyết toán · ESTIMATED: chưa quyết toán (est_settlement_amount). */
+  source: 'SETTLED' | 'ESTIMATED';
+  currency: string;
+  amount: number;
+  revenueAmount: number | null;
+  feeTaxAmount: number | null;
+  shippingCostAmount: number | null;
+  adjustmentAmount: number | null;
+  /** Breakdown NGUYÊN VĂN của TikTok (field → số tiền dạng chuỗi, có thể lồng một cấp). */
+  revenueBreakdown: FinanceBreakdown | null;
+  feeTaxBreakdown: FinanceBreakdown | null;
+  shippingCostBreakdown: FinanceBreakdown | null;
+  transactionCount: number;
+  estimatedSettlement: string | null;
+  unsettledReason: string | null;
+}
+
+export type FinanceBreakdown = { [field: string]: string | FinanceBreakdown | undefined };
+
+/** Vì sao chưa tính được lợi nhuận (OK = đã tính). */
+export type PodOrderFinancialsStatus =
+  | 'OK'
+  | 'NO_PROCEEDS'
+  | 'NO_COST'
+  | 'COST_PENDING'
+  | 'COST_CURRENCY_UNKNOWN'
+  | 'CURRENCY_MISMATCH';
+
+/** Tài chính của đơn cho cột Giá — backend đã tính (profit = proceeds − base cost). */
+export interface PodOrderFinancials {
+  proceeds: PodOrderProceeds | null;
+  /** Base cost = product cost của lần fulfill đang hiệu lực. */
+  productCost: number | null;
+  productCostConfirmed: boolean;
+  costCurrency: string | null;
+  fulfilledBy: string | null;
+  profit: number | null;
+  /** Tỉ lệ (0.25 = 25%) = profit ÷ proceeds. */
+  margin: number | null;
+  status: PodOrderFinancialsStatus;
+}
+
 export interface PodDesign {
   id: string;
   placement: PodDesignPlacement;
+  /** UPLOAD: file upload lên kho lưu trữ · URL: URL công khai nhập trực tiếp (không upload lại). */
+  source: 'UPLOAD' | 'URL';
   fileUrl: string;
   fileName: string;
-  mimeType: string;
-  fileSize: number;
+  /** NULL với nguồn URL (hệ thống không tải file về). */
+  mimeType: string | null;
+  fileSize: number | null;
   version: number;
   uploadedAt: string;
   uploadedByName: string | null;
@@ -223,6 +270,12 @@ export interface PodOrderListItem {
   status: PodOrderStatus;
   totalAmount: number | null;
   currency: string | null;
+  subTotal: number | null;
+  shippingFee: number | null;
+  tax: number | null;
+  sellerDiscount: number | null;
+  platformDiscount: number | null;
+  financials: PodOrderFinancials;
   orderType: string | null;
   hasPodItem: boolean;
   itemCount: number;

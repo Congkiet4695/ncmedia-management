@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '../auth/auth.module';
+import { NotificationModule } from '../notification/notification.module';
 import { PodTiktokModule } from '../pod-tiktok/pod-tiktok.module';
 import { FulfillmentController } from './controllers/fulfillment.controller';
 import { PlatformFulfillmentController } from './controllers/platform-fulfillment.controller';
@@ -30,6 +31,7 @@ import { ProductDesignService } from './services/product-design.service';
 import { FulfillmentSyncService } from './services/fulfillment-sync.service';
 import { FulfillmentService } from './services/fulfillment.service';
 import { FulfillmentProviderGateway } from './services/fulfillment-provider.gateway';
+import { FulfillmentNotificationService } from './services/fulfillment-notification.service';
 import { SellerwixApiClient } from './sellerwix/clients/sellerwix-api.client';
 import { SellerwixOrderMapper } from './sellerwix/mappers/sellerwix-order.mapper';
 import { SellerwixCatalogService } from './sellerwix/services/sellerwix-catalog.service';
@@ -62,7 +64,7 @@ import { SellerwixWebhookService } from './sellerwix/webhook/sellerwix-webhook.s
  * Module POD KHÔNG biết gì về Fulfillment ⇒ không có phụ thuộc vòng.
  */
 @Module({
-  imports: [AuthModule, PodTiktokModule, ScheduleModule.forRoot()],
+  imports: [AuthModule, PodTiktokModule, NotificationModule, ScheduleModule.forRoot()],
   controllers: [
     FulfillmentController,
     PodOrderFulfillmentController,
@@ -107,6 +109,7 @@ import { SellerwixWebhookService } from './sellerwix/webhook/sellerwix-webhook.s
     SellerwixWebhookService,
     // Chọn adapter theo nhà cung cấp — điểm vào duy nhất từ controller/scheduler.
     FulfillmentProviderGateway,
+    FulfillmentNotificationService,
     // Lịch
     FulfillmentSyncJob,
     FulfillmentCatalogSyncJob,

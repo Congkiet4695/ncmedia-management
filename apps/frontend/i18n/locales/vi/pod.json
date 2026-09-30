@@ -131,7 +131,25 @@
     "viewLarge": "Xem ảnh lớn",
     "sharedScopeHint": "Design thuộc về sản phẩm (Product ID + Seller SKU), không thuộc riêng đơn này. Thay hoặc xoá file ở đây sẽ áp cho mọi đơn cùng sản phẩm chưa gửi sản xuất.",
     "noKeyTitle": "Sản phẩm thiếu khoá",
-    "noKeyHint": "Dòng hàng này thiếu Product ID hoặc Seller SKU. Design được lưu theo cặp khoá đó, nên không xác định được lưu cho sản phẩm nào. Hãy đồng bộ lại đơn từ TikTok."
+    "noKeyHint": "Dòng hàng này thiếu Product ID hoặc Seller SKU. Design được lưu theo cặp khoá đó, nên không xác định được lưu cho sản phẩm nào. Hãy đồng bộ lại đơn từ TikTok.",
+    "mode": {
+      "UPLOAD": "Upload file",
+      "URL": "Public URL"
+    },
+    "url": {
+      "placeholder": "https://… (URL ảnh công khai)",
+      "use": "Dùng URL",
+      "replace": "Thay",
+      "saved": "Đã đặt design {{placement}} từ URL",
+      "failed": "Không dùng được URL này",
+      "sourceLabel": "URL công khai",
+      "hint": "Chỉ HTTPS. Nhà cung cấp tải file trực tiếp từ URL này — URL phải truy cập công khai được.",
+      "error": {
+        "EMPTY": "Nhập URL.",
+        "MALFORMED": "URL không hợp lệ.",
+        "NOT_HTTPS": "URL phải bắt đầu bằng https://"
+      }
+    }
   },
   "flashSale": {
     "title": "Flash Sale",
@@ -1374,9 +1392,62 @@
       "subtotal": "Tạm tính",
       "tax": "Thuế",
       "buyerPaid": "Khách trả",
-      "estimated": "Ước tính",
-      "taxHint": "Thuế chỉ có ở endpoint chi tiết đơn — mở rộng dòng để xem.",
-      "estimatedHint": "Số tiền quyết toán ước tính chưa được API đơn hàng TikTok trả về."
+      "taxHint": "TikTok không trả thuế cho đơn này.",
+      "shipping": "Phí ship",
+      "proceeds": {
+        "label": "Tiền thu về ước tính",
+        "ESTIMATED": "Tiền thu về ước tính",
+        "SETTLED": "Tiền thu về (đã quyết toán)"
+      },
+      "profit": "Lợi nhuận",
+      "margin": "Margin",
+      "marginUndefined": "Không tính margin khi tiền thu về bằng 0 hoặc âm.",
+      "profitStatus": {
+        "NO_PROCEEDS": "TikTok chưa có dữ liệu quyết toán / ước tính quyết toán cho đơn này.",
+        "NO_COST": "Chưa có base cost — đơn chưa được fulfill (hoặc lần fulfill đã huỷ).",
+        "COST_PENDING": "Đang chờ nhà cung cấp fulfillment xác nhận base cost.",
+        "COST_CURRENCY_UNKNOWN": "Nhà cung cấp không nêu đơn vị tiền của base cost — chưa tính lợi nhuận.",
+        "CURRENCY_MISMATCH": "Tiền thu về và base cost khác đơn vị tiền — chưa tính lợi nhuận."
+      },
+      "section": {
+        "revenue": "Doanh thu",
+        "feeTax": "Phí & thuế",
+        "shippingCost": "Chi phí vận chuyển",
+        "adjustment": "Điều chỉnh"
+      },
+      "estimatedNote": "Số ước tính của TikTok — có thể đổi cho tới khi quyết toán",
+      "estimatedSettlement": "quyết toán: {{value}}",
+      "multipleTransactions": "Tổng của {{count}} giao dịch — chỉ hiện breakdown cho đơn có một giao dịch.",
+      "field": {
+        "subtotal_before_discount_amount": "Doanh thu gộp (Gross sales)",
+        "refund_subtotal_before_discount_amount": "Hoàn doanh thu gộp",
+        "seller_discount_amount": "Giảm giá của seller",
+        "seller_discount_refund_amount": "Hoàn giảm giá của seller",
+        "cod_service_fee_amount": "Phí dịch vụ COD",
+        "refund_cod_service_fee_amount": "Hoàn phí dịch vụ COD",
+        "referral_fee_amount": "Phí giới thiệu (Referral fee)",
+        "transaction_fee_amount": "Phí giao dịch",
+        "platform_commission_amount": "Hoa hồng nền tảng",
+        "affiliate_commission_amount": "Hoa hồng affiliate",
+        "affiliate_ads_commission_amount": "Hoa hồng quảng cáo affiliate",
+        "affiliate_partner_commission_amount": "Hoa hồng đối tác affiliate",
+        "sfp_service_fee_amount": "Phí dịch vụ SFP",
+        "credit_card_handling_fee_amount": "Phí xử lý thẻ",
+        "retail_delivery_fee_amount": "Phí giao hàng bán lẻ",
+        "sales_tax_amount": "Thuế bán hàng",
+        "sales_tax_referral_fee_amount": "Thuế trên phí giới thiệu",
+        "vat_amount": "VAT",
+        "gst_amount": "GST",
+        "actual_shipping_fee_amount": "Phí ship thực tế",
+        "customer_paid_shipping_fee_amount": "Phí ship khách trả",
+        "shipping_fee_discount_amount": "Giảm phí ship",
+        "return_shipping_fee_amount": "Phí ship trả hàng",
+        "seller_shipping_fee_discount_amount": "Giảm phí ship (seller)",
+        "platform_shipping_fee_discount_amount": "Giảm phí ship (nền tảng)",
+        "shipping_insurance_fee_amount": "Bảo hiểm vận chuyển",
+        "signature_confirmation_fee_amount": "Phí xác nhận chữ ký",
+        "tiktok_shop_shipping_incentive_amount": "Hỗ trợ phí ship của TikTok Shop"
+      }
     },
     "fulfillment": {
       "notFulfilled": "Chưa gửi",
@@ -1385,10 +1456,18 @@
       "provider": "Xưởng in",
       "fulfilledAt": "Gửi lúc",
       "fulfilledBy": "Người gửi",
-      "fulfilledByHint": "API fulfillment chưa trả về người đã gửi đơn.",
       "baseCost": "Giá gốc",
       "blockedHint": "Đơn chưa gửi được — xem các lý do liệt kê bên dưới.",
-      "openDetail": "Xem chi tiết fulfillment"
+      "openDetail": "Xem chi tiết fulfillment",
+      "baseCostPending": "Chờ báo giá",
+      "baseCostPendingHint": "Nhà cung cấp chưa xác nhận giá vốn sản phẩm. Hệ thống tự cập nhật ở lượt đồng bộ kế tiếp.",
+      "providerShipping": "Ship NCC",
+      "providerTax": "Thuế NCC",
+      "providerTotal": "Tổng NCC",
+      "providerOrderId": "Mã đơn NCC",
+      "tracking": "Tracking",
+      "refulfill": "Fulfill lại",
+      "retry": "Gửi lại"
     },
     "actions": {
       "syncFulfillment": "Đồng bộ xưởng in",
@@ -1396,7 +1475,10 @@
       "syncDone": "Đã cập nhật trạng thái xưởng in",
       "cancelFulfillment": "Huỷ đơn xưởng in",
       "cancelConfirm": "Huỷ đơn này tại xưởng in? Thao tác không thể hoàn tác.",
-      "cancelReasonPlaceholder": "Lý do (tuỳ chọn) — giúp đối soát với xưởng in về sau"
+      "cancelReasonPlaceholder": "Lý do (tuỳ chọn) — giúp đối soát với xưởng in về sau",
+      "cancelRefulfillHint": "Nhà cung cấp đã xác nhận huỷ. Có thể Fulfill lại đơn này.",
+      "cancelRequested": "Đã gửi yêu cầu huỷ",
+      "cancelPendingHint": "Nhà cung cấp chưa xác nhận huỷ (trạng thái: {{status}}). Đơn chỉ Fulfill lại được sau khi đã huỷ."
     },
     "bulk": {
       "selected": "Đã chọn {{count}}",
@@ -1421,7 +1503,9 @@
       "buyerPaid": "Khách trả",
       "currency": "Tiền tệ",
       "tracking": "Vận đơn",
-      "skus": "SKU"
+      "skus": "SKU",
+      "proceeds": "Tiền thu về",
+      "profit": "Lợi nhuận"
     },
     "expand": {
       "buyer": "Thông tin người mua",
@@ -1526,13 +1610,6 @@
     "designReadyHint": "Đã có đủ design mặt trước và mặt sau.",
     "manageDesign": "Design",
     "sellerSku": "Seller SKU",
-    "mapProduct": "Map Product",
-    "mapProductSuccess": "Đã tạo Product Mapping",
-    "mapProductFailed": "Không tạo được Product Mapping",
-    "mappingNeedManual": "Cần chọn tay",
-    "mappingNeedManualHint": "Hệ thống tìm được {{count}} khả năng nhưng không tự chọn — ánh xạ sai còn tệ hơn không ánh xạ. Bấm \"Map Product\" để chọn.",
-    "mappingNoProvider": "Chưa gán nhà cung cấp",
-    "mappingNoProviderHint": "Kết nối TikTok của đơn này chưa gán nhà cung cấp fulfillment, hoặc danh mục chưa đồng bộ lần nào. Sửa ở màn hình cấu hình nhà cung cấp.",
     "viewImage": "Xem ảnh sản phẩm cỡ lớn"
   },
   "products": {

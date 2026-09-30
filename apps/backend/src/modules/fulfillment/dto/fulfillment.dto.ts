@@ -1088,6 +1088,11 @@ export class FulfillmentItemDto {
   })
   baseCost!: number | null;
   @ApiProperty({
+    description:
+      'true = `baseCost` là số NHÀ CUNG CẤP đã báo; false = mới là ảnh chụp giá catalog lúc gửi.',
+  })
+  baseCostConfirmed!: boolean;
+  @ApiProperty({
     nullable: true,
     type: String,
     description: 'items[].item_id phía nhà cung cấp (bằng id dòng này khi đơn được gửi kèm item_id).',
@@ -1126,10 +1131,28 @@ export class FulfillmentOrderDto {
   @ApiProperty({ nullable: true, type: String }) currency!: string | null;
   @ApiProperty({
     description:
-      'Còn dòng hàng chưa có giá vốn từ nhà cung cấp. Đơn vẫn được tiếp nhận; giá vốn sẽ được ' +
-      'điền ở lượt đồng bộ kế tiếp.',
+      'Đơn đã gửi mà còn dòng hàng CHƯA được nhà cung cấp xác nhận giá vốn. Giá vốn sẽ được ' +
+      'điền ở lượt đồng bộ kế tiếp; lợi nhuận chưa tính.',
   })
   baseCostPending!: boolean;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'Nhà cung cấp THỰC SỰ nhận đơn (tên tài khoản fulfillment của chính bản ghi này) — không ' +
+      'phải nhà cung cấp mặc định của kết nối TikTok.',
+  })
+  fulfilledBy!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description:
+      'Base cost = Σ giá vốn SẢN PHẨM (baseCost × quantity) của mọi dòng. KHÔNG gồm phí ship / ' +
+      'thuế của nhà cung cấp (xem shippingFee / tax / total). NULL khi còn dòng không có giá.',
+  })
+  productCost!: number | null;
+  @ApiProperty({ description: 'Mọi dòng đều đã được nhà cung cấp xác nhận giá vốn.' })
+  productCostConfirmed!: boolean;
   @ApiProperty() attemptCount!: number;
   @ApiProperty({ nullable: true, type: String }) lastErrorCode!: string | null;
   @ApiProperty({ nullable: true, type: String }) lastErrorMessage!: string | null;

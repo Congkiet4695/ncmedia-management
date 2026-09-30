@@ -35,6 +35,7 @@ export const NAMESPACES = [
   'fulfillment',
   'profile',
   'superAdmin',
+  'notification',
 ] as const;
 
 export type Namespace = (typeof NAMESPACES)[number];

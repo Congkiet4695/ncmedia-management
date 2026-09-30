@@ -10,6 +10,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import type { MappingWithDesigns } from '../services/fulfillment-readiness.service';
+import { NON_BLOCKING_FULFILLMENT_STATUSES } from '../shared/fulfillment-lifecycle';
 
 /** Include chuẩn khi đọc một bản ghi fulfillment (kèm items + tài khoản). */
 export const FULFILLMENT_ORDER_INCLUDE = {
@@ -21,16 +22,9 @@ export type FulfillmentOrderWithRelations = Prisma.FulfillmentOrderGetPayload<{
   include: typeof FULFILLMENT_ORDER_INCLUDE;
 }>;
 
-/**
- * Trạng thái mà một bản ghi fulfillment KHÔNG còn giữ đơn ở xưởng in: chưa gửi, gửi hỏng, đã huỷ,
- * bị từ chối. Bản ghi ở trạng thái KHÁC nghĩa là đơn đang/đã được sản xuất ở nhà cung cấp đó.
- */
-export const NON_BLOCKING_FULFILLMENT_STATUSES: readonly FulfillmentStatus[] = [
-  FulfillmentStatus.DRAFT,
-  FulfillmentStatus.FAILED,
-  FulfillmentStatus.CANCELLED,
-  FulfillmentStatus.REJECTED,
-];
+// Định nghĩa nằm ở `shared/fulfillment-lifecycle` (dùng chung với màn hình POD Orders); re-export để
+// nơi đang import từ repository không phải đổi.
+export { NON_BLOCKING_FULFILLMENT_STATUSES };
 
 /** Dữ liệu ghi một dòng nhật ký (append-only). */
 export interface HistoryEntry {
@@ -517,6 +511,80 @@ export class FulfillmentRepository {
   }
 
   /**
+   * Số lần thử đã có của (đơn, nhà cung cấp) — KỂ CẢ bản ghi đã lưu trữ.
+   *
+   * Nguồn của số thứ tự lần thử (`attemptExternalId`). Đếm cả bản ghi đã lưu trữ vì chúng giữ mã
+   * đơn đã bị nhà cung cấp tiêu thụ; bỏ qua chúng là sinh lại đúng mã cũ.
+   */
+  countAttempts(
+    organizationId: string,
+    podOrderId: string,
+    provider: FulfillmentProvider,
+  ): Promise<number> {
+    return this.prisma.fulfillmentOrder.count({ where: { organizationId, podOrderId, provider } });
+  }
+
+  /**
+   * LƯU TRỮ bản ghi đã huỷ để nhường chỗ cho một lần fulfill mới.
+   *
+   * 🔴 Không xoá gì: dòng hàng, `raw_request`/`raw_response`, giá vốn, mã đơn nhà cung cấp và toàn
+   * bộ `fulfillment_histories` giữ nguyên — chỉ đặt `deleted_at` để partial unique
+   * `(pod_order_id, provider) WHERE deleted_at IS NULL` cho phép tạo bản ghi mới. Ghi sự kiện
+   * SUPERSEDED trong CÙNG transaction: lưu trữ mà không có dấu vết là mất khả năng đối soát.
+   *
+   * Điều kiện `status = CANCELLED` nằm TRONG câu UPDATE: hai lượt gửi song song (đã có khoá phân
+   * tán, đây là lớp thứ hai) không thể cùng lưu trữ và đều tưởng mình thắng.
+   */
+  async supersedeCancelled(
+    record: FulfillmentOrder,
+    actorUserId: string,
+    trigger: FulfillmentTrigger,
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const archived = await tx.fulfillmentOrder.updateMany({
+        where: {
+          id: record.id,
+          organizationId: record.organizationId,
+          deletedAt: null,
+          status: FulfillmentStatus.CANCELLED,
+        },
+        data: { deletedAt: new Date(), updatedBy: actorUserId },
+      });
+      if (archived.count === 0) return false;
+      await tx.fulfillmentHistory.create({
+        data: {
+          organizationId: record.organizationId,
+          fulfillmentOrderId: record.id,
+          eventType: FulfillmentEventType.SUPERSEDED,
+          trigger,
+          fromStatus: record.status,
+          toStatus: record.status,
+          providerStatus: record.providerStatus,
+          success: true,
+          message: `Lưu trữ lần gửi đã huỷ (${record.externalOrderId}) để fulfill lại`,
+          payload: {
+            externalOrderId: record.externalOrderId,
+            providerOrderId: record.providerOrderId,
+          },
+          performedBy: actorUserId,
+        },
+      });
+      return true;
+    });
+  }
+
+  /**
+   * Mọi bản ghi (kể cả lần thử đã lưu trữ) của một đơn — phục vụ màn hình Lịch sử: fulfill lại
+   * sau khi huỷ không được làm mất lịch sử của lần gửi trước.
+   */
+  listAttemptIds(organizationId: string, podOrderId: string): Promise<Array<{ id: string }>> {
+    return this.prisma.fulfillmentOrder.findMany({
+      where: { organizationId, podOrderId },
+      select: { id: true },
+    });
+  }
+
+  /**
    * Tạo bản ghi ở trạng thái DRAFT trước khi gọi API.
    * UNIQUE `(podOrderId, provider)` là hàng rào DB chống gửi trùng khi hai người
    * bấm Fulfill cùng lúc — bản thua sẽ nhận lỗi P2002 và được service xử lý.
@@ -624,7 +692,10 @@ export class FulfillmentRepository {
         this.prisma.fulfillmentOrderItem.update({
           where: { id: cost.id },
           data: {
-            ...(cost.baseCost === null ? {} : { baseCost: new Prisma.Decimal(cost.baseCost) }),
+            // Số do NHÀ CUNG CẤP báo ⇒ đánh dấu đã xác nhận (khác ảnh chụp giá catalog lúc gửi).
+            ...(cost.baseCost === null
+              ? {}
+              : { baseCost: new Prisma.Decimal(cost.baseCost), baseCostConfirmedAt: new Date() }),
             ...(cost.color ? { color: cost.color } : {}),
             ...(cost.size ? { size: cost.size } : {}),
             ...(cost.providerItemId ? { providerItemId: cost.providerItemId } : {}),
@@ -687,9 +758,9 @@ export class FulfillmentRepository {
     });
   }
 
-  listHistory(organizationId: string, fulfillmentOrderId: string, limit = 100) {
+  listHistory(organizationId: string, fulfillmentOrderIds: string[], limit = 100) {
     return this.prisma.fulfillmentHistory.findMany({
-      where: { organizationId, fulfillmentOrderId },
+      where: { organizationId, fulfillmentOrderId: { in: fulfillmentOrderIds } },
       orderBy: { createdAt: 'desc' },
       take: limit,
     });
@@ -714,9 +785,9 @@ export class FulfillmentRepository {
     });
   }
 
-  listErrors(organizationId: string, fulfillmentOrderId: string, limit = 20) {
+  listErrors(organizationId: string, fulfillmentOrderIds: string[], limit = 20) {
     return this.prisma.fulfillmentErrorLog.findMany({
-      where: { organizationId, fulfillmentOrderId },
+      where: { organizationId, fulfillmentOrderId: { in: fulfillmentOrderIds } },
       orderBy: { createdAt: 'desc' },
       take: limit,
     });

@@ -214,4 +214,16 @@ export const envValidationSchema = Joi.object({
   FULFILLMENT_CATALOG_SYNC_CRON: Joi.string().default('0 */6 * * *'),
   FULFILLMENT_WEBHOOK_MAX_ATTEMPTS: Joi.number().integer().min(1).max(20).default(5),
   FULFILLMENT_WEBHOOK_RETRY_BATCH: Joi.number().integer().min(1).max(500).default(50),
+
+  // --- Notification (Telegram theo Organization) ---
+  // Khoá mã hoá RIÊNG cho Bot Token (AES-256-GCM, base64 của đúng 32 byte). KHÔNG bắt buộc:
+  // thiếu khoá thì chỉ tính năng Telegram báo lỗi cấu hình — không làm sập ứng dụng.
+  NOTIFICATION_ENCRYPTION_KEY: Joi.string().allow('').default(''),
+  TELEGRAM_API_BASE_URL: Joi.string().uri().default('https://api.telegram.org'),
+  TELEGRAM_HTTP_TIMEOUT_MS: Joi.number().integer().min(1000).max(60000).default(10000),
+  NOTIFICATION_DISPATCH_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
+  NOTIFICATION_DISPATCH_CRON: Joi.string().default('*/15 * * * * *'),
+  NOTIFICATION_DISPATCH_BATCH_SIZE: Joi.number().integer().min(1).max(200).default(20),
+  NOTIFICATION_MAX_ATTEMPTS: Joi.number().integer().min(1).max(20).default(5),
+  NOTIFICATION_LEASE_MS: Joi.number().integer().min(30000).max(3600000).default(120000),
 });

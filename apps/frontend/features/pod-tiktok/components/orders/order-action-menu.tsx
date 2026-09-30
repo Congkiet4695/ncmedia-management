@@ -170,7 +170,12 @@ export function OrderActionMenu({
             className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
           />
           <div className="flex justify-end gap-2 border-t pt-3">
-            <Button variant="outline" size="sm" onClick={() => setCancelOpen(false)}>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => setCancelOpen(false)}
+              disabled={actions.cancel.isPending}
+            >
               {t('common:action.cancel')}
             </Button>
             <Button
@@ -180,8 +185,20 @@ export function OrderActionMenu({
               onClick={() =>
                 void actions.cancel
                   .mutateAsync(reason.trim() || undefined)
-                  .then(() => {
-                    toast.success(t('fulfillment:action.cancelSuccess'));
+                  .then((record) => {
+                    // 🔴 Chỉ báo "đã huỷ" khi nhà cung cấp XÁC NHẬN (CANCELLED) — đó cũng là điều
+                    // kiện để Fulfill lại. Đã nhận yêu cầu nhưng chưa xác nhận ⇒ nói rõ là đang chờ.
+                    if (record.status === 'CANCELLED') {
+                      toast.success(t('fulfillment:action.cancelSuccess'), {
+                        description: t('pod:orders.actions.cancelRefulfillHint'),
+                      });
+                    } else {
+                      toast.info(t('pod:orders.actions.cancelRequested'), {
+                        description: t('pod:orders.actions.cancelPendingHint', {
+                          status: record.providerStatus ?? record.status,
+                        }),
+                      });
+                    }
                     setCancelOpen(false);
                   })
                   .catch((error: unknown) => toast.error(translateApiError(error)))

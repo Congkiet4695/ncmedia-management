@@ -10,6 +10,7 @@ import { StorageMapper } from '../../storage/storage.mapper';
 import type { ResolvedItemDesigns } from '../services/pod-order-design-resolver.service';
 import type { ResolvedProductImage } from '../services/pod-order-product-image.resolver';
 import { PodOrderWithRelations } from '../types/pod-order-with-relations.type';
+import type { OrderFinancials } from '../shared/order-financials';
 
 /** Dòng nhật ký kèm quan hệ shop/account (khớp include của repository). */
 type SyncLogRow = Prisma.PodSyncLogGetPayload<{
@@ -33,6 +34,7 @@ export class PodOrderResponseMapper {
     order: PodOrderWithRelations,
     designs: Map<string, ResolvedItemDesigns>,
     productImages: Map<string, ResolvedProductImage>,
+    financials: Map<string, OrderFinancials>,
   ): PodOrderResponseDto {
     return {
       id: order.id,
@@ -66,6 +68,7 @@ export class PodOrderResponseMapper {
       tax: this.toNumber(order.tax),
       sellerDiscount: this.toNumber(order.sellerDiscount),
       platformDiscount: this.toNumber(order.platformDiscount),
+      financials: this.financialsOf(order.id, financials),
 
       fulfillmentType: order.fulfillmentType,
       shippingType: order.shippingType,
@@ -105,6 +108,7 @@ export class PodOrderResponseMapper {
     order: PodOrderWithRelations,
     designs: Map<string, ResolvedItemDesigns>,
     productImages: Map<string, ResolvedProductImage>,
+    financials: Map<string, OrderFinancials>,
   ): PodOrderListItemDto {
     return {
       id: order.id,
@@ -127,6 +131,12 @@ export class PodOrderResponseMapper {
       status: order.status,
       totalAmount: this.toNumber(order.totalAmount),
       currency: order.currency,
+      subTotal: this.toNumber(order.subTotal),
+      shippingFee: this.toNumber(order.shippingFee),
+      tax: this.toNumber(order.tax),
+      sellerDiscount: this.toNumber(order.sellerDiscount),
+      platformDiscount: this.toNumber(order.platformDiscount),
+      financials: this.financialsOf(order.id, financials),
       orderType: order.orderType,
       hasPodItem: order.hasPodItem,
       itemCount: order.items.length,
@@ -213,6 +223,25 @@ export class PodOrderResponseMapper {
       podInfoId: item.podInfoId,
       isGift: item.isGift,
     };
+  }
+
+  /**
+   * Tài chính của đơn (đã tính sẵn ở `PodOrderFinanceService` cho cả trang). Đơn không có trong
+   * map ⇒ trạng thái "chưa có dữ liệu" rõ ràng, không bịa số 0.
+   */
+  private financialsOf(orderId: string, financials: Map<string, OrderFinancials>): OrderFinancials {
+    return (
+      financials.get(orderId) ?? {
+        proceeds: null,
+        productCost: null,
+        productCostConfirmed: false,
+        costCurrency: null,
+        fulfilledBy: null,
+        profit: null,
+        margin: null,
+        status: 'NO_PROCEEDS',
+      }
+    );
   }
 
   /** Decimal (Prisma) → number cho JSON. Giữ null để phân biệt "không có" với 0. */

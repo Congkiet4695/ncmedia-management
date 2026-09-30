@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '../auth/auth.module';
+import { NotificationModule } from '../notification/notification.module';
 import { TiktokApiClient } from './clients/tiktok-api.client';
 import { TiktokAuthClient } from './clients/tiktok-auth.client';
 import { TiktokFinanceClient } from './clients/tiktok-finance.client';
@@ -24,6 +25,7 @@ import { PodTiktokAccountRepository } from './repositories/pod-tiktok-account.re
 import { PodTiktokOAuthStateRepository } from './repositories/pod-tiktok-oauth-state.repository';
 import { PodTiktokShopSyncRepository } from './repositories/pod-tiktok-shop-sync.repository';
 import { PodTiktokShopSyncService } from './services/pod-tiktok-shop-sync.service';
+import { PodOrderFinanceService } from './services/pod-order-finance.service';
 import { PodOrderSyncJob } from './schedulers/pod-order-sync.job';
 import { PodOrderIngestionService } from './services/pod-order-ingestion.service';
 import { PodOrderSyncService } from './services/pod-order-sync.service';
@@ -57,7 +59,9 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
  *  - `repositories/*` — data access, luôn nhận organizationId
  */
 @Module({
-  imports: [AuthModule, ScheduleModule.forRoot()],
+  // NotificationModule: ghi sự kiện NEW ORDER vào outbox trong transaction tạo đơn (một chiều —
+  // module Notification không import module POD).
+  imports: [AuthModule, NotificationModule, ScheduleModule.forRoot()],
   controllers: [
     TiktokCallbackController,
     PodTiktokAccountController,
@@ -73,6 +77,8 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     // Shop Sync — đối chiếu thông tin + trạng thái shop với TikTok (nút "Sync Shops").
     PodTiktokShopSyncService,
     PodTiktokShopSyncRepository,
+    // Tài chính cấp đơn cho cột "Giá" (tiền thu về · giá vốn · lợi nhuận · margin).
+    PodOrderFinanceService,
     PodTiktokAccountMapper,
     // Sprint 2 — Orders & Sync
     PodOrderService,

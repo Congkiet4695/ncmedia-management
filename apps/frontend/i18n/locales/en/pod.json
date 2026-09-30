@@ -131,7 +131,25 @@
     "viewLarge": "View larger image",
     "sharedScopeHint": "Design belongs to the product (Product ID + Seller SKU), not to this order alone. Replacing or deleting a file here applies to every order for the same product that has not been sent to production.",
     "noKeyTitle": "Product key missing",
-    "noKeyHint": "This line item has no Product ID or Seller SKU. Design is stored under that key pair, so there is no product to store it against. Re-sync the order from TikTok."
+    "noKeyHint": "This line item has no Product ID or Seller SKU. Design is stored under that key pair, so there is no product to store it against. Re-sync the order from TikTok.",
+    "mode": {
+      "UPLOAD": "Upload file",
+      "URL": "Public URL"
+    },
+    "url": {
+      "placeholder": "https://… (public image URL)",
+      "use": "Use URL",
+      "replace": "Replace",
+      "saved": "{{placement}} design set from URL",
+      "failed": "Could not use this URL",
+      "sourceLabel": "Public URL",
+      "hint": "HTTPS only. The provider downloads the file directly from this URL — it must be publicly accessible.",
+      "error": {
+        "EMPTY": "Enter a URL.",
+        "MALFORMED": "This is not a valid URL.",
+        "NOT_HTTPS": "The URL must start with https://"
+      }
+    }
   },
   "flashSale": {
     "title": "Flash Sales",
@@ -1374,9 +1392,62 @@
       "subtotal": "Subtotal",
       "tax": "Tax",
       "buyerPaid": "Buyer Paid",
-      "estimated": "Est.",
-      "taxHint": "Tax is only returned by the order detail endpoint — expand the row to see it.",
-      "estimatedHint": "The estimated settlement amount is not returned by the TikTok order API yet."
+      "taxHint": "TikTok did not return tax for this order.",
+      "shipping": "Shipping",
+      "proceeds": {
+        "label": "Est. proceeds",
+        "ESTIMATED": "Est. proceeds",
+        "SETTLED": "Proceeds (settled)"
+      },
+      "profit": "Profit",
+      "margin": "Margin",
+      "marginUndefined": "Margin is not defined when proceeds are zero or negative.",
+      "profitStatus": {
+        "NO_PROCEEDS": "TikTok has no settlement or estimated settlement for this order yet.",
+        "NO_COST": "No base cost yet — the order has not been fulfilled (or the fulfillment was cancelled).",
+        "COST_PENDING": "Waiting for the fulfillment provider to confirm the base cost.",
+        "COST_CURRENCY_UNKNOWN": "The provider did not state the currency of the base cost — profit is not calculated.",
+        "CURRENCY_MISMATCH": "Proceeds and base cost use different currencies — profit is not calculated."
+      },
+      "section": {
+        "revenue": "Revenue",
+        "feeTax": "Fees & taxes",
+        "shippingCost": "Shipping cost",
+        "adjustment": "Adjustments"
+      },
+      "estimatedNote": "Estimated by TikTok — may change until settled",
+      "estimatedSettlement": "settles: {{value}}",
+      "multipleTransactions": "Total of {{count}} transactions — breakdown is shown only for single-transaction orders.",
+      "field": {
+        "subtotal_before_discount_amount": "Gross sales",
+        "refund_subtotal_before_discount_amount": "Gross sales refund",
+        "seller_discount_amount": "Seller discount",
+        "seller_discount_refund_amount": "Seller discount refund",
+        "cod_service_fee_amount": "COD service fee",
+        "refund_cod_service_fee_amount": "COD service fee refund",
+        "referral_fee_amount": "Referral fee",
+        "transaction_fee_amount": "Transaction fee",
+        "platform_commission_amount": "Platform commission",
+        "affiliate_commission_amount": "Affiliate commission",
+        "affiliate_ads_commission_amount": "Affiliate ads commission",
+        "affiliate_partner_commission_amount": "Affiliate partner commission",
+        "sfp_service_fee_amount": "SFP service fee",
+        "credit_card_handling_fee_amount": "Credit card handling fee",
+        "retail_delivery_fee_amount": "Retail delivery fee",
+        "sales_tax_amount": "Sales tax",
+        "sales_tax_referral_fee_amount": "Sales tax on referral fee",
+        "vat_amount": "VAT",
+        "gst_amount": "GST",
+        "actual_shipping_fee_amount": "Actual shipping fee",
+        "customer_paid_shipping_fee_amount": "Customer-paid shipping",
+        "shipping_fee_discount_amount": "Shipping fee discount",
+        "return_shipping_fee_amount": "Return shipping fee",
+        "seller_shipping_fee_discount_amount": "Seller shipping discount",
+        "platform_shipping_fee_discount_amount": "Platform shipping discount",
+        "shipping_insurance_fee_amount": "Shipping insurance",
+        "signature_confirmation_fee_amount": "Signature confirmation fee",
+        "tiktok_shop_shipping_incentive_amount": "TikTok Shop shipping incentive"
+      }
     },
     "fulfillment": {
       "notFulfilled": "Not Fulfilled",
@@ -1385,10 +1456,18 @@
       "provider": "Provider",
       "fulfilledAt": "Fulfilled At",
       "fulfilledBy": "Fulfilled By",
-      "fulfilledByHint": "The fulfillment API does not return who submitted the order yet.",
       "baseCost": "Base Cost",
       "blockedHint": "This order cannot be fulfilled yet — see the reasons listed below.",
-      "openDetail": "View fulfilment details"
+      "openDetail": "View fulfilment details",
+      "baseCostPending": "Awaiting cost",
+      "baseCostPendingHint": "The provider has not confirmed the product cost yet. It is refreshed automatically on the next sync.",
+      "providerShipping": "Provider shipping",
+      "providerTax": "Provider tax",
+      "providerTotal": "Provider total",
+      "providerOrderId": "Provider order",
+      "tracking": "Tracking",
+      "refulfill": "Fulfill again",
+      "retry": "Retry fulfill"
     },
     "actions": {
       "syncFulfillment": "Sync fulfillment",
@@ -1396,7 +1475,10 @@
       "syncDone": "Fulfillment status updated",
       "cancelFulfillment": "Cancel fulfillment",
       "cancelConfirm": "Cancel this order at the print facility? This cannot be undone.",
-      "cancelReasonPlaceholder": "Reason (optional) — helps reconcile with the facility later"
+      "cancelReasonPlaceholder": "Reason (optional) — helps reconcile with the facility later",
+      "cancelRefulfillHint": "The provider confirmed the cancellation. You can fulfill this order again.",
+      "cancelRequested": "Cancellation requested",
+      "cancelPendingHint": "The provider has not confirmed the cancellation yet (status: {{status}}). The order can be fulfilled again once it is cancelled."
     },
     "bulk": {
       "selected": "{{count}} selected",
@@ -1421,7 +1503,9 @@
       "buyerPaid": "Buyer Paid",
       "currency": "Currency",
       "tracking": "Tracking",
-      "skus": "SKUs"
+      "skus": "SKUs",
+      "proceeds": "Proceeds",
+      "profit": "Profit"
     },
     "expand": {
       "buyer": "Buyer information",
@@ -1526,13 +1610,6 @@
     "designReadyHint": "Front and back designs are both uploaded.",
     "manageDesign": "Design",
     "sellerSku": "Seller SKU",
-    "mapProduct": "Map Product",
-    "mapProductSuccess": "Product Mapping created",
-    "mapProductFailed": "Could not create Product Mapping",
-    "mappingNeedManual": "Needs manual mapping",
-    "mappingNeedManualHint": "The system found {{count}} possible matches but did not choose — a wrong mapping is worse than none. Click \"Map Product\" to pick one.",
-    "mappingNoProvider": "No provider assigned",
-    "mappingNoProviderHint": "This order’s TikTok connection has no fulfillment provider assigned, or the catalogue has never been synced. Fix it on the provider settings screen.",
     "viewImage": "View product image full size"
   },
   "products": {

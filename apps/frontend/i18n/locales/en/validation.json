@@ -100,6 +100,12 @@
     "PLATFORM_ORGANIZATION_NOT_FOUND": "Organization not found",
     "PLATFORM_ORGANIZATION_NOT_PENDING": "This registration is no longer pending — it has already been reviewed.",
     "POD_SHOP_FORBIDDEN": "You can only work on orders of TikTok Shops an Admin has assigned to you.",
-    "FULFILLMENT_VARIANT_PRICE_UNAVAILABLE": "Could not get the base cost of this variant from the provider."
+    "FULFILLMENT_VARIANT_PRICE_UNAVAILABLE": "Could not get the base cost of this variant from the provider.",
+    "NOTIFICATION_ENCRYPTION_KEY_MISSING": "The server is missing NOTIFICATION_ENCRYPTION_KEY. Contact your system administrator.",
+    "TELEGRAM_BOT_TOKEN_REQUIRED": "Enter the Bot Token (from @BotFather) to connect Telegram.",
+    "TELEGRAM_CONFIG_NOT_FOUND": "Telegram is not configured for this organization.",
+    "TELEGRAM_TEST_RATE_LIMITED": "Too many test messages. Please wait a minute.",
+    "NOTIFICATION_EVENT_NOT_FOUND": "Notification not found.",
+    "NOTIFICATION_EVENT_NOT_RETRYABLE": "Only failed or skipped notifications can be resent."
   }
 }

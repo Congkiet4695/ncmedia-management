@@ -122,7 +122,23 @@ export interface TiktokStatementTransaction {
   shipping_cost_amount?: string;
   adjustment_amount?: string;
   reserve_amount?: string;
+
+  /** Chi tiết doanh thu (Gross sales, Seller discount…) — lưu NGUYÊN VĂN. */
+  revenue_breakdown?: TiktokFinanceBreakdown;
+  /** `{ fee: {...}, tax: {...} }` (Referral fee, Transaction fee, Sales tax…) — lưu NGUYÊN VĂN. */
+  fee_tax_breakdown?: TiktokFinanceBreakdown;
+  /** Chi tiết chi phí vận chuyển (kèm `supplementary_component`) — lưu NGUYÊN VĂN. */
+  shipping_cost_breakdown?: TiktokFinanceBreakdown;
 }
+
+/**
+ * Một khối breakdown của Finance API: tên field → số tiền dạng CHUỖI, có thể lồng một cấp
+ * (`fee_tax_breakdown.fee`, `shipping_cost_breakdown.supplementary_component`).
+ *
+ * 🔴 KHÔNG liệt kê cứng từng field: TikTok có hơn 50 loại phí và bổ sung liên tục. Lưu nguyên
+ * văn, giao diện dịch nhãn những field đã biết và hiện tên gốc cho field mới.
+ */
+export type TiktokFinanceBreakdown = { [field: string]: string | TiktokFinanceBreakdown | undefined };
 
 export interface TiktokStatementTransactionsData {
   id?: string;
@@ -144,4 +160,51 @@ export interface TiktokStatementTransactionsQuery {
   /** Chỉ hỗ trợ `order_create_time`. */
   sort_field: 'order_create_time';
   sort_order?: 'ASC' | 'DESC';
+}
+
+// ---------------------------------------------------------------------------
+// Get Unsettled Transactions — GET /finance/202507/orders/unsettled
+// Nguồn: `Finance202507GetUnsettledTransactionsResponseData*` của SDK chính thức.
+// ---------------------------------------------------------------------------
+
+/** Một giao dịch CHƯA quyết toán (đơn hoặc điều chỉnh). Mọi số tiền là ƯỚC TÍNH. */
+export interface TiktokUnsettledTransaction {
+  id?: string;
+  /** `ORDER` hoặc một loại điều chỉnh (CHARGE_BACK, …). */
+  type?: string;
+  status?: string;
+  order_id?: string;
+  adjustment_id?: string;
+  adjustment_order_id?: string;
+  currency?: string;
+  /** "revenue_amount - shipping_cost_amount - fee_tax_amount - adjustment_amount" (tài liệu). */
+  est_settlement_amount?: string;
+  est_revenue_amount?: string;
+  est_fee_tax_amount?: string;
+  est_shipping_cost_amount?: string;
+  est_adjustment_amount?: string;
+  revenue_breakdown?: TiktokFinanceBreakdown;
+  fee_tax_breakdown?: TiktokFinanceBreakdown;
+  shipping_cost_breakdown?: TiktokFinanceBreakdown;
+  /** "x days after delivery" hoặc Unix timestamp (chuỗi). */
+  estimated_settlement?: string;
+  unsettled_reason?: string;
+  order_create_time?: number;
+  order_delivery_time?: number;
+}
+
+export interface TiktokUnsettledTransactionsData {
+  transactions?: TiktokUnsettledTransaction[];
+  next_page_token?: string;
+  total_count?: number;
+}
+
+export interface TiktokUnsettledTransactionsQuery {
+  page_size: number;
+  page_token?: string;
+  /** Chỉ hỗ trợ `order_create_time` (bắt buộc). */
+  sort_field: 'order_create_time';
+  sort_order?: 'ASC' | 'DESC';
+  search_time_ge?: number;
+  search_time_lt?: number;
 }

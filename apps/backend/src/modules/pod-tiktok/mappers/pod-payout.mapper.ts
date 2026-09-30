@@ -2,9 +2,11 @@ import { Injectable, Logger } from '@nestjs/common';
 import { createHash } from 'node:crypto';
 import { PodPayoutStatus, PodStatementTxType, Prisma } from '@prisma/client';
 import {
+  TiktokFinanceBreakdown,
   TiktokPayment,
   TiktokStatement,
   TiktokStatementTransaction,
+  TiktokUnsettledTransaction,
 } from '../types/tiktok-finance.types';
 
 /** Bản ghi payment đã chuẩn hoá, sẵn sàng ghi DB. */
@@ -62,6 +64,32 @@ export interface MappedStatementTransaction {
     shippingCostAmount: Prisma.Decimal | null;
     adjustmentAmount: Prisma.Decimal | null;
     reserveAmount: Prisma.Decimal | null;
+    revenueBreakdown: Prisma.InputJsonValue | typeof Prisma.JsonNull;
+    feeTaxBreakdown: Prisma.InputJsonValue | typeof Prisma.JsonNull;
+    shippingCostBreakdown: Prisma.InputJsonValue | typeof Prisma.JsonNull;
+  };
+}
+
+/** Giao dịch CHƯA quyết toán đã chuẩn hoá — sẵn sàng ghi `pod_tiktok_unsettled_transactions`. */
+export interface MappedUnsettledTransaction {
+  tiktokTransactionId: string;
+  data: {
+    type: string;
+    tiktokOrderId: string | null;
+    adjustmentId: string | null;
+    currency: string;
+    estSettlementAmount: Prisma.Decimal | null;
+    estRevenueAmount: Prisma.Decimal | null;
+    estFeeTaxAmount: Prisma.Decimal | null;
+    estShippingCostAmount: Prisma.Decimal | null;
+    estAdjustmentAmount: Prisma.Decimal | null;
+    revenueBreakdown: Prisma.InputJsonValue | typeof Prisma.JsonNull;
+    feeTaxBreakdown: Prisma.InputJsonValue | typeof Prisma.JsonNull;
+    shippingCostBreakdown: Prisma.InputJsonValue | typeof Prisma.JsonNull;
+    estimatedSettlement: string | null;
+    unsettledReason: string | null;
+    orderCreateTime: bigint | null;
+    orderDeliveryTime: bigint | null;
   };
 }
 
@@ -186,8 +214,56 @@ export class PodPayoutMapper {
         shippingCostAmount: this.toDecimal(transaction.shipping_cost_amount),
         adjustmentAmount: this.toDecimal(transaction.adjustment_amount),
         reserveAmount: this.toDecimal(transaction.reserve_amount),
+        revenueBreakdown: this.toBreakdown(transaction.revenue_breakdown),
+        feeTaxBreakdown: this.toBreakdown(transaction.fee_tax_breakdown),
+        shippingCostBreakdown: this.toBreakdown(transaction.shipping_cost_breakdown),
       },
     };
+  }
+
+  /**
+   * Chuẩn hoá một giao dịch CHƯA quyết toán (Get Unsettled Transactions 202507).
+   *
+   * 🔴 KHÔNG tính lại gì: `est_settlement_amount` là con số TikTok định nghĩa ("revenue - shipping
+   * cost - fee/tax - adjustment") — lưu nguyên, không tự cộng trừ các thành phần.
+   */
+  mapUnsettledTransaction(transaction: TiktokUnsettledTransaction): MappedUnsettledTransaction | null {
+    const id = transaction.id?.trim();
+    if (!id) return null;
+    return {
+      tiktokTransactionId: id,
+      data: {
+        type: (transaction.type?.trim() || 'UNKNOWN').toUpperCase().slice(0, 40),
+        tiktokOrderId:
+          transaction.order_id?.trim() || transaction.adjustment_order_id?.trim() || null,
+        adjustmentId: transaction.adjustment_id?.trim() || null,
+        currency: transaction.currency?.trim() || PodPayoutMapper.UNKNOWN_CURRENCY,
+        estSettlementAmount: this.toDecimal(transaction.est_settlement_amount),
+        estRevenueAmount: this.toDecimal(transaction.est_revenue_amount),
+        estFeeTaxAmount: this.toDecimal(transaction.est_fee_tax_amount),
+        estShippingCostAmount: this.toDecimal(transaction.est_shipping_cost_amount),
+        estAdjustmentAmount: this.toDecimal(transaction.est_adjustment_amount),
+        revenueBreakdown: this.toBreakdown(transaction.revenue_breakdown),
+        feeTaxBreakdown: this.toBreakdown(transaction.fee_tax_breakdown),
+        shippingCostBreakdown: this.toBreakdown(transaction.shipping_cost_breakdown),
+        estimatedSettlement: transaction.estimated_settlement?.trim().slice(0, 100) || null,
+        unsettledReason: transaction.unsettled_reason?.trim().slice(0, 500) || null,
+        orderCreateTime: this.toBigInt(transaction.order_create_time),
+        orderDeliveryTime: this.toBigInt(transaction.order_delivery_time),
+      },
+    };
+  }
+
+  /** Breakdown nguyên văn; thiếu / không phải object ⇒ JSON null (không bịa khối rỗng). */
+  private toBreakdown(
+    value: TiktokFinanceBreakdown | undefined,
+  ): Prisma.InputJsonValue | typeof Prisma.JsonNull {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return Prisma.JsonNull;
+    return value;
+  }
+
+  private toBigInt(value: number | undefined): bigint | null {
+    return value === undefined || value === null || !Number.isFinite(value) ? null : BigInt(value);
   }
 
   // ---------------------------------------------------------------------------

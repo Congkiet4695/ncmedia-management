@@ -446,7 +446,7 @@ async function main() {
   await prisma.fulfillmentProductDesign.deleteMany({
     where: { tiktokProductId: item.productId, sellerSku: item.sellerSku },
   });
-  await prisma.storageFile.deleteMany({ where: { id: { in: files.map((f: { storageFileId: string }) => f.storageFileId) } } });
+  await prisma.storageFile.deleteMany({ where: { id: { in: files.map((f: { storageFileId: string | null }) => f.storageFileId).filter((id): id is string => id !== null) } } });
   await prisma.fulfillmentProductMapping.deleteMany({ where: { id: { in: created.mappingIds } } });
   await prisma.podOrder.deleteMany({ where: { id: { in: created.orderIds } } });
   console.log('\n🧹 Đã dọn ánh xạ, design và đơn test.');

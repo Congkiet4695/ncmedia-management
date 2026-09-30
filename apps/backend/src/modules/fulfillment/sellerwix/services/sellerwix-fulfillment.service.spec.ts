@@ -12,6 +12,8 @@ import { TiktokEncryptionService } from '../../../pod-tiktok/services/tiktok-enc
 import type { PodOrderWithRelations } from '../../../pod-tiktok/types/pod-order-with-relations.type';
 import {
   FulfillmentAlreadySubmittedException,
+  FulfillmentCancelPendingException,
+  FulfillmentCannotCancelException,
   FulfillmentClientError,
   FulfillmentErrorClass,
   FulfillmentNotReadyException,
@@ -238,6 +240,8 @@ function build(options: Harness = {}) {
 
   const repo = {
     findByPodOrder: jest.fn(() => Promise.resolve(options.existingStatus ? record : null)),
+    countAttempts: jest.fn().mockResolvedValue(0),
+    supersedeCancelled: jest.fn().mockResolvedValue(true),
     findBlockingRecordOfOtherProvider: jest.fn().mockResolvedValue(options.blockingOther ?? null),
     findAccountById: jest.fn().mockResolvedValue({ ...ACCOUNT, ...options.account }),
     listMappingsForOrganization: jest.fn().mockResolvedValue(mappings),
@@ -284,6 +288,7 @@ function build(options: Harness = {}) {
   } as unknown as FulfillmentRepository;
 
   const catalogRepo = {
+    findCostCurrency: jest.fn().mockResolvedValue('USD'),
     findVariantsForAccount: jest.fn((_account: string, skus: string[]) =>
       Promise.resolve(
         skus.map((sku) => ({
@@ -331,10 +336,17 @@ function build(options: Harness = {}) {
     durationMs: 4,
     httpStatus: 200,
   });
+  const cancelOrder = jest.fn().mockResolvedValue({
+    data: detail({ fulfillments: [{ status: 'canceled', trackings: [] }] }),
+    requestId: 'req-cancel',
+    durationMs: 6,
+    httpStatus: 200,
+  });
   const client = {
     getOrderByReference,
     createOrder,
     getOrder,
+    cancelOrder,
     listShippingMethods,
   } as unknown as SellerwixApiClient;
 
@@ -355,9 +367,11 @@ function build(options: Harness = {}) {
     lock,
   );
 
+  const repoMocks = repo as unknown as Record<string, jest.Mock>;
   return {
     service,
     repo,
+    repoMocks,
     order,
     record,
     histories,
@@ -367,6 +381,7 @@ function build(options: Harness = {}) {
     createOrder,
     getOrderByReference,
     getOrder,
+    cancelOrder,
     listShippingMethods,
   };
 }
@@ -848,5 +863,116 @@ describe('SellerwixFulfillmentService.shippingMethods', () => {
       },
     ]);
     expect(result.warnings).toEqual([]);
+  });
+});
+
+describe('SellerwixFulfillmentService — Cancel ⇒ Fulfill lại', () => {
+  it('🔴 bản ghi CANCELLED ⇒ lưu trữ bản ghi cũ, reference_id MỚI {mã TikTok}-R2 (không liên kết lại đơn đã huỷ)', async () => {
+    const h = build({ existingStatus: FulfillmentStatus.CANCELLED });
+    h.repoMocks.countAttempts.mockResolvedValue(1);
+
+    await h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND);
+
+    expect(h.repoMocks.supersedeCancelled).toHaveBeenCalledTimes(1);
+    expect(h.repoMocks.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ externalOrderId: `${TIKTOK_ORDER}-R2` }),
+    );
+    // Tra idempotency theo mã MỚI, và request tạo đơn mang đúng mã đó.
+    expect(h.getOrderByReference).toHaveBeenCalledWith(expect.anything(), expect.anything(), `${TIKTOK_ORDER}-R2`);
+    expect(h.createOrder.mock.calls[0][1].reference_id).toBe(`${TIKTOK_ORDER}-R2`);
+  });
+});
+
+describe('SellerwixFulfillmentService.cancel — hỏi trạng thái THẬT trước khi huỷ', () => {
+  function submitted() {
+    const h = build({ existingStatus: FulfillmentStatus.SUBMITTED });
+    h.record.providerOrderId = 'swx-order-1';
+    return h;
+  }
+
+  it('🔴 Sellerwix báo đã SHIPPED ⇒ KHÔNG gọi huỷ', async () => {
+    const h = submitted();
+    h.getOrder.mockResolvedValue({
+      data: detail({ fulfillments: [{ status: 'shipped', trackings: [] }] }),
+      requestId: 'r',
+      durationMs: 1,
+      httpStatus: 200,
+    });
+
+    await expect(h.service.cancel(ORG, USER, POD_ORDER)).rejects.toBeInstanceOf(
+      FulfillmentCannotCancelException,
+    );
+    expect(h.cancelOrder).not.toHaveBeenCalled();
+  });
+
+  it('🔴 đang "cancel processing" (yêu cầu trước chưa xong) ⇒ không gửi thêm yêu cầu huỷ', async () => {
+    const h = submitted();
+    h.getOrder.mockResolvedValue({
+      data: detail({ fulfillments: [{ status: 'cancel processing', trackings: [] }] }),
+      requestId: 'r',
+      durationMs: 1,
+      httpStatus: 200,
+    });
+
+    await expect(h.service.cancel(ORG, USER, POD_ORDER)).rejects.toBeInstanceOf(
+      FulfillmentCancelPendingException,
+    );
+    expect(h.cancelOrder).not.toHaveBeenCalled();
+  });
+
+  it('Sellerwix xác nhận canceled ⇒ bản ghi CANCELLED', async () => {
+    const h = submitted();
+
+    await h.service.cancel(ORG, USER, POD_ORDER, 'khách huỷ');
+
+    expect(h.cancelOrder).toHaveBeenCalledWith(expect.anything(), 'swx-order-1', { reason: 'khách huỷ' });
+    expect(h.record.status).toBe(FulfillmentStatus.CANCELLED);
+  });
+});
+
+describe('SellerwixFulfillmentService.shippingMethods — nguyên nhân danh sách rỗng', () => {
+  it('response bọc { data: [...] } vẫn đọc được', async () => {
+    const h = build();
+    h.listShippingMethods.mockResolvedValue({
+      data: { data: SHIPPING_METHODS },
+      requestId: 'a',
+      durationMs: 1,
+      httpStatus: 200,
+    });
+
+    const mappings = await h.repo.listMappingsForOrganization(ORG);
+    const result = await h.service.shippingMethods(ACCOUNT as never, h.order, mappings);
+
+    expect(result.options.length).toBeGreaterThan(0);
+  });
+
+  it('🔴 response không đúng dạng ⇒ cảnh báo rõ ràng, KHÔNG trả rỗng im lặng', async () => {
+    const h = build();
+    h.listShippingMethods.mockResolvedValue({
+      data: { shipping: 'lạ' },
+      requestId: 'a',
+      durationMs: 1,
+      httpStatus: 200,
+    });
+
+    const mappings = await h.repo.listMappingsForOrganization(ORG);
+    const result = await h.service.shippingMethods(ACCOUNT as never, h.order, mappings);
+
+    expect(result.options).toEqual([]);
+    expect(result.warnings.join(' ')).toMatch(/không đúng định dạng/);
+  });
+
+  it('🔴 sản phẩm đang cấu hình cho nhà cung cấp KHÁC ⇒ nói rõ, không gọi Sellerwix', async () => {
+    const h = build();
+    const mappings = (await h.repo.listMappingsForOrganization(ORG)).map((mapping) => ({
+      ...mapping,
+      accountId: 'mango-account',
+    }));
+
+    const result = await h.service.shippingMethods(ACCOUNT as never, h.order, mappings);
+
+    expect(result.options).toEqual([]);
+    expect(result.warnings.join(' ')).toMatch(/nhà cung cấp khác/);
+    expect(h.listShippingMethods).not.toHaveBeenCalled();
   });
 });

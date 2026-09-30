@@ -33,7 +33,10 @@ export type MappingWithDesigns = Prisma.FulfillmentProductMappingGetPayload<obje
  */
 export interface ReadinessDesign {
   placement: PodDesignPlacement;
-  storageFile: { publicUrl: string | null };
+  /** URL công khai nhập trực tiếp (nguồn URL). Có thì dùng NGUYÊN VĂN — không upload lại. */
+  sourceUrl: string | null;
+  /** File upload (nguồn UPLOAD). NULL khi design là nguồn URL. */
+  storageFile: { publicUrl: string | null } | null;
 }
 
 /**
@@ -485,14 +488,17 @@ export class FulfillmentReadinessService {
         continue;
       }
 
-      const url = this.publicUrlOf(design.storageFile.publicUrl, publicBaseUrl);
+      // Nguồn URL: URL người vận hành nhập đã được kiểm HTTPS + host công khai lúc lưu.
+      const url =
+        design.sourceUrl ?? this.publicUrlOf(design.storageFile?.publicUrl ?? null, publicBaseUrl);
       if (!url) {
         issues.push({
           code: READINESS_CODES.DESIGN_NOT_PUBLIC,
           podOrderItemId: item.id,
           message:
             `File design vị trí "${design.placement}" không có URL công khai. ` +
-            'Xưởng in cần tải được file — hãy bật chế độ công khai cho bucket lưu trữ (R2_PUBLIC_URL).',
+            'Xưởng in cần tải được file — hãy bật chế độ công khai cho bucket lưu trữ (R2_PUBLIC_URL) ' +
+            'hoặc nhập URL công khai (HTTPS) cho vị trí này.',
         });
         continue;
       }

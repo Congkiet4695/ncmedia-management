@@ -32,6 +32,7 @@ import { PodMasterDataModule } from './modules/pod-master-data/pod-master-data.m
 import { PodResourceModule } from './modules/pod-resource/pod-resource.module';
 import { TikTokSdkModule } from './modules/tiktok-sdk/tiktok-sdk.module';
 import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
+import { NotificationModule } from './modules/notification/notification.module';
 
 @Module({
   imports: [
@@ -144,6 +145,8 @@ import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
     PodFlashSaleModule,
     // Gửi đơn POD sang xưởng in (MangoTeePrints)
     FulfillmentModule,
+    // Thông báo Telegram theo Organization (đơn mới / fulfill / huỷ fulfill)
+    NotificationModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },

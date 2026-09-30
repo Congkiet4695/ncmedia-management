@@ -28,8 +28,6 @@ import { OrderDateFilter } from '@/features/pod-tiktok/components/order-date-fil
 import { BulkToolbar } from '@/features/pod-tiktok/components/orders/bulk-toolbar';
 import { PodOrderTable } from '@/features/pod-tiktok/components/pod-order-table';
 import { UploadDesignDialog } from '@/features/pod-tiktok/components/upload-design-dialog';
-import { MappingFormDialog } from '@/features/fulfillment/components/mapping-form-dialog';
-import { useProductMappingActions } from '@/features/fulfillment/hooks/use-fulfillment';
 import { usePodOrderStatusLabel } from '@/features/pod-tiktok/components/pod-order-status-badge';
 import { SyncHistoryDialog } from '@/features/pod-tiktok/components/sync-history-dialog';
 import {
@@ -40,11 +38,10 @@ import {
 import {
   POD_ORDER_STATUSES,
   type PodOrderItem,
-  type PodOrderListItem,
   type PodOrderQuery,
   type PodOrderStatus,
 } from '@/features/pod-tiktok/order-types';
-import type { LightboxRequest, OrderProductRow } from '@/features/pod-tiktok/order-view-model';
+import type { LightboxRequest } from '@/features/pod-tiktok/order-view-model';
 import {
   usePodSellerOptions,
   usePodTiktokAccounts,
@@ -74,16 +71,6 @@ function PodOrdersView() {
   const debouncedSearch = useDebouncedValue(searchInput, 350);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [designItem, setDesignItem] = useState<PodOrderItem | null>(null);
-  /**
-   * Dòng sản phẩm đang được khai ánh xạ, kèm nhà cung cấp của chính đơn chứa nó.
-   *
-   * Giữ cả `accountId` chứ không chỉ `row`: cùng một sản phẩm có thể xuất hiện ở hai đơn của
-   * hai kết nối TikTok gán hai nhà cung cấp khác nhau, nên nhà cung cấp phải lấy từ ĐƠN đang
-   * mở, không phải đoán từ danh sách nhà cung cấp của tổ chức.
-   */
-  const [mapTarget, setMapTarget] = useState<{ row: OrderProductRow; accountId: string } | null>(
-    null,
-  );
   /**
    * Bộ ảnh đang xem — dùng CHUNG cho ảnh sản phẩm và ảnh design.
    *
@@ -178,37 +165,6 @@ function PodOrdersView() {
    */
   const items = useMemo(() => ordersQuery.data?.items ?? [], [ordersQuery.data]);
 
-  const mappingActions = useProductMappingActions();
-
-  /**
-   * Mở dialog khai ánh xạ cho một dòng sản phẩm.
-   *
-   * Tìm ngược ra đơn chứa dòng này để lấy nhà cung cấp của nó. Chưa gán nhà cung cấp thì
-   * KHÔNG mở dialog — ô sản phẩm đã hiện trạng thái `NO_PROVIDER` không có nút, nên nhánh
-   * này chỉ là hàng rào cuối.
-   */
-  const openMapProduct = useCallback(
-    (row: OrderProductRow) => {
-      const sourceIds = new Set(row.sources.map((source) => source.id));
-      const order = items.find((candidate: PodOrderListItem) =>
-        candidate.items.some((item) => sourceIds.has(item.id)),
-      );
-      if (!order?.fulfillmentAccountId) return;
-      setMapTarget({ row, accountId: order.fulfillmentAccountId });
-    },
-    [items],
-  );
-
-  /** Tạo ánh xạ rồi đóng dialog. Cache đơn hàng được làm mới trong `useProductMappingActions`. */
-  const handleCreateMapping = async (input: Parameters<typeof mappingActions.create.mutateAsync>[0]) => {
-    try {
-      await mappingActions.create.mutateAsync(input);
-      toast.success(t('product.mapProductSuccess'), { description: input.providerSku });
-      setMapTarget(null);
-    } catch (error) {
-      toast.error(t('product.mapProductFailed'), { description: translateApiError(error) });
-    }
-  };
   const meta = ordersQuery.data?.meta;
   // Xoá nốt record cuối của trang cuối ⇒ lùi về trang còn dữ liệu,
   // không để giao diện kẹt ở "Trang 3 / 2" với một cái bảng trống.
@@ -484,7 +440,6 @@ function PodOrdersView() {
                 onToggleSelectAll={toggleSelectAll}
                 onToggleExpand={toggleExpand}
                 onUploadDesign={setDesignItem}
-                onMapProduct={openMapProduct}
                 onPreviewImages={setLightbox}
               />
             </>
@@ -502,37 +457,6 @@ function PodOrdersView() {
         open={Boolean(designItem)}
         item={designItem}
         onClose={() => setDesignItem(null)}
-      />
-
-      {/* Khai Product Mapping NGAY TẠI màn hình đơn.
-          🔴 Sản phẩm TikTok và nhà cung cấp đều điền sẵn từ chính dòng hàng đang xem — người
-          dùng không phải rời đơn đi tìm lại đúng dòng ở màn hình Product Mapping. Ứng viên do
-          ánh xạ tự động tìm được (nếu có) hiện ngay trên cùng để chọn một phát. */}
-      <MappingFormDialog
-        open={Boolean(mapTarget)}
-        presetAccountId={mapTarget?.accountId ?? null}
-        presetTiktok={
-          mapTarget
-            ? {
-                tiktokProductId: mapTarget.row.productId,
-                tiktokSkuId: mapTarget.row.sources[0]?.skuId ?? null,
-                sellerSku: mapTarget.row.sellerSku,
-                productName: mapTarget.row.productName,
-                skuName: mapTarget.row.skuName,
-                productCategory: mapTarget.row.productCategory,
-                // Ảnh CHÍNH của sản phẩm — dialog dùng để người dùng nhận ra đang ánh xạ
-                // sản phẩm nào, nên phải là ảnh đại diện chứ không phải ảnh biến thể.
-                skuImage: mapTarget.row.productImage,
-                mapped: false,
-              }
-            : null
-        }
-        candidates={mapTarget?.row.mappingCandidates ?? []}
-        submitting={mappingActions.create.isPending}
-        onClose={() => setMapTarget(null)}
-        onSubmit={(_accountId, input) => void handleCreateMapping(input)}
-        onSyncCatalog={(accountId) => void mappingActions.syncCatalog.mutateAsync(accountId)}
-        syncingCatalog={mappingActions.syncCatalog.isPending}
       />
 
       <ImageLightbox

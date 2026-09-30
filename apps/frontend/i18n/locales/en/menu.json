@@ -37,5 +37,7 @@
   "reportWarehouse": "Warehouse performance",
   "reports": "Reports",
   "superAdminFulfillmentProviders": "Fulfillment Providers",
-  "superAdminOrganizations": "Organizations"
+  "superAdminOrganizations": "Organizations",
+  "settings": "Settings",
+  "settingsNotifications": "Notifications"
 }

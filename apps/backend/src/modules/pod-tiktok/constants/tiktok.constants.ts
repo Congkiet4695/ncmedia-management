@@ -92,6 +92,13 @@ export function tiktokStatementTransactionsPath(statementId: string): string {
   return `/finance/202501/statements/${statementId}/statement_transactions`;
 }
 
+/**
+ * Get Unsettled Transactions — giao dịch CHƯA quyết toán kèm số tiền ƯỚC TÍNH theo từng đơn.
+ * Nguồn: `FinanceV202507Api.OrdersUnsettledGet` của SDK. Chỉ trả giao dịch tạo sau 2025-01-01;
+ * đã quyết toán thì không còn trả về (đọc qua Get Transactions by Statement).
+ */
+export const TIKTOK_GET_UNSETTLED_TRANSACTIONS_PATH = '/finance/202507/orders/unsettled';
+
 /** `page_size` hợp lệ của các Finance API theo tài liệu. */
 export const TIKTOK_FINANCE_PAGE_SIZE_MAX = 100;
 

@@ -12,6 +12,7 @@
 import {
   BarChart3,
   BadgeCheck,
+  Bell,
   ClipboardList,
   Copy,
   Factory,
@@ -24,6 +25,7 @@ import {
   RefreshCw,
   Rocket,
   Send,
+  Settings,
   ShieldCheck,
   ShoppingBag,
   Store,
@@ -270,6 +272,22 @@ export const NAVIGATION: NavItemConfig[] = [
         href: '/dashboard/pod/payout',
         icon: Wallet,
         permission: 'pod.tiktok.payout.read',
+      },
+    ],
+  },
+
+  // Cài đặt của TỔ CHỨC. Hiện chỉ có Thông báo (Telegram) — Bot Token là secret nên chỉ ai có
+  // `notification.config` (mặc định Admin) mới thấy; nhóm tự ẩn khi không còn mục con nào.
+  {
+    labelKey: 'settings',
+    href: '/dashboard/settings',
+    icon: Settings,
+    children: [
+      {
+        labelKey: 'settingsNotifications',
+        href: '/dashboard/settings/notifications',
+        icon: Bell,
+        permission: 'notification.config',
       },
     ],
   },

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { FulfillmentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { SUBMITTABLE_FULFILLMENT_STATUSES } from '../../fulfillment/shared/fulfillment-lifecycle';
 import { accountScopeFilter, shopScopeFilter } from '../shared/shop-scope';
 import { POD_ORDER_INCLUDE, PodOrderWithRelations } from '../types/pod-order-with-relations.type';
 
@@ -60,19 +61,15 @@ export interface PodOrderFilterParams {
 export type DesignKeyIndex = Map<string, string[]>;
 
 /**
- * Trạng thái fulfillment vẫn còn gửi lại được ⇒ đơn tính là **CHƯA đẩy**.
+ * Trạng thái fulfillment vẫn còn gửi (lại) được ⇒ đơn tính là **CHƯA đẩy**.
  *
- * 🔴 Giữ ĐÚNG danh sách của `MangoFulfillmentService.RESUBMITTABLE_STATUSES`. Hai nơi trả lời
- * khác nhau nghĩa là bộ lọc hiện một đơn dưới nhãn "chưa đẩy Fulfill" rồi người dùng bấm
- * Fulfill và nhận `FULFILLMENT_ALREADY_SUBMITTED`.
- *
- * ⚠️ `CANCELLED` KHÔNG nằm ở đây — theo luật hiện hành, đơn đã huỷ ở xưởng in không gửi lại
- * được, nên nó tính là ĐÃ đẩy. Xem phần ghi chú của báo cáo.
+ * 🔴 CHÍNH LÀ tập `SUBMITTABLE_FULFILLMENT_STATUSES` mà luồng gửi dùng — không khai bản sao. Hai
+ * nơi trả lời khác nhau nghĩa là bộ lọc hiện một đơn dưới nhãn "chưa đẩy Fulfill" rồi người dùng
+ * bấm Fulfill và nhận `FULFILLMENT_ALREADY_SUBMITTED`. Gồm cả CANCELLED: nhà cung cấp đã xác nhận
+ * huỷ thì đơn được fulfill lại (lần thử mới).
  */
-export const FULFILLMENT_NOT_PUSHED_STATUSES: readonly FulfillmentStatus[] = [
-  FulfillmentStatus.DRAFT,
-  FulfillmentStatus.FAILED,
-];
+export const FULFILLMENT_NOT_PUSHED_STATUSES: readonly FulfillmentStatus[] =
+  SUBMITTABLE_FULFILLMENT_STATUSES;
 
 export interface PodOrderFindManyParams extends PodOrderFilterParams {
   page: number;
@@ -131,6 +128,32 @@ export class PodOrderRepository {
       inner.set(row.tiktokLineItemId, row.payloadHash);
     }
     return result;
+  }
+
+  /**
+   * Tên kết nối TikTok / shop / nhà cung cấp fulfillment gán cho kết nối — ngữ cảnh của thông báo
+   * NEW ORDER. Lọc theo tổ chức ở CẢ account lẫn shop (ADR-004); không khớp tổ chức ⇒ `null`.
+   */
+  async findNotificationContext(
+    organizationId: string,
+    accountId: string,
+    shopId: string,
+  ): Promise<{ accountName: string; shopName: string | null; fulfillmentProvider: string | null } | null> {
+    const account = await this.prisma.podTiktokAccount.findFirst({
+      where: { id: accountId, organizationId },
+      select: {
+        accountName: true,
+        fulfillmentAccount: { select: { name: true, deletedAt: true } },
+        shops: { where: { id: shopId, organizationId }, select: { name: true } },
+      },
+    });
+    if (!account) return null;
+    const provider = account.fulfillmentAccount;
+    return {
+      accountName: account.accountName,
+      shopName: account.shops[0]?.name ?? null,
+      fulfillmentProvider: provider && !provider.deletedAt ? provider.name : null,
+    };
   }
 
   createOrder(

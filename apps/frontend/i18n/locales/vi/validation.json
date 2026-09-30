@@ -100,6 +100,12 @@
     "PLATFORM_ORGANIZATION_NOT_FOUND": "Không tìm thấy Organization",
     "PLATFORM_ORGANIZATION_NOT_PENDING": "Hồ sơ này không còn ở trạng thái chờ duyệt — nó đã được xét duyệt trước đó.",
     "POD_SHOP_FORBIDDEN": "Bạn chỉ thao tác được trên đơn của TikTok Shop đã được Admin gán cho bạn.",
-    "FULFILLMENT_VARIANT_PRICE_UNAVAILABLE": "Không lấy được giá vốn của biến thể này từ nhà cung cấp."
+    "FULFILLMENT_VARIANT_PRICE_UNAVAILABLE": "Không lấy được giá vốn của biến thể này từ nhà cung cấp.",
+    "NOTIFICATION_ENCRYPTION_KEY_MISSING": "Máy chủ chưa cấu hình NOTIFICATION_ENCRYPTION_KEY. Liên hệ quản trị hệ thống.",
+    "TELEGRAM_BOT_TOKEN_REQUIRED": "Nhập Bot Token (lấy từ @BotFather) để kết nối Telegram.",
+    "TELEGRAM_CONFIG_NOT_FOUND": "Tổ chức chưa cấu hình Telegram.",
+    "TELEGRAM_TEST_RATE_LIMITED": "Gửi thử quá nhiều lần. Vui lòng đợi một phút.",
+    "NOTIFICATION_EVENT_NOT_FOUND": "Không tìm thấy thông báo.",
+    "NOTIFICATION_EVENT_NOT_RETRYABLE": "Chỉ gửi lại được thông báo lỗi hoặc bị bỏ qua."
   }
 }

@@ -1,6 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { NotificationOutboxService } from '../../notification/services/notification-outbox.service';
+import { groupOrderLines } from '../../notification/shared/order-items';
+import type { NotificationEventInput } from '../../notification/types/notification-payload.types';
 import { PodOrderMapper, MappedOrder } from '../mappers/pod-order.mapper';
 import { ExistingOrderSnapshot, PodOrderRepository } from '../repositories/pod-order.repository';
 import { TiktokOrder } from '../types/tiktok-order.types';
@@ -24,6 +27,13 @@ export interface IngestionResult {
   failed: number;
   /** `update_time` lớn nhất đã xử lý thành công — dùng cho watermark. */
   maxUpdateTime: bigint;
+}
+
+/** Ngữ cảnh thông báo NEW ORDER của một lô — `null` ⇒ lô này không phát thông báo. */
+interface NewOrderNotifyContext {
+  accountName: string | null;
+  shopName: string | null;
+  fulfillmentProvider: string | null;
 }
 
 /**
@@ -50,6 +60,7 @@ export class PodOrderIngestionService {
     private readonly prisma: PrismaService,
     private readonly repo: PodOrderRepository,
     private readonly mapper: PodOrderMapper,
+    private readonly notifications: NotificationOutboxService,
   ) {}
 
   /** Ingest một lô đơn (thường là một trang kết quả từ TikTok). */
@@ -93,12 +104,16 @@ export class PodOrderIngestionService {
     );
 
     const now = new Date();
+    const notify = await this.newOrderNotifyContext(ctx, toCreate.length);
+    let notificationsEnqueued = 0;
 
     // --- CREATE (theo lô, mỗi lô một transaction) ---
     for (const batch of this.chunk(toCreate, PodOrderIngestionService.WRITE_BATCH_SIZE)) {
       for (const item of batch) {
         try {
-          await this.prisma.$transaction((tx) => this.createOrder(tx, item, ctx, now));
+          notificationsEnqueued += await this.prisma.$transaction((tx) =>
+            this.createOrder(tx, item, ctx, now, notify),
+          );
           result.created += 1;
           result.maxUpdateTime = this.max(result.maxUpdateTime, item.tiktokUpdateTime);
         } catch (error) {
@@ -117,7 +132,10 @@ export class PodOrderIngestionService {
       }
     }
 
-    // --- UPDATE ---
+    // Sự kiện đã commit cùng đơn ⇒ đánh thức worker (gửi bất đồng bộ, không chờ Telegram).
+    if (notificationsEnqueued > 0) this.notifications.kick();
+
+    // --- UPDATE --- (không bao giờ phát NEW ORDER: đơn đã tồn tại, kể cả khi đổi trạng thái)
     for (const batch of this.chunk(toUpdate, PodOrderIngestionService.WRITE_BATCH_SIZE)) {
       for (const entry of batch) {
         try {
@@ -160,12 +178,47 @@ export class PodOrderIngestionService {
     return mapped.payloadHash !== existing.payloadHash;
   }
 
+  /**
+   * Lô này có phát thông báo NEW ORDER không — quyết định MỘT lần cho cả lô.
+   *
+   * - Pha BACKFILL (kéo lịch sử khi mới kết nối / kéo lại toàn bộ) KHÔNG phát: mỗi đơn lịch sử đều là
+   *   INSERT lần đầu, phát ra là spam hàng trăm tin (quyết định của PO).
+   * - Tổ chức chưa bật Telegram ⇒ không ghi sự kiện (không sinh dòng thừa cho mọi đơn).
+   * - Lỗi khi đọc ngữ cảnh ⇒ bỏ thông báo của lô, KHÔNG làm hỏng việc ghi đơn.
+   */
+  private async newOrderNotifyContext(
+    ctx: IngestionContext,
+    createCount: number,
+  ): Promise<NewOrderNotifyContext | null> {
+    if (createCount === 0 || ctx.source === 'BACKFILL') return null;
+    try {
+      if (!(await this.notifications.isEnabled(ctx.organizationId))) return null;
+      const context = await this.repo.findNotificationContext(
+        ctx.organizationId,
+        ctx.accountId,
+        ctx.shopId,
+      );
+      return context ?? { accountName: null, shopName: null, fulfillmentProvider: null };
+    } catch (error) {
+      this.logger.warn({
+        module: 'pod-tiktok',
+        operation: 'ORDER_CREATED_NOTIFICATION',
+        organizationId: ctx.organizationId,
+        shopId: ctx.shopId,
+        msg: `Không chuẩn bị được thông báo đơn mới (bỏ qua, đồng bộ vẫn chạy): ${(error as Error).message}`,
+      });
+      return null;
+    }
+  }
+
+  /** Tạo đơn; trả số sự kiện thông báo đã ghi (0 hoặc 1) trong CÙNG transaction. */
   private async createOrder(
     tx: Prisma.TransactionClient,
     mapped: MappedOrder,
     ctx: IngestionContext,
     now: Date,
-  ): Promise<void> {
+    notify: NewOrderNotifyContext | null = null,
+  ): Promise<number> {
     const created = await this.repo.createOrder(tx, {
       ...mapped.data,
       organizationId: ctx.organizationId,
@@ -181,6 +234,56 @@ export class PodOrderIngestionService {
       await this.repo.upsertItem(tx, ctx.organizationId, created.id, item.data);
     }
     await this.repo.upsertPackages(tx, ctx.organizationId, created.id, mapped.packageIds);
+
+    if (!notify) return 0;
+    // 🔴 NEW ORDER = đúng thời điểm này: INSERT vừa thành công trong transaction. Không dựa vào trạng
+    // thái đơn / create_time của TikTok. Transaction rollback (vd đơn bị tiến trình khác tạo trước ⇒
+    // P2002) thì sự kiện cũng rollback; UNIQUE ở outbox là hàng rào thứ hai (ON CONFLICT DO NOTHING).
+    return this.notifications.enqueueInTransaction(tx, [
+      this.newOrderEvent(created.id, mapped, ctx, notify),
+    ]);
+  }
+
+  /** Ảnh chụp dữ liệu cho tin NEW ORDER — KHÔNG gồm địa chỉ / email / SĐT người mua. */
+  private newOrderEvent(
+    orderId: string,
+    mapped: MappedOrder,
+    ctx: IngestionContext,
+    notify: NewOrderNotifyContext,
+  ): NotificationEventInput {
+    const { totalAmount, currency, tiktokCreateTime } = mapped.data;
+    const createSeconds =
+      tiktokCreateTime === undefined || tiktokCreateTime === null ? null : Number(tiktokCreateTime);
+    return {
+      organizationId: ctx.organizationId,
+      eventType: 'ORDER_CREATED',
+      entityType: 'POD_ORDER',
+      entityId: orderId,
+      payload: {
+        tiktokOrderId: mapped.tiktokOrderId,
+        accountName: notify.accountName,
+        shopName: notify.shopName,
+        items: groupOrderLines(
+          mapped.items.map((item) => ({
+            skuId: item.data.skuId,
+            sellerSku: item.data.sellerSku,
+            productName: item.data.productName,
+            skuName: item.data.skuName,
+          })),
+        ),
+        totalAmount:
+          totalAmount === null || totalAmount === undefined
+            ? null
+            : new Prisma.Decimal(totalAmount as Prisma.Decimal.Value).toString(),
+        currency: currency ?? null,
+        orderCreatedAt:
+          createSeconds && Number.isFinite(createSeconds)
+            ? new Date(createSeconds * 1000).toISOString()
+            : null,
+        fulfillmentProvider: notify.fulfillmentProvider,
+        syncSource: ctx.source,
+      },
+    };
   }
 
   private async updateOrder(

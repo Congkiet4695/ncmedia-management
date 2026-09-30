@@ -6,6 +6,7 @@ import { TiktokEncryptionService } from './tiktok-encryption.service';
 import { PodOrderIngestionService, IngestionContext } from './pod-order-ingestion.service';
 import { TiktokOrder } from '../types/tiktok-order.types';
 import { callArg } from '../../../testing/mock-call.util';
+import { NotificationOutboxService } from '../../notification/services/notification-outbox.service';
 
 const ORG_ID = '11111111-1111-1111-1111-111111111111';
 const ACCOUNT_ID = '22222222-2222-2222-2222-222222222222';
@@ -58,8 +59,10 @@ describe('PodOrderIngestionService — Compare Logic', () => {
     touchLastSynced: jest.Mock;
     upsertItem: jest.Mock;
     upsertPackages: jest.Mock;
+    findNotificationContext: jest.Mock;
   };
   let mapper: PodOrderMapper;
+  let outbox: { isEnabled: jest.Mock; enqueueInTransaction: jest.Mock; kick: jest.Mock };
 
   beforeEach(() => {
     prisma = { $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb({})) };
@@ -71,12 +74,24 @@ describe('PodOrderIngestionService — Compare Logic', () => {
       touchLastSynced: jest.fn().mockResolvedValue(undefined),
       upsertItem: jest.fn().mockResolvedValue(undefined),
       upsertPackages: jest.fn().mockResolvedValue(undefined),
+      findNotificationContext: jest.fn().mockResolvedValue({
+        accountName: 'AZ_VTR_31',
+        shopName: 'AZ Shop',
+        fulfillmentProvider: 'Mango US',
+      }),
+    };
+    // Mặc định tổ chức CHƯA bật Telegram — các test cũ không bị ảnh hưởng.
+    outbox = {
+      isEnabled: jest.fn().mockResolvedValue(false),
+      enqueueInTransaction: jest.fn().mockResolvedValue(1),
+      kick: jest.fn(),
     };
     mapper = new PodOrderMapper(encryptionStub);
     service = new PodOrderIngestionService(
       prisma as unknown as PrismaService,
       repo as unknown as PodOrderRepository,
       mapper,
+      outbox as unknown as NotificationOutboxService,
     );
   });
 
@@ -328,5 +343,141 @@ describe('PodOrderIngestionService — Compare Logic', () => {
     await service.ingestBatch([buildOrder('a', 1), buildOrder('b', 2), buildOrder('c', 3)], CTX);
     expect(repo.findSnapshotsByTiktokOrderIds).toHaveBeenCalledTimes(1);
     expect(repo.findSnapshotsByTiktokOrderIds).toHaveBeenCalledWith(ORG_ID, ['a', 'b', 'c']);
+  });
+
+  describe('Thông báo NEW ORDER (outbox)', () => {
+    type EnqueueCall = [unknown, Array<{ entityId: string; payload: Record<string, unknown> }>];
+    const calls = () => outbox.enqueueInTransaction.mock.calls as EnqueueCall[];
+
+    beforeEach(() => outbox.isEnabled.mockResolvedValue(true));
+
+    it('TEST 1 — đơn mới ⇒ ghi đúng MỘT sự kiện ORDER_CREATED trong CÙNG transaction tạo đơn', async () => {
+      const txClient = { marker: 'tx' };
+      prisma.$transaction.mockImplementation((cb: (tx: unknown) => unknown) => cb(txClient));
+
+      await service.ingestBatch([buildOrder('A', 100)], CTX);
+
+      expect(calls()).toHaveLength(1);
+      const [tx, events] = calls()[0];
+      expect(tx).toBe(txClient);
+      expect(events).toHaveLength(1);
+      expect(events[0]).toMatchObject({
+        organizationId: ORG_ID,
+        eventType: 'ORDER_CREATED',
+        entityType: 'POD_ORDER',
+        entityId: 'new-order-uuid',
+      });
+      expect(events[0].payload).toMatchObject({
+        tiktokOrderId: 'A',
+        accountName: 'AZ_VTR_31',
+        totalAmount: '100',
+        currency: 'USD',
+        fulfillmentProvider: 'Mango US',
+        syncSource: 'CRON',
+        items: [{ productName: 'T-Shirt', quantity: 1 }],
+      });
+      expect(repo.findNotificationContext).toHaveBeenCalledWith(ORG_ID, ACCOUNT_ID, SHOP_ID);
+      expect(outbox.kick).toHaveBeenCalledTimes(1);
+    });
+
+    it('payload KHÔNG chứa dữ liệu người mua (email / địa chỉ / SĐT)', async () => {
+      const order = buildOrder('A', 100, {
+        buyer_email: 'buyer@example.com',
+        recipient_address: { phone_number: '(+1)555', full_address: '1 Main St' },
+      });
+
+      await service.ingestBatch([order], CTX);
+
+      const payload = JSON.stringify(calls()[0][1]);
+      expect(payload).not.toMatch(/buyer@example\.com|555|Main St/);
+    });
+
+    it('TEST 2/3 — đơn đã tồn tại (kể cả đổi trạng thái) ⇒ KHÔNG ghi sự kiện', async () => {
+      const order = buildOrder('A', 200, { status: 'DELIVERED' });
+      repo.findSnapshotsByTiktokOrderIds.mockResolvedValue(
+        snapshotOf(order, { tiktokUpdateTime: 100n }),
+      );
+
+      const result = await service.ingestBatch([order], CTX);
+
+      expect(result.updated).toBe(1);
+      expect(outbox.enqueueInTransaction).not.toHaveBeenCalled();
+      expect(outbox.kick).not.toHaveBeenCalled();
+    });
+
+    it('lô 10 đơn: 7 đã có + 3 mới ⇒ đúng 3 sự kiện (không phải 10)', async () => {
+      const orders = Array.from({ length: 10 }, (_, i) => buildOrder(`O${i}`, 100));
+      const existing = new Map();
+      for (const order of orders.slice(0, 7)) {
+        existing.set(order.id, snapshotOf(order).get(order.id));
+      }
+      repo.findSnapshotsByTiktokOrderIds.mockResolvedValue(existing);
+
+      const result = await service.ingestBatch(orders, CTX);
+
+      expect(result.created).toBe(3);
+      expect(calls().map((call) => call[1][0].payload.tiktokOrderId)).toEqual(['O7', 'O8', 'O9']);
+    });
+
+    it('TEST 4 — đồng bộ THỦ CÔNG ⇒ vẫn thông báo (nguồn MANUAL)', async () => {
+      await service.ingestBatch([buildOrder('A', 100)], { ...CTX, source: 'MANUAL' });
+      expect(calls()[0][1][0].payload.syncSource).toBe('MANUAL');
+    });
+
+    it('TEST 5 — đồng bộ theo lịch (CRON) ⇒ thông báo', async () => {
+      await service.ingestBatch([buildOrder('A', 100)], CTX);
+      expect(calls()).toHaveLength(1);
+    });
+
+    it('pha BACKFILL (kéo lịch sử) ⇒ KHÔNG thông báo, không đọc cấu hình', async () => {
+      await service.ingestBatch([buildOrder('A', 100)], { ...CTX, source: 'BACKFILL' });
+      expect(outbox.isEnabled).not.toHaveBeenCalled();
+      expect(outbox.enqueueInTransaction).not.toHaveBeenCalled();
+    });
+
+    it('TEST 17 — tổ chức tắt Telegram ⇒ không ghi sự kiện, đơn vẫn được tạo', async () => {
+      outbox.isEnabled.mockResolvedValue(false);
+      const result = await service.ingestBatch([buildOrder('A', 100)], CTX);
+      expect(result.created).toBe(1);
+      expect(outbox.enqueueInTransaction).not.toHaveBeenCalled();
+    });
+
+    it('TEST 6/16 — hai tiến trình cùng tạo một đơn: bên thua rollback (P2002) ⇒ không có sự kiện thứ hai', async () => {
+      const order = buildOrder('A', 100);
+      repo.findSnapshotsByTiktokOrderIds
+        .mockResolvedValueOnce(new Map())
+        .mockResolvedValueOnce(snapshotOf(order));
+      repo.createOrder.mockRejectedValueOnce(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: '6.0.0',
+        }),
+      );
+
+      const result = await service.ingestBatch([order], CTX);
+
+      expect(result.updated).toBe(1);
+      expect(outbox.enqueueInTransaction).not.toHaveBeenCalled();
+      expect(outbox.kick).not.toHaveBeenCalled();
+    });
+
+    it('TEST 18/19 — lỗi khi đọc cấu hình thông báo ⇒ đồng bộ đơn vẫn thành công', async () => {
+      outbox.isEnabled.mockRejectedValue(new Error('db timeout'));
+      const result = await service.ingestBatch([buildOrder('A', 100)], CTX);
+      expect(result.created).toBe(1);
+      expect(result.failed).toBe(0);
+      expect(outbox.enqueueInTransaction).not.toHaveBeenCalled();
+    });
+
+    it('scheduler / retry chạy lại cùng đơn ⇒ lần 2 là SKIP, không ghi sự kiện', async () => {
+      const order = buildOrder('A', 100);
+      await service.ingestBatch([order], CTX);
+      repo.findSnapshotsByTiktokOrderIds.mockResolvedValue(snapshotOf(order));
+      outbox.enqueueInTransaction.mockClear();
+
+      await service.ingestBatch([order], CTX);
+
+      expect(outbox.enqueueInTransaction).not.toHaveBeenCalled();
+    });
   });
 });

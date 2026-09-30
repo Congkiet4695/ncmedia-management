@@ -304,7 +304,7 @@ async function main() {
       where: { organizationId: orgId, tiktokProductId: KEY.tiktokProductId },
     });
     await prisma.storageFile.deleteMany({
-      where: { id: { in: files.map((f: { storageFileId: string }) => f.storageFileId) } },
+      where: { id: { in: files.map((f: { storageFileId: string | null }) => f.storageFileId).filter((id): id is string => id !== null) } },
     });
     await prisma.fulfillmentProductMapping.deleteMany({
       where: { organizationId: orgId, tiktokProductId: KEY.tiktokProductId },

@@ -4,7 +4,7 @@ import { TIKTOK_FINANCE_PAGE_SIZE_MAX } from '../constants/tiktok.constants';
 import { TiktokFinanceClient } from '../clients/tiktok-finance.client';
 import { TiktokClientError } from '../exceptions/pod-tiktok.exceptions';
 import { DistributedLockService } from '../infra/distributed-lock.service';
-import { PodPayoutMapper } from '../mappers/pod-payout.mapper';
+import { PodPayoutMapper, type MappedUnsettledTransaction } from '../mappers/pod-payout.mapper';
 import { PodPayoutRepository, PayoutWriteContext } from '../repositories/pod-payout.repository';
 import { PodTiktokTokenService } from './pod-tiktok-token.service';
 import { TiktokEncryptionService } from './tiktok-encryption.service';
@@ -23,6 +23,10 @@ export interface PayoutSyncOutcome {
   statementsLinked: number;
   transactionsStatements: number;
   ordersCounted: number;
+  /** Giao dịch CHƯA quyết toán (tiền thu về ước tính) — tạo mới / cập nhật / đã quyết toán (xoá mềm). */
+  unsettledCreated: number;
+  unsettledUpdated: number;
+  unsettledRemoved: number;
   errorCode?: string;
   errorMessage?: string;
 }
@@ -88,6 +92,9 @@ export class PodPayoutSyncService {
       statementsLinked: 0,
       transactionsStatements: 0,
       ordersCounted: 0,
+      unsettledCreated: 0,
+      unsettledUpdated: 0,
+      unsettledRemoved: 0,
     };
 
     const lockTtl = this.config.get<number>('tiktok.sync.runDeadlineMs', 240_000);
@@ -158,6 +165,7 @@ export class PodPayoutSyncService {
     );
 
     await this.syncStatementTransactions(ctx, shopCipher, token.accessToken, options, outcome, now);
+    await this.syncUnsettledTransactions(ctx, shopCipher, token.accessToken, options, outcome, now);
 
     const summary = await this.repo.summarize(ctx.organizationId, ctx.shopId);
     this.logger.log({
@@ -329,6 +337,64 @@ export class PodPayoutSyncService {
       outcome.transactionsStatements += 1;
       outcome.ordersCounted += orderIds.size;
     }
+  }
+
+  /**
+   * Bước 4 — giao dịch CHƯA quyết toán (tiền thu về ƯỚC TÍNH theo đơn), GET /finance/202507/orders/unsettled.
+   *
+   * Đọc TOÀN BỘ danh sách mỗi lượt (API chỉ trả giao dịch chưa quyết toán — tập nhỏ, luôn thay đổi)
+   * rồi ghi thành ảnh chụp theo shop. Chỉ xoá mềm giao dịch biến mất khi đã đọc HẾT mọi trang.
+   */
+  private async syncUnsettledTransactions(
+    ctx: PayoutWriteContext,
+    shopCipher: string,
+    accessToken: string,
+    options: PayoutSyncOptions,
+    outcome: PayoutSyncOutcome,
+    now: Date,
+  ): Promise<void> {
+    const collected: MappedUnsettledTransaction[] = [];
+    let pageToken: string | undefined;
+    let complete = false;
+
+    for (let page = 0; page < this.maxPages(); page += 1) {
+      if (this.pastDeadline(options)) break;
+      const result = await this.financeClient.getUnsettledTransactions({
+        shopCipher,
+        accessToken,
+        query: {
+          page_size: TIKTOK_FINANCE_PAGE_SIZE_MAX,
+          page_token: pageToken,
+          sort_field: 'order_create_time',
+          sort_order: 'ASC',
+        },
+      });
+      outcome.apiCalls += 1;
+      for (const raw of result.transactions) {
+        const mapped = this.mapper.mapUnsettledTransaction(raw);
+        if (mapped) collected.push(mapped);
+      }
+      if (!result.nextPageToken || result.nextPageToken === pageToken) {
+        complete = true;
+        break;
+      }
+      pageToken = result.nextPageToken;
+    }
+
+    const counters = await this.repo.replaceUnsettledTransactions(ctx, collected, complete, now);
+    outcome.unsettledCreated = counters.created;
+    outcome.unsettledUpdated = counters.updated;
+    outcome.unsettledRemoved = counters.removed;
+    this.logger.log({
+      module: 'pod-tiktok',
+      operation: 'payout.unsettled',
+      organizationId: ctx.organizationId,
+      shopId: ctx.shopId,
+      fetched: collected.length,
+      complete,
+      ...counters,
+      msg: 'Đồng bộ giao dịch chưa quyết toán (tiền thu về ước tính)',
+    });
   }
 
   /** Mốc bắt đầu của cửa sổ cuốn chiếu (Unix seconds). */

@@ -113,6 +113,8 @@ export function BulkToolbar({
       t('pod:orders.export.itemCount'),
       t('pod:orders.export.subtotal'),
       t('pod:orders.export.buyerPaid'),
+      t('pod:orders.export.proceeds'),
+      t('pod:orders.export.profit'),
       t('pod:orders.export.currency'),
       t('pod:orders.export.tracking'),
       t('pod:orders.export.skus'),

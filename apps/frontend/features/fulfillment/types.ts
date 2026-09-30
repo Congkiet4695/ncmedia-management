@@ -114,6 +114,8 @@ export interface FulfillmentItem {
    * phải số tự tính ở giao diện. NULL = nhà cung cấp chưa báo giá cho dòng này.
    */
   baseCost: number | null;
+  /** true = `baseCost` do NHÀ CUNG CẤP báo; false = mới là ảnh chụp giá catalog lúc gửi. */
+  baseCostConfirmed: boolean;
   providerItemId: string | null;
 }
 
@@ -197,8 +199,14 @@ export interface FulfillmentOrder {
   tax: number | null;
   total: number | null;
   currency: string | null;
-  /** Đơn đã gửi nhưng còn dòng chưa có giá vốn — lượt đồng bộ kế tiếp sẽ điền. */
+  /** Đơn đã gửi nhưng còn dòng chưa được nhà cung cấp xác nhận giá vốn — đồng bộ kế tiếp sẽ điền. */
   baseCostPending: boolean;
+  /** Nhà cung cấp THỰC SỰ nhận đơn (tên tài khoản fulfillment của chính bản ghi). */
+  fulfilledBy: string | null;
+  /** Base cost = Σ giá vốn SẢN PHẨM của mọi dòng (không gồm phí ship / thuế của nhà cung cấp). */
+  productCost: number | null;
+  /** Mọi dòng đều đã được nhà cung cấp xác nhận giá. */
+  productCostConfirmed: boolean;
   attemptCount: number;
   lastErrorCode: string | null;
   lastErrorMessage: string | null;

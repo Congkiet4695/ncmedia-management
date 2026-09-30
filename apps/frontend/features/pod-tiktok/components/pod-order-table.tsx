@@ -14,7 +14,7 @@ import {
 } from '@/components/ui/table';
 import { PodOrderCard } from './orders/pod-order-card';
 import { PodOrderRow } from './orders/pod-order-row';
-import type { LightboxRequest, OrderProductRow } from '../order-view-model';
+import type { LightboxRequest } from '../order-view-model';
 import type { PodOrderItem, PodOrderListItem } from '../order-types';
 
 interface PodOrderTableProps {
@@ -30,7 +30,6 @@ interface PodOrderTableProps {
   onToggleExpand: (id: string) => void;
   onUploadDesign: (item: PodOrderItem) => void;
   /** Mở dialog khai Product Mapping cho một dòng sản phẩm chưa ánh xạ. */
-  onMapProduct: (row: OrderProductRow) => void;
   /** Mở bộ xem ảnh — dùng CHUNG cho ảnh sản phẩm và ảnh design. */
   onPreviewImages: (request: LightboxRequest) => void;
 }
@@ -65,7 +64,6 @@ export function PodOrderTable({
   onToggleSelectAll,
   onToggleExpand,
   onUploadDesign,
-  onMapProduct,
   onPreviewImages,
 }: PodOrderTableProps) {
   const { t } = useTranslation('pod');
@@ -124,7 +122,6 @@ export function PodOrderTable({
                 onToggleSelect={onToggleSelect}
                 onToggleExpand={onToggleExpand}
                 onUploadDesign={onUploadDesign}
-                onMapProduct={onMapProduct}
                 onPreviewImages={onPreviewImages}
               />
             ))}
@@ -147,7 +144,6 @@ export function PodOrderTable({
             onToggleSelect={onToggleSelect}
             onToggleExpand={onToggleExpand}
             onUploadDesign={onUploadDesign}
-            onMapProduct={onMapProduct}
             onPreviewImages={onPreviewImages}
           />
         ))}

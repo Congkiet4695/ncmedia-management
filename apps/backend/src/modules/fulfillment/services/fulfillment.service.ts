@@ -60,18 +60,13 @@ import {
   issueSectionOf,
 } from './fulfillment-readiness.service';
 import { FulfillmentShippingLabelService } from './fulfillment-shipping-label.service';
+import {
+  CANCELLABLE_FULFILLMENT_STATUSES,
+  NON_BLOCKING_FULFILLMENT_STATUSES,
+  SUBMITTABLE_FULFILLMENT_STATUSES,
+} from '../shared/fulfillment-lifecycle';
+import { productCostOf } from '../shared/product-cost';
 
-/** Trạng thái cho phép bấm Fulfill (chưa gửi hoặc gửi hỏng). */
-const FULFILLABLE_STATUSES: readonly FulfillmentStatus[] = [
-  FulfillmentStatus.DRAFT,
-  FulfillmentStatus.FAILED,
-];
-
-/** Trạng thái cho phép huỷ ở xưởng in. */
-const CANCELLABLE_STATUSES: readonly FulfillmentStatus[] = [
-  FulfillmentStatus.SUBMITTED,
-  FulfillmentStatus.ON_HOLD,
-];
 
 /**
  * FulfillmentService — nghiệp vụ KHÔNG phụ thuộc nhà cung cấp.
@@ -811,8 +806,9 @@ export class FulfillmentService {
         productCategory: issue.productCategory ?? null,
       })),
       ],
-      canFulfill: check.ready && !blocking && FULFILLABLE_STATUSES.includes(status),
-      canCancel: Boolean(record) && CANCELLABLE_STATUSES.includes(status),
+      // CANCELLED (nhà cung cấp đã xác nhận huỷ) ⇒ fulfill lại được, như một lần thử mới.
+      canFulfill: check.ready && !blocking && SUBMITTABLE_FULFILLMENT_STATUSES.includes(status),
+      canCancel: Boolean(record) && CANCELLABLE_FULFILLMENT_STATUSES.includes(status),
       provider: { id: account.id, name: account.name, type: account.provider, isActive: true },
       // 🔴 Ghép bằng ĐÚNG chỉ mục mà `readiness.check()` vừa dùng ở trên: màn hình và luồng
       // gửi không thể nhìn thấy hai ánh xạ khác nhau cho cùng một dòng hàng.
@@ -879,9 +875,14 @@ export class FulfillmentService {
     scope: PodAccessScope,
   ): Promise<FulfillmentHistoryDto[]> {
     await this.assertPodOrderInScope(organizationId, podOrderId, scope);
-    const record = await this.repo.findCurrentByPodOrder(organizationId, podOrderId);
-    if (!record) throw new FulfillmentOrderNotFoundException();
-    const histories = await this.repo.listHistory(organizationId, record.id);
+    // 🔴 MỌI lần thử của đơn, kể cả lần đã huỷ rồi được lưu trữ khi fulfill lại — lịch sử của
+    // lần gửi trước không được biến mất chỉ vì đơn đã được gửi lại.
+    const attempts = await this.repo.listAttemptIds(organizationId, podOrderId);
+    if (attempts.length === 0) throw new FulfillmentOrderNotFoundException();
+    const histories = await this.repo.listHistory(
+      organizationId,
+      attempts.map((attempt) => attempt.id),
+    );
     return histories.map((history) => ({
       id: history.id,
       eventType: history.eventType,
@@ -904,9 +905,12 @@ export class FulfillmentService {
     scope: PodAccessScope,
   ): Promise<FulfillmentErrorDto[]> {
     await this.assertPodOrderInScope(organizationId, podOrderId, scope);
-    const record = await this.repo.findCurrentByPodOrder(organizationId, podOrderId);
-    if (!record) throw new FulfillmentOrderNotFoundException();
-    const errors = await this.repo.listErrors(organizationId, record.id);
+    const attempts = await this.repo.listAttemptIds(organizationId, podOrderId);
+    if (attempts.length === 0) throw new FulfillmentOrderNotFoundException();
+    const errors = await this.repo.listErrors(
+      organizationId,
+      attempts.map((attempt) => attempt.id),
+    );
     return errors.map((error) => ({
       id: error.id,
       operation: error.operation,
@@ -1156,11 +1160,14 @@ export class FulfillmentService {
       tax: record.tax === null ? null : Number(record.tax),
       total: record.total === null ? null : Number(record.total),
       currency: record.currency,
-      // Đơn đã gửi mà còn dòng chưa có giá vốn ⇒ giao diện nói rõ "đang chờ báo giá" thay vì
-      // hiển thị một ô trống không ai biết là lỗi hay chưa tới.
-      baseCostPending:
-        record.submittedAt !== null &&
-        (record.items ?? []).some((item) => item.baseCost === null),
+      // 🔴 "Fulfilled by" = nhà cung cấp THỰC SỰ nhận đơn này (tài khoản của CHÍNH bản ghi), không
+      // phải nhà cung cấp mặc định của kết nối TikTok.
+      fulfilledBy: 'account' in record && record.account ? record.account.name : null,
+      // "Chờ báo giá" chỉ có nghĩa khi lần gửi còn giữ đơn ở xưởng — đơn đã huỷ / hỏng không chờ gì.
+      ...productCostOf(
+        record.submittedAt !== null && !NON_BLOCKING_FULFILLMENT_STATUSES.includes(record.status),
+        record.items ?? [],
+      ),
       attemptCount: record.attemptCount,
       lastErrorCode: record.lastErrorCode,
       lastErrorMessage: record.lastErrorMessage,
@@ -1177,6 +1184,7 @@ export class FulfillmentService {
         color: item.color,
         size: item.size,
         baseCost: item.baseCost === null ? null : Number(item.baseCost),
+        baseCostConfirmed: item.baseCostConfirmedAt !== null,
         providerItemId: item.providerItemId,
       })),
       createdAt: record.createdAt.toISOString(),

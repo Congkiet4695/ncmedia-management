@@ -15,6 +15,7 @@ import { MangoFulfillmentService } from '../mango/services/mango-fulfillment.ser
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import { SellerwixFulfillmentService } from '../sellerwix/services/sellerwix-fulfillment.service';
 import { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
+import { FulfillmentNotificationService } from './fulfillment-notification.service';
 
 /**
  * **Gateway chọn adapter theo `account.provider`.**
@@ -70,6 +71,10 @@ function build(options: { accounts?: unknown[]; current?: unknown; orderMissing?
     fulfill: jest.fn().mockResolvedValue({ provider: 'SELLERWIX' }),
     cancel: jest.fn().mockResolvedValue({}),
   };
+  const notifications = {
+    fulfilled: jest.fn().mockResolvedValue(undefined),
+    cancelled: jest.fn().mockResolvedValue(undefined),
+  };
   const gateway = new FulfillmentProviderGateway(
     repo,
     podOrderRepo,
@@ -80,8 +85,9 @@ function build(options: { accounts?: unknown[]; current?: unknown; orderMissing?
     } as unknown as SellerwixFulfillmentService,
     // `assertShopAllowed` là phép so thuần — không cần database.
     new PodAccessScopeService({} as never),
+    notifications as unknown as FulfillmentNotificationService,
   );
-  return { gateway, mango, sellerwix };
+  return { gateway, mango, sellerwix, notifications };
 }
 
 describe('FulfillmentProviderGateway', () => {
@@ -226,5 +232,49 @@ describe('FulfillmentProviderGateway — phạm vi shop (Seller)', () => {
     ).rejects.toMatchObject({ status: 404 });
     expect(mango.fulfill).not.toHaveBeenCalled();
     expect(sellerwix.fulfill).not.toHaveBeenCalled();
+  });
+});
+
+describe('FulfillmentProviderGateway — thông báo Telegram', () => {
+  it('TEST 12 — fulfill thành công ⇒ phát thông báo với ĐÚNG bản ghi adapter trả về', async () => {
+    const { gateway, mango, notifications } = build();
+    const record = { id: 'fo-1', provider: 'MANGO', status: 'SUBMITTED' };
+    mango.fulfill.mockResolvedValueOnce(record);
+
+    await gateway.fulfill('org', 'admin', 'pod-1', FulfillmentTrigger.MANUAL, { fulfillmentAccountId: 'acc-mango' }, ALL);
+
+    expect(notifications.fulfilled).toHaveBeenCalledWith(record, 'admin', FulfillmentTrigger.MANUAL);
+  });
+
+  it('TEST 13 — nhà cung cấp lỗi (adapter ném) ⇒ KHÔNG phát thông báo thành công, lỗi giữ nguyên', async () => {
+    const { gateway, mango, notifications } = build();
+    mango.fulfill.mockRejectedValueOnce(new Error('provider rejected'));
+
+    await expect(
+      gateway.fulfill('org', 'admin', 'pod-1', FulfillmentTrigger.MANUAL, { fulfillmentAccountId: 'acc-mango' }, ALL),
+    ).rejects.toThrow('provider rejected');
+    expect(notifications.fulfilled).not.toHaveBeenCalled();
+  });
+
+  it('TEST 14 — huỷ xong ⇒ chuyển bản ghi + lý do cho bộ phát thông báo', async () => {
+    const { gateway, mango, notifications } = build({
+      current: { accountId: 'acc-mango', provider: FulfillmentProvider.MANGO },
+    });
+    const record = { id: 'fo-1', status: 'CANCELLED' };
+    mango.cancel.mockResolvedValueOnce(record);
+
+    await gateway.cancel('org', 'admin', 'pod-1', ALL, 'khách huỷ');
+
+    expect(notifications.cancelled).toHaveBeenCalledWith(record, 'admin', 'khách huỷ');
+  });
+
+  it('TEST 15 — huỷ thất bại (adapter ném) ⇒ KHÔNG phát thông báo huỷ', async () => {
+    const { gateway, mango, notifications } = build({
+      current: { accountId: 'acc-mango', provider: FulfillmentProvider.MANGO },
+    });
+    mango.cancel.mockRejectedValueOnce(new Error('already shipped'));
+
+    await expect(gateway.cancel('org', 'admin', 'pod-1', ALL)).rejects.toThrow('already shipped');
+    expect(notifications.cancelled).not.toHaveBeenCalled();
   });
 });

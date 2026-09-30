@@ -435,4 +435,21 @@ export const productMappingService = {
       params: key,
     });
   },
+
+  /**
+   * Đặt / thay thế design tại MỘT vị trí in bằng URL CÔNG KHAI — không tải file, không upload lại.
+   * Backend kiểm lại HTTPS + host công khai (lỗi `FULFILLMENT_DESIGN_URL_INVALID`).
+   */
+  async setDesignUrl(
+    key: ProductDesignKey,
+    placement: PodDesignPlacement,
+    url: string,
+  ): Promise<PodDesign> {
+    const res = await apiClient.put<ApiResponse<PodDesign>>(
+      `${BASE_PATH}/product-designs/${placement}/url`,
+      { url },
+      { params: key },
+    );
+    return res.data.data;
+  },
 };

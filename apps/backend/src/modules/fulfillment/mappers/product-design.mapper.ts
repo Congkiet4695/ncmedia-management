@@ -2,6 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { PodDesignPlacement, Prisma } from '@prisma/client';
 import { StorageMapper } from '../../storage/storage.mapper';
 import { PodDesignDto } from '../../pod-tiktok/dto/pod-design.dto';
+import {
+  toPodDesignDto,
+  type DesignPresentable,
+} from '../../pod-tiktok/mappers/pod-design.presenter';
 import type { ProductMappingDesignStatus } from '../dto/fulfillment.dto';
 
 /**
@@ -10,20 +14,7 @@ import type { ProductMappingDesignStatus } from '../dto/fulfillment.dto';
  * Khai bằng structural type thay vì buộc phải `include` cả bản ghi: nơi gọi chỉ cần `select`
  * đúng những cột này là dùng được, không phải kéo về cả `storage_files`.
  */
-export interface DesignForDto {
-  id: string;
-  placement: PodDesignPlacement;
-  version: number;
-  storageFile: {
-    id: string;
-    publicUrl: string | null;
-    originalName: string;
-    mimeType: string;
-    fileSize: number;
-    uploadedAt: Date;
-    uploader?: { fullName: string } | null;
-  };
-}
+export type DesignForDto = DesignPresentable;
 
 /** Bản ghi design kèm file, đúng include mà service dùng. */
 export type ProductDesignWithFile = Prisma.FulfillmentProductDesignGetPayload<{
@@ -46,19 +37,7 @@ export class ProductDesignMapper {
   constructor(private readonly storage: StorageMapper) {}
 
   toDto(design: DesignForDto): PodDesignDto {
-    const file = design.storageFile;
-    return {
-      id: design.id,
-      placement: design.placement,
-      // Bucket private ⇒ không có URL công khai ⇒ dùng đường tải qua API (có kiểm quyền).
-      fileUrl: file.publicUrl ?? this.storage.buildDownloadUrl(file.id),
-      fileName: file.originalName,
-      mimeType: file.mimeType,
-      fileSize: file.fileSize,
-      version: design.version,
-      uploadedAt: file.uploadedAt.toISOString(),
-      uploadedByName: file.uploader?.fullName ?? null,
-    };
+    return toPodDesignDto(design, (fileId) => this.storage.buildDownloadUrl(fileId));
   }
 
   toDtoList(designs: DesignForDto[]): PodDesignDto[] {

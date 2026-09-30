@@ -128,9 +128,10 @@ describe('PodOrderRepository — lọc theo DESIGN', () => {
 
 describe('PodOrderRepository — lọc theo FULFILLMENT', () => {
   /** Đúng danh sách `RESUBMITTABLE_STATUSES` của `MangoFulfillmentService`. */
-  const STILL_SENDABLE = [FulfillmentStatus.DRAFT, FulfillmentStatus.FAILED];
+  // Nhà cung cấp đã XÁC NHẬN huỷ ⇒ đơn fulfill lại được ⇒ tính là CHƯA đẩy.
+  const STILL_SENDABLE = [FulfillmentStatus.DRAFT, FulfillmentStatus.FAILED, FulfillmentStatus.CANCELLED];
 
-  it('🔴 "chưa đẩy" = không có bản ghi nào ngoài DRAFT/FAILED', async () => {
+  it('🔴 "chưa đẩy" = không có bản ghi nào ngoài DRAFT/FAILED/CANCELLED', async () => {
     const ctx = buildRepo();
 
     await ctx.find({ pushedToFulfillment: false });
@@ -159,14 +160,14 @@ describe('PodOrderRepository — lọc theo FULFILLMENT', () => {
     expect(clause.none.deletedAt).toBeNull();
   });
 
-  it('CANCELLED tính là ĐÃ đẩy — theo đúng luật hiện hành (không gửi lại được)', async () => {
+  it('CANCELLED (nhà cung cấp đã xác nhận huỷ) tính là CHƯA đẩy — fulfill lại được', async () => {
     const ctx = buildRepo();
 
     await ctx.find({ pushedToFulfillment: false });
 
     const notIn = (ctx.where().fulfillmentOrders as { none: { status: { notIn: string[] } } }).none
       .status.notIn;
-    expect(notIn).not.toContain(FulfillmentStatus.CANCELLED);
+    expect(notIn).toContain(FulfillmentStatus.CANCELLED);
   });
 });
 

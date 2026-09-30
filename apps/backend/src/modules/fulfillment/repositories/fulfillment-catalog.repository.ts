@@ -479,6 +479,27 @@ export class FulfillmentCatalogRepository {
    * 🔴 Tra theo lô là điểm mấu chốt về hiệu năng: rà 155 dòng hàng bằng 155 truy vấn là
    * đúng cái N+1 mà §8 cấm. Chỉ mục `(account_id, sku)` phục vụ đúng truy vấn này.
    */
+  /**
+   * Đơn vị tiền của GIÁ VỐN cho các SKU sắp gửi — lấy từ catalog nhà cung cấp (\`fulfillment_products.currency\`).
+   *
+   * 🔴 Chỉ trả khi catalog nói RÕ và THỐNG NHẤT một loại tiền cho mọi SKU; thiếu / lẫn nhiều loại ⇒
+   * \`null\` (không đoán). Response tạo đơn của cả Mango lẫn Sellerwix không mang currency, nên đây là
+   * nguồn duy nhất để biết giá vốn tính bằng tiền gì — điều kiện bắt buộc để trừ vào tiền thu về.
+   * Lọc theo tài khoản (không theo tổ chức): tài khoản dùng chung có catalog nằm ở tổ chức nền tảng.
+   */
+  async findCostCurrency(accountId: string, skus: string[]): Promise<string | null> {
+    if (skus.length === 0) return null;
+    const rows = await this.prisma.fulfillmentVariant.findMany({
+      where: { accountId, deletedAt: null, sku: { in: skus } },
+      select: { sku: true, product: { select: { currency: true } } },
+    });
+    const covered = new Set(rows.map((row) => row.sku));
+    if (skus.some((sku) => !covered.has(sku))) return null;
+    const currencies = new Set(rows.map((row) => row.product.currency?.trim().toUpperCase() || ''));
+    if (currencies.size !== 1 || currencies.has('')) return null;
+    return [...currencies][0];
+  }
+
   findVariantsBySkus(organizationId: string, accountId: string, skus: string[]) {
     if (skus.length === 0) return Promise.resolve([]);
     return this.prisma.fulfillmentVariant.findMany({

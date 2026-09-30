@@ -217,6 +217,21 @@ export class FulfillmentCannotCancelException extends ConflictException {
   }
 }
 
+/**
+ * Nhà cung cấp ĐÃ nhận yêu cầu huỷ và đang xử lý (chưa xác nhận huỷ). Gửi thêm yêu cầu là thừa;
+ * đơn chỉ fulfill lại được khi nhà cung cấp báo đã huỷ (đồng bộ / webhook sẽ cập nhật).
+ */
+export class FulfillmentCancelPendingException extends ConflictException {
+  constructor(providerLabel: string) {
+    super({
+      code: 'FULFILLMENT_CANCEL_PENDING',
+      message:
+        `${providerLabel} đang xử lý yêu cầu huỷ trước đó. Chờ nhà cung cấp xác nhận đã huỷ rồi ` +
+        'mới Fulfill lại được — trạng thái sẽ tự cập nhật khi đồng bộ.',
+    });
+  }
+}
+
 /** Nhà cung cấp từ chối dữ liệu — trả nguyên các lỗi field để người dùng sửa. */
 /**
  * Đơn không còn SỬA được ở nhà cung cấp (đã vào sản xuất / đã ship).

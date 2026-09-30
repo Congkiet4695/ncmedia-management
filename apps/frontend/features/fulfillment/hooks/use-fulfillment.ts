@@ -133,11 +133,13 @@ export function useFulfillmentActions(podOrderId: string) {
   return {
     fulfill: useMutation({
       mutationFn: (payload: FulfillPayload = {}) => fulfillmentService.fulfill(podOrderId, payload),
-      onSuccess: refresh,
+      // 🔴 onSettled chứ không onSuccess: gửi HỎNG cũng đổi dữ liệu (bản ghi FAILED + lỗi nhà cung
+      // cấp, hoặc đã liên kết đơn có sẵn) — danh sách không được giữ trạng thái cũ.
+      onSettled: refresh,
     }),
     retry: useMutation({
       mutationFn: (payload: FulfillPayload = {}) => fulfillmentService.retry(podOrderId, payload),
-      onSuccess: refresh,
+      onSettled: refresh,
     }),
     update: useMutation({
       mutationFn: (payload: UpdateFulfillmentPayload) =>
@@ -150,7 +152,8 @@ export function useFulfillmentActions(podOrderId: string) {
     }),
     cancel: useMutation({
       mutationFn: (reason?: string) => fulfillmentService.cancel(podOrderId, reason),
-      onSuccess: refresh,
+      // Huỷ bị từ chối vẫn có thể đã cập nhật trạng thái thật (đơn đã vào sản xuất / đã ship).
+      onSettled: refresh,
     }),
   };
 }
@@ -453,6 +456,18 @@ export function useMappingDesignActions() {
     remove: useMutation({
       mutationFn: ({ key, placement }: { key: ProductDesignKey; placement: PodDesignPlacement }) =>
         productMappingService.deleteDesign(key, placement),
+      onSuccess: refresh,
+    }),
+    setUrl: useMutation({
+      mutationFn: ({
+        key,
+        placement,
+        url,
+      }: {
+        key: ProductDesignKey;
+        placement: PodDesignPlacement;
+        url: string;
+      }) => productMappingService.setDesignUrl(key, placement, url),
       onSuccess: refresh,
     }),
   };

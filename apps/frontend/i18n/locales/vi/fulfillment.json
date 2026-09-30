@@ -212,7 +212,8 @@
     "succeeded": "Fulfill order thành công",
     "title": "Đẩy đơn sang xưởng in",
     "total": "Tổng cộng",
-    "useAccountDefault": "Mặc định của đơn vị Fulfill"
+    "useAccountDefault": "Mặc định của đơn vị Fulfill",
+    "shippingLoadFailed": "Không tải được phương thức vận chuyển"
   },
   "fulfillNow": "Fulfill Now",
   "history": "Lịch sử",

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   TIKTOK_GET_PAYMENTS_PATH,
   TIKTOK_GET_STATEMENTS_PATH,
+  TIKTOK_GET_UNSETTLED_TRANSACTIONS_PATH,
   tiktokStatementTransactionsPath,
 } from '../constants/tiktok.constants';
 import { TiktokApiClient } from './tiktok-api.client';
@@ -15,6 +16,9 @@ import {
   TiktokStatementTransaction,
   TiktokStatementTransactionsData,
   TiktokStatementTransactionsQuery,
+  TiktokUnsettledTransaction,
+  TiktokUnsettledTransactionsData,
+  TiktokUnsettledTransactionsQuery,
 } from '../types/tiktok-finance.types';
 
 /** Tham số chung: mọi Finance API đều là entity tag `Shop`. */
@@ -42,6 +46,12 @@ export interface StatementTransactionsPage {
   /** Tổng số dòng giao dịch của statement (TikTok trả ở mọi trang). */
   totalCount?: number;
   currency?: string;
+  nextPageToken?: string;
+  requestId?: string;
+}
+
+export interface UnsettledTransactionsPage {
+  transactions: TiktokUnsettledTransaction[];
   nextPageToken?: string;
   requestId?: string;
 }
@@ -112,6 +122,25 @@ export class TiktokFinanceClient {
       transactions: result.data?.transactions ?? [],
       totalCount: result.data?.total_count,
       currency: result.data?.currency,
+      nextPageToken: result.data?.next_page_token || undefined,
+      requestId: result.requestId,
+    };
+  }
+
+  /** Một trang Get Unsettled Transactions (số tiền ƯỚC TÍNH của đơn chưa quyết toán). */
+  async getUnsettledTransactions(
+    params: FinanceCallParams<TiktokUnsettledTransactionsQuery>,
+  ): Promise<UnsettledTransactionsPage> {
+    const result = await this.api.callSigned<TiktokUnsettledTransactionsData>({
+      path: TIKTOK_GET_UNSETTLED_TRANSACTIONS_PATH,
+      method: 'GET',
+      query: { shop_cipher: params.shopCipher, ...params.query },
+      accessToken: params.accessToken,
+      endpointLabel: 'GET_UNSETTLED_TRANSACTIONS',
+    });
+
+    return {
+      transactions: result.data?.transactions ?? [],
       nextPageToken: result.data?.next_page_token || undefined,
       requestId: result.requestId,
     };

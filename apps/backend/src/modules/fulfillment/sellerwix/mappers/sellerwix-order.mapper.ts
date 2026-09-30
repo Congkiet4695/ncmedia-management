@@ -6,7 +6,9 @@ import {
   SELLERWIX_STATUS_MAP,
   SELLERWIX_STATUS_PROGRESS,
   type SellerwixFulfillmentStatus,
+  SELLERWIX_REFERENCE_ID_MAX_LENGTH,
 } from '../constants/sellerwix.constants';
+import { attemptExternalId } from '../../shared/fulfillment-lifecycle';
 import type {
   SellerwixAddressRequest,
   SellerwixCreateOrderRequest,
@@ -92,8 +94,24 @@ export class SellerwixOrderMapper {
    * store (Others lẫn store TikTok đã kết nối), và là khoá idempotency: trước khi tạo, NCMedia tra
    * `GET /v1/order/{reference_id}?store_id=` để không tạo đơn thứ hai.
    */
-  buildReferenceId(tiktokOrderId: string): string {
-    return tiktokOrderId.trim();
+  /**
+   * Danh sách phương thức vận chuyển từ response Get shipping methods.
+   *
+   * Tài liệu cho mảng trần; các endpoint danh sách khác của cùng API bọc `{ data: [...] }` (vd Get
+   * product variants) ⇒ nhận CẢ HAI dạng. Dạng khác ⇒ `null` để nơi gọi báo lỗi thay vì trả rỗng.
+   */
+  shippingMethodsOfResponse(body: unknown): SellerwixShippingMethod[] | null {
+    if (Array.isArray(body)) return body as SellerwixShippingMethod[];
+    if (body && typeof body === 'object' && Array.isArray((body as { data?: unknown }).data)) {
+      return (body as { data: SellerwixShippingMethod[] }).data;
+    }
+    return null;
+  }
+
+  buildReferenceId(tiktokOrderId: string, attempt = 1): string {
+    // Lần 1: mã đơn TikTok NGUYÊN VĂN (hành vi cũ). Fulfill lại sau khi huỷ ⇒ `{mã}-R{n}`: mã cũ
+    // vẫn trỏ tới đơn đã huỷ ở Sellerwix, dùng lại thì bước tra idempotency liên kết nhầm đơn đó.
+    return attemptExternalId(tiktokOrderId.trim(), attempt, SELLERWIX_REFERENCE_ID_MAX_LENGTH);
   }
 
   /** Địa chỉ đã chuẩn hoá → `address` của Sellerwix (chỉ field có trong tài liệu). */

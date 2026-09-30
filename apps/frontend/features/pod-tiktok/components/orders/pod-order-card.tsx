@@ -13,7 +13,7 @@ import { OrderInfoCell } from './order-info-cell';
 import { OrderPriceCell } from './order-price-cell';
 import { OrderProductsCell } from './order-products-cell';
 import { TrackingCell } from './tracking-cell';
-import type { LightboxRequest, OrderProductRow } from '../../order-view-model';
+import type { LightboxRequest } from '../../order-view-model';
 import type { PodOrderItem, PodOrderListItem } from '../../order-types';
 
 interface PodOrderCardProps {
@@ -28,7 +28,6 @@ interface PodOrderCardProps {
   onToggleExpand: (id: string) => void;
   onUploadDesign: (item: PodOrderItem) => void;
   /** Mở dialog khai Product Mapping cho một dòng sản phẩm chưa ánh xạ. */
-  onMapProduct: (row: OrderProductRow) => void;
   /** Mở bộ xem ảnh — dùng CHUNG cho ảnh sản phẩm và ảnh design. */
   onPreviewImages: (request: LightboxRequest) => void;
 }
@@ -51,7 +50,6 @@ export function PodOrderCard({
   onToggleSelect,
   onToggleExpand,
   onUploadDesign,
-  onMapProduct,
   onPreviewImages,
 }: PodOrderCardProps) {
   const { t } = useTranslation('pod');
@@ -92,7 +90,6 @@ export function PodOrderCard({
         <OrderProductsCell
           items={order.items}
           onUploadDesign={onUploadDesign}
-          onMapProduct={onMapProduct}
           onPreviewImages={onPreviewImages}
         />
 

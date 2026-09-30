@@ -1,6 +1,72 @@
 import { ApiProperty } from '@nestjs/swagger';
 import { PodDesignDto } from './pod-design.dto';
 
+/** Tiền thu về của đơn — số TikTok báo (settled) hoặc ước tính (unsettled). */
+export class PodOrderProceedsDto {
+  @ApiProperty({
+    enum: ['SETTLED', 'ESTIMATED'],
+    description:
+      'SETTLED: đã quyết toán (Get Transactions by Statement) · ESTIMATED: chưa quyết toán ' +
+      '(Get Unsettled Transactions 202507, est_settlement_amount)',
+  })
+  source!: 'SETTLED' | 'ESTIMATED';
+  @ApiProperty() currency!: string;
+  @ApiProperty({ description: 'settlement_amount / est_settlement_amount (nguyên văn TikTok)' })
+  amount!: number;
+  @ApiProperty({ nullable: true, type: Number }) revenueAmount!: number | null;
+  @ApiProperty({ nullable: true, type: Number }) feeTaxAmount!: number | null;
+  @ApiProperty({ nullable: true, type: Number }) shippingCostAmount!: number | null;
+  @ApiProperty({ nullable: true, type: Number }) adjustmentAmount!: number | null;
+  @ApiProperty({
+    nullable: true,
+    type: Object,
+    description: 'revenue_breakdown NGUYÊN VĂN (Gross sales, Seller discount…). NULL khi không có.',
+  })
+  revenueBreakdown!: unknown;
+  @ApiProperty({ nullable: true, type: Object, description: 'fee_tax_breakdown NGUYÊN VĂN' })
+  feeTaxBreakdown!: unknown;
+  @ApiProperty({ nullable: true, type: Object, description: 'shipping_cost_breakdown NGUYÊN VĂN' })
+  shippingCostBreakdown!: unknown;
+  @ApiProperty() transactionCount!: number;
+  @ApiProperty({ nullable: true, type: String }) estimatedSettlement!: string | null;
+  @ApiProperty({ nullable: true, type: String }) unsettledReason!: string | null;
+}
+
+/** Tài chính của đơn cho cột "Giá": tiền thu về · giá vốn · lợi nhuận · margin. */
+export class PodOrderFinancialsDto {
+  @ApiProperty({ type: PodOrderProceedsDto, nullable: true }) proceeds!: PodOrderProceedsDto | null;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description: 'Base cost = product cost của lần fulfill đang hiệu lực (không gồm phí ship NCC)',
+  })
+  productCost!: number | null;
+  @ApiProperty() productCostConfirmed!: boolean;
+  @ApiProperty({ nullable: true, type: String }) costCurrency!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'Nhà cung cấp thực sự nhận đơn' })
+  fulfilledBy!: string | null;
+  @ApiProperty({ nullable: true, type: Number, description: 'profit = proceeds − productCost' })
+  profit!: number | null;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description: 'margin = profit ÷ proceeds (tỉ lệ, 0.25 = 25%); NULL khi proceeds ≤ 0',
+  })
+  margin!: number | null;
+  @ApiProperty({
+    enum: [
+      'OK',
+      'NO_PROCEEDS',
+      'NO_COST',
+      'COST_PENDING',
+      'COST_CURRENCY_UNKNOWN',
+      'CURRENCY_MISMATCH',
+    ],
+    description: 'Vì sao chưa tính được lợi nhuận (OK = đã tính)',
+  })
+  status!: string;
+}
+
 /** Một ứng viên do ánh xạ tự động tìm được — đủ dữ liệu để dialog Map Product chọn sẵn. */
 export class PodMappingCandidateDto {
   @ApiProperty({ description: 'Khoá nội bộ của sản phẩm trong bản sao danh mục.' })
@@ -177,6 +243,7 @@ export class PodOrderResponseDto {
   @ApiProperty({ nullable: true, type: Number }) tax!: number | null;
   @ApiProperty({ nullable: true, type: Number }) sellerDiscount!: number | null;
   @ApiProperty({ nullable: true, type: Number }) platformDiscount!: number | null;
+  @ApiProperty({ type: PodOrderFinancialsDto }) financials!: PodOrderFinancialsDto;
 
   @ApiProperty({ nullable: true, type: String }) fulfillmentType!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'TIKTOK (4PL) | SELLER (3PL)' })
@@ -259,6 +326,13 @@ export class PodOrderListItemDto {
   @ApiProperty() status!: string;
   @ApiProperty({ nullable: true, type: Number }) totalAmount!: number | null;
   @ApiProperty({ nullable: true, type: String }) currency!: string | null;
+  // Các khoản của đơn (TikTok `payment`) — cột Giá hiển thị trực tiếp, không phải mở chi tiết.
+  @ApiProperty({ nullable: true, type: Number }) subTotal!: number | null;
+  @ApiProperty({ nullable: true, type: Number }) shippingFee!: number | null;
+  @ApiProperty({ nullable: true, type: Number }) tax!: number | null;
+  @ApiProperty({ nullable: true, type: Number }) sellerDiscount!: number | null;
+  @ApiProperty({ nullable: true, type: Number }) platformDiscount!: number | null;
+  @ApiProperty({ type: PodOrderFinancialsDto }) financials!: PodOrderFinancialsDto;
   @ApiProperty({ nullable: true, type: String }) orderType!: string | null;
   @ApiProperty() hasPodItem!: boolean;
   @ApiProperty({ description: 'Số sản phẩm trong đơn' }) itemCount!: number;

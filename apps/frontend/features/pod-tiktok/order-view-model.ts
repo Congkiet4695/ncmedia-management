@@ -2,6 +2,7 @@ import type {
   PodDesign,
   PodItemMappingStatus,
   PodMappingCandidate,
+  PodOrderFinancials,
   PodOrderItem,
   PodOrderListItem,
 } from './order-types';
@@ -229,43 +230,38 @@ export function rowDesignStatus(row: OrderProductRow): RowDesignStatus {
 // ---------------------------------------------------------------------------
 
 /**
- * Bốn dòng của cột Price (§3).
+ * Các dòng của cột Giá.
  *
- * 🔴 Chỉ `subtotal` và `buyerPaid` có dữ liệu thật từ endpoint danh sách:
- *   - `subtotal`   — CỘNG từ `items[].salePrice`, dữ liệu API đang trả về.
- *   - `buyerPaid`  — `totalAmount`.
- *   - `tax`        — chỉ có ở endpoint CHI TIẾT (`GET /orders/:id`), nên `null` ở dòng thu
- *                    gọn và được điền khi mở rộng dòng.
- *   - `estimated`  — **KHÔNG tồn tại trong hệ thống**. Không suy ra bằng công thức tự chế:
- *                    một con số tiền bịa ra trông y như số thật là thứ nguy hiểm nhất có thể
- *                    đặt lên màn hình vận hành.
- *
- * Xem mục "Khoảng trống dữ liệu" trong báo cáo để biết đúng thay đổi DTO cần có.
+ * 🔴 Mọi con số đều do BACKEND trả — giao diện KHÔNG tự tính công thức tài chính nào:
+ *   - `subtotal` / `tax` / `shipping` / `total` — `payment` của đơn TikTok.
+ *   - `financials.proceeds` — Tiền thu về: `settlement_amount` (đã quyết toán) hoặc
+ *     `est_settlement_amount` (ước tính, chưa quyết toán) của TikTok Finance API.
+ *   - `financials.profit` / `margin` — backend tính (profit = tiền thu về − base cost;
+ *     margin = profit ÷ tiền thu về). Thiếu dữ kiện ⇒ `null` + `status` nói rõ thiếu gì.
  */
 export interface OrderPriceBreakdown {
   subtotal: number | null;
   tax: number | null;
+  shipping: number | null;
   buyerPaid: number | null;
-  estimated: number | null;
   currency: string;
+  financials: PodOrderFinancials;
 }
 
-export function buildPriceBreakdown(
-  order: PodOrderListItem,
-  /** Số liệu chính xác từ endpoint chi tiết, chỉ có sau khi mở rộng dòng. */
-  detail?: { subTotal: number | null; tax: number | null; totalAmount: number | null } | null,
-): OrderPriceBreakdown {
+export function buildPriceBreakdown(order: PodOrderListItem): OrderPriceBreakdown {
+  // Đơn cũ trong cache / thiếu `subTotal` ⇒ cộng giá bán các dòng (đúng dữ liệu API trả về).
   const summed = order.items.reduce<number | null>((total, item) => {
     if (item.salePrice === null) return total;
     return (total ?? 0) + item.salePrice * item.quantity;
   }, null);
 
   return {
-    subtotal: detail?.subTotal ?? summed,
-    tax: detail?.tax ?? null,
-    buyerPaid: detail?.totalAmount ?? order.totalAmount,
-    estimated: null,
+    subtotal: order.subTotal ?? summed,
+    tax: order.tax,
+    shipping: order.shippingFee,
+    buyerPaid: order.totalAmount,
     currency: orderCurrency(order.currency),
+    financials: order.financials,
   };
 }
 
@@ -321,6 +317,8 @@ export function buildOrdersCsv(orders: PodOrderListItem[], headers: string[]): s
       order.itemCount,
       price.subtotal,
       price.buyerPaid,
+      price.financials.proceeds?.amount ?? null,
+      price.financials.profit,
       price.currency,
       collectTrackingNumbers(order).join(' | '),
       order.items.map((item) => `${item.sellerSku ?? item.skuId ?? ''}`).join(' | '),

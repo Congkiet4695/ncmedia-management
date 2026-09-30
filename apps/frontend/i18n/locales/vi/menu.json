@@ -37,5 +37,7 @@
   "reportWarehouse": "Hiệu suất Kho",
   "reports": "Báo cáo",
   "superAdminFulfillmentProviders": "Fulfillment Providers",
-  "superAdminOrganizations": "Organizations"
+  "superAdminOrganizations": "Organizations",
+  "settings": "Cài đặt",
+  "settingsNotifications": "Thông báo"
 }

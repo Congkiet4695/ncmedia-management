@@ -24,6 +24,7 @@ import {
 import { PodOrderDesignResolver } from './pod-order-design-resolver.service';
 import { PodOrderProductImageResolver } from './pod-order-product-image.resolver';
 import { PodOrderRepository } from '../repositories/pod-order.repository';
+import { PodOrderFinanceService } from './pod-order-finance.service';
 import { PodSyncLogRepository } from '../repositories/pod-sync-log.repository';
 import { PodTiktokAccountRepository } from '../repositories/pod-tiktok-account.repository';
 import { PodOrderSyncService } from './pod-order-sync.service';
@@ -47,6 +48,7 @@ export class PodOrderService {
     private readonly designResolver: PodOrderDesignResolver,
     private readonly productImageResolver: PodOrderProductImageResolver,
     private readonly accessScope: PodAccessScopeService,
+    private readonly finance: PodOrderFinanceService,
   ) {}
 
   async findAll(
@@ -92,13 +94,17 @@ export class PodOrderService {
 
     // 🔴 Design đọc từ Product Mapping — MỘT truy vấn cho cả trang, không N+1.
     // 🔴 Hai resolver chạy song song, mỗi cái MỘT truy vấn cho cả trang — không N+1.
-    const [designs, productImages] = await Promise.all([
+    const [designs, productImages, financials] = await Promise.all([
       this.designResolver.resolveForOrders(organizationId, items),
       this.productImageResolver.resolveForOrders(organizationId, items),
+      // Tiền thu về · giá vốn · lợi nhuận — MỘT lô truy vấn cho cả trang.
+      this.finance.summarize(organizationId, items),
     ]);
 
     return {
-      items: items.map((order) => this.mapper.toListItem(order, designs, productImages)),
+      items: items.map((order) =>
+        this.mapper.toListItem(order, designs, productImages, financials),
+      ),
       meta: { total, page, limit, totalPages: total === 0 ? 0 : Math.ceil(total / limit) },
     };
   }
@@ -113,11 +119,12 @@ export class PodOrderService {
     // 🔴 Lọc danh sách chưa đủ: `/orders/{id}` vẫn gọi thẳng được bằng id đoán ra.
     this.accessScope.assertShopAllowed(scope, order.shopId);
 
-    const [designs, productImages] = await Promise.all([
+    const [designs, productImages, financials] = await Promise.all([
       this.designResolver.resolveForOrders(organizationId, [order]),
       this.productImageResolver.resolveForOrders(organizationId, [order]),
+      this.finance.summarize(organizationId, [order]),
     ]);
-    return this.mapper.toResponse(order, designs, productImages);
+    return this.mapper.toResponse(order, designs, productImages, financials);
   }
 
   /**

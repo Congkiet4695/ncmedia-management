@@ -654,6 +654,12 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                           {warning}
                         </p>
                       ))}
+                    {/* Lỗi tải (403 / 404 / 5xx / mạng) phải HIỆN RA — trước đây ô chọn chỉ trống im lặng. */}
+                    {shippingByOrder && orderShipping.isError && (
+                      <p className="text-[11px] text-destructive">
+                        {t('fulfill.shippingLoadFailed')}: {translateApiError(orderShipping.error)}
+                      </p>
+                    )}
                   </div>
 
                   {capabilities?.speedType && (

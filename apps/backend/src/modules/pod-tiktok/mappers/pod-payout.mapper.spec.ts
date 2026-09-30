@@ -179,3 +179,55 @@ describe('PodPayoutMapper', () => {
     });
   });
 });
+
+describe('PodPayoutMapper — tài chính cấp đơn (tiền thu về)', () => {
+  const mapper = new PodPayoutMapper();
+
+  it('giao dịch CHƯA quyết toán: giữ nguyên est_settlement_amount + breakdown, KHÔNG tự tính', () => {
+    const mapped = mapper.mapUnsettledTransaction({
+      id: 'tx-1',
+      type: 'ORDER',
+      order_id: '5760001',
+      currency: 'USD',
+      est_settlement_amount: '9.50',
+      est_revenue_amount: '14.50',
+      est_fee_tax_amount: '0.87',
+      est_shipping_cost_amount: '4.13',
+      revenue_breakdown: { subtotal_before_discount_amount: '19.99', seller_discount_amount: '-5.49' },
+      fee_tax_breakdown: { fee: { referral_fee_amount: '0.87' } },
+      estimated_settlement: '7 days after delivery',
+      order_create_time: 1_760_000_000,
+    });
+
+    expect(mapped?.tiktokTransactionId).toBe('tx-1');
+    expect(mapped?.data.tiktokOrderId).toBe('5760001');
+    expect(mapped?.data.estSettlementAmount?.toString()).toBe('9.5');
+    expect(mapped?.data.revenueBreakdown).toEqual({
+      subtotal_before_discount_amount: '19.99',
+      seller_discount_amount: '-5.49',
+    });
+    expect(mapped?.data.shippingCostBreakdown).toBe(Prisma.JsonNull);
+    expect(mapped?.data.orderCreateTime).toBe(1_760_000_000n);
+  });
+
+  it('thiếu id ⇒ bỏ qua; số tiền rỗng ⇒ null (không ép 0)', () => {
+    expect(mapper.mapUnsettledTransaction({ type: 'ORDER' })).toBeNull();
+    const mapped = mapper.mapUnsettledTransaction({ id: 'tx-2', est_settlement_amount: '' });
+    expect(mapped?.data.estSettlementAmount).toBeNull();
+  });
+
+  it('giao dịch ĐÃ quyết toán giữ breakdown nguyên văn (Referral fee…)', () => {
+    const mapped = mapper.mapStatementTransaction(
+      {
+        id: 'st-1',
+        type: 'ORDER',
+        order_id: '5760001',
+        settlement_amount: '8.64',
+        fee_tax_breakdown: { fee: { referral_fee_amount: '-0.87' } },
+      },
+      'USD',
+    );
+    expect(mapped?.data.feeTaxBreakdown).toEqual({ fee: { referral_fee_amount: '-0.87' } });
+    expect(mapped?.data.revenueBreakdown).toBe(Prisma.JsonNull);
+  });
+});

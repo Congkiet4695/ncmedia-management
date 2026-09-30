@@ -5,6 +5,7 @@ import {
   MappedPayment,
   MappedStatement,
   MappedStatementTransaction,
+  MappedUnsettledTransaction,
 } from '../mappers/pod-payout.mapper';
 
 /** Ngữ cảnh tenant + nguồn ghi của một lần đồng bộ payout. */
@@ -257,6 +258,76 @@ export class PodPayoutRepository {
         where: { id: statementId },
         data: { transactionsSyncedAt: now, orderCount },
       });
+    });
+  }
+
+  /**
+   * Ghi ảnh chụp giao dịch CHƯA quyết toán của MỘT shop.
+   *
+   * Upsert theo (organization, `tiktok_transaction_id`) ⇒ chạy lại bao nhiêu lần cũng không trùng.
+   * `complete = true` (đã đọc HẾT mọi trang) ⇒ giao dịch của shop KHÔNG còn trong danh sách được
+   * xoá mềm: TikTok thôi trả về khi đã quyết toán (lúc đó số thật nằm ở statement transactions).
+   * Đọc dở (hết deadline / chạm trần trang) thì KHÔNG xoá gì — vắng mặt khi chưa đọc hết không có
+   * nghĩa là đã quyết toán.
+   *
+   * @returns số dòng tạo mới / cập nhật / xoá mềm.
+   */
+  async replaceUnsettledTransactions(
+    ctx: PayoutWriteContext,
+    transactions: MappedUnsettledTransaction[],
+    complete: boolean,
+    now: Date,
+  ): Promise<{ created: number; updated: number; removed: number }> {
+    return this.prisma.$transaction(async (tx) => {
+      const ids = transactions.map((transaction) => transaction.tiktokTransactionId);
+      const existing = new Set(
+        (
+          await tx.podTiktokUnsettledTransaction.findMany({
+            where: { organizationId: ctx.organizationId, tiktokTransactionId: { in: ids } },
+            select: { tiktokTransactionId: true },
+          })
+        ).map((row) => row.tiktokTransactionId),
+      );
+
+      for (const transaction of transactions) {
+        await tx.podTiktokUnsettledTransaction.upsert({
+          where: {
+            organizationId_tiktokTransactionId: {
+              organizationId: ctx.organizationId,
+              tiktokTransactionId: transaction.tiktokTransactionId,
+            },
+          },
+          create: {
+            organizationId: ctx.organizationId,
+            accountId: ctx.accountId,
+            shopId: ctx.shopId,
+            tiktokTransactionId: transaction.tiktokTransactionId,
+            ...transaction.data,
+            fetchedAt: now,
+          },
+          update: { ...transaction.data, shopId: ctx.shopId, fetchedAt: now, deletedAt: null },
+        });
+      }
+
+      const removed = complete
+        ? (
+            await tx.podTiktokUnsettledTransaction.updateMany({
+              where: {
+                organizationId: ctx.organizationId,
+                shopId: ctx.shopId,
+                deletedAt: null,
+                tiktokTransactionId: { notIn: ids },
+              },
+              data: { deletedAt: now },
+            })
+          ).count
+        : 0;
+
+      return {
+        created: ids.filter((id) => !existing.has(id)).length,
+        updated: ids.filter((id) => existing.has(id)).length,
+        removed,
+      };
     });
   }
 

@@ -118,6 +118,8 @@ function buildService(options: Options = {}) {
 
   const repo = {
     findByPodOrder: jest.fn().mockResolvedValue(null),
+    countAttempts: jest.fn().mockResolvedValue(0),
+    supersedeCancelled: jest.fn().mockResolvedValue(true),
     // Đơn chưa được nhà cung cấp khác nhận (chống sản xuất hai lần qua hai nhà cung cấp).
     findBlockingRecordOfOtherProvider: jest.fn().mockResolvedValue(null),
     findAccountById: jest.fn().mockResolvedValue(account),
@@ -189,6 +191,7 @@ function buildService(options: Options = {}) {
       forAccount: () => Promise.resolve({ productionLines: LINES }),
     } as unknown as FulfillmentOptionsService,
     {
+      findCostCurrency: jest.fn().mockResolvedValue('USD'),
       findVariantsForAccount: (_accountId: string, skus: string[]) =>
         Promise.resolve(
           skus
