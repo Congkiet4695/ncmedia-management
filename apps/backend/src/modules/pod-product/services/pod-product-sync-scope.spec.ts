@@ -121,7 +121,71 @@ describe('triggerSync — phạm vi shop', () => {
   });
 });
 
+describe('triggerSync — bản tổng kết theo shop', () => {
+  /** Kết quả tối thiểu của MỘT shop từ `syncShops`. */
+  const outcome = (shopId: string, status: string, extra: Record<string, unknown> = {}) => ({
+    shopId,
+    shopName: `Shop ${shopId}`,
+    historyId: status === 'SKIPPED' || status === 'LOCKED' ? '' : `h-${shopId}`,
+    status,
+    fetched: 0,
+    created: 0,
+    updated: 0,
+    skipped: 0,
+    failed: 0,
+    deactivated: 0,
+    ...extra,
+  });
+
+  it('🔴 ACTIVE + INACTIVE + FAILED + DEFERRED ⇒ đếm đúng từng loại, lý do bỏ qua và lỗi rõ ràng', async () => {
+    const { service } = buildService([
+      outcome('a', 'SUCCESS', { fetched: 10, created: 2, updated: 3, skipped: 5 }),
+      outcome('b', 'PARTIAL', { fetched: 4, created: 1, failed: 1 }),
+      outcome('c', 'SKIPPED', { skipReason: 'SHOP_INACTIVE' }),
+      outcome('d', 'FAILED', { errorCode: 'NETWORK', errorMessage: 'Request timeout' }),
+      outcome('e', 'DEFERRED', { errorCode: 'SYNC_DEADLINE_EXCEEDED' }),
+      outcome('f', 'LOCKED'),
+    ]);
+
+    const result = await service.triggerSync('org-1', 'user-admin', {}, ADMIN);
+
+    expect(result).toMatchObject({
+      totalShops: 6,
+      syncedShops: 2,
+      skippedShops: 2, // c (ngừng hoạt động) + f (đang bận)
+      failedShops: 1,
+      busyShops: 1,
+      deferredShops: 1,
+      totalProducts: 14,
+      createdProducts: 3,
+      updatedProducts: 3,
+      unchangedProducts: 5,
+      failedProducts: 1,
+      skippedInactiveShops: [{ shopId: 'c', shopName: 'Shop c', reason: 'SHOP_INACTIVE' }],
+      errors: [
+        { shopId: 'd', shopName: 'Shop d', errorCode: 'NETWORK', errorMessage: 'Request timeout' },
+      ],
+    });
+  });
+
+  it('lượt thủ công LUÔN có hạn chót (request không treo vô hạn)', async () => {
+    const { service, syncService } = buildService();
+    const before = Date.now();
+
+    await service.triggerSync('org-1', 'user-admin', {}, ADMIN);
+
+    const options = (
+      syncService.syncShops.mock.calls[0] as unknown as [unknown, { deadlineAt?: number }]
+    )[1];
+    expect(options.deadlineAt).toBeGreaterThan(before);
+  });
+});
+
 describe('Quyền mặc định của Role EMPLOYEE', () => {
+  it('🔴 CÓ `pod.tiktok.shop.sync` — Seller đồng bộ được shop của mình (phạm vi do backend chặn)', () => {
+    expect(EMPLOYEE_DEFAULT_PERMISSIONS).toContain('pod.tiktok.shop.sync');
+  });
+
   it('CÓ `pod.product.sync` — Seller thấy và dùng được nút Sync Products', () => {
     expect(EMPLOYEE_DEFAULT_PERMISSIONS).toContain('pod.product.sync');
     expect(EMPLOYEE_DEFAULT_PERMISSIONS).toContain('pod.product.read');

@@ -22,6 +22,8 @@ import { PodPayoutRepository } from './repositories/pod-payout.repository';
 import { PodSyncLogRepository } from './repositories/pod-sync-log.repository';
 import { PodTiktokAccountRepository } from './repositories/pod-tiktok-account.repository';
 import { PodTiktokOAuthStateRepository } from './repositories/pod-tiktok-oauth-state.repository';
+import { PodTiktokShopSyncRepository } from './repositories/pod-tiktok-shop-sync.repository';
+import { PodTiktokShopSyncService } from './services/pod-tiktok-shop-sync.service';
 import { PodOrderSyncJob } from './schedulers/pod-order-sync.job';
 import { PodOrderIngestionService } from './services/pod-order-ingestion.service';
 import { PodOrderSyncService } from './services/pod-order-sync.service';
@@ -68,6 +70,9 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     PodTiktokOAuthService,
     PodTiktokAccountRepository,
     PodTiktokOAuthStateRepository,
+    // Shop Sync — đối chiếu thông tin + trạng thái shop với TikTok (nút "Sync Shops").
+    PodTiktokShopSyncService,
+    PodTiktokShopSyncRepository,
     PodTiktokAccountMapper,
     // Sprint 2 — Orders & Sync
     PodOrderService,

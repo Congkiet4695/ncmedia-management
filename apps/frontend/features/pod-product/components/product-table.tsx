@@ -20,7 +20,7 @@ import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { cn } from '@/lib/utils';
 import { buildProductGallery, countHiddenImages } from '../product-images';
 import type { ProductGalleryImage } from '../product-images';
-import type { PodProductListItem } from '../types';
+import type { PodProductListItem, PodProductLocalStatus } from '../types';
 
 interface ProductTableProps {
   products: PodProductListItem[];
@@ -185,7 +185,7 @@ export function ProductTable({
             </TableCell>
 
             <TableCell className="align-top">
-              <ProductStatusBadge status={product.status} />
+              <ProductStatusBadge status={product.status} localStatus={product.localStatus} />
               {product.auditStatus && (
                 <p className="mt-1 text-xs text-muted-foreground">{product.auditStatus}</p>
               )}
@@ -559,14 +559,38 @@ export function ListingQuality({ tier }: { tier: string | null }) {
   );
 }
 
+/** Màu của từng nhóm trạng thái hệ thống. */
+const LOCAL_STATUS_VARIANT: Record<PodProductLocalStatus, 'success' | 'warning' | 'muted' | 'destructive'> = {
+  ACTIVE: 'success',
+  REVIEWING: 'warning',
+  DEACTIVATED: 'muted',
+  NEEDS_ATTENTION: 'destructive',
+};
+
 /**
  * Nhãn trạng thái.
  *
- * 🔴 Không map cứng danh sách trạng thái: TikTok thêm giá trị mới thường xuyên. Chỉ tô màu
- * vài giá trị đã biết, còn lại hiển thị NGUYÊN VĂN — thà thấy chuỗi lạ còn hơn thấy sai.
+ * Có `localStatus` (nhóm do BACKEND tính) ⇒ hiện nhãn nhóm đã dịch, chuỗi gốc TikTok nằm ở
+ * tooltip để đối chiếu Seller Center. Không có (trạng thái chưa ánh xạ, hoặc trạng thái SKU) ⇒
+ * hiển thị NGUYÊN VĂN — thà thấy chuỗi lạ còn hơn thấy sai. Frontend KHÔNG tự ánh xạ.
  */
-export function ProductStatusBadge({ status }: { status: string | null }) {
+export function ProductStatusBadge({
+  status,
+  localStatus,
+}: {
+  status: string | null;
+  localStatus?: PodProductLocalStatus | null;
+}) {
+  const { t } = useTranslation('pod');
   if (!status) return <span className="text-muted-foreground">—</span>;
+
+  if (localStatus) {
+    return (
+      <Badge variant={LOCAL_STATUS_VARIANT[localStatus]} title={status}>
+        {t(`products.localStatus.${localStatus}`)}
+      </Badge>
+    );
+  }
 
   const variant =
     status === 'ACTIVATE'

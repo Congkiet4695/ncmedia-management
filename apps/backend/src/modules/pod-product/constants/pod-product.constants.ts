@@ -4,6 +4,7 @@
  * ⚠️ KHÔNG có endpoint TikTok nào ở đây: mọi lời gọi đi qua `TiktokProductApiService`
  * (module `tiktok-sdk`), version API khai báo tập trung ở `tiktok-sdk.constants.ts`.
  */
+import { TIKTOK_PRODUCT_STATUS } from '../../tiktok-sdk/tiktok-sdk.constants';
 
 /** Trường được phép sắp xếp ở danh sách sản phẩm (whitelist — chống injection qua orderBy). */
 export const POD_PRODUCT_SORT_FIELDS = [
@@ -90,13 +91,79 @@ export const POD_PRODUCT_SYNC_REQUEUE_DELAY_MS = 5 * 60 * 1000;
  * 🔴 `ACTIVATE`, KHÔNG phải `ACTIVE`. Đây là giá trị TikTok dùng, không phải giá trị đoán:
  * trường `status` của `Product202502SearchProductsRequestBody` (SDK) ghi rõ tập hợp hợp lệ
  * là `ALL · DRAFT · PENDING · FAILED · ACTIVATE · SELLER_DEACTIVATED · PLATFORM_DEACTIVATED
- * · FREEZE · DELETED`, và dữ liệu thật trong `pod_products` cũng chỉ xuất hiện `ACTIVATE`,
- * `DRAFT`, `FREEZE`, `DELETED`.
+ * · FREEZE · DELETED`.
  *
- * Hệ thống CHỈ đồng bộ và quản lý sản phẩm ở trạng thái này — bộ lọc được áp ngay tại
- * request lên TikTok, không tải về rồi mới lọc.
+ * Còn dùng làm MẶC ĐỊNH của `GET /pod/products` khi không truyền `status`: các màn hình chọn
+ * sản phẩm (Flash Sale, Nhân bản) chỉ được thấy hàng đang bán.
  */
-export const POD_PRODUCT_ACTIVE_STATUS = 'ACTIVATE';
+export const POD_PRODUCT_ACTIVE_STATUS = TIKTOK_PRODUCT_STATUS.ACTIVATE;
+
+/**
+ * **Trạng thái sản phẩm của hệ thống** (nhóm hiển thị) ⇐ `status` gốc của TikTok.
+ *
+ * 🔴 Bảng ánh xạ do PO chốt (2026-09-30), KHÔNG suy từ tài liệu — TikTok không định nghĩa các
+ * nhóm này. Tập giá trị TikTok lấy nguyên văn từ SDK (`TIKTOK_PRODUCT_STATUS`):
+ *
+ * | Hệ thống          | TikTok                                      |
+ * |-------------------|---------------------------------------------|
+ * | `ACTIVE`          | `ACTIVATE`                                  |
+ * | `REVIEWING`       | `PENDING`                                   |
+ * | `DEACTIVATED`     | `SELLER_DEACTIVATED` · `PLATFORM_DEACTIVATED` |
+ * | `NEEDS_ATTENTION` | `FAILED` · `FREEZE`                         |
+ *
+ * `DRAFT` / `DELETED` (và mọi giá trị khác) KHÔNG thuộc nhóm nào: sync không kéo về, bản ghi cũ
+ * được giữ (Draft Listing / đơn cũ còn tham chiếu) nhưng không hiện ở màn hình Products.
+ * Giá trị lạ đọc được từ Get Product ⇒ log `sync.product.status.unmapped`, KHÔNG quy về ACTIVE.
+ *
+ * `status` lưu trong DB vẫn là chuỗi GỐC của TikTok — nhóm được tính khi đọc, nên đổi bảng này
+ * không cần migration dữ liệu.
+ */
+export const POD_PRODUCT_STATUS_MAP = {
+  ACTIVE: [TIKTOK_PRODUCT_STATUS.ACTIVATE],
+  REVIEWING: [TIKTOK_PRODUCT_STATUS.PENDING],
+  DEACTIVATED: [
+    TIKTOK_PRODUCT_STATUS.SELLER_DEACTIVATED,
+    TIKTOK_PRODUCT_STATUS.PLATFORM_DEACTIVATED,
+  ],
+  NEEDS_ATTENTION: [TIKTOK_PRODUCT_STATUS.FAILED, TIKTOK_PRODUCT_STATUS.FREEZE],
+} as const satisfies Record<string, readonly string[]>;
+
+export type PodProductLocalStatus = keyof typeof POD_PRODUCT_STATUS_MAP;
+
+/** Các nhóm trạng thái theo thứ tự hiển thị. */
+export const POD_PRODUCT_LOCAL_STATUSES = Object.keys(
+  POD_PRODUCT_STATUS_MAP,
+) as PodProductLocalStatus[];
+
+/** Giá trị bộ lọc "tất cả nhóm" của `GET /pod/products?status=ALL`. */
+export const POD_PRODUCT_STATUS_FILTER_ALL = 'ALL';
+
+/**
+ * Trạng thái TikTok mà Product Sync kéo về — đúng hợp của mọi nhóm, mỗi giá trị MỘT lượt
+ * Search Products (bộ lọc `status` của TikTok chỉ nhận một giá trị).
+ *
+ * 🔴 Không dùng `status = ALL`: trên shop thật 82% bản ghi là `DELETED`, và mỗi sản phẩm tốn
+ * một lời gọi Get Product — lọc tại request giữ nguyên mức tiết kiệm của bản sửa trước.
+ */
+export const POD_PRODUCT_SYNC_TIKTOK_STATUSES: readonly string[] = Object.values(
+  POD_PRODUCT_STATUS_MAP,
+).flat();
+
+/** Chuỗi TikTok các nhóm được chọn — nguồn duy nhất cho truy vấn danh sách / bộ lọc. */
+export function tiktokStatusesOf(groups: readonly PodProductLocalStatus[]): string[] {
+  return groups.flatMap((group) => [...POD_PRODUCT_STATUS_MAP[group]]);
+}
+
+/** `status` gốc của TikTok ⇒ nhóm của hệ thống; `null` = không thuộc nhóm nào (không đoán). */
+export function toLocalProductStatus(
+  tiktokStatus: string | null | undefined,
+): PodProductLocalStatus | null {
+  if (!tiktokStatus) return null;
+  for (const group of POD_PRODUCT_LOCAL_STATUSES) {
+    if ((POD_PRODUCT_STATUS_MAP[group] as readonly string[]).includes(tiktokStatus)) return group;
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------------------
 // "No brand"

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Link2, Loader2, Search } from 'lucide-react';
+import { Link2, Loader2, RefreshCw, Search } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -16,15 +16,18 @@ import { useClampedPage } from '@/hooks/use-clamped-page';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useApiError } from '@/hooks/use-api-error';
 import { LinkAccountDialog } from '@/features/pod-tiktok/components/link-account-dialog';
+import { ShopSyncResultDialog } from '@/features/pod-tiktok/components/shop-sync-result-dialog';
 import { TiktokAccountTable } from '@/features/pod-tiktok/components/tiktok-account-table';
 import {
   usePodTiktokAccounts,
+  useSyncPodTiktokShops,
   useUnlinkPodTiktokAccount,
 } from '@/features/pod-tiktok/hooks/use-pod-tiktok';
 import {
   POD_TIKTOK_STATUSES,
   type PodTiktokAccountListItem,
   type PodTiktokAccountQuery,
+  type PodTiktokShopSyncResult,
   type PodTiktokStatus,
 } from '@/features/pod-tiktok/types';
 
@@ -50,15 +53,20 @@ function PodTiktokAccountsView() {
   const debouncedSearch = useDebouncedValue(searchInput, 350);
   const [linkOpen, setLinkOpen] = useState(false);
   const [unlinking, setUnlinking] = useState<PodTiktokAccountListItem | null>(null);
+  /** Kết quả lượt Sync Shops gần nhất — mở dialog chi tiết từng shop. `null` = đóng. */
+  const [shopSyncResult, setShopSyncResult] = useState<PodTiktokShopSyncResult | null>(null);
 
   const { hasPermission } = useAuth();
   const canLink = hasPermission('pod.tiktok.account.create');
   const canUnlink = hasPermission('pod.tiktok.account.delete');
   // Phân công Seller là thao tác cập nhật kết nối ⇒ dùng chung quyền update.
   const canAssignSeller = hasPermission('pod.tiktok.account.update');
+  // 🔴 Chỉ để ẩn/hiện nút. Phạm vi (Seller chỉ kết nối được gán) do BACKEND chặn ở mọi request.
+  const canSyncShops = hasPermission('pod.tiktok.shop.sync');
 
   const accountsQuery = usePodTiktokAccounts(query);
   const unlinkMutation = useUnlinkPodTiktokAccount();
+  const syncShopsMutation = useSyncPodTiktokShops();
 
   const patchQuery = (patch: Partial<PodTiktokAccountQuery>) =>
     setQuery((prev) => ({ ...prev, ...patch }));
@@ -73,6 +81,38 @@ function PodTiktokAccountsView() {
   // Xoá nốt record cuối của trang cuối ⇒ lùi về trang còn dữ liệu,
   // không để giao diện kẹt ở "Trang 3 / 2" với một cái bảng trống.
   useClampedPage(meta, (next) => patchQuery({ page: next }));
+
+  /**
+   * Sync Shops. Shop lỗi KHÔNG làm cả lượt thất bại — backend trả kết quả từng shop; toast chỉ
+   * tóm tắt, chi tiết (lỗi từng shop) nằm ở dialog.
+   */
+  const handleSyncShops = async () => {
+    try {
+      const result = await syncShopsMutation.mutateAsync(undefined);
+      const summary = t('account.shopSync.summary', {
+        synced: result.syncedShops,
+        total: result.totalShops,
+        active: result.activeShops,
+        inactive: result.inactiveShops,
+        deauthorized: result.deauthorizedShops,
+        skipped: result.skippedShops,
+        failed: result.failedShops,
+      });
+      if (result.totalShops === 0) {
+        toast.warning(t('account.shopSync.empty'));
+        return;
+      }
+      if (result.failedShops > 0 || result.skippedShops > 0) {
+        const notify = result.syncedShops === 0 ? toast.error : toast.warning;
+        notify(t('account.shopSync.completedWithIssues'), { description: summary });
+      } else {
+        toast.success(t('account.shopSync.completed'), { description: summary });
+      }
+      setShopSyncResult(result);
+    } catch (error) {
+      toast.error(t('account.shopSync.failed'), { description: translateApiError(error) });
+    }
+  };
 
   const handleConfirmUnlink = async () => {
     if (!unlinking) return;
@@ -92,12 +132,29 @@ function PodTiktokAccountsView() {
           <h1 className="text-2xl font-bold tracking-tight">{t('account.title')}</h1>
           <p className="text-sm text-muted-foreground">{t('account.subtitle')}</p>
         </div>
-        {canLink && (
-          <Button onClick={() => setLinkOpen(true)}>
-            <Link2 className="size-4" />
-            {t('account.linkAction')}
-          </Button>
-        )}
+        <div className="flex flex-wrap gap-2">
+          {canSyncShops && (
+            <Button
+              variant="outline"
+              onClick={() => void handleSyncShops()}
+              disabled={syncShopsMutation.isPending}
+              title={t('account.shopSync.hint')}
+            >
+              {syncShopsMutation.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              {syncShopsMutation.isPending ? t('account.shopSync.running') : t('account.shopSync.action')}
+            </Button>
+          )}
+          {canLink && (
+            <Button onClick={() => setLinkOpen(true)}>
+              <Link2 className="size-4" />
+              {t('account.linkAction')}
+            </Button>
+          )}
+        </div>
       </div>
 
       <Card>
@@ -155,6 +212,8 @@ function PodTiktokAccountsView() {
       </Card>
 
       <LinkAccountDialog open={linkOpen} onClose={() => setLinkOpen(false)} />
+
+      <ShopSyncResultDialog result={shopSyncResult} onClose={() => setShopSyncResult(null)} />
 
       <Modal
         open={Boolean(unlinking)}

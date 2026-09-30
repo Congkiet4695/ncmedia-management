@@ -21,10 +21,7 @@ import {
 } from '@/components/ui/table';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
-import {
-  usePodProductFilters,
-  usePodProducts,
-} from '@/features/pod-product/hooks/use-pod-products';
+import { usePodProducts } from '@/features/pod-product/hooks/use-pod-products';
 import {
   POD_PRODUCT_FLASH_SALE_FILTERS,
   type PodProductFlashSaleFilter,
@@ -94,7 +91,6 @@ export function ProductSelectorDialog({
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(PAGE_SIZE);
   const [searchInput, setSearchInput] = useState('');
-  const [status, setStatus] = useState('');
   /** Lọc theo Flash Sale giao với `range` — mặc định "Tất cả sản phẩm". */
   const [flashSaleFilter, setFlashSaleFilter] = useState<PodProductFlashSaleFilter>('ALL');
   /**
@@ -117,7 +113,6 @@ export function ProductSelectorDialog({
     setSelected(new Map());
     setPage(1);
     setSearchInput('');
-    setStatus('');
     setFlashSaleFilter('ALL');
   }, [open]);
 
@@ -127,9 +122,8 @@ export function ProductSelectorDialog({
 
   // Đổi từ khoá / bộ lọc / KHOẢNG THỜI GIAN thì về trang 1, nếu không người dùng đứng ở trang
   // 7 của một kết quả chỉ có 2 trang và thấy bảng trống.
-  useEffect(() => setPage(1), [search, status, effectiveFilter, range.from, range.to]);
+  useEffect(() => setPage(1), [search, effectiveFilter, range.from, range.to]);
 
-  const filters = usePodProductFilters();
   // `range` nằm trong query key ⇒ đổi Starts/Ends là một truy vấn MỚI, không dùng lại kết quả
   // cũ; request cũ về sau bị TanStack Query bỏ qua (không có race giữa hai lần đổi liên tiếp).
   const query = usePodProducts({
@@ -137,7 +131,9 @@ export function ProductSelectorDialog({
     limit,
     shopId,
     search: search || undefined,
-    status: status || undefined,
+    // 🔴 KHÔNG gửi `status`: backend mặc định CHỈ sản phẩm ACTIVE — chỉ hàng đang bán mới đưa
+    // vào Flash Sale được. Bộ lọc trạng thái ở đây đã bị gỡ vì `/filters` nay trả các nhóm
+    // Reviewing / Deactivated / Needs attention, không nhóm nào hợp lệ cho Flash Sale.
     ...(effectiveFilter !== 'ALL' && range.from && range.to
       ? { flashSale: effectiveFilter, flashSaleFrom: range.from, flashSaleTo: range.to, excludeFlashSaleId: flashSaleId }
       : {}),
@@ -232,15 +228,6 @@ export function ProductSelectorDialog({
               className="pl-9"
             />
           </div>
-          <Combobox
-            value={status}
-            onChange={setStatus}
-            options={[
-              { value: '', label: t('flashSale.selector.allStatuses') },
-              ...(filters.data?.statuses ?? []).map((value) => ({ value, label: value })),
-            ]}
-            className="w-[180px]"
-          />
           <Combobox
             value={effectiveFilter}
             onChange={(value) => setFlashSaleFilter(value as PodProductFlashSaleFilter)}

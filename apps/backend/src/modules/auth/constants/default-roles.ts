@@ -102,6 +102,10 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   // TikTok Accounts: xem + TỰ LIÊN KẾT gian hàng của mình. Không unlink, không sửa.
   'pod.tiktok.account.read',
   'pod.tiktok.account.create',
+  // 🔴 `pod.tiktok.shop.sync` — nút "Sync Shops": đọc lại tên/trạng thái shop từ TikTok. An
+  // toàn cho Seller vì `PodTiktokShopSyncService` lấy tập kết nối từ `PodAccessScope` (chỉ kết
+  // nối được gán) và `accountId` ngoài phạm vi là 403. Không ghi gì lên TikTok.
+  'pod.tiktok.shop.sync',
   // Products: xem + ĐỒNG BỘ + SỬA + NGỪNG BÁN + XOÁ + NHÂN BẢN sản phẩm của shop được gán.
   // 🔴 `pod.product.sync` chỉ an toàn vì `triggerSync` đã đi qua `PodAccessScopeService`.
   //

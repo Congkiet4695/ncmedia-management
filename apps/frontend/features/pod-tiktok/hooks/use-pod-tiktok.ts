@@ -136,6 +136,21 @@ export function useSetShopWarehouse() {
   });
 }
 
+/**
+ * Sync Shops. Xong thì làm mới danh sách kết nối (tên/trạng thái shop vừa đổi) VÀ bộ lọc sản
+ * phẩm — tên shop hiển thị ở dropdown shop của màn hình Products.
+ */
+export function useSyncPodTiktokShops() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (accountId?: string) => podTiktokService.syncShops(accountId),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [POD_TIKTOK_KEY] });
+      void queryClient.invalidateQueries({ queryKey: ['pod-products', 'filters'] });
+    },
+  });
+}
+
 export function useUnlinkPodTiktokAccount() {
   const queryClient = useQueryClient();
   return useMutation({

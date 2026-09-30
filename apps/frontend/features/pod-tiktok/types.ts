@@ -14,6 +14,14 @@ export type PodTiktokStatus = (typeof POD_TIKTOK_STATUSES)[number];
 /** Thị trường dùng để dựng authorization link. */
 export type TiktokRegion = 'US' | 'ROW';
 
+/**
+ * Trạng thái shop phía TikTok (khớp enum PodTiktokShopStatus của backend) — ghi bởi Sync Shops.
+ * ACTIVE: đang hoạt động · INACTIVE: còn uỷ quyền nhưng không hoạt động · DEAUTHORIZED: không
+ * còn uỷ quyền cho app. Product Sync bỏ qua shop khác ACTIVE.
+ */
+export const POD_TIKTOK_SHOP_STATUSES = ['ACTIVE', 'INACTIVE', 'DEAUTHORIZED'] as const;
+export type PodTiktokShopStatus = (typeof POD_TIKTOK_SHOP_STATUSES)[number];
+
 /** Shop TikTok đã liên kết (KHÔNG chứa shop_cipher). */
 export interface PodTiktokShop {
   id: string;
@@ -27,6 +35,11 @@ export interface PodTiktokShop {
   defaultWarehouseId: string | null;
   defaultWarehouseName: string | null;
   lastOrderSyncAt: string | null;
+  status: PodTiktokShopStatus;
+  /** Lần Sync Shops gần nhất đọc được trạng thái. NULL = chưa từng đối chiếu. */
+  statusCheckedAt: string | null;
+  lastStatusErrorCode: string | null;
+  lastStatusErrorMessage: string | null;
   createdAt: string;
 }
 
@@ -82,6 +95,10 @@ export interface PodTiktokAccountListItem {
   tiktokShopId: string | null;
   region: string | null;
   shopCount: number;
+  /** Trạng thái shop đầu tiên (Sync Shops). */
+  shopStatus: PodTiktokShopStatus | null;
+  /** Số shop của kết nối KHÔNG ở trạng thái ACTIVE. */
+  inactiveShopCount: number;
   status: PodTiktokStatus;
   accessTokenExpiresAt: string;
   refreshTokenExpiresAt: string;
@@ -170,4 +187,30 @@ export interface PodSellerOption {
   id: string;
   fullName: string;
   email: string;
+}
+
+/** Kết quả đối chiếu MỘT shop trong lượt Sync Shops. */
+export interface PodTiktokShopSyncItem {
+  shopId: string;
+  shopName: string;
+  tiktokShopId: string;
+  accountId: string;
+  accountName: string;
+  result: 'SYNCED' | 'SKIPPED' | 'FAILED';
+  shopStatus: PodTiktokShopStatus;
+  previousShopStatus: PodTiktokShopStatus;
+  errorCode: string | null;
+  errorMessage: string | null;
+}
+
+/** Tổng kết lượt Sync Shops (`POST /pod/tiktok/accounts/sync-shops`). */
+export interface PodTiktokShopSyncResult {
+  totalShops: number;
+  syncedShops: number;
+  activeShops: number;
+  inactiveShops: number;
+  deauthorizedShops: number;
+  skippedShops: number;
+  failedShops: number;
+  items: PodTiktokShopSyncItem[];
 }

@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { PodTiktokShopStatus } from '@prisma/client';
 import {
   PodTiktokAccountListItemDto,
   PodTiktokAccountResponseDto,
@@ -64,6 +65,9 @@ export class PodTiktokAccountMapper {
       tiktokShopId: primaryShop?.tiktokShopId ?? null,
       region: primaryShop?.region ?? account.sellerBaseRegion,
       shopCount: account.shops.length,
+      shopStatus: primaryShop?.status ?? null,
+      inactiveShopCount: account.shops.filter((shop) => shop.status !== PodTiktokShopStatus.ACTIVE)
+        .length,
       status: account.status,
       accessTokenExpiresAt: account.accessTokenExpiresAt.toISOString(),
       refreshTokenExpiresAt: account.refreshTokenExpiresAt.toISOString(),
@@ -86,6 +90,10 @@ export class PodTiktokAccountMapper {
       defaultWarehouseId: shop.defaultWarehouseId,
       defaultWarehouseName: shop.defaultWarehouse?.name ?? null,
       lastOrderSyncAt: shop.lastOrderSyncAt?.toISOString() ?? null,
+      status: shop.status,
+      statusCheckedAt: shop.statusCheckedAt?.toISOString() ?? null,
+      lastStatusErrorCode: shop.lastStatusErrorCode,
+      lastStatusErrorMessage: shop.lastStatusErrorMessage,
       createdAt: shop.createdAt.toISOString(),
     };
   }

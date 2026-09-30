@@ -1,4 +1,4 @@
-import { FulfillmentProvider } from '@prisma/client';
+import { FulfillmentProvider, PodTiktokShopStatus } from '@prisma/client';
 import { ApiProperty } from '@nestjs/swagger';
 
 /**
@@ -26,6 +26,22 @@ export class PodTiktokShopDto {
   defaultWarehouseId!: string | null;
   @ApiProperty({ nullable: true, type: String }) defaultWarehouseName!: string | null;
   @ApiProperty({ nullable: true, type: String }) lastOrderSyncAt!: string | null;
+  @ApiProperty({
+    enum: PodTiktokShopStatus,
+    description:
+      'Trạng thái shop phía TikTok (Shop Sync). ACTIVE: đang hoạt động · INACTIVE: còn uỷ quyền ' +
+      'nhưng không hoạt động · DEAUTHORIZED: không còn uỷ quyền cho app. Product Sync bỏ qua shop khác ACTIVE.',
+  })
+  status!: PodTiktokShopStatus;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'Lần Shop Sync gần nhất đọc được trạng thái từ TikTok. NULL = chưa từng đối chiếu.',
+  })
+  statusCheckedAt!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'Mã lỗi của lượt Shop Sync gần nhất' })
+  lastStatusErrorCode!: string | null;
+  @ApiProperty({ nullable: true, type: String }) lastStatusErrorMessage!: string | null;
   @ApiProperty() createdAt!: string;
 }
 
@@ -125,6 +141,14 @@ export class PodTiktokAccountListItemDto {
   tiktokShopId!: string | null;
   @ApiProperty({ nullable: true, type: String }) region!: string | null;
   @ApiProperty({ description: 'Tổng số shop thuộc kết nối này' }) shopCount!: number;
+  @ApiProperty({
+    nullable: true,
+    enum: PodTiktokShopStatus,
+    description: 'Trạng thái của shop đầu tiên (Shop Sync)',
+  })
+  shopStatus!: PodTiktokShopStatus | null;
+  @ApiProperty({ description: 'Số shop của kết nối KHÔNG ở trạng thái ACTIVE' })
+  inactiveShopCount!: number;
   @ApiProperty({ example: 'ACTIVE' }) status!: string;
   @ApiProperty() accessTokenExpiresAt!: string;
   @ApiProperty() refreshTokenExpiresAt!: string;
@@ -251,4 +275,40 @@ export class PodSellerOptionDto {
   id!: string;
   @ApiProperty({ example: 'Nguyễn Văn A' }) fullName!: string;
   @ApiProperty({ example: 'nva@gmail.com' }) email!: string;
+}
+
+/** Kết quả đối chiếu MỘT shop trong lượt Shop Sync. */
+export class PodTiktokShopSyncItemDto {
+  @ApiProperty() shopId!: string;
+  @ApiProperty() shopName!: string;
+  @ApiProperty({ description: 'TikTok Shop ID' }) tiktokShopId!: string;
+  @ApiProperty() accountId!: string;
+  @ApiProperty({ description: 'Connection Name' }) accountName!: string;
+  @ApiProperty({
+    enum: ['SYNCED', 'SKIPPED', 'FAILED'],
+    description:
+      'SYNCED: đã đọc TikTok và cập nhật · SKIPPED: không gọi TikTok (kết nối không hoạt động / ' +
+      'hết thời gian của request) · FAILED: gọi TikTok lỗi — các shop khác vẫn được xử lý',
+  })
+  result!: 'SYNCED' | 'SKIPPED' | 'FAILED';
+  @ApiProperty({ enum: PodTiktokShopStatus, description: 'Trạng thái shop SAU lượt đồng bộ' })
+  shopStatus!: PodTiktokShopStatus;
+  @ApiProperty({ enum: PodTiktokShopStatus, description: 'Trạng thái shop TRƯỚC lượt đồng bộ' })
+  previousShopStatus!: PodTiktokShopStatus;
+  @ApiProperty({ nullable: true, type: String }) errorCode!: string | null;
+  @ApiProperty({ nullable: true, type: String }) errorMessage!: string | null;
+}
+
+/** Tổng kết lượt Shop Sync (`POST /pod/tiktok/accounts/sync-shops`). */
+export class PodTiktokShopSyncResultDto {
+  @ApiProperty({ description: 'Số shop thuộc phạm vi đã xét' }) totalShops!: number;
+  @ApiProperty({ description: 'Số shop đọc được từ TikTok và đã cập nhật' }) syncedShops!: number;
+  @ApiProperty({ description: 'Trong số đã đồng bộ: đang hoạt động' }) activeShops!: number;
+  @ApiProperty({ description: 'Trong số đã đồng bộ: không hoạt động (INACTIVE)' })
+  inactiveShops!: number;
+  @ApiProperty({ description: 'Trong số đã đồng bộ: không còn uỷ quyền (DEAUTHORIZED)' })
+  deauthorizedShops!: number;
+  @ApiProperty({ description: 'Số shop bỏ qua (không gọi TikTok)' }) skippedShops!: number;
+  @ApiProperty({ description: 'Số shop lỗi' }) failedShops!: number;
+  @ApiProperty({ type: PodTiktokShopSyncItemDto, isArray: true }) items!: PodTiktokShopSyncItemDto[];
 }

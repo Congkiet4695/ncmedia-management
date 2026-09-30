@@ -115,3 +115,16 @@ export class PodSellerOptionQueryDto {
   @MaxLength(255)
   search?: string;
 }
+
+/**
+ * "Sync Shops" — đối chiếu thông tin + trạng thái shop với TikTok.
+ *
+ * Bỏ trống ⇒ mọi kết nối trong PHẠM VI người bấm (Admin: cả tổ chức; Seller: kết nối được gán).
+ * `accountId` chỉ THU HẸP phạm vi — kết nối ngoài phạm vi là 403, không phải "không lọc".
+ */
+export class SyncTiktokShopsDto {
+  @ApiPropertyOptional({ format: 'uuid', description: 'Chỉ đồng bộ shop của một kết nối' })
+  @IsOptional()
+  @IsUUID('4', { message: 'accountId phải là UUID hợp lệ' })
+  accountId?: string;
+}

@@ -1,3 +1,4 @@
+import { env } from '@/lib/env';
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse } from '@/types/api';
 import type { PodListingJob } from '@/features/pod-listing/types';
@@ -96,11 +97,18 @@ export const podProductService = {
     return res.data.data;
   },
 
-  /** Sync Now — đồng bộ tăng dần, hoặc toàn bộ khi `full = true`. */
+  /**
+   * Sync Now — đồng bộ tăng dần, hoặc toàn bộ khi `full = true`.
+   *
+   * 🔴 Timeout riêng (`env.syncTimeoutMs`, 290s) chứ không phải 15s mặc định: backend có ngân
+   * sách thời gian (180s) rồi chuyển phần còn lại sang hàng đợi nền, nên luôn trả lời trước mốc
+   * này và trước `proxy_read_timeout` của Nginx.
+   */
   async sync(payload: PodProductSyncPayload = {}): Promise<PodProductSyncResult> {
     const res = await apiClient.post<ApiResponse<PodProductSyncResult>>(
       `${BASE_PATH}/sync`,
       clean(payload as Record<string, unknown>),
+      { timeout: env.syncTimeoutMs },
     );
     return res.data.data;
   },

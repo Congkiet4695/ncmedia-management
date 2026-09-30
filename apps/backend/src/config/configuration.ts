@@ -329,9 +329,42 @@ export default () => ({
        */
       enabled: (process.env.TIKTOK_PRODUCT_SYNC_ENABLED ?? 'true') === 'true',
       cron: process.env.TIKTOK_PRODUCT_SYNC_CRON ?? '0 */6 * * *',
+
+      /**
+       * 🔴 Ngân sách thời gian — MỘT chuỗi, chỉnh CÙNG NHAU (mắt xích ngắn nhất quyết định):
+       *
+       *   `apiTimeoutMs`       MỘT lời gọi Search/Get Product (SDK không tự đặt timeout —
+       *                        thiếu nó là request treo tới khi hệ điều hành cắt socket).
+       *   `requestDeadlineMs`  Ngân sách của lượt "Sync Products" THỦ CÔNG. Hết giờ ⇒ shop
+       *                        chưa chạy / chạy dở được chuyển sang hàng đợi nền, request trả về
+       *                        ngay. Phải nhỏ hơn `NEXT_PUBLIC_PRODUCT_SYNC_TIMEOUT_MS` (trình
+       *                        duyệt, 290s) và `proxy_read_timeout` của Nginx (300s) một khoảng
+       *                        đủ cho lô Get Product đang chạy dở kết thúc (≤ 4 lần thử × timeout).
+       *   `shopConcurrency`    Số shop đồng bộ SONG SONG. Quota TikTok tính theo App × Shop nên
+       *                        shop khác nhau không giành quota của nhau; giữ thấp để không dồn
+       *                        tải lên DB và để rate limit vẫn được `TikTokSdkService` xử lý.
+       */
+      apiTimeoutMs: parseInt(process.env.TIKTOK_PRODUCT_SYNC_API_TIMEOUT_MS ?? '20000', 10),
+      requestDeadlineMs: parseInt(
+        process.env.TIKTOK_PRODUCT_SYNC_REQUEST_DEADLINE_MS ?? '180000',
+        10,
+      ),
+      shopConcurrency: parseInt(process.env.TIKTOK_PRODUCT_SYNC_SHOP_CONCURRENCY ?? '2', 10),
       // 🔴 `includeCatalog` đã bị GỠ BỎ: cây danh mục + thương hiệu là dữ liệu master TOÀN
       // CỤC, chỉ Super Admin đồng bộ (`POST /pod/master-data/sync`). Để lại một cờ ENV cho
       // phép lượt đồng bộ sản phẩm của MỘT tổ chức ghi đè dữ liệu của mọi tổ chức khác.
+    },
+
+    /**
+     * Shop Sync — đối chiếu thông tin + trạng thái shop với TikTok (nút "Sync Shops").
+     *
+     * Mỗi kết nối = 2 lời gọi (Get Authorized Shops + Get Active Shops) qua `TiktokHttpService`
+     * (timeout từng lời gọi: `TIKTOK_HTTP_TIMEOUT_MS`). `requestDeadlineMs`: kết nối chưa kịp
+     * chạy khi hết giờ được báo "chưa đồng bộ" thay vì giữ request quá `proxy_read_timeout`.
+     */
+    shopSync: {
+      concurrency: parseInt(process.env.TIKTOK_SHOP_SYNC_CONCURRENCY ?? '2', 10),
+      requestDeadlineMs: parseInt(process.env.TIKTOK_SHOP_SYNC_REQUEST_DEADLINE_MS ?? '120000', 10),
     },
 
     /**

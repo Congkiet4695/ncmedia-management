@@ -24,6 +24,15 @@ export const env = {
    * (`deploy/nginx.conf`, khối `/api/`): mắt xích nào ngắn hơn thì mắt xích đó quyết định.
    */
   uploadTimeoutMs: Number.parseInt(process.env.NEXT_PUBLIC_UPLOAD_TIMEOUT_MS ?? '180000', 10),
+  /**
+   * Thời gian chờ tối đa cho request "Sync Products" / "Sync Shops" (ms). Mặc định 290000.
+   *
+   * 🔴 Chỉ áp cho hai request đồng bộ thủ công. Chuỗi phải giữ thứ tự:
+   * `TIKTOK_PRODUCT_SYNC_REQUEST_DEADLINE_MS` (backend, 180s — hết giờ thì phần còn lại chạy
+   * nền) < giá trị này (290s) < `proxy_read_timeout` của Nginx (300s). Nhờ vậy backend luôn trả
+   * lời TRƯỚC khi trình duyệt hay Nginx bỏ cuộc.
+   */
+  syncTimeoutMs: Number.parseInt(process.env.NEXT_PUBLIC_PRODUCT_SYNC_TIMEOUT_MS ?? '290000', 10),
 } as const;
 
 export type Env = typeof env;

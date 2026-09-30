@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   TIKTOK_BRAND_PAGE_SIZE,
   TIKTOK_CATEGORY_VERSION,
@@ -51,7 +52,22 @@ import type {
 export class TiktokProductApiService {
   private readonly logger = new Logger(TiktokProductApiService.name);
 
-  constructor(private readonly sdk: TikTokSdkService) {}
+  /**
+   * Trần thời gian của MỘT lời gọi ĐỌC sản phẩm (Search / Get Product).
+   *
+   * 🔴 SDK không tự đặt timeout: TikTok treo là request treo tới khi hệ điều hành cắt socket,
+   * kéo theo cả lượt Product Sync. Cấu hình tập trung ở `tiktok.productSync.apiTimeoutMs`
+   * (ENV `TIKTOK_PRODUCT_SYNC_API_TIMEOUT_MS`). Lệnh GHI giữ nguyên hành vi cũ: timeout một lệnh
+   * ghi mà TikTok vẫn đang xử lý dễ dẫn tới gửi trùng — chúng có cơ chế đối soát riêng.
+   */
+  private readonly readTimeoutMs: number;
+
+  constructor(
+    private readonly sdk: TikTokSdkService,
+    config: ConfigService,
+  ) {
+    this.readTimeoutMs = config.get<number>('tiktok.productSync.apiTimeoutMs', 20_000);
+  }
 
   // ---------------------------------------------------------------------------
   // Product
@@ -79,6 +95,7 @@ export class TiktokProductApiService {
       totalCount?: number;
     }>({
       endpoint: 'PRODUCT_SEARCH',
+      timeoutMs: this.readTimeoutMs,
       invoke: () =>
         this.sdk.api.ProductV202502Api.ProductsSearchPost(
           pageSize,
@@ -146,6 +163,7 @@ export class TiktokProductApiService {
   ): Promise<TiktokSdkResult<TiktokProductDetail>> {
     return this.sdk.execute<TiktokProductDetail>({
       endpoint: 'PRODUCT_GET',
+      timeoutMs: this.readTimeoutMs,
       invoke: () =>
         this.sdk.api.ProductV202309Api.ProductsProductIdGet(
           productId,

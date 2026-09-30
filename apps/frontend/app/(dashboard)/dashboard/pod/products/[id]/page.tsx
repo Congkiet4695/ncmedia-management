@@ -87,7 +87,7 @@ function ProductDetailView({ id }: { id: string }) {
           <BackLink />
           <h1 className="text-2xl font-bold tracking-tight">{product.title ?? '—'}</h1>
           <div className="flex flex-wrap items-center gap-2">
-            <ProductStatusBadge status={product.status} />
+            <ProductStatusBadge status={product.status} localStatus={product.localStatus} />
             {product.auditStatus && <Badge variant="muted">{product.auditStatus}</Badge>}
             <span className="font-mono text-xs text-muted-foreground">
               {product.tiktokProductId}

@@ -65,6 +65,14 @@ export interface TiktokAuthorizedShopsData {
   shops: TiktokShopItem[];
 }
 
+/**
+ * `data` của Get Active Shops (`/seller/202309/shops`).
+ * Nguồn: `Seller202309GetActiveShopsResponseData` của SDK — chỉ có `id` + `region`.
+ */
+export interface TiktokActiveShopsData {
+  shops?: Array<{ id?: string; region?: string }>;
+}
+
 /** Tham số gọi một API TikTok đã ký. */
 export interface TiktokSignedRequestOptions {
   /** Path đầy đủ sau host, bao gồm category/version/resource. */

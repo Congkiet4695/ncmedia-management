@@ -5,6 +5,7 @@ import {
   PodProductSyncStatus,
   PodProductSyncTrigger,
   PodTiktokAccountStatus,
+  PodTiktokShopStatus,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
@@ -52,6 +53,37 @@ const SYNC_TARGET_SELECT = {
 } satisfies Prisma.PodTiktokShopSelect;
 
 /**
+ * Shop TRONG PHẠM VI một lượt đồng bộ, kèm đủ trạng thái để PHÂN LOẠI trước khi gọi TikTok.
+ *
+ * Khác `ProductSyncTarget` ở chỗ nó gồm cả shop KHÔNG đủ điều kiện (kết nối hết hạn, shop
+ * ngừng hoạt động, tắt đồng bộ) — để lượt "Sync Products" báo được shop nào bị bỏ qua và vì
+ * sao, thay vì chúng lặng lẽ biến mất khỏi kết quả.
+ */
+export interface ProductSyncCandidate extends ProductSyncTarget {
+  status: PodTiktokShopStatus;
+  productSyncEnabled: boolean;
+  account: ProductSyncTarget['account'] & { status: PodTiktokAccountStatus };
+}
+
+/** Bộ lọc phạm vi chung của `findSyncTargets` / `findSyncCandidates`. */
+export interface ProductSyncScopeParams {
+  organizationId?: string;
+  accountId?: string;
+  shopId?: string;
+  /**
+   * 🔴 Giới hạn theo phạm vi shop của NGƯỜI DÙNG (`PodAccessScopeService`).
+   *
+   * Khác hẳn `shopId`: `shopId` là bộ lọc do người dùng CHỌN, còn đây là hàng rào người
+   * dùng KHÔNG chọn được. Không có nó, một Seller bấm "Sync Now" mà bỏ trống bộ lọc sẽ
+   * quét toàn bộ shop của tổ chức — kể cả những shop chưa từng được gán cho họ.
+   *
+   * `undefined` = không giới hạn (Admin, hoặc tiến trình nền). Mảng RỖNG là hợp lệ và có
+   * nghĩa "không được phép chạm shop nào" — không phải "không lọc".
+   */
+  shopIds?: string[];
+}
+
+/**
  * PodProductSyncRepository — dữ liệu phục vụ VẬN HÀNH đồng bộ: chọn shop, ghi lịch sử,
  * ghi log từng sản phẩm, cập nhật watermark.
  *
@@ -69,35 +101,55 @@ export class PodProductSyncRepository {
    * 🔴 Account ở trạng thái `REAUTH_REQUIRED`/`DEAUTHORIZED` bị loại NGAY tại truy vấn —
    * gọi TikTok với token chết chỉ tổ đốt quota chung của app (quota theo App × Shop).
    */
-  findSyncTargets(params: {
-    organizationId?: string;
-    accountId?: string;
-    shopId?: string;
-    /**
-     * 🔴 Giới hạn theo phạm vi shop của NGƯỜI DÙNG (`PodAccessScopeService`).
-     *
-     * Khác hẳn `shopId`: `shopId` là bộ lọc do người dùng CHỌN, còn đây là hàng rào người
-     * dùng KHÔNG chọn được. Không có nó, một Seller bấm "Sync Now" mà bỏ trống bộ lọc sẽ
-     * quét toàn bộ shop của tổ chức — kể cả những shop chưa từng được gán cho họ.
-     *
-     * `undefined` = không giới hạn (Admin, hoặc tiến trình nền). Mảng RỖNG là hợp lệ và có
-     * nghĩa "không được phép chạm shop nào" — không phải "không lọc".
-     */
-    shopIds?: string[];
-  }): Promise<ProductSyncTarget[]> {
+  findSyncTargets(params: ProductSyncScopeParams): Promise<ProductSyncTarget[]> {
     return this.prisma.podTiktokShop.findMany({
       where: {
-        deletedAt: null,
+        ...this.scopeWhere(params),
         productSyncEnabled: true,
-        ...(params.organizationId ? { organizationId: params.organizationId } : {}),
-        ...(params.accountId ? { accountId: params.accountId } : {}),
-        ...(params.shopId ? { id: params.shopId } : {}),
-        ...(params.shopIds ? { id: { in: params.shopIds } } : {}),
+        // 🔴 Shop ngừng hoạt động / không còn uỷ quyền (ghi bởi Shop Sync) bị loại NGAY tại
+        // truy vấn — không gọi Product API cho shop mà TikTok đã báo là không hoạt động.
+        status: PodTiktokShopStatus.ACTIVE,
         account: { deletedAt: null, status: PodTiktokAccountStatus.ACTIVE },
       },
       select: SYNC_TARGET_SELECT,
       orderBy: { productSyncedAt: 'asc' },
     });
+  }
+
+  /**
+   * MỌI shop trong phạm vi (kể cả không đủ điều kiện) — để lượt "Sync Products" phân loại
+   * ĐỒNG BỘ / BỎ QUA kèm lý do. Chỉ loại shop & kết nối đã xoá mềm.
+   */
+  findSyncCandidates(params: ProductSyncScopeParams): Promise<ProductSyncCandidate[]> {
+    return this.prisma.podTiktokShop.findMany({
+      where: { ...this.scopeWhere(params), account: { deletedAt: null } },
+      select: {
+        ...SYNC_TARGET_SELECT,
+        status: true,
+        productSyncEnabled: true,
+        account: { select: { ...SYNC_TARGET_SELECT.account.select, status: true } },
+      },
+      orderBy: { productSyncedAt: 'asc' },
+    });
+  }
+
+  /**
+   * Điều kiện phạm vi dùng chung.
+   *
+   * 🔴 `shopId` và `shopIds` là phép GIAO (`AND`), không phải gán đè lên cùng một khoá `id` —
+   * gán đè để `shopIds` (hàng rào) thắng thì đúng, nhưng để `shopId` thắng là lỗ hổng. `AND`
+   * loại bỏ hẳn câu hỏi "khoá nào thắng".
+   */
+  private scopeWhere(params: ProductSyncScopeParams): Prisma.PodTiktokShopWhereInput {
+    return {
+      deletedAt: null,
+      ...(params.organizationId ? { organizationId: params.organizationId } : {}),
+      ...(params.accountId ? { accountId: params.accountId } : {}),
+      AND: [
+        ...(params.shopId ? [{ id: params.shopId }] : []),
+        ...(params.shopIds ? [{ id: { in: params.shopIds } }] : []),
+      ],
+    };
   }
 
   /** Mở một lượt đồng bộ (`RUNNING`) — trả về id để ghi log theo lượt. */

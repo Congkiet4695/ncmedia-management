@@ -142,6 +142,23 @@ export const envValidationSchema = Joi.object({
   // ĐÂY mới có tác dụng — đặt ở `configuration()` thôi là không bao giờ chạm tới.
   TIKTOK_PRODUCT_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   TIKTOK_PRODUCT_SYNC_CRON: Joi.string().default('0 */6 * * *'),
+  // Ngân sách thời gian của Product Sync — xem `tiktok.productSync` trong configuration.ts.
+  // Trần của deadline (285s) giữ nó DƯỚI `proxy_read_timeout` 300s của Nginx.
+  TIKTOK_PRODUCT_SYNC_API_TIMEOUT_MS: Joi.number().integer().min(1000).max(120000).default(20000),
+  TIKTOK_PRODUCT_SYNC_REQUEST_DEADLINE_MS: Joi.number()
+    .integer()
+    .min(10000)
+    .max(285000)
+    .default(180000),
+  TIKTOK_PRODUCT_SYNC_SHOP_CONCURRENCY: Joi.number().integer().min(1).max(8).default(2),
+
+  // --- Shop Sync (nút "Sync Shops") ---
+  TIKTOK_SHOP_SYNC_CONCURRENCY: Joi.number().integer().min(1).max(8).default(2),
+  TIKTOK_SHOP_SYNC_REQUEST_DEADLINE_MS: Joi.number()
+    .integer()
+    .min(10000)
+    .max(285000)
+    .default(120000),
 
   // --- Trạng thái duyệt listing (Sprint Publish) ---
   TIKTOK_LISTING_REVIEW_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),

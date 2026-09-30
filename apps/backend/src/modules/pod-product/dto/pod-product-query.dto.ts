@@ -1,6 +1,8 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayNotEmpty,
+  IsArray,
   IsBoolean,
   IsDateString,
   IsIn,
@@ -15,10 +17,33 @@ import {
 } from 'class-validator';
 import {
   POD_PRODUCT_FLASH_SALE_FILTERS,
+  POD_PRODUCT_LOCAL_STATUSES,
   POD_PRODUCT_SORT_FIELDS,
+  POD_PRODUCT_STATUS_FILTER_ALL,
   type PodProductFlashSaleFilter,
+  type PodProductLocalStatus,
   type PodProductSortField,
 } from '../constants/pod-product.constants';
+
+/** Giá trị hợp lệ của `?status=` — nhóm trạng thái hệ thống hoặc `ALL`. */
+const POD_PRODUCT_STATUS_FILTER_VALUES = [
+  ...POD_PRODUCT_LOCAL_STATUSES,
+  POD_PRODUCT_STATUS_FILTER_ALL,
+] as const;
+
+/**
+ * `?status=ACTIVE,REVIEWING` / `?status=ACTIVE&status=REVIEWING` ⇒ `['ACTIVE','REVIEWING']`.
+ * Chuẩn hoá chữ hoa + bỏ trùng; validator bên dưới mới quyết định hợp lệ hay không.
+ */
+const toStatusList = ({ value }: { value: unknown }): unknown => {
+  const raw: unknown = typeof value === 'string' ? [value] : value;
+  if (!Array.isArray(raw)) return raw;
+  const list = (raw as unknown[])
+    .flatMap((item): unknown[] => (typeof item === 'string' ? item.split(',') : [item]))
+    .map((item): unknown => (typeof item === 'string' ? item.trim().toUpperCase() : item))
+    .filter((item) => item !== '');
+  return [...new Set(list)];
+};
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
@@ -59,23 +84,39 @@ export class PodProductQueryDto {
   @IsUUID()
   shopId?: string;
 
+  /**
+   * Nhóm trạng thái của hệ thống — xem `POD_PRODUCT_STATUS_MAP`.
+   *
+   * 🔴 Không truyền ⇒ chỉ `ACTIVE` (giữ nguyên hợp đồng của các màn hình CHỌN sản phẩm như Flash
+   * Sale). Màn hình Products gửi tường minh `ALL` để thấy mọi nhóm thuộc phạm vi người dùng.
+   */
   @ApiPropertyOptional({
     description:
-      'Trạng thái sản phẩm phía TikTok (ACTIVATE, DRAFT, …) — chuỗi tự do vì TikTok mở rộng giá trị',
+      'Lọc theo trạng thái hệ thống: ACTIVE · REVIEWING · DEACTIVATED · NEEDS_ATTENTION · ALL. ' +
+      'Nhiều giá trị: `status=ACTIVE,REVIEWING`. Bỏ trống = ACTIVE.',
+    type: String,
+    example: 'ACTIVE,REVIEWING',
   })
   @IsOptional()
-  @Transform(trim)
-  @IsString()
-  @MaxLength(40)
-  status?: string;
+  @Transform(toStatusList)
+  @IsArray()
+  @ArrayNotEmpty()
+  @IsIn(POD_PRODUCT_STATUS_FILTER_VALUES, {
+    each: true,
+    message: `status chỉ nhận: ${POD_PRODUCT_STATUS_FILTER_VALUES.join(', ')}`,
+  })
+  status?: Array<PodProductLocalStatus | typeof POD_PRODUCT_STATUS_FILTER_ALL>;
 
   /**
-   * Lấy CẢ sản phẩm đã ngừng bán.
+   * Lấy MỌI bản ghi, kể cả DRAFT / DELETED / đã rời tập quản lý.
    *
-   * 🔴 Mặc định `false`: hệ thống chỉ quản lý sản phẩm ACTIVATE. Cờ này dành cho đối soát
-   * / tra cứu lịch sử, không phải cho màn hình quản lý hằng ngày.
+   * 🔴 Mặc định `false`. Dành cho đối soát / tra cứu lịch sử, không phải cho màn hình quản lý
+   * hằng ngày. Bị bỏ qua khi có `status` (bộ lọc nhóm luôn thắng).
    */
-  @ApiPropertyOptional({ default: false, description: 'Lấy cả sản phẩm đã ngừng bán' })
+  @ApiPropertyOptional({
+    default: false,
+    description: 'Lấy mọi bản ghi kể cả DRAFT/DELETED (bỏ qua khi có status)',
+  })
   @IsOptional()
   @Transform(({ value }: { value: unknown }) => value === true || value === 'true')
   @IsBoolean()

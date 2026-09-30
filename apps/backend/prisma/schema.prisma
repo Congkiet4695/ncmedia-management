@@ -129,6 +129,19 @@ enum PodTiktokAccountStatus {
   @@map("pod_tiktok_account_status")
 }
 
+/// Trạng thái của MỘT shop phía TikTok — đọc bởi Shop Sync (`POST /pod/tiktok/accounts/sync-shops`).
+/// ACTIVE: có trong Get Authorized Shops VÀ Get Active Shops
+/// INACTIVE: vẫn được uỷ quyền cho app nhưng KHÔNG có trong Get Active Shops (shop ngừng hoạt động)
+/// DEAUTHORIZED: không còn trong Get Authorized Shops (seller đã gỡ quyền của app cho shop này)
+/// Tách khỏi `PodTiktokAccountStatus`: một kết nối còn sống vẫn có thể chứa shop đã ngừng.
+enum PodTiktokShopStatus {
+  ACTIVE
+  INACTIVE
+  DEAUTHORIZED
+
+  @@map("pod_tiktok_shop_status")
+}
+
 /// Vòng đời của một `state` trong luồng uỷ quyền OAuth TikTok.
 /// PENDING: vừa sinh, chờ callback · USED: đã tiêu thụ (một lần duy nhất)
 /// EXPIRED: quá hạn trước khi callback về · FAILED: đã tiêu thụ nhưng luồng lỗi
@@ -1070,6 +1083,16 @@ model PodTiktokShop {
   /// (`create_time` bất biến ⇒ phân trang ổn định; `update_time` thay đổi được).
   backfillCursor BigInt? @map("backfill_cursor")
 
+  // --- Trạng thái shop phía TikTok (Shop Sync) ---
+  /// Kết quả đối chiếu gần nhất với TikTok (Get Authorized Shops + Get Active Shops).
+  /// Product Sync BỎ QUA shop khác `ACTIVE` thay vì gọi Product API cho một shop đã ngừng.
+  status              PodTiktokShopStatus @default(ACTIVE)
+  /// Lần Shop Sync gần nhất ĐỌC ĐƯỢC trạng thái từ TikTok. NULL = chưa từng đối chiếu.
+  statusCheckedAt     DateTime?           @map("status_checked_at") @db.Timestamptz(6)
+  /// Lỗi của lượt Shop Sync gần nhất (NULL khi lượt đó thành công).
+  lastStatusErrorCode    String?          @map("last_status_error_code") @db.VarChar(20)
+  lastStatusErrorMessage String?          @map("last_status_error_message") @db.VarChar(500)
+
   // Audit + soft delete (ADR-015)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1099,6 +1122,7 @@ model PodTiktokShop {
   @@index([accountId])
   @@index([tiktokShopId])
   @@index([syncEnabled])
+  @@index([organizationId, status])
   @@map("pod_tiktok_shops")
 }
 

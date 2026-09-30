@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import {
   EmployeeStatus,
   PodTiktokAccountStatus,
+  PodTiktokShopStatus,
   PodTiktokTokenAction,
   Prisma,
 } from '@prisma/client';
@@ -231,7 +232,20 @@ export class PodTiktokAccountRepository {
         organizationId_tiktokShopId: { organizationId, tiktokShopId: data.tiktokShopId },
       },
       create: { organizationId, accountId, ...data, createdBy: actorUserId },
-      update: { accountId, ...data, deletedAt: null, updatedBy: actorUserId },
+      // 🔴 Uỷ quyền lại ⇒ shop VỪA có mặt trong Get Authorized Shops, nên không thể còn là
+      // DEAUTHORIZED/INACTIVE cũ — giữ nguyên trạng thái đó là để Product Sync bỏ qua shop mãi
+      // mãi. Về lại mặc định ACTIVE (cùng giả định lúc tạo mới) và xoá mốc đối chiếu: lượt Sync
+      // Shops kế tiếp sẽ ghi trạng thái thật theo Get Active Shops.
+      update: {
+        accountId,
+        ...data,
+        deletedAt: null,
+        status: PodTiktokShopStatus.ACTIVE,
+        statusCheckedAt: null,
+        lastStatusErrorCode: null,
+        lastStatusErrorMessage: null,
+        updatedBy: actorUserId,
+      },
     });
   }
 

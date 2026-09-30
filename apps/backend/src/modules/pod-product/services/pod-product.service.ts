@@ -1,4 +1,11 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  Optional,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PodProductSyncStatus, PodProductSyncTrigger, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { DistributedLockService } from '../../pod-tiktok/infra/distributed-lock.service';
@@ -6,7 +13,12 @@ import {
   SHOP_CONNECTION_SELECT,
   connectionNameOf,
 } from '../../pod-tiktok/shared/shop-identity';
-import { POD_PRODUCT_ACTIVE_STATUS } from '../constants/pod-product.constants';
+import {
+  POD_PRODUCT_LOCAL_STATUSES,
+  POD_PRODUCT_STATUS_FILTER_ALL,
+  tiktokStatusesOf,
+  type PodProductLocalStatus,
+} from '../constants/pod-product.constants';
 import type {
   PaginatedPodProductResponseDto,
   PaginatedPodProductSyncHistoryDto,
@@ -67,9 +79,17 @@ export class PodProductService {
     private readonly accessScope: PodAccessScopeService,
     private readonly catalog: PodProductCatalogService,
     private readonly lock: DistributedLockService,
-  ) {}
+    /** `tiktok.productSync.requestDeadlineMs` — đặt cuối + `@Optional()` cho test dựng bằng vị trí. */
+    @Optional() config?: ConfigService,
+  ) {
+    this.syncRequestDeadlineMs =
+      config?.get<number>('tiktok.productSync.requestDeadlineMs', 180_000) ?? 180_000;
+  }
 
   private readonly logger = new Logger(PodProductService.name);
+
+  /** Ngân sách thời gian của MỘT lượt "Sync Products" thủ công (ms). */
+  private readonly syncRequestDeadlineMs: number;
 
   async findAll(
     organizationId: string,
@@ -91,7 +111,7 @@ export class PodProductService {
       search: query.search,
       accountId: query.accountId,
       shopId: query.shopId,
-      status: query.status,
+      statuses: this.statusGroupsOf(query.status),
       includeInactive: query.includeInactive,
       categoryId: query.categoryId,
       brandId: query.brandId,
@@ -104,6 +124,20 @@ export class PodProductService {
       items: items.map((item) => this.mapper.toListItem(item)),
       meta: { total, page, limit, totalPages: total === 0 ? 0 : Math.ceil(total / limit) },
     };
+  }
+
+  /**
+   * `?status=` ⇒ danh sách nhóm. `ALL` (kể cả đi kèm nhóm khác) = mọi nhóm; bỏ trống ⇒
+   * `undefined` để repository áp mặc định ACTIVE.
+   */
+  private statusGroupsOf(
+    status: PodProductQueryDto['status'],
+  ): PodProductLocalStatus[] | undefined {
+    if (!status?.length) return undefined;
+    if (status.includes(POD_PRODUCT_STATUS_FILTER_ALL)) return [...POD_PRODUCT_LOCAL_STATUSES];
+    return status.filter(
+      (value): value is PodProductLocalStatus => value !== POD_PRODUCT_STATUS_FILTER_ALL,
+    );
   }
 
   /**
@@ -137,14 +171,12 @@ export class PodProductService {
   }
 
   /**
-   * Đồng bộ thủ công ("Sync Now").
-   *
-   * Chạy ĐỒNG BỘ (chờ xong mới trả) có chủ ý: người dùng vừa bấm nút cần thấy kết quả
-   * ngay. Với shop rất lớn, lượt chạy vẫn an toàn nhờ khoá theo shop + trần số trang;
-   * khi quy mô tăng, chỉ cần chuyển lời gọi này sang hàng đợi mà KHÔNG đổi nghiệp vụ.
-   */
-  /**
    * "Sync Now" — đồng bộ thủ công.
+   *
+   * Chạy ĐỒNG BỘ (chờ kết quả) nhưng có **ngân sách thời gian** (`requestDeadlineMs`): shop chưa
+   * kịp chạy / đang dở khi hết giờ được chuyển sang hàng đợi nền và báo `deferredShops` — request
+   * không bao giờ giữ lâu hơn `proxy_read_timeout` của Nginx. Shop ngừng hoạt động bị BỎ QUA
+   * kèm lý do, shop lỗi không làm dừng shop khác.
    *
    * 🔴 **Bị chặn theo phạm vi shop của người bấm.** Trước đây hàm này nhận thẳng
    * `accountId`/`shopId` từ request và không đi qua `PodAccessScopeService`, nên bỏ trống bộ
@@ -181,6 +213,7 @@ export class PodProductService {
         trigger: PodProductSyncTrigger.MANUAL,
         triggeredBy: userId,
         full: dto.full,
+        deadlineAt: Date.now() + this.syncRequestDeadlineMs,
       },
     );
 
@@ -193,17 +226,32 @@ export class PodProductService {
     // `LOCKED` = shop đang có lượt đồng bộ khác chạy (khoá Redis theo shop). Không phải lỗi
     // — nhưng gộp nó vào "thành công" thì người dùng thấy "0 sản phẩm" mà không hiểu vì sao.
     const busyShops = outcomes.filter((item) => item.status === 'LOCKED');
+    const inactiveShops = outcomes.filter((item) => item.status === 'SKIPPED');
+    const synced = outcomes.filter(
+      (item) =>
+        item.status === PodProductSyncStatus.SUCCESS || item.status === PodProductSyncStatus.PARTIAL,
+    );
+    const sum = (pick: (item: (typeof outcomes)[number]) => number) =>
+      outcomes.reduce((total, item) => total + pick(item), 0);
 
     return {
-      shopsProcessed: outcomes.length,
-      shopsFailed: failedShops.length,
-      shopsBusy: busyShops.length,
-      productsFetched: outcomes.reduce((sum, item) => sum + item.fetched, 0),
-      productsCreated: outcomes.reduce((sum, item) => sum + item.created, 0),
-      productsUpdated: outcomes.reduce((sum, item) => sum + item.updated, 0),
-      productsSkipped: outcomes.reduce((sum, item) => sum + item.skipped, 0),
-      productsFailed: outcomes.reduce((sum, item) => sum + item.failed, 0),
-      productsDeactivated: outcomes.reduce((sum, item) => sum + (item.deactivated ?? 0), 0),
+      totalShops: outcomes.length,
+      syncedShops: synced.length,
+      skippedShops: inactiveShops.length + busyShops.length,
+      failedShops: failedShops.length,
+      busyShops: busyShops.length,
+      deferredShops: outcomes.filter((item) => item.status === 'DEFERRED').length,
+      totalProducts: sum((item) => item.fetched),
+      createdProducts: sum((item) => item.created),
+      updatedProducts: sum((item) => item.updated),
+      unchangedProducts: sum((item) => item.skipped),
+      failedProducts: sum((item) => item.failed),
+      removedProducts: sum((item) => item.deactivated ?? 0),
+      skippedInactiveShops: inactiveShops.map((item) => ({
+        shopId: item.shopId,
+        shopName: item.shopName,
+        reason: item.skipReason ?? 'UNKNOWN',
+      })),
       errors: failedShops.map((item) => ({
         shopId: item.shopId,
         shopName: item.shopName,
@@ -264,17 +312,18 @@ export class PodProductService {
   }
 
   /**
-   * Điều kiện "sản phẩm ĐANG BÁN của tổ chức này" — dùng chung cho mọi bộ lọc.
+   * Điều kiện "sản phẩm ĐƯỢC QUẢN LÝ của tổ chức này" (mọi nhóm trạng thái) — dùng chung cho
+   * bộ lọc danh mục / thương hiệu.
    *
-   * 🔴 Bộ lọc phải soi đúng tập sản phẩm mà màn hình đang hiển thị. Nếu không, dropdown sẽ
-   * chào những danh mục/thương hiệu chỉ còn tồn tại ở các sản phẩm đã ngừng bán — người
-   * dùng chọn vào và nhận về 0 kết quả.
+   * 🔴 Bộ lọc phải soi đúng tập sản phẩm màn hình CÓ THỂ hiển thị (bộ lọc "All"). Nếu không,
+   * dropdown sẽ chào danh mục/thương hiệu chỉ còn ở bản ghi DRAFT/DELETED — người dùng chọn vào
+   * và nhận về 0 kết quả.
    */
-  private activeProductsOf(organizationId: string) {
+  private managedProductsOf(organizationId: string) {
     return {
       organizationId,
       deletedAt: null,
-      status: POD_PRODUCT_ACTIVE_STATUS,
+      status: { in: tiktokStatusesOf(POD_PRODUCT_LOCAL_STATUSES) },
       deactivatedAt: null,
     };
   }
@@ -519,31 +568,25 @@ export class PodProductService {
   ): Promise<{
     categories: Array<{ id: string; name: string }>;
     brands: Array<{ id: string; name: string }>;
-    statuses: string[];
+    statuses: PodProductLocalStatus[];
     shops: Array<{ id: string; name: string; connectionName: string; region: string | null }>;
   }> {
-    const [categories, brands, statuses, shops] = await Promise.all([
+    const [categories, brands, shops] = await Promise.all([
       // 🔴 Bộ lọc phải đi qua quan hệ `products` CÓ `organizationId`. Bảng danh mục /
       // thương hiệu nay là toàn cục, nên `products: { some: { deletedAt: null } }` trần sẽ
       // trả về cả danh mục mà tổ chức KHÁC đang bán — vừa lộ thông tin, vừa mời người dùng
       // bấm một bộ lọc chắc chắn ra 0 kết quả.
       this.prisma.podProductCategory.findMany({
-        where: { deletedAt: null, products: { some: this.activeProductsOf(organizationId) } },
+        where: { deletedAt: null, products: { some: this.managedProductsOf(organizationId) } },
         select: { id: true, localName: true, path: true },
         orderBy: { path: 'asc' },
         take: 500,
       }),
       this.prisma.podProductBrand.findMany({
-        where: { deletedAt: null, products: { some: this.activeProductsOf(organizationId) } },
+        where: { deletedAt: null, products: { some: this.managedProductsOf(organizationId) } },
         select: { id: true, name: true },
         orderBy: { name: 'asc' },
         take: 500,
-      }),
-      this.prisma.podProduct.findMany({
-        where: this.activeProductsOf(organizationId),
-        select: { status: true },
-        distinct: ['status'],
-        orderBy: { status: 'asc' },
       }),
       this.prisma.podTiktokShop.findMany({
         // 🔴 Dropdown shop cũng phải theo phạm vi. Để lọt shop người khác vào đây là vừa lộ
@@ -566,9 +609,9 @@ export class PodProductService {
         name: category.path ?? category.localName ?? category.id,
       })),
       brands: brands.map((brand) => ({ id: brand.id, name: brand.name ?? brand.id })),
-      statuses: statuses
-        .map((row) => row.status)
-        .filter((status): status is string => Boolean(status)),
+      // Nhóm trạng thái CỐ ĐỊNH của hệ thống (POD_PRODUCT_STATUS_MAP) — nguồn duy nhất cho các
+      // lựa chọn của bộ lọc Status; frontend không tự khai báo danh sách này.
+      statuses: [...POD_PRODUCT_LOCAL_STATUSES],
       // 🔴 Trả CẢ HAI: dropdown dùng `connectionName` làm nhãn, `name` để phân biệt khi
       // hai kết nối được đặt tên giống nhau.
       shops: shops.map((shop) => ({

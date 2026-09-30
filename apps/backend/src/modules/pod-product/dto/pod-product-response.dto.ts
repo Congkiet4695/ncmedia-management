@@ -1,4 +1,8 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import {
+  POD_PRODUCT_LOCAL_STATUSES,
+  type PodProductLocalStatus,
+} from '../constants/pod-product.constants';
 
 /** Một biến thể (SKU) trong màn hình chi tiết. */
 export class PodProductVariantDto {
@@ -57,7 +61,21 @@ export class PodProductListItemDto {
   @ApiProperty() id!: string;
   @ApiProperty({ example: '1729592969712207008' }) tiktokProductId!: string;
   @ApiProperty({ nullable: true, type: String }) title!: string | null;
-  @ApiProperty({ nullable: true, type: String, example: 'ACTIVATE' }) status!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: 'ACTIVATE',
+    description: 'Trạng thái GỐC TikTok trả về (giữ nguyên để đối chiếu Seller Center)',
+  })
+  status!: string | null;
+  @ApiProperty({
+    nullable: true,
+    enum: POD_PRODUCT_LOCAL_STATUSES,
+    description:
+      'Nhóm trạng thái của hệ thống (POD_PRODUCT_STATUS_MAP). NULL = trạng thái TikTok chưa có ' +
+      'trong bảng ánh xạ — KHÔNG bị quy về ACTIVE.',
+  })
+  localStatus!: PodProductLocalStatus | null;
   @ApiProperty({ nullable: true, type: String }) auditStatus!: string | null;
   @ApiProperty({ nullable: true, type: String }) thumbnailUrl!: string | null;
 
@@ -203,24 +221,55 @@ export class PodProductSyncShopErrorDto {
   errorMessage!: string | null;
 }
 
-export class PodProductSyncResultDto {
-  @ApiProperty({ description: 'Số shop đã chạy trong lượt này' }) shopsProcessed!: number;
-  @ApiProperty({ description: 'Số shop chạy HỎNG — xem `errors` để biết lý do' })
-  shopsFailed!: number;
+/** Shop bị BỎ QUA (không gọi TikTok) và lý do. */
+export class PodProductSyncSkippedShopDto {
+  @ApiProperty() shopId!: string;
+  @ApiProperty() shopName!: string;
   @ApiProperty({
     description:
-      'Số shop bị BỎ QUA vì đang có lượt đồng bộ khác chạy (khoá theo shop). Không phải lỗi, ' +
-      'nhưng cũng không phải thành công — người dùng cần biết để bấm lại sau.',
+      'SHOP_INACTIVE · SHOP_DEAUTHORIZED (theo Shop Sync) · ACCOUNT_<trạng thái kết nối> ' +
+      '(vd ACCOUNT_REAUTH_REQUIRED) · PRODUCT_SYNC_DISABLED',
+    example: 'SHOP_INACTIVE',
   })
-  shopsBusy!: number;
-  @ApiProperty({ description: 'Số sản phẩm ĐANG BÁN (ACTIVATE) TikTok trả về' })
-  productsFetched!: number;
-  @ApiProperty() productsCreated!: number;
-  @ApiProperty() productsUpdated!: number;
-  @ApiProperty() productsSkipped!: number;
-  @ApiProperty() productsFailed!: number;
-  @ApiProperty({ description: 'Số sản phẩm bị đánh dấu ngừng bán (chỉ ở lượt quét toàn bộ)' })
-  productsDeactivated!: number;
+  reason!: string;
+}
+
+export class PodProductSyncResultDto {
+  @ApiProperty({ description: 'Số shop thuộc phạm vi lượt đồng bộ' }) totalShops!: number;
+  @ApiProperty({ description: 'Số shop đồng bộ XONG (SUCCESS hoặc PARTIAL vì lỗi từng sản phẩm)' })
+  syncedShops!: number;
+  @ApiProperty({
+    description:
+      'Số shop KHÔNG gọi TikTok: không đủ điều kiện (xem `skippedInactiveShops`) hoặc đang có ' +
+      'lượt đồng bộ khác chạy (`busyShops`).',
+  })
+  skippedShops!: number;
+  @ApiProperty({ description: 'Số shop chạy HỎNG — xem `errors` để biết lý do' })
+  failedShops!: number;
+  @ApiProperty({
+    description:
+      'Số shop đang có lượt đồng bộ khác chạy (khoá theo shop). Không phải lỗi — bấm lại sau.',
+  })
+  busyShops!: number;
+  @ApiProperty({
+    description:
+      'Số shop chưa xong khi hết ngân sách thời gian của request — đã chuyển sang hàng đợi nền ' +
+      '(kết quả xem ở Sync History).',
+  })
+  deferredShops!: number;
+  @ApiProperty({ description: 'Số sản phẩm TikTok trả về (mọi trạng thái được quản lý)' })
+  totalProducts!: number;
+  @ApiProperty() createdProducts!: number;
+  @ApiProperty() updatedProducts!: number;
+  @ApiProperty({ description: 'Sản phẩm không đổi so với lần trước' }) unchangedProducts!: number;
+  @ApiProperty({ description: 'Sản phẩm lỗi (shop vẫn tiếp tục)' }) failedProducts!: number;
+  @ApiProperty({
+    description: 'Sản phẩm rời tập quản lý (thành DRAFT/DELETED — chỉ ở lượt quét toàn bộ)',
+  })
+  removedProducts!: number;
+
+  @ApiProperty({ type: [PodProductSyncSkippedShopDto] })
+  skippedInactiveShops!: PodProductSyncSkippedShopDto[];
 
   /**
    * 🔴 Danh sách lỗi theo shop. Trước đây trường này KHÔNG tồn tại: một shop hỏng vì token

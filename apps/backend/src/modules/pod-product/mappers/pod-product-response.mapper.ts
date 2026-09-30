@@ -1,5 +1,6 @@
 import { Injectable } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
+import { toLocalProductStatus } from '../constants/pod-product.constants';
 import type {
   PodProductDetailRow,
   PodProductListRow,
@@ -33,6 +34,7 @@ export class PodProductResponseMapper {
       tiktokProductId: row.tiktokProductId,
       title: row.title,
       status: row.status,
+      localStatus: toLocalProductStatus(row.status),
       auditStatus: row.auditStatus,
       thumbnailUrl: row.images[0]?.thumbUrl ?? row.images[0]?.url ?? null,
       // Dải thumbnail của dòng danh sách. `imageCount` là TỔNG số ảnh chính (đếm ở DB), còn

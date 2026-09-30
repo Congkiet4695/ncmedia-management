@@ -33,6 +33,15 @@ export const TIKTOK_GRANT_TYPE_REFRESH_TOKEN = 'refresh_token';
 export const TIKTOK_GET_AUTHORIZED_SHOPS_PATH = '/authorization/202309/shops';
 
 /**
+ * Get Active Shops — entity tag `Seller`, KHÔNG cần shop_cipher.
+ *
+ * Nguồn: `SellerV202309Api.ShopsGet` của SDK chính thức — "Retrieves all active shops that
+ * belong to a seller. You can use this API to check the activation status of shops."
+ * Trả về `shops[] { id, region }`: shop có mặt ⇒ đang hoạt động, vắng mặt ⇒ không hoạt động.
+ */
+export const TIKTOK_GET_ACTIVE_SHOPS_PATH = '/seller/202309/shops';
+
+/**
  * Get Order List — entity tag `Shop`, **BẮT BUỘC** `shop_cipher`.
  * Method POST, scope `Order Information`.
  */

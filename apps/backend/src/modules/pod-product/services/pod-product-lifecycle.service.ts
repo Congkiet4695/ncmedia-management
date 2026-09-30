@@ -127,8 +127,8 @@ export class PodProductLifecycleService {
 
         // Sàn đã nhận ⇒ đọc lại chính sản phẩm đó để `status` là chuỗi TikTok trả về
         // (`SELLER_DEACTIVATED`), không phải giá trị ta đoán. Đồng bộ đơn lẻ có thể hỏng vì
-        // lý do tạm thời — không vì thế mà mất dấu ngừng bán: `markDeactivated` chạy sau
-        // cùng, bất kể lượt đồng bộ ra sao.
+        // lý do tạm thời — không vì thế mà sản phẩm còn hiện là đang bán: `markDeactivated`
+        // chạy sau cùng và chỉ ghi khi bản ghi vẫn còn `ACTIVATE` (xem repository).
         try {
           await this.syncService.syncShop(target, {
             trigger: PodProductSyncTrigger.MANUAL,

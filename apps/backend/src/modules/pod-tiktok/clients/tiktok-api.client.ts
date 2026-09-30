@@ -2,11 +2,13 @@ import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   TIKTOK_ACCESS_TOKEN_HEADER,
+  TIKTOK_GET_ACTIVE_SHOPS_PATH,
   TIKTOK_GET_AUTHORIZED_SHOPS_PATH,
 } from '../constants/tiktok.constants';
 import { TiktokHttpService } from './tiktok-http.service';
 import { TiktokSignatureService } from './tiktok-signature.service';
 import {
+  TiktokActiveShopsData,
   TiktokAuthorizedShopsData,
   TiktokShopItem,
   TiktokSignedRequestOptions,
@@ -47,6 +49,26 @@ export class TiktokApiClient {
       accessToken,
     });
     return { shops: result.data?.shops ?? [], requestId: result.requestId };
+  }
+
+  /**
+   * Get Active Shops — `GET /seller/202309/shops` (entity tag `Seller`).
+   *
+   * Trả về TikTok Shop ID của những shop ĐANG HOẠT ĐỘNG thuộc seller. Dùng cùng
+   * `getAuthorizedShops` để phân biệt shop còn được uỷ quyền nhưng đã ngừng hoạt động.
+   */
+  async getActiveShops(
+    accessToken: string,
+  ): Promise<{ shopIds: string[]; requestId?: string }> {
+    const result = await this.callSigned<TiktokActiveShopsData>({
+      path: TIKTOK_GET_ACTIVE_SHOPS_PATH,
+      method: 'GET',
+      accessToken,
+    });
+    const shopIds = (result.data?.shops ?? [])
+      .map((shop) => shop.id)
+      .filter((id): id is string => Boolean(id));
+    return { shopIds, requestId: result.requestId };
   }
 
   /**

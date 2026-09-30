@@ -1,8 +1,13 @@
 import { Injectable } from '@nestjs/common';
 import { PodMasterDataProvider, PodProductRawSource, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
-import { POD_PRODUCT_ACTIVE_STATUS } from '../constants/pod-product.constants';
-import type { PodProductFlashSaleFilter, PodProductSortField } from '../constants/pod-product.constants';
+import { tiktokStatusesOf } from '../constants/pod-product.constants';
+import { TIKTOK_PRODUCT_STATUS } from '../../tiktok-sdk/tiktok-sdk.constants';
+import type {
+  PodProductFlashSaleFilter,
+  PodProductLocalStatus,
+  PodProductSortField,
+} from '../constants/pod-product.constants';
 import { FLASH_SALE_LIVE_STATUSES } from '../../pod-flash-sale/constants/pod-flash-sale.constants';
 import type { MappedProduct } from '../mappers/pod-product.mapper';
 import { accountScopeFilter, shopScopeFilter } from '../../pod-tiktok/shared/shop-scope';
@@ -10,8 +15,13 @@ import { accountScopeFilter, shopScopeFilter } from '../../pod-tiktok/shared/sho
 /** Bộ lọc danh sách sản phẩm — đúng những gì màn hình Products cần. */
 export interface PodProductFindManyParams {
   /**
-   * `true` = lấy cả sản phẩm ĐÃ NGỪNG BÁN. Mặc định (`undefined`/`false`) chỉ trả về sản
-   * phẩm đang bán — xem `buildWhere`.
+   * Nhóm trạng thái hệ thống cần lấy (đã giải `ALL` thành đủ các nhóm ở tầng service).
+   * Bỏ trống ⇒ chỉ `ACTIVE` — xem `buildWhere`.
+   */
+  statuses?: PodProductLocalStatus[];
+  /**
+   * `true` (và KHÔNG có `statuses`) = lấy mọi bản ghi, kể cả DRAFT/DELETED/đã rời tập quản lý.
+   * Chỉ dành cho đối soát — xem `buildWhere`.
    */
   includeInactive?: boolean;
   page: number;
@@ -20,7 +30,6 @@ export interface PodProductFindManyParams {
   search?: string;
   accountId?: string;
   shopId?: string;
-  status?: string;
   categoryId?: string;
   brandId?: string;
   /**
@@ -216,8 +225,8 @@ export class PodProductRepository {
       const product = existing
         ? await tx.podProduct.update({
             where: { id: existing.id },
-            // 🔴 `deactivatedAt: null` — sản phẩm bán lại được thì tự khôi phục. Lượt đồng
-            // bộ chỉ kéo về sản phẩm ACTIVATE, nên có mặt ở đây nghĩa là nó ĐANG bán.
+            // 🔴 `deactivatedAt: null` — sản phẩm quay lại tập quản lý thì tự khôi phục. Lượt
+            // đồng bộ chỉ kéo về các trạng thái được quản lý, nên có mặt ở đây là thuộc tập đó.
             data: { ...data, deletedAt: null, deactivatedAt: null, updatedBy: actorUserId },
             select: { id: true },
           })
@@ -370,28 +379,21 @@ export class PodProductRepository {
   // ---------------------------------------------------------------------------
 
   /**
-   * Gỡ dấu "ngừng bán" cho những sản phẩm VỪA thấy trong danh sách ACTIVATE của TikTok.
+   * Ghi nhận **ngừng bán** MỘT sản phẩm ngay sau khi TikTok đã nhận Deactivate Products.
    *
-   * 🔴 Bắt buộc phải là một bước RIÊNG, không thể dựa vào `upsertAggregate`: đường ghi bỏ
-   * qua sản phẩm có `payloadHash` không đổi (tối ưu để khỏi ghi lại y nguyên dữ liệu cũ),
-   * nên một sản phẩm ngừng bán rồi bán lại mà nội dung KHÔNG đổi sẽ không bao giờ chạm tới
-   * `upsertAggregate` — và mắc kẹt ở trạng thái ngừng bán vĩnh viễn.
+   * 🔴 Sản phẩm ngừng bán nay là nhóm `DEACTIVATED` HIỂN THỊ ĐƯỢC trên màn hình Products — nên
+   * KHÔNG đặt `deactivatedAt` (cờ đó nghĩa là "rời khỏi tập quản lý", sẽ làm sản phẩm biến mất).
    *
-   * Chạy ở MỌI phạm vi đồng bộ: có mặt trong danh sách ACTIVATE nghĩa là đang bán, bất kể
-   * lượt quét là FULL hay INCREMENTAL. Một câu `updateMany` cho cả lô.
-   */
-  /**
-   * Đánh dấu **ngừng bán** MỘT sản phẩm ngay sau khi TikTok đã nhận Deactivate Products.
-   *
-   * 🔴 Gọi SAU lượt đồng bộ lại sản phẩm: `upsertAggregate` / `reactivateSeen` luôn xoá
-   * `deactivatedAt` (chúng coi "TikTok còn trả về sản phẩm" là "đang bán"), nên nếu đặt dấu
-   * trước lúc đồng bộ thì dấu bị xoá mất. Cột `status` giữ đúng chuỗi sàn trả về
-   * (`SELLER_DEACTIVATED`) — không bịa giá trị.
+   * Gọi SAU lượt đồng bộ lại sản phẩm. Thường lượt đó đã ghi `SELLER_DEACTIVATED` do TikTok trả
+   * về và câu lệnh này không đổi gì. Chỉ khi đồng bộ lại hỏng (hoặc TikTok chưa kịp phản ánh) mà
+   * bản ghi còn `ACTIVATE`, ta mới ghi `SELLER_DEACTIVATED`: đó là kết quả TikTok định nghĩa cho
+   * lệnh Deactivate do người bán gửi — không phải giá trị đoán. Lượt đồng bộ sau sẽ ghi đè bằng
+   * trạng thái thật nếu khác.
    */
   async markDeactivated(organizationId: string, id: string, actorUserId: string): Promise<void> {
     await this.prisma.podProduct.updateMany({
-      where: { id, organizationId, deletedAt: null },
-      data: { deactivatedAt: new Date(), updatedBy: actorUserId },
+      where: { id, organizationId, deletedAt: null, status: TIKTOK_PRODUCT_STATUS.ACTIVATE },
+      data: { status: TIKTOK_PRODUCT_STATUS.SELLER_DEACTIVATED, updatedBy: actorUserId },
     });
   }
 
@@ -410,6 +412,17 @@ export class PodProductRepository {
     });
   }
 
+  /**
+   * Gỡ dấu "rời tập quản lý" cho những sản phẩm VỪA thấy trong danh sách của TikTok (bất kỳ
+   * trạng thái nào thuộc `POD_PRODUCT_SYNC_TIKTOK_STATUSES`).
+   *
+   * 🔴 Bắt buộc phải là một bước RIÊNG, không thể dựa vào `upsertAggregate`: đường ghi bỏ
+   * qua sản phẩm có `payloadHash` không đổi (tối ưu để khỏi ghi lại y nguyên dữ liệu cũ),
+   * nên một sản phẩm rời tập rồi quay lại mà nội dung KHÔNG đổi sẽ không bao giờ chạm tới
+   * `upsertAggregate` — và mắc kẹt ở trạng thái bị ẩn vĩnh viễn.
+   *
+   * Chạy ở MỌI phạm vi đồng bộ. Một câu `updateMany` cho cả lô.
+   */
   async reactivateSeen(
     organizationId: string,
     shopId: string,
@@ -430,8 +443,9 @@ export class PodProductRepository {
   }
 
   /**
-   * Đánh dấu **ngừng bán** mọi sản phẩm đang active của shop mà lượt đồng bộ vừa rồi KHÔNG
-   * còn thấy trong danh sách ACTIVATE của TikTok.
+   * Đánh dấu **rời tập quản lý** mọi sản phẩm của shop mà lượt đồng bộ FULL vừa rồi KHÔNG còn
+   * thấy trong danh sách TikTok của bất kỳ trạng thái được quản lý nào (tức đã thành DRAFT /
+   * DELETED / trạng thái ngoài bảng ánh xạ).
    *
    * 🔴 KHÔNG xoá, kể cả xoá mềm: `pod_product_mappings`, Draft Listing và đơn hàng cũ còn
    * trỏ vào những bản ghi này. Xoá đi là làm đứt lịch sử có thật để đổi lấy một danh sách
@@ -466,15 +480,18 @@ export class PodProductRepository {
   ): Prisma.PodProductWhereInput {
     const where: Prisma.PodProductWhereInput = { organizationId, deletedAt: null };
 
-    // 🔴 Mặc định CHỈ sản phẩm ĐANG BÁN. Hệ thống chỉ quản lý sản phẩm ACTIVATE; những bản
-    // ghi còn lại được giữ để `pod_product_mappings`, Draft Listing và đơn cũ không đứt
-    // tham chiếu — nhưng chúng KHÔNG được lẫn vào màn hình quản lý.
+    // 🔴 Lọc theo NHÓM trạng thái ở tầng DATABASE (`status IN (...)`) — phân trang và tổng số
+    // luôn khớp với bộ lọc, không bao giờ lọc lại ở frontend.
+    //
+    // Bỏ trống ⇒ chỉ ACTIVE: các màn hình CHỌN sản phẩm (Flash Sale, Nhân bản) dựa vào mặc
+    // định này. Màn hình Products gửi tường minh đủ các nhóm.
     //
     // Lọc theo CẢ HAI: `status` là ảnh chụp cuối cùng TikTok trả về, `deactivatedAt` là thời
-    // điểm hệ thống phát hiện sản phẩm rời khỏi danh sách đang bán. Một bản ghi có thể còn
-    // `status = ACTIVATE` cũ mà thực tế đã ngừng bán (phát hiện qua đối soát ở lượt FULL).
-    if (params.includeInactive !== true) {
-      where.status = POD_PRODUCT_ACTIVE_STATUS;
+    // điểm hệ thống phát hiện sản phẩm RỜI KHỎI tập được quản lý (DRAFT / DELETED — phát hiện
+    // qua đối soát ở lượt FULL). Bản ghi đó có thể còn `status` cũ nên phải loại bằng cờ này.
+    const statuses = params.statuses?.length ? params.statuses : undefined;
+    if (statuses || params.includeInactive !== true) {
+      where.status = { in: tiktokStatusesOf(statuses ?? ['ACTIVE']) };
       where.deactivatedAt = null;
     }
 
@@ -485,9 +502,6 @@ export class PodProductRepository {
 
     const accountFilter = accountScopeFilter(params.accountScope, params.accountId);
     if (accountFilter !== undefined) where.accountId = accountFilter;
-    // Bộ lọc trạng thái của người dùng chỉ có ý nghĩa khi đã mở rộng phạm vi sang cả sản
-    // phẩm ngừng bán — nếu không nó chỉ có thể thu hẹp `ACTIVATE` thành chính nó.
-    if (params.status && params.includeInactive === true) where.status = params.status;
     if (params.categoryId) where.categoryId = params.categoryId;
     if (params.brandId) where.brandId = params.brandId;
 

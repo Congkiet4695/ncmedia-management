@@ -20,6 +20,11 @@ export interface PodProductListItem {
   tiktokProductId: string;
   title: string | null;
   status: PodProductStatus | null;
+  /**
+   * Nhóm trạng thái của hệ thống do BACKEND tính (POD_PRODUCT_STATUS_MAP). `null` = trạng thái
+   * TikTok chưa có trong bảng ánh xạ — hiển thị chuỗi gốc, không đoán.
+   */
+  localStatus: PodProductLocalStatus | null;
   auditStatus: string | null;
   thumbnailUrl: string | null;
   /**
@@ -142,12 +147,22 @@ export type PodProductSortField = (typeof POD_PRODUCT_SORT_FIELDS)[number];
 export const POD_PRODUCT_FLASH_SALE_FILTERS = ['ALL', 'RUNNING', 'NOT_RUNNING'] as const;
 export type PodProductFlashSaleFilter = (typeof POD_PRODUCT_FLASH_SALE_FILTERS)[number];
 
+/** Nhóm trạng thái sản phẩm của hệ thống — giá trị do backend trả ở `/pod/products/filters`. */
+export type PodProductLocalStatus = 'ACTIVE' | 'REVIEWING' | 'DEACTIVATED' | 'NEEDS_ATTENTION';
+
+/** Giá trị "tất cả nhóm" của `?status=`. */
+export const POD_PRODUCT_STATUS_ALL = 'ALL';
+
 export interface PodProductQuery extends PaginationParams {
   /** Khớp Tên sản phẩm · TikTok Product ID · Seller SKU. */
   search?: string;
   accountId?: string;
   shopId?: string;
-  status?: string;
+  /**
+   * Nhóm trạng thái (`ACTIVE`, `REVIEWING,DEACTIVATED`…) hoặc `ALL`. Bỏ trống = backend chỉ trả
+   * ACTIVE (mặc định cho các màn hình CHỌN sản phẩm như Flash Sale).
+   */
+  status?: PodProductLocalStatus | typeof POD_PRODUCT_STATUS_ALL;
   categoryId?: string;
   brandId?: string;
   flashSale?: PodProductFlashSaleFilter;
@@ -164,7 +179,8 @@ export interface PodProductQuery extends PaginationParams {
 export interface PodProductFilterOptions {
   categories: Array<{ id: string; name: string }>;
   brands: Array<{ id: string; name: string }>;
-  statuses: string[];
+  /** Các nhóm trạng thái của hệ thống — nguồn của bộ lọc Status. */
+  statuses: PodProductLocalStatus[];
   /**
    * 🔴 `connectionName` là NHÃN hiển thị (tên kết nối do người vận hành đặt), `name` là tên
    * gian hàng TikTok trả về. Dropdown chọn shop dùng `connectionName`; `id` vẫn là giá trị
@@ -241,19 +257,32 @@ export interface PodProductSyncShopError {
   errorMessage: string | null;
 }
 
+/** Shop bị bỏ qua (không gọi TikTok) — `reason`: SHOP_INACTIVE, ACCOUNT_REAUTH_REQUIRED… */
+export interface PodProductSyncSkippedShop {
+  shopId: string;
+  shopName: string;
+  reason: string;
+}
+
 export interface PodProductSyncResult {
-  shopsProcessed: number;
-  shopsFailed: number;
-  /** Số shop bị bỏ qua vì đang có lượt đồng bộ khác chạy. */
-  shopsBusy: number;
-  /** Số sản phẩm ĐANG BÁN (ACTIVATE) TikTok trả về. */
-  productsFetched: number;
-  productsCreated: number;
-  productsUpdated: number;
-  productsSkipped: number;
-  productsFailed: number;
-  /** Số sản phẩm bị đánh dấu ngừng bán (chỉ ở lượt quét toàn bộ). */
-  productsDeactivated: number;
+  totalShops: number;
+  /** Đồng bộ xong (kể cả PARTIAL vì lỗi từng sản phẩm). */
+  syncedShops: number;
+  /** Không gọi TikTok: không đủ điều kiện + đang bận. */
+  skippedShops: number;
+  failedShops: number;
+  /** Đang có lượt đồng bộ khác chạy. */
+  busyShops: number;
+  /** Chưa xong khi hết thời gian của request — đang chạy tiếp ở nền. */
+  deferredShops: number;
+  totalProducts: number;
+  createdProducts: number;
+  updatedProducts: number;
+  unchangedProducts: number;
+  failedProducts: number;
+  /** Rời tập quản lý (thành DRAFT/DELETED — chỉ ở lượt quét toàn bộ). */
+  removedProducts: number;
+  skippedInactiveShops: PodProductSyncSkippedShop[];
   errors: PodProductSyncShopError[];
   historyIds: string[];
 }

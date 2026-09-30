@@ -37,18 +37,21 @@ import {
   PodSellerOptionQueryDto,
   SetShopWarehouseDto,
   PodTiktokAccountQueryDto,
+  SyncTiktokShopsDto,
 } from './dto/pod-tiktok-query.dto';
 import {
   PaginatedPodTiktokAccountResponseDto,
   PodSellerOptionDto,
   PodTiktokAccountResponseDto,
   PodTiktokAuthorizeUrlDto,
+  PodTiktokShopSyncResultDto,
 } from './dto/pod-tiktok-response.dto';
 import { PodScope } from './decorators/pod-scope.decorator';
 import { PodScopeGuard } from './guards/pod-scope.guard';
 import type { PodAccessScope } from './services/pod-access-scope.service';
 import { PodTiktokAccountService } from './services/pod-tiktok-account.service';
 import { PodTiktokOAuthService } from './services/pod-tiktok-oauth.service';
+import { PodTiktokShopSyncService } from './services/pod-tiktok-shop-sync.service';
 
 /**
  * PodTiktokAccountController — Link/quản lý TikTok Shop Account (Module POD, Sprint 1).
@@ -67,6 +70,7 @@ export class PodTiktokAccountController {
   constructor(
     private readonly service: PodTiktokAccountService,
     private readonly oauthService: PodTiktokOAuthService,
+    private readonly shopSync: PodTiktokShopSyncService,
   ) {}
 
   @Post('authorize-url')
@@ -104,6 +108,27 @@ export class PodTiktokAccountController {
     @Query() query: PodTiktokAccountQueryDto,
   ): Promise<PaginatedPodTiktokAccountResponseDto> {
     return this.service.findAll(user.organizationId, query, scope);
+  }
+
+  @Post('sync-shops')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('pod.tiktok.shop.sync')
+  @ApiOperation({
+    summary: 'Đồng bộ thông tin + trạng thái shop từ TikTok (Sync Shops)',
+    description:
+      'Với mỗi kết nối trong PHẠM VI người gọi (Admin: cả tổ chức · Seller: kết nối được gán): ' +
+      'gọi Get Authorized Shops + Get Active Shops rồi cập nhật tên / mã / vùng / seller_type / ' +
+      'trạng thái shop (ACTIVE · INACTIVE · DEAUTHORIZED). Dữ liệu cục bộ (kho mặc định, cờ đồng ' +
+      'bộ, người phụ trách…) KHÔNG bị ghi đè. Một kết nối/shop lỗi không làm hỏng cả lượt — ' +
+      'kết quả trả về theo từng shop kèm tổng kết. `accountId` ngoài phạm vi ⇒ 403 POD_SHOP_FORBIDDEN.',
+  })
+  @ApiOkResponse({ type: PodTiktokShopSyncResultDto })
+  syncShops(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Body() dto: SyncTiktokShopsDto,
+  ): Promise<PodTiktokShopSyncResultDto> {
+    return this.shopSync.syncShops(user.organizationId, user.userId, dto, scope);
   }
 
   /** Đặt TRƯỚC `:id` — nếu không, "sellers" sẽ bị route `:id` bắt nhầm. */

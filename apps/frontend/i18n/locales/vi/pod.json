@@ -69,7 +69,33 @@
     "warehouseAuto": "Tự động (quyết lúc publish)",
     "warehouseColumn": "Kho mặc định",
     "warehouseSaved": "Đã lưu kho cho {{shop}}",
-    "warehouseTiktokDefault": "mặc định của TikTok"
+    "warehouseTiktokDefault": "mặc định của TikTok",
+    "inactiveShopCount": "{{count}} shop không hoạt động",
+    "shopStatus": {
+      "ACTIVE": "Hoạt động",
+      "INACTIVE": "Ngừng hoạt động",
+      "DEAUTHORIZED": "Mất uỷ quyền"
+    },
+    "shopSync": {
+      "action": "Đồng bộ shop",
+      "running": "Đang đồng bộ shop…",
+      "hint": "Cập nhật tên và trạng thái shop từ TikTok cho mọi kết nối trong phạm vi của bạn.",
+      "completed": "Đồng bộ hoàn tất",
+      "completedWithIssues": "Đồng bộ hoàn tất nhưng có vấn đề",
+      "failed": "Đồng bộ shop thất bại",
+      "summary": "Đã đồng bộ {{synced}}/{{total}} shop · Hoạt động: {{active}} · Ngừng hoạt động: {{inactive}} · Mất uỷ quyền: {{deauthorized}} · Bỏ qua: {{skipped}} · Lỗi: {{failed}}",
+      "empty": "Không có TikTok Shop nào trong phạm vi của bạn.",
+      "resultTitle": "Kết quả đồng bộ shop",
+      "result": "Kết quả",
+      "shopStatus": "Trạng thái shop",
+      "error": "Lỗi",
+      "changedFrom": "trước đó: {{status}}",
+      "resultStatus": {
+        "SYNCED": "Đã đồng bộ",
+        "SKIPPED": "Bỏ qua",
+        "FAILED": "Lỗi"
+      }
+    }
   },
   "design": {
     "back": "Mặt sau",
@@ -273,7 +299,6 @@
       "title": "Thêm sản phẩm",
       "subtitle": "Chỉ hiển thị sản phẩm của shop thuộc đợt sale này. Lựa chọn được giữ khi đổi trang.",
       "searchPlaceholder": "Tìm theo tên · Product ID · SKU",
-      "allStatuses": "Tất cả trạng thái",
       "empty": "Không tìm thấy sản phẩm nào",
       "selected": "Đã chọn {{count}} sản phẩm",
       "add": "Thêm {{count}} sản phẩm",
@@ -1048,7 +1073,7 @@
       "skipped": "Bỏ qua {{count}} — ví dụ: {{reason}}",
       "started": "Đã đưa {{count}} listing vào hàng đợi publish",
       "successFailed": "Thành công: {{success}} · Thất bại: {{failed}}",
-      "syncScheduledHint": "Sản phẩm của shop vừa publish sẽ được đồng bộ sau khoảng 5 phút."
+      "syncScheduledHint": "Đăng sản phẩm thành công. Đã bắt đầu đồng bộ sản phẩm — shop vừa đăng sẽ được cập nhật sau khoảng 5 phút."
     },
     "editor": {
       "paragraph": "Đoạn văn",
@@ -1533,16 +1558,32 @@
     "filters": {
       "allShops": "Tất cả shop",
       "allCategories": "Tất cả danh mục",
-      "allBrands": "Tất cả thương hiệu"
+      "allBrands": "Tất cả thương hiệu",
+      "allStatuses": "Tất cả trạng thái"
     },
     "sync": {
-      "busy": "Shop này đang có một lượt đồng bộ chạy. Vui lòng thử lại sau ít phút.",
       "failed": "Đồng bộ thất bại",
       "full": "Đồng bộ toàn bộ",
-      "fullHint": "Quét lại mọi sản phẩm và làm mới danh mục/thương hiệu. Tốn nhiều quota API của TikTok hơn.",
+      "fullHint": "Quét lại mọi sản phẩm ở mọi trạng thái được quản lý (Đang bán, Đang duyệt, Ngừng bán, Cần xử lý). Tốn nhiều quota API của TikTok hơn.",
       "now": "Đồng bộ ngay",
-      "success": "Đã đồng bộ xong",
-      "successDetail": "Sản phẩm đang bán: {{fetched}} · Tạo mới: {{created}} · Cập nhật: {{updated}} · Lỗi: {{failed}}"
+      "success": "Đồng bộ hoàn tất",
+      "completedWithIssues": "Đồng bộ hoàn tất nhưng có vấn đề",
+      "noShops": "Không có shop nào trong phạm vi của bạn để đồng bộ.",
+      "summary": "Đã đồng bộ {{synced}}/{{total}} shop · Sản phẩm: {{fetched}} · Tạo mới: {{created}} · Cập nhật: {{updated}} · Lỗi: {{failed}}",
+      "skippedShop": "{{shop}} → bỏ qua ({{reason}})",
+      "failedShop": "{{shop}} → lỗi: {{error}}",
+      "busyShops": "{{count}} shop đang có lượt đồng bộ khác — thử lại sau ít phút",
+      "deferredShops": "{{count}} shop chưa xong trong thời gian cho phép, đang chạy tiếp ở nền — xem Lịch sử đồng bộ",
+      "skipReason": {
+        "SHOP_INACTIVE": "shop ngừng hoạt động trên TikTok",
+        "SHOP_DEAUTHORIZED": "shop không còn uỷ quyền",
+        "PRODUCT_SYNC_DISABLED": "đã tắt đồng bộ sản phẩm",
+        "ACCOUNT_PENDING": "kết nối đang chờ",
+        "ACCOUNT_REAUTH_REQUIRED": "kết nối cần uỷ quyền lại",
+        "ACCOUNT_DEAUTHORIZED": "kết nối đã bị thu hồi quyền",
+        "ACCOUNT_DISCONNECTED": "kết nối đã ngắt",
+        "ACCOUNT_ERROR": "kết nối đang lỗi"
+      }
     },
     "resync": {
       "action": "Đồng bộ lại sản phẩm này",
@@ -1552,8 +1593,8 @@
     "syncHistory": {
       "action": "Lịch sử đồng bộ",
       "apiCalls": "{{count}} lượt gọi API",
-      "counters": "Đang bán: {{fetched}} · Tạo mới: {{created}} · Cập nhật: {{updated}} · Bỏ qua: {{skipped}} · Lỗi: {{failed}}",
-      "deactivated": "Đánh dấu ngừng bán: {{count}}",
+      "counters": "Lấy về: {{fetched}} · Tạo mới: {{created}} · Cập nhật: {{updated}} · Bỏ qua: {{skipped}} · Lỗi: {{failed}}",
+      "deactivated": "Không còn quản lý (nháp/đã xoá): {{count}}",
       "description": "Từng lượt chạy đã lấy về những gì và lỗi ở đâu.",
       "empty": "Chưa có lượt đồng bộ nào.",
       "title": "Lịch sử đồng bộ sản phẩm"
@@ -1731,6 +1772,12 @@
       "brandFromTemplate": "Sẽ đổi sang thương hiệu {{id}} khi lưu",
       "mediaRemoveLocked": "Ảnh sản phẩm thêm / xoá / đổi thứ tự được, ảnh đầu tiên là ảnh đại diện. Bảng size và video THAY được nhưng chưa GỠ trắng được: partial_edit của TikTok không có cách diễn đạt \"xoá trường này\" cho hai thứ đó.",
       "inventoryNote": "Tồn kho chỉ được gửi lên sàn khi sản phẩm đã gắn kho. Giá và Seller SKU thì luôn gửi được."
+    },
+    "localStatus": {
+      "ACTIVE": "Đang bán",
+      "REVIEWING": "Đang duyệt",
+      "DEACTIVATED": "Ngừng bán",
+      "NEEDS_ATTENTION": "Cần xử lý"
     }
   },
   "resources": {

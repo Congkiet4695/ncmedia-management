@@ -1,3 +1,4 @@
+import { env } from '@/lib/env';
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse } from '@/types/api';
 import type {
@@ -9,6 +10,7 @@ import type {
   PodSellerOption,
   PodTiktokAuthorizeUrl,
   PodTiktokLinkResult,
+  PodTiktokShopSyncResult,
   StartTiktokAuthorizationPayload,
 } from '../types';
 
@@ -120,6 +122,22 @@ export const podTiktokService = {
     const res = await apiClient.patch<ApiResponse<PodTiktokAccount>>(`${BASE_PATH}/${id}/seller`, {
       sellerId,
     });
+    return res.data.data;
+  },
+
+  /**
+   * Sync Shops — đọc lại thông tin + trạng thái shop từ TikTok. Phạm vi do BACKEND quyết
+   * (Seller chỉ kết nối được gán). `accountId` chỉ thu hẹp.
+   *
+   * Timeout riêng (`env.syncTimeoutMs`) thay vì 15s mặc định: mỗi kết nối là hai lời gọi TikTok;
+   * backend có ngân sách thời gian riêng nên luôn trả lời trước mốc này.
+   */
+  async syncShops(accountId?: string): Promise<PodTiktokShopSyncResult> {
+    const res = await apiClient.post<ApiResponse<PodTiktokShopSyncResult>>(
+      `${BASE_PATH}/sync-shops`,
+      clean({ accountId }),
+      { timeout: env.syncTimeoutMs },
+    );
     return res.data.data;
   },
 };

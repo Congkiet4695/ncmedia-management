@@ -48,13 +48,23 @@ export class PodProductSyncJob implements OnModuleInit {
   ) {}
 
   onModuleInit(): void {
+    // 🔴 Worker hàng đợi đăng ký TRƯỚC và KHÔNG phụ thuộc cờ bật/tắt của lượt quét định kỳ.
+    //
+    // Hàng đợi chỉ chứa shop mà NGƯỜI DÙNG vừa tác động: publish/clone listing thành công, hoặc
+    // "Sync Products" thủ công hết ngân sách thời gian. Trước đây nó chỉ chạy khi
+    // `TIKTOK_PRODUCT_SYNC_ENABLED=true` — tắt cờ đó (để khỏi quét định kỳ) là lịch hẹn sau
+    // publish nằm mãi trong Redis mà không ai lấy ra, và sản phẩm vừa listing không bao giờ về.
+    this.registerDueWorker();
+
     const enabled = this.config.get<boolean>('tiktok.productSync.enabled', false);
     const cronExpression = this.config.get<string>('tiktok.productSync.cron', '0 */6 * * *');
 
     if (!enabled) {
       this.logger.warn({
         module: 'pod-product',
-        msg: 'Scheduler đồng bộ sản phẩm đang TẮT (TIKTOK_PRODUCT_SYNC_ENABLED=false)',
+        msg:
+          'Scheduler đồng bộ sản phẩm ĐỊNH KỲ đang TẮT (TIKTOK_PRODUCT_SYNC_ENABLED=false) — ' +
+          'worker hàng đợi theo shop vẫn chạy',
       });
       return;
     }
@@ -71,9 +81,18 @@ export class PodProductSyncJob implements OnModuleInit {
         cron: cronExpression,
         msg: 'Đã đăng ký scheduler đồng bộ sản phẩm TikTok',
       });
+    } catch (error) {
+      this.logger.error({
+        module: 'pod-product',
+        cron: cronExpression,
+        msg: `Không đăng ký được scheduler: ${error instanceof Error ? error.message : 'lỗi lạ'}`,
+      });
+    }
+  }
 
-      // Worker hàng đợi hoãn — luôn chạy cùng scheduler, không có cờ bật/tắt riêng: tắt nó
-      // nghĩa là lịch hẹn sau publish nằm mãi trong Redis mà không ai lấy ra.
+  /** Worker hàng đợi đồng bộ theo shop — mỗi phút lấy các shop đến hạn. */
+  private registerDueWorker(): void {
+    try {
       const dueJob = new CronJob(POD_PRODUCT_SYNC_DUE_CRON, () => {
         void this.handleDueTick();
       });
@@ -88,8 +107,8 @@ export class PodProductSyncJob implements OnModuleInit {
     } catch (error) {
       this.logger.error({
         module: 'pod-product',
-        cron: cronExpression,
-        msg: `Không đăng ký được scheduler: ${error instanceof Error ? error.message : 'lỗi lạ'}`,
+        cron: POD_PRODUCT_SYNC_DUE_CRON,
+        msg: `Không đăng ký được worker hàng đợi: ${error instanceof Error ? error.message : 'lỗi lạ'}`,
       });
     }
   }
@@ -153,6 +172,8 @@ export class PodProductSyncJob implements OnModuleInit {
         module: 'pod-product',
         operation: 'scheduler.tick',
         shops: outcomes.length,
+        skippedShops: outcomes.filter((item) => item.status === 'SKIPPED').length,
+        failedShops: outcomes.filter((item) => item.status === 'FAILED').length,
         created: outcomes.reduce((sum, item) => sum + item.created, 0),
         updated: outcomes.reduce((sum, item) => sum + item.updated, 0),
         failed: outcomes.reduce((sum, item) => sum + item.failed, 0),

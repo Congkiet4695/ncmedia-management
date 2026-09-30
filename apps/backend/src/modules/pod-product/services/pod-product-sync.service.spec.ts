@@ -44,8 +44,38 @@ const TARGET: ProductSyncTarget = {
   },
 };
 
-function detail(id: string, updateTime = 1_700_600_000) {
-  return { id, title: `SP ${id}`, status: 'ACTIVATE', updateTime, skus: [] };
+/** Shop đủ điều kiện ở dạng "ứng viên" (kèm trạng thái shop + kết nối) của `findSyncCandidates`. */
+function candidate(
+  overrides: {
+    id?: string;
+    name?: string;
+    status?: 'ACTIVE' | 'INACTIVE' | 'DEAUTHORIZED';
+    accountStatus?: 'ACTIVE' | 'REAUTH_REQUIRED' | 'DISCONNECTED';
+    productSyncEnabled?: boolean;
+  } = {},
+) {
+  return {
+    ...TARGET,
+    id: overrides.id ?? TARGET.id,
+    name: overrides.name ?? TARGET.name,
+    status: overrides.status ?? 'ACTIVE',
+    productSyncEnabled: overrides.productSyncEnabled ?? true,
+    account: { ...TARGET.account, status: overrides.accountStatus ?? 'ACTIVE' },
+  };
+}
+
+/** Thứ tự trạng thái TikTok được quét — nguồn: `POD_PRODUCT_STATUS_MAP`. */
+const MANAGED_TIKTOK_STATUSES = [
+  'ACTIVATE',
+  'PENDING',
+  'SELLER_DEACTIVATED',
+  'PLATFORM_DEACTIVATED',
+  'FAILED',
+  'FREEZE',
+];
+
+function detail(id: string, updateTime = 1_700_600_000, status = 'ACTIVATE') {
+  return { id, title: `SP ${id}`, status, updateTime, skus: [] };
 }
 
 describe('PodProductSyncService', () => {
@@ -59,6 +89,7 @@ describe('PodProductSyncService', () => {
   };
   let syncRepo: {
     findSyncTargets: jest.Mock;
+    findSyncCandidates: jest.Mock;
     startHistory: jest.Mock;
     finishHistory: jest.Mock;
     insertLogs: jest.Mock;
@@ -80,6 +111,7 @@ describe('PodProductSyncService', () => {
     };
     syncRepo = {
       findSyncTargets: jest.fn().mockResolvedValue([TARGET]),
+      findSyncCandidates: jest.fn().mockResolvedValue([candidate()]),
       startHistory: jest.fn().mockResolvedValue(HISTORY),
       finishHistory: jest.fn().mockResolvedValue(undefined),
       insertLogs: jest.fn().mockResolvedValue(undefined),
@@ -145,7 +177,7 @@ describe('PodProductSyncService', () => {
       expect(callArg<{ scope: PodProductSyncScope }>(syncRepo.startHistory, 0, 0).scope).toBe(
         PodProductSyncScope.FULL,
       );
-      // 🔴 Không còn `{}`: bộ lọc ACTIVATE được áp NGAY TẠI REQUEST ở mọi phạm vi.
+      // 🔴 Không còn `{}`: bộ lọc trạng thái được áp NGAY TẠI REQUEST, không có `updateTimeGe`.
       expect(callArg<Record<string, unknown>>(productApi.searchAllProducts, 0, 1)).toEqual({
         status: 'ACTIVATE',
       });
@@ -162,26 +194,75 @@ describe('PodProductSyncService', () => {
     });
   });
 
-  describe('chỉ quản lý sản phẩm ĐANG BÁN', () => {
-    it('🔴 lọc ACTIVATE NGAY TẠI REQUEST, không tải hết về rồi mới lọc', async () => {
+  describe('trạng thái được quản lý (ACTIVE · REVIEWING · DEACTIVATED · NEEDS_ATTENTION)', () => {
+    it('🔴 MỖI trạng thái TikTok được quản lý MỘT lượt Search — lọc tại request, KHÔNG dùng ALL', async () => {
       await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
 
-      const filter = callArg<{ status?: string }>(productApi.searchAllProducts, 0, 1);
-      expect(filter.status).toBe('ACTIVATE');
-    });
-
-    it('lượt INCREMENTAL vẫn giữ cả `status` lẫn `updateTimeGe`', async () => {
-      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
-
-      const filter = callArg<{ status?: string; updateTimeGe?: number }>(
-        productApi.searchAllProducts,
-        0,
-        1,
+      const statuses = productApi.searchAllProducts.mock.calls.map(
+        (_call, index) => callArg<{ status?: string }>(productApi.searchAllProducts, index, 1).status,
       );
-      expect(filter).toEqual({ status: 'ACTIVATE', updateTimeGe: 1_699_999_700 });
+      expect(statuses).toEqual(MANAGED_TIKTOK_STATUSES);
+      // DRAFT / DELETED không bao giờ được kéo về (82% bản ghi thật là DELETED).
+      expect(statuses).not.toContain('DRAFT');
+      expect(statuses).not.toContain('DELETED');
+      expect(statuses).not.toContain('ALL');
     });
 
-    it('🔴 lượt FULL: sản phẩm không còn trong danh sách ACTIVATE ⇒ đánh dấu ngừng bán', async () => {
+    it('lượt INCREMENTAL: mọi lượt quét giữ cả `status` lẫn `updateTimeGe`', async () => {
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      productApi.searchAllProducts.mock.calls.forEach((_call, index) => {
+        expect(
+          callArg<{ status?: string; updateTimeGe?: number }>(productApi.searchAllProducts, index, 1),
+        ).toEqual({ status: MANAGED_TIKTOK_STATUSES[index], updateTimeGe: 1_699_999_700 });
+      });
+    });
+
+    it('🔴 sản phẩm xuất hiện ở HAI danh sách (đổi trạng thái giữa lúc quét) ⇒ chỉ đọc/ghi MỘT lần', async () => {
+      productApi.searchAllProducts.mockResolvedValue([{ id: 'p1' }]);
+
+      const outcome = await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(productApi.getProduct).toHaveBeenCalledTimes(1);
+      expect(repo.upsertAggregate).toHaveBeenCalledTimes(1);
+      expect(outcome.fetched).toBe(1);
+    });
+
+    it.each([
+      ['ACTIVATE'],
+      ['PENDING'],
+      ['SELLER_DEACTIVATED'],
+      ['PLATFORM_DEACTIVATED'],
+      ['FAILED'],
+      ['FREEZE'],
+    ])('🔴 status %s ⇒ lưu NGUYÊN chuỗi TikTok (nhóm tính khi đọc)', async (status) => {
+      productApi.searchAllProducts.mockResolvedValue([{ id: 'p1' }]);
+      productApi.getProduct.mockResolvedValue({ data: detail('p1', 1, status), requestId: 'r' });
+
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      const mapped = callArg<{ product: { status: string } }>(repo.upsertAggregate, 0, 3);
+      expect(mapped.product.status).toBe(status);
+    });
+
+    it('🔴 status ngoài bảng ánh xạ ⇒ log/flag, KHÔNG quy về ACTIVATE', async () => {
+      productApi.searchAllProducts.mockResolvedValue([{ id: 'p1' }]);
+      productApi.getProduct.mockResolvedValue({ data: detail('p1', 1, 'SOMETHING_NEW'), requestId: 'r' });
+      const warn = jest.spyOn(service['logger'], 'warn');
+
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      const mapped = callArg<{ product: { status: string } }>(repo.upsertAggregate, 0, 3);
+      expect(mapped.product.status).toBe('SOMETHING_NEW');
+      expect(warn).toHaveBeenCalledWith(
+        expect.objectContaining({
+          operation: 'sync.product.status.unmapped',
+          tiktokStatus: 'SOMETHING_NEW',
+        }),
+      );
+    });
+
+    it('🔴 lượt FULL: sản phẩm không còn trong danh sách nào ⇒ đánh dấu rời tập quản lý', async () => {
       productApi.searchAllProducts.mockResolvedValue([detail('p1'), detail('p2')]);
       repo.deactivateMissing.mockResolvedValue(7);
 
@@ -372,7 +453,7 @@ describe('PodProductSyncService', () => {
       // Phạm vi phải là ĐÚNG một shop. `{}` ở đây nghĩa là quét mọi shop của mọi tổ chức —
       // đúng thứ yêu cầu cấm.
       const filter = callArg<{ shopId?: string; organizationId?: string }>(
-        syncRepo.findSyncTargets,
+        syncRepo.findSyncCandidates,
         0,
         0,
       );
@@ -385,9 +466,9 @@ describe('PodProductSyncService', () => {
       const result = await service.runDueShopSyncs();
 
       expect(result.shops).toBe(2);
-      expect(syncRepo.findSyncTargets).toHaveBeenCalledTimes(2);
-      expect(callArg(syncRepo.findSyncTargets, 0, 0)).toEqual({ shopId: 'shop-a' });
-      expect(callArg(syncRepo.findSyncTargets, 1, 0)).toEqual({ shopId: 'shop-b' });
+      expect(syncRepo.findSyncCandidates).toHaveBeenCalledTimes(2);
+      expect(callArg(syncRepo.findSyncCandidates, 0, 0)).toEqual({ shopId: 'shop-a' });
+      expect(callArg(syncRepo.findSyncCandidates, 1, 0)).toEqual({ shopId: 'shop-b' });
     });
 
     it('hàng đợi rỗng ⇒ không gọi TikTok, không tạo lịch sử đồng bộ nào', async () => {
@@ -396,7 +477,7 @@ describe('PodProductSyncService', () => {
       const result = await service.runDueShopSyncs();
 
       expect(result).toEqual({ shops: 0, failed: 0 });
-      expect(syncRepo.findSyncTargets).not.toHaveBeenCalled();
+      expect(syncRepo.findSyncCandidates).not.toHaveBeenCalled();
     });
 
     it('lượt đồng bộ FAILED ⇒ hẹn lại shop đó, các shop khác không bị ảnh hưởng', async () => {
@@ -412,16 +493,158 @@ describe('PodProductSyncService', () => {
   });
 
   describe('syncShops — nhiều shop', () => {
-    it('chạy tuần tự từng shop và gom kết quả', async () => {
-      syncRepo.findSyncTargets.mockResolvedValue([TARGET, { ...TARGET, id: 'shop-2' }]);
+    it('chạy từng shop và gom kết quả theo đúng thứ tự', async () => {
+      syncRepo.findSyncCandidates.mockResolvedValue([candidate(), candidate({ id: 'shop-2' })]);
 
       const outcomes = await service.syncShops(
         { organizationId: ORG },
         { trigger: PodProductSyncTrigger.MANUAL },
       );
 
-      expect(outcomes).toHaveLength(2);
-      expect(syncRepo.findSyncTargets).toHaveBeenCalledWith({ organizationId: ORG });
+      expect(outcomes.map((outcome) => outcome.shopId)).toEqual([SHOP, 'shop-2']);
+      expect(syncRepo.findSyncCandidates).toHaveBeenCalledWith({ organizationId: ORG });
+    });
+
+    /** Shop nào đã thực sự được gọi TikTok (ctx.shopId của lời gọi Search). */
+    const searchedShops = () =>
+      productApi.searchAllProducts.mock.calls.map(
+        (_call, index) => callArg<{ shopId: string }>(productApi.searchAllProducts, index, 0).shopId,
+      );
+
+    it('🔴 có shop INACTIVE ⇒ SKIPPED + lý do, KHÔNG gọi TikTok cho shop đó, shop khác vẫn chạy', async () => {
+      syncRepo.findSyncCandidates.mockResolvedValue([
+        candidate({ id: 'shop-a' }),
+        candidate({ id: 'shop-c', status: 'INACTIVE' }),
+        candidate({ id: 'shop-d' }),
+      ]);
+
+      const outcomes = await service.syncShops({ organizationId: ORG }, { trigger: PodProductSyncTrigger.MANUAL });
+
+      expect(outcomes.map((outcome) => [outcome.shopId, outcome.status, outcome.skipReason])).toEqual([
+        ['shop-a', PodProductSyncStatus.SUCCESS, undefined],
+        ['shop-c', 'SKIPPED', 'SHOP_INACTIVE'],
+        ['shop-d', PodProductSyncStatus.SUCCESS, undefined],
+      ]);
+      expect(new Set(searchedShops())).toEqual(new Set(['shop-a', 'shop-d']));
+      // Shop bỏ qua không tạo lịch sử, không tăng bộ đếm lỗi.
+      expect(syncRepo.startHistory).toHaveBeenCalledTimes(2);
+      expect(syncRepo.incrementFailure).not.toHaveBeenCalled();
+    });
+
+    it('🔴 nhiều shop không đủ điều kiện ⇒ mỗi shop một lý do riêng', async () => {
+      syncRepo.findSyncCandidates.mockResolvedValue([
+        candidate({ id: 'shop-c', status: 'INACTIVE' }),
+        candidate({ id: 'shop-e', status: 'DEAUTHORIZED' }),
+        candidate({ id: 'shop-f', accountStatus: 'REAUTH_REQUIRED' }),
+        candidate({ id: 'shop-g', accountStatus: 'DISCONNECTED', status: 'INACTIVE' }),
+        candidate({ id: 'shop-h', productSyncEnabled: false }),
+      ]);
+
+      const outcomes = await service.syncShops({ organizationId: ORG }, { trigger: PodProductSyncTrigger.MANUAL });
+
+      expect(outcomes.map((outcome) => outcome.skipReason)).toEqual([
+        'SHOP_INACTIVE',
+        'SHOP_DEAUTHORIZED',
+        'ACCOUNT_REAUTH_REQUIRED',
+        // Kết nối chết là nguyên nhân gốc — báo trước lý do cấp shop.
+        'ACCOUNT_DISCONNECTED',
+        'PRODUCT_SYNC_DISABLED',
+      ]);
+      expect(productApi.searchAllProducts).not.toHaveBeenCalled();
+    });
+
+    it('🔴 ACTIVE + INACTIVE + lỗi API cùng lúc ⇒ A/B/E xong, C bỏ qua, D lỗi riêng', async () => {
+      syncRepo.findSyncCandidates.mockResolvedValue([
+        candidate({ id: 'shop-a' }),
+        candidate({ id: 'shop-b' }),
+        candidate({ id: 'shop-c', status: 'INACTIVE' }),
+        candidate({ id: 'shop-d' }),
+        candidate({ id: 'shop-e' }),
+      ]);
+      productApi.searchAllProducts.mockImplementation((ctx: { shopId: string }) =>
+        ctx.shopId === 'shop-d'
+          ? Promise.reject(
+              new TiktokClientError(TiktokErrorClass.NETWORK, 0, 'Request timeout', 0, undefined),
+            )
+          : Promise.resolve([{ id: `${ctx.shopId}-p1` }]),
+      );
+
+      const outcomes = await service.syncShops({ organizationId: ORG }, { trigger: PodProductSyncTrigger.MANUAL });
+
+      const byShop = Object.fromEntries(outcomes.map((outcome) => [outcome.shopId, outcome]));
+      expect(byShop['shop-a'].status).toBe(PodProductSyncStatus.SUCCESS);
+      expect(byShop['shop-b'].status).toBe(PodProductSyncStatus.SUCCESS);
+      expect(byShop['shop-c'].status).toBe('SKIPPED');
+      expect(byShop['shop-d'].status).toBe(PodProductSyncStatus.FAILED);
+      expect(byShop['shop-d'].errorMessage).toBe('Request timeout');
+      expect(byShop['shop-e'].status).toBe(PodProductSyncStatus.SUCCESS);
+      // Chỉ shop lỗi tăng bộ đếm lỗi.
+      expect(syncRepo.incrementFailure).toHaveBeenCalledTimes(1);
+      expect(syncRepo.incrementFailure).toHaveBeenCalledWith('shop-d');
+      // 🔴 Product của shop A ghi vào ĐÚNG shop A — không lẫn sang shop khác.
+      repo.upsertAggregate.mock.calls.forEach((_call, index) => {
+        const shopId = callArg<string>(repo.upsertAggregate, index, 2);
+        const mapped = callArg<{ product: { tiktokProductId: string } }>(repo.upsertAggregate, index, 3);
+        expect(mapped.product.tiktokProductId.startsWith(shopId)).toBe(true);
+      });
+    });
+  });
+
+  describe('ngân sách thời gian của lượt thủ công', () => {
+    afterEach(() => jest.restoreAllMocks());
+
+    it('🔴 hết hạn chót trước khi bắt đầu ⇒ DEFERRED + vào hàng đợi nền, KHÔNG gọi TikTok', async () => {
+      syncRepo.findSyncCandidates.mockResolvedValue([candidate({ id: 'shop-a' })]);
+
+      const outcomes = await service.syncShops(
+        { organizationId: ORG },
+        { trigger: PodProductSyncTrigger.MANUAL, deadlineAt: Date.now() - 1 },
+      );
+
+      expect(outcomes[0].status).toBe('DEFERRED');
+      expect(queue.schedule).toHaveBeenCalledWith('shop-a', 0, 0);
+      expect(productApi.searchAllProducts).not.toHaveBeenCalled();
+      expect(syncRepo.startHistory).not.toHaveBeenCalled();
+    });
+
+    it('🔴 hết giờ GIỮA lúc ghi ⇒ dừng giữa các lô, PARTIAL + mã rõ ràng, không đẩy watermark, vào hàng đợi', async () => {
+      let now = 1_000_000;
+      jest.spyOn(Date, 'now').mockImplementation(() => now);
+      productApi.searchAllProducts.mockResolvedValue(
+        ['p1', 'p2', 'p3', 'p4', 'p5'].map((id) => ({ id })),
+      );
+      productApi.getProduct.mockImplementation((_ctx: unknown, id: string) => {
+        now += 1_000; // mỗi lời gọi "tốn" 1 giây
+        return Promise.resolve({ data: detail(id), requestId: 'r' });
+      });
+
+      const outcomes = await service.syncShops(
+        { organizationId: ORG },
+        { trigger: PodProductSyncTrigger.MANUAL, deadlineAt: 1_000_500 },
+      );
+
+      // Lô đầu (3 sản phẩm) chạy trọn, lô sau không bắt đầu.
+      expect(productApi.getProduct).toHaveBeenCalledTimes(3);
+      expect(outcomes[0].status).toBe('DEFERRED');
+      const finish = callArg<{ status: string; errorCode?: string }>(syncRepo.finishHistory, 0, 1);
+      expect(finish.status).toBe(PodProductSyncStatus.PARTIAL);
+      expect(finish.errorCode).toBe('SYNC_DEADLINE_EXCEEDED');
+      expect(syncRepo.updateWatermark).not.toHaveBeenCalled();
+      // Hết giờ KHÔNG phải lỗi TikTok ⇒ không kích circuit breaker.
+      expect(syncRepo.incrementFailure).not.toHaveBeenCalled();
+      expect(queue.schedule).toHaveBeenCalledWith(SHOP, 0, 0);
+    });
+
+    it('không có hạn chót (scheduler / worker) ⇒ chạy trọn vẹn', async () => {
+      productApi.searchAllProducts.mockResolvedValue(
+        ['p1', 'p2', 'p3', 'p4', 'p5'].map((id) => ({ id })),
+      );
+
+      const outcomes = await service.syncShops({ organizationId: ORG }, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(productApi.getProduct).toHaveBeenCalledTimes(5);
+      expect(outcomes[0].status).toBe(PodProductSyncStatus.SUCCESS);
+      expect(queue.schedule).not.toHaveBeenCalled();
     });
   });
 });

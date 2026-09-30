@@ -1,7 +1,8 @@
 import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
 import { PodTiktokAccountStatus, PodTiktokTokenAction, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
-import { TIKTOK_SELLER_USER_TYPES, TIKTOK_SELLER_TYPES } from '../constants/tiktok.constants';
+import { TIKTOK_SELLER_USER_TYPES } from '../constants/tiktok.constants';
+import { normalizeSellerType } from '../shared/seller-type';
 import { TIKTOK_ERROR_CODES, TiktokErrorClass } from '../constants/tiktok-error-code.constants';
 import { TiktokApiClient } from '../clients/tiktok-api.client';
 import { TiktokAuthClient } from '../clients/tiktok-auth.client';
@@ -578,13 +579,14 @@ export class PodTiktokAccountService {
    * mặc định LOCAL + ghi cảnh báo, để việc TikTok thêm enum mới không làm hỏng link.
    */
   private normalizeSellerType(value: string): string {
-    const upper = (value ?? '').toUpperCase();
-    if ((TIKTOK_SELLER_TYPES as readonly string[]).includes(upper)) return upper;
-    this.logger.warn({
-      module: 'pod-tiktok',
-      msg: `seller_type không nằm trong danh mục đã biết: "${value}" — tạm ghi nhận LOCAL`,
-    });
-    return 'LOCAL';
+    const normalized = normalizeSellerType(value);
+    if (!normalized.known) {
+      this.logger.warn({
+        module: 'pod-tiktok',
+        msg: `seller_type không nằm trong danh mục đã biết: "${value}" — tạm ghi nhận LOCAL`,
+      });
+    }
+    return normalized.value;
   }
 
   /** Unix seconds (TikTok) → Date. */

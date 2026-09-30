@@ -184,6 +184,50 @@ describe('Publish listing → hẹn đồng bộ sản phẩm theo shop', () => 
     expect(order).toEqual(['publish', 'schedule']);
   });
 
+  it('🔴 publish THÀNH CÔNG nhưng hẹn đồng bộ LỖI ⇒ listing vẫn SUCCESS, không rơi vào nhánh lỗi', async () => {
+    const { service, productSync } = buildService();
+    // `scheduleShopSync` tự nuốt lỗi Redis, ghi log `sync.schedule.fail` và trả `null`.
+    productSync.scheduleShopSync.mockResolvedValue(null);
+
+    await run(service);
+
+    const internals = service as unknown as { settleItem: jest.Mock; handleItemFailure: jest.Mock };
+    expect(internals.settleItem).toHaveBeenCalledWith(
+      expect.objectContaining({ status: PodListingJobItemStatus.SUCCESS }),
+    );
+    expect(internals.handleItemFailure).not.toHaveBeenCalled();
+  });
+
+  it('🔴 nhiều shop: publish vào shop B ⇒ chỉ hẹn shop B, không đụng shop A/C', async () => {
+    const SHOP_B = 'shop-b';
+    const { service, productSync, prisma } = buildService();
+    prisma.podListingPayload.findFirst.mockResolvedValue({
+      id: 'payload-2',
+      shopId: SHOP_B,
+      status: PodListingPayloadStatus.TIKTOK_DRAFT,
+      errorCount: 0,
+      payload: { brand: {}, variants: [] },
+      tiktokDraftId: 'tt-draft-2',
+      tiktokProductId: null,
+      sessionProductId: null,
+      publishRetryCount: 0,
+    });
+
+    await (
+      service as unknown as { processPublishItem(params: unknown): Promise<void> }
+    ).processPublishItem({
+      organizationId: ORG,
+      jobId: JOB,
+      item: { id: 'item-2', shopId: SHOP_B, payloadId: 'payload-2', retryCount: 0 },
+      maxRetries: 3,
+      shopContexts: new Map(),
+      imageUriCache: new Map(),
+    });
+
+    expect(productSync.scheduleShopSync).toHaveBeenCalledTimes(1);
+    expect(productSync.scheduleShopSync).toHaveBeenCalledWith(SHOP_B);
+  });
+
   it('mọi review status vẫn hẹn — sản phẩm đang chờ duyệt cũng cần đồng bộ lại', () => {
     // Chốt bằng kiểu: `PodListingReviewStatus.UNDER_REVIEW` là mặc định sau publish và
     // KHÔNG phải điều kiện để hẹn đồng bộ.

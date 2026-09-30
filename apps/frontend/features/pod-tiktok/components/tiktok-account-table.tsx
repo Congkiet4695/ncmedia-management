@@ -15,6 +15,7 @@ import {
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { FulfillmentProviderSelect } from './fulfillment-provider-select';
 import { SellerAssignSelect } from './seller-assign-select';
+import { ShopStatusBadge } from './shop-status-badge';
 import { TiktokStatusBadge } from './tiktok-status-badge';
 import type { PodTiktokAccountListItem } from '../types';
 
@@ -96,7 +97,19 @@ export function TiktokAccountTable({
                   </span>
                 )}
               </TableCell>
-              <TableCell>{account.shopName ?? '—'}</TableCell>
+              <TableCell>
+                <div>{account.shopName ?? '—'}</div>
+                {/* Trạng thái shop phía TikTok (Sync Shops). Kết nối nhiều shop: báo số shop
+                    không hoạt động để người vận hành mở chi tiết xem shop nào. */}
+                <div className="mt-1 flex flex-wrap items-center gap-1">
+                  {account.shopStatus && <ShopStatusBadge status={account.shopStatus} />}
+                  {account.shopCount > 1 && account.inactiveShopCount > 0 && (
+                    <span className="text-xs text-amber-600 dark:text-amber-400">
+                      {t('account.inactiveShopCount', { count: account.inactiveShopCount })}
+                    </span>
+                  )}
+                </div>
+              </TableCell>
               <TableCell className="whitespace-nowrap font-mono text-xs text-muted-foreground">
                 {account.tiktokShopId ?? '—'}
               </TableCell>

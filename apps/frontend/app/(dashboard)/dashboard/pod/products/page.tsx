@@ -32,7 +32,12 @@ import {
   useSyncPodProducts,
 } from '@/features/pod-product/hooks/use-pod-products';
 import type { ProductGalleryImage } from '@/features/pod-product/product-images';
-import type { PodProductListItem, PodProductQuery } from '@/features/pod-product/types';
+import {
+  POD_PRODUCT_STATUS_ALL,
+  type PodProductListItem,
+  type PodProductQuery,
+  type PodProductSyncResult,
+} from '@/features/pod-product/types';
 
 export default function PodProductsPage() {
   const { t } = useTranslation('pod');
@@ -69,6 +74,9 @@ function PodProductsView() {
   const [query, setQuery] = useState<PodProductQuery>({
     page: 1,
     limit: 20,
+    // 🔴 Mặc định "All": KHÔNG được âm thầm loại REVIEWING / DEACTIVATED / NEEDS_ATTENTION.
+    // Gửi tường minh vì backend giữ mặc định ACTIVE cho các màn hình CHỌN sản phẩm (Flash Sale).
+    status: POD_PRODUCT_STATUS_ALL,
     sortBy: 'createdAt',
     sortOrder: 'desc',
   });
@@ -150,37 +158,62 @@ function PodProductsView() {
   const handleSync = async (full: boolean) => {
     try {
       const result = await syncMutation.mutateAsync({ shopId: query.shopId, full });
-
-      // 🔴 Có shop hỏng thì KHÔNG báo thành công. Trước đây backend nuốt lỗi theo shop nên
-      // một lượt hỏng sạch vì token hết hạn vẫn hiện "Đồng bộ thành công · 0 sản phẩm".
-      if (result.shopsFailed > 0) {
-        const detail = result.errors
-          .map((item) =>
-            [item.shopName, item.errorCode, item.errorMessage].filter(Boolean).join(' · '),
-          )
-          .join(' | ');
-        const notify = result.shopsFailed === result.shopsProcessed ? toast.error : toast.warning;
-        notify(t('products.sync.failed'), { description: detail || undefined });
-        return;
-      }
-
-      // Shop đang bận (đã có lượt khác chạy) không phải lỗi, nhưng cũng không phải thành
-      // công — báo đúng như vậy thay vì hiện "0 sản phẩm" không rõ lý do.
-      if (result.shopsBusy > 0 && result.shopsBusy === result.shopsProcessed) {
-        toast.warning(t('products.sync.busy'));
-        return;
-      }
-
-      toast.success(t('products.sync.success'), {
-        description: t('products.sync.successDetail', {
-          fetched: result.productsFetched,
-          created: result.productsCreated,
-          updated: result.productsUpdated,
-          failed: result.productsFailed,
-        }),
-      });
+      notifySyncResult(result);
     } catch (error) {
       toast.error(t('products.sync.failed'), { description: translateApiError(error) });
+    }
+  };
+
+  /**
+   * Báo kết quả theo TỪNG loại shop — không gộp thành một câu "thành công".
+   *
+   * 🔴 Shop bị bỏ qua (ngừng hoạt động) hay hỏng KHÔNG làm cả lượt thất bại: shop khác vẫn được
+   * đồng bộ, nên chỉ báo lỗi toàn phần khi KHÔNG shop nào xong. Lý do bỏ qua và lỗi từng shop
+   * được liệt kê nguyên văn để người vận hành biết phải xử lý shop nào.
+   */
+  const notifySyncResult = (result: PodProductSyncResult) => {
+    const lines = [
+      t('products.sync.summary', {
+        synced: result.syncedShops,
+        total: result.totalShops,
+        fetched: result.totalProducts,
+        created: result.createdProducts,
+        updated: result.updatedProducts,
+        failed: result.failedProducts,
+      }),
+      ...result.skippedInactiveShops.map((item) =>
+        t('products.sync.skippedShop', {
+          shop: item.shopName,
+          reason: t(`products.sync.skipReason.${item.reason}`, { defaultValue: item.reason }),
+        }),
+      ),
+      ...result.errors.map((item) =>
+        t('products.sync.failedShop', {
+          shop: item.shopName,
+          error: [item.errorCode, item.errorMessage].filter(Boolean).join(' · '),
+        }),
+      ),
+      ...(result.busyShops > 0 ? [t('products.sync.busyShops', { count: result.busyShops })] : []),
+      ...(result.deferredShops > 0
+        ? [t('products.sync.deferredShops', { count: result.deferredShops })]
+        : []),
+    ];
+    const description = (
+      <div className="space-y-0.5">
+        {lines.map((line, index) => (
+          <p key={index}>{line}</p>
+        ))}
+      </div>
+    );
+
+    if (result.totalShops === 0) {
+      toast.warning(t('products.sync.noShops'));
+    } else if (result.syncedShops === 0 && result.failedShops > 0) {
+      toast.error(t('products.sync.failed'), { description });
+    } else if (result.failedShops > 0 || result.deferredShops > 0 || result.skippedShops > 0) {
+      toast.warning(t('products.sync.completedWithIssues'), { description });
+    } else {
+      toast.success(t('products.sync.success'), { description });
     }
   };
 
@@ -302,11 +335,24 @@ function PodProductsView() {
               className="w-[190px]"
             />
 
-            {/* 🔴 Bộ lọc Trạng thái đã bị GỠ. Hệ thống nay chỉ quản lý sản phẩm ĐANG BÁN
-                (ACTIVATE), nên ô này chỉ còn đúng một giá trị để chọn — một điều khiển
-                không thay đổi được gì thì chỉ làm người dùng mất thời gian thử. Sản phẩm
-                ngừng bán vẫn nằm trong database (phục vụ ánh xạ / đơn cũ) và đọc được qua
-                `GET /pod/products?includeInactive=true`. */}
+            {/* Bộ lọc Status — lọc ở BACKEND (`?status=`), nên phân trang / tổng số / tìm kiếm
+                luôn khớp. Các nhóm lấy từ `/pod/products/filters`, frontend chỉ dịch nhãn. */}
+            <Combobox
+              value={query.status ?? POD_PRODUCT_STATUS_ALL}
+              onChange={(value) =>
+                patchQuery({
+                  status: (value || POD_PRODUCT_STATUS_ALL) as PodProductQuery['status'],
+                })
+              }
+              options={[
+                { value: POD_PRODUCT_STATUS_ALL, label: t('products.filters.allStatuses') },
+                ...(filters?.statuses ?? []).map((status) => ({
+                  value: status,
+                  label: t(`products.localStatus.${status}`),
+                })),
+              ]}
+              className="w-[180px]"
+            />
 
             <Combobox
               value={query.categoryId ?? ''}

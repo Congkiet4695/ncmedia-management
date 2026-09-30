@@ -69,7 +69,33 @@
     "warehouseAuto": "Auto (decided at publish)",
     "warehouseColumn": "Default warehouse",
     "warehouseSaved": "Warehouse saved for {{shop}}",
-    "warehouseTiktokDefault": "TikTok default"
+    "warehouseTiktokDefault": "TikTok default",
+    "inactiveShopCount": "{{count}} shop(s) not active",
+    "shopStatus": {
+      "ACTIVE": "Active",
+      "INACTIVE": "Inactive",
+      "DEAUTHORIZED": "Deauthorized"
+    },
+    "shopSync": {
+      "action": "Sync Shops",
+      "running": "Syncing shops…",
+      "hint": "Refresh shop name and status from TikTok for every connection in your scope.",
+      "completed": "Sync completed",
+      "completedWithIssues": "Sync completed with issues",
+      "failed": "Shop sync failed",
+      "summary": "{{synced}}/{{total}} shops synced · Active: {{active}} · Inactive: {{inactive}} · Deauthorized: {{deauthorized}} · Skipped: {{skipped}} · Failed: {{failed}}",
+      "empty": "No TikTok shop in your scope.",
+      "resultTitle": "Shop sync result",
+      "result": "Result",
+      "shopStatus": "Shop status",
+      "error": "Error",
+      "changedFrom": "was {{status}}",
+      "resultStatus": {
+        "SYNCED": "Synced",
+        "SKIPPED": "Skipped",
+        "FAILED": "Failed"
+      }
+    }
   },
   "design": {
     "back": "Back",
@@ -273,7 +299,6 @@
       "title": "Add products",
       "subtitle": "Only products from this flash sale's shop. Your selection survives paging.",
       "searchPlaceholder": "Search by title · Product ID · SKU",
-      "allStatuses": "All statuses",
       "empty": "No products found",
       "selected": "{{count}} products selected",
       "add": "Add {{count}} products",
@@ -1048,7 +1073,7 @@
       "skipped": "{{count}} skipped — e.g. {{reason}}",
       "started": "{{count}} listing(s) queued for publish",
       "successFailed": "Success: {{success}} · Failed: {{failed}}",
-      "syncScheduledHint": "Products from the published shop(s) will be synced in about 5 minutes."
+      "syncScheduledHint": "Product listed successfully. Product synchronization has been started — the listed shop(s) will be refreshed in about 5 minutes."
     },
     "editor": {
       "paragraph": "Paragraph",
@@ -1533,16 +1558,32 @@
     "filters": {
       "allShops": "All shops",
       "allCategories": "All categories",
-      "allBrands": "All brands"
+      "allBrands": "All brands",
+      "allStatuses": "All statuses"
     },
     "sync": {
-      "busy": "A sync is already running for this shop. Please try again shortly.",
       "failed": "Sync failed",
       "full": "Full sync",
-      "fullHint": "Rescans every product and refreshes categories/brands. Uses more TikTok API quota.",
+      "fullHint": "Rescans every product in every managed status (Active, Reviewing, Deactivated, Needs attention). Uses more TikTok API quota.",
       "now": "Sync Now",
-      "success": "Sync finished",
-      "successDetail": "Active products: {{fetched}} · Created: {{created}} · Updated: {{updated}} · Failed: {{failed}}"
+      "success": "Sync completed",
+      "completedWithIssues": "Sync completed with issues",
+      "noShops": "No shop in your scope to sync.",
+      "summary": "{{synced}}/{{total}} shops synced · Products: {{fetched}} · Created: {{created}} · Updated: {{updated}} · Failed: {{failed}}",
+      "skippedShop": "{{shop}} → skipped ({{reason}})",
+      "failedShop": "{{shop}} → failed: {{error}}",
+      "busyShops": "{{count}} shop(s) already syncing — try again shortly",
+      "deferredShops": "{{count}} shop(s) did not finish in time and continue in the background — check Sync history",
+      "skipReason": {
+        "SHOP_INACTIVE": "shop inactive on TikTok",
+        "SHOP_DEAUTHORIZED": "shop no longer authorized",
+        "PRODUCT_SYNC_DISABLED": "product sync disabled",
+        "ACCOUNT_PENDING": "connection pending",
+        "ACCOUNT_REAUTH_REQUIRED": "connection needs re-authorization",
+        "ACCOUNT_DEAUTHORIZED": "connection deauthorized",
+        "ACCOUNT_DISCONNECTED": "connection disconnected",
+        "ACCOUNT_ERROR": "connection error"
+      }
     },
     "resync": {
       "action": "Re-sync this product",
@@ -1552,8 +1593,8 @@
     "syncHistory": {
       "action": "Sync history",
       "apiCalls": "{{count}} API calls",
-      "counters": "Active: {{fetched}} · Created: {{created}} · Updated: {{updated}} · Skipped: {{skipped}} · Failed: {{failed}}",
-      "deactivated": "Marked inactive: {{count}}",
+      "counters": "Fetched: {{fetched}} · Created: {{created}} · Updated: {{updated}} · Skipped: {{skipped}} · Failed: {{failed}}",
+      "deactivated": "No longer managed (draft/deleted): {{count}}",
       "description": "Every sync run, what it pulled and what failed.",
       "empty": "No sync has run yet.",
       "title": "Product sync history"
@@ -1731,6 +1772,12 @@
       "brandFromTemplate": "Will change to brand {{id}} on save",
       "mediaRemoveLocked": "Product images can be added, removed and reordered; the first one is the primary image. Size chart and video can be REPLACED but not cleared: TikTok's partial_edit has no way to express \"delete this field\" for those two.",
       "inventoryNote": "Quantity is only sent when the product has a warehouse. Price and Seller SKU are always sent."
+    },
+    "localStatus": {
+      "ACTIVE": "Active",
+      "REVIEWING": "Reviewing",
+      "DEACTIVATED": "Deactivated",
+      "NEEDS_ATTENTION": "Needs attention"
     }
   },
   "resources": {
