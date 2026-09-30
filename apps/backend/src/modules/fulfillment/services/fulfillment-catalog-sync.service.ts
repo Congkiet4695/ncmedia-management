@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger } from '@nestjs/common';
 import {
   FulfillmentAccount,
   FulfillmentCatalogItemStatus,
@@ -7,6 +7,10 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import {
+  DistributedLockService,
+  type AcquiredLock,
+} from '../../pod-tiktok/infra/distributed-lock.service';
 import {
   FulfillmentAccountNotFoundException,
   FulfillmentProviderNotSupportedException,
@@ -101,6 +105,46 @@ export function businessProductSku(
   return value;
 }
 
+/** Trạng thái của một lượt đồng bộ danh mục (`fulfillment_sync_logs.status`). */
+export const CATALOG_SYNC_STATUS = {
+  RUNNING: 'RUNNING',
+  SUCCESS: 'SUCCESS',
+  /** Xong nhưng có lượt đọc bị cụt ⇒ KHÔNG archive. */
+  PARTIAL: 'PARTIAL',
+  FAILED: 'FAILED',
+  /** Chỉ để HIỂN THỊ: bản ghi RUNNING quá lâu (tiến trình đã chết giữa chừng). */
+  INTERRUPTED: 'INTERRUPTED',
+} as const;
+
+/**
+ * Khoá theo TÀI KHOẢN: hai lượt đồng bộ cùng một danh mục (Super Admin bấm hai lần, cron trùng lúc
+ * người dùng bấm) không bao giờ chạy song song. TTL ngắn + gia hạn theo nhịp ⇒ tiến trình chết thì
+ * khoá tự nhả sau vài phút, không khoá vĩnh viễn.
+ */
+const CATALOG_SYNC_LOCK_PREFIX = 'fulfillment:catalog-sync:';
+const CATALOG_SYNC_LOCK_TTL_MS = 10 * 60_000;
+const CATALOG_SYNC_LOCK_RENEW_MS = 2 * 60_000;
+/** Bản ghi RUNNING cũ hơn mốc này ⇒ coi là lượt đã chết giữa chừng (chỉ ảnh hưởng hiển thị). */
+export const CATALOG_SYNC_STALE_MS = 3 * 60 * 60_000;
+
+/** Đang có một lượt đồng bộ khác chạy cho đúng tài khoản này. */
+export class CatalogSyncBusyException extends ConflictException {
+  constructor() {
+    super({
+      code: 'FULFILLMENT_CATALOG_SYNC_BUSY',
+      message: 'Danh mục của nhà cung cấp này đang được đồng bộ — chờ lượt hiện tại chạy xong.',
+    });
+  }
+}
+
+/** Kết quả khi đồng bộ được đưa vào chạy nền. */
+export interface CatalogSyncStarted {
+  accountId: string;
+  provider: FulfillmentProvider;
+  status: typeof CATALOG_SYNC_STATUS.RUNNING;
+  startedAt: string;
+}
+
 /** Id kỹ thuật dạng UUID (MangoTee: id sản phẩm). */
 const TECHNICAL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
@@ -114,6 +158,7 @@ export class FulfillmentCatalogSyncService {
     private readonly catalogRepo: FulfillmentCatalogRepository,
     private readonly mangoCatalog: MangoCatalogService,
     private readonly sellerwixCatalog: SellerwixCatalogService,
+    private readonly locks: DistributedLockService,
   ) {}
 
   /**
@@ -135,20 +180,76 @@ export class FulfillmentCatalogSyncService {
     const account = await this.repo.findOwnedAccountById(organizationId, accountId);
     if (!account) throw new FulfillmentAccountNotFoundException();
 
+    const lock = await this.locks.acquire(`${CATALOG_SYNC_LOCK_PREFIX}${account.id}`, CATALOG_SYNC_LOCK_TTL_MS);
+    if (!lock) throw new CatalogSyncBusyException();
+    const scope: CatalogScope = { organizationId, accountId: account.id, provider: account.provider };
     const startedAt = new Date();
-    const scope: CatalogScope = {
-      organizationId,
-      accountId: account.id,
-      provider: account.provider,
-    };
+    const logId = await this.startSyncLog(scope, trigger, startedAt, actorUserId);
+    return this.runLocked(lock, scope, account, trigger, startedAt, logId);
+  }
+
+  /**
+   * Đưa lượt đồng bộ vào chạy NỀN và trả về ngay — dùng cho Super Admin (danh mục chung).
+   *
+   * 🔴 Vì sao: Sellerwix giới hạn 100 request/phút và cần MỘT lời gọi biến thể cho MỖI sản phẩm —
+   * danh mục vài trăm sản phẩm là vài phút, vượt `proxy_read_timeout` của Nginx và thời gian chờ
+   * của trình duyệt. Chạy trong request thì trình duyệt báo lỗi mạng trong khi đồng bộ vẫn chạy.
+   * Giờ trạng thái nằm ở `fulfillment_sync_logs` (RUNNING → SUCCESS/PARTIAL/FAILED), màn hình đọc lại.
+   *
+   * Khoá giành NGAY trong request ⇒ bấm lần hai khi đang chạy nhận 409 rõ ràng.
+   */
+  async startSync(
+    organizationId: string,
+    accountId: string,
+    trigger: FulfillmentTrigger,
+    actorUserId?: string,
+  ): Promise<CatalogSyncStarted> {
+    const account = await this.repo.findOwnedAccountById(organizationId, accountId);
+    if (!account) throw new FulfillmentAccountNotFoundException();
+
+    const lock = await this.locks.acquire(`${CATALOG_SYNC_LOCK_PREFIX}${account.id}`, CATALOG_SYNC_LOCK_TTL_MS);
+    if (!lock) throw new CatalogSyncBusyException();
+    const scope: CatalogScope = { organizationId, accountId: account.id, provider: account.provider };
+    const startedAt = new Date();
+    const logId = await this.startSyncLog(scope, trigger, startedAt, actorUserId);
+
+    void this.runLocked(lock, scope, account, trigger, startedAt, logId).catch((error: unknown) => {
+      // Kết quả/lỗi đã nằm trong nhật ký đồng bộ — ở đây chỉ chặn promise nền văng ra ngoài.
+      this.logger.error({
+        module: 'fulfillment',
+        operation: 'catalog.sync.background',
+        accountId: account.id,
+        msg: `Đồng bộ nền thất bại: ${(error as Error).message}`,
+      });
+    });
+
+    return { accountId: account.id, provider: account.provider, status: CATALOG_SYNC_STATUS.RUNNING, startedAt: startedAt.toISOString() };
+  }
+
+  /** Chạy một lượt đã giữ khoá: đọc + ghi danh mục, chốt nhật ký, nhả khoá. */
+  private async runLocked(
+    lock: AcquiredLock,
+    scope: CatalogScope,
+    account: FulfillmentAccount,
+    trigger: FulfillmentTrigger,
+    startedAt: Date,
+    logId: string | null,
+  ): Promise<CatalogSyncResult> {
+    const watchdog = setInterval(() => {
+      void this.locks.renew(lock, CATALOG_SYNC_LOCK_TTL_MS);
+    }, CATALOG_SYNC_LOCK_RENEW_MS);
+    if (typeof watchdog.unref === 'function') watchdog.unref();
 
     try {
       const result = await this.runSync(scope, account, startedAt);
-      await this.writeSyncLog(scope, trigger, startedAt, result, actorUserId, null);
+      await this.finishSyncLog(logId, scope, trigger, startedAt, result, null);
       return result;
     } catch (error) {
-      await this.writeSyncLog(scope, trigger, startedAt, null, actorUserId, error as Error);
+      await this.finishSyncLog(logId, scope, trigger, startedAt, null, error as Error);
       throw error;
+    } finally {
+      clearInterval(watchdog);
+      await this.locks.release(lock);
     }
   }
 
@@ -527,34 +628,67 @@ export class FulfillmentCatalogSyncService {
    * Ba cột `orders*` mang ý nghĩa số bản ghi đã xử lý; ở đây là danh mục/sản phẩm/biến thể.
    * Ghi log KHÔNG được làm hỏng lượt đồng bộ: mọi lỗi ở đây đều nuốt và chỉ cảnh báo.
    */
-  private async writeSyncLog(
+  /** Ghi dòng RUNNING NGAY khi bắt đầu — màn hình thấy "đang đồng bộ" kể cả khi tải lại trang. */
+  private async startSyncLog(
     scope: CatalogScope,
     trigger: FulfillmentTrigger,
     startedAt: Date,
-    result: CatalogSyncResult | null,
     actorUserId: string | undefined,
-    error: Error | null,
-  ): Promise<void> {
+  ): Promise<string | null> {
     try {
-      await this.prisma.fulfillmentSyncLog.create({
+      const row = await this.prisma.fulfillmentSyncLog.create({
         data: {
           organizationId: scope.organizationId,
           accountId: scope.accountId,
           provider: scope.provider,
           trigger,
-          status: error ? 'FAILED' : result?.complete ? 'SUCCESS' : 'PARTIAL',
+          status: CATALOG_SYNC_STATUS.RUNNING,
+          startedAt,
+          triggeredBy: actorUserId ?? null,
+        },
+        select: { id: true },
+      });
+      return row.id;
+    } catch (logError) {
+      this.logger.warn({
+        module: 'fulfillment',
+        operation: 'catalog.sync.log',
+        accountId: scope.accountId,
+        msg: `Không ghi được nhật ký đồng bộ: ${(logError as Error).message}`,
+      });
+      return null;
+    }
+  }
+
+  /** Chốt dòng nhật ký của lượt: SUCCESS / PARTIAL (đọc cụt) / FAILED kèm lỗi. */
+  private async finishSyncLog(
+    logId: string | null,
+    scope: CatalogScope,
+    _trigger: FulfillmentTrigger,
+    startedAt: Date,
+    result: CatalogSyncResult | null,
+    error: Error | null,
+  ): Promise<void> {
+    if (!logId) return;
+    try {
+      await this.prisma.fulfillmentSyncLog.update({
+        where: { id: logId },
+        data: {
+          status: error
+            ? CATALOG_SYNC_STATUS.FAILED
+            : result?.complete
+              ? CATALOG_SYNC_STATUS.SUCCESS
+              : CATALOG_SYNC_STATUS.PARTIAL,
           ordersChecked: result?.products ?? 0,
           ordersUpdated: result?.variants ?? 0,
           ordersFailed: result?.warnings.length ?? 0,
           apiCalls: result?.apiCalls ?? 0,
-          startedAt,
           finishedAt: new Date(),
           durationMs: result?.durationMs ?? Date.now() - startedAt.getTime(),
           errorCode: error ? 'CATALOG_SYNC_FAILED' : null,
           errorMessage: error
             ? error.message.slice(0, 2000)
             : (result?.warnings.join(' | ').slice(0, 2000) ?? null),
-          triggeredBy: actorUserId ?? null,
         },
       });
     } catch (logError) {

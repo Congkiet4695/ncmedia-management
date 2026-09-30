@@ -15,11 +15,23 @@ export interface ProviderFieldError {
   message?: string;
 }
 
+/**
+ * Chi tiết an toàn của lỗi nhà cung cấp/TikTok do backend gửi kèm (không token, không chữ ký, không
+ * địa chỉ): nhà cung cấp · bước lỗi · mã lỗi của họ · request id để đối soát.
+ */
+export interface ProviderErrorDetails {
+  provider?: string;
+  operation?: string;
+  providerCode?: string | null;
+  requestId?: string | null;
+}
+
 /** Envelope lỗi của API (phần hàm này quan tâm). */
 export interface ProviderErrorBody {
   code?: string;
   message?: string;
   errors?: ProviderFieldError[];
+  details?: ProviderErrorDetails | null;
 }
 
 /** Bóc envelope lỗi từ một lỗi axios/bất kỳ. */
@@ -55,5 +67,28 @@ export function providerErrorText(error: unknown, fallback: string): string {
   const body = providerErrorBody(error);
   const base = body?.message?.trim() || fallback;
   const details = providerFieldErrors(error);
-  return details.length > 0 ? `${base} · ${details.join(' · ')}` : base;
+  const text = details.length > 0 ? `${base} · ${details.join(' · ')}` : base;
+  const trace = providerErrorTrace(body?.details);
+  return trace ? `${text} [${trace}]` : text;
+}
+
+/**
+ * `TIKTOK · SHIPPING_DOCUMENT · 21042102 · req-abc` — đủ để báo lỗi/đối soát. Rỗng khi backend
+ * không gửi chi tiết.
+ */
+export function providerErrorTrace(details: ProviderErrorDetails | null | undefined): string {
+  if (!details || typeof details !== 'object') return '';
+  return [details.provider, details.operation, details.providerCode, details.requestId]
+    .map((part) => (typeof part === 'string' ? part.trim() : ''))
+    .filter((part) => part.length > 0)
+    .join(' · ');
+}
+
+/**
+ * Request KHÔNG nhận được phản hồi nào (hết thời gian chờ, mất mạng, CORS) — khác hẳn "server trả
+ * lỗi": thao tác phía server có thể vẫn đang chạy hoặc đã xong.
+ */
+export function isNoResponseError(error: unknown): boolean {
+  const candidate = error as { isAxiosError?: boolean; response?: unknown } | null | undefined;
+  return candidate?.isAxiosError === true && !candidate.response;
 }

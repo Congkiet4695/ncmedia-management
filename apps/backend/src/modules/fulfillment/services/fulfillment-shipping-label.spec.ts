@@ -262,6 +262,11 @@ function buildLabelService(
       requestId: 'req-3',
     }),
     getPackage: jest.fn(),
+    // Mặc định: TikTok Shipping, đơn CHƯA có gói nào trên TikTok.
+    getOrderFulfillmentInfo: jest.fn().mockResolvedValue({
+      data: { status: 'AWAITING_SHIPMENT', shippingType: 'TIKTOK', packageIds: [] },
+      requestId: 'req-0',
+    }),
   };
 
   const lock = {
@@ -277,6 +282,11 @@ function buildLabelService(
     tiktok as unknown as TiktokFulfillmentApiService,
     lock,
   );
+
+  // Không chờ thật khi hỏi lại tài liệu của gói vừa tạo.
+  jest
+    .spyOn(service as unknown as { sleep: (ms: number) => Promise<void> }, 'sleep')
+    .mockResolvedValue(undefined);
 
   return { service, tiktok, podOrderUpdate, packageUpsert };
 }
@@ -405,6 +415,115 @@ describe('FulfillmentShippingLabelService.fetchFromTiktok', () => {
       response: { code: 'TIKTOK_NO_ELIGIBLE_SHIPPING_SERVICE' },
     });
     expect(tiktok.createPackage).not.toHaveBeenCalled();
+  });
+
+  it('🔴 retry sau timeout: TikTok ĐÃ có gói (database chưa biết) ⇒ dùng lại gói đó, KHÔNG tạo gói thứ hai', async () => {
+    const { service, tiktok, podOrderUpdate } = buildLabelService();
+    tiktok.getOrderFulfillmentInfo.mockResolvedValueOnce({
+      data: { status: 'AWAITING_COLLECTION', shippingType: 'TIKTOK', packageIds: ['PKG-FROM-TIKTOK'] },
+      requestId: 'req-0',
+    });
+
+    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1');
+
+    expect(tiktok.createPackage).not.toHaveBeenCalled();
+    expect(tiktok.queryShippingServices).not.toHaveBeenCalled();
+    expect(tiktok.getShippingDocument).toHaveBeenCalledWith(expect.anything(), 'PKG-FROM-TIKTOK');
+    expect(label).toMatchObject({ packageId: 'PKG-FROM-TIKTOK', reusedPackage: true });
+    expect(podOrderUpdate).toHaveBeenCalled();
+  });
+
+  it('đơn KHÔNG thuộc TikTok Shipping (lưu trong đơn) ⇒ báo rõ, KHÔNG gọi TikTok', async () => {
+    const { service, tiktok } = buildLabelService({ shippingType: 'SELLER' });
+
+    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1')).rejects.toMatchObject({
+      response: { code: 'TIKTOK_LABEL_NOT_TIKTOK_SHIPPING' },
+    });
+    expect(tiktok.getOrderFulfillmentInfo).not.toHaveBeenCalled();
+    expect(tiktok.createPackage).not.toHaveBeenCalled();
+  });
+
+  it('TikTok báo đơn là SELLER shipping (dữ liệu đơn cũ) ⇒ báo rõ, KHÔNG tạo gói', async () => {
+    const { service, tiktok } = buildLabelService();
+    tiktok.getOrderFulfillmentInfo.mockResolvedValueOnce({
+      data: { status: 'AWAITING_SHIPMENT', shippingType: 'SELLER', packageIds: [] },
+    });
+
+    await expect(service.fetchFromTiktok('org-1', 'user-1', 'order-1')).rejects.toMatchObject({
+      response: { code: 'TIKTOK_LABEL_NOT_TIKTOK_SHIPPING' },
+    });
+    expect(tiktok.queryShippingServices).not.toHaveBeenCalled();
+    expect(tiktok.createPackage).not.toHaveBeenCalled();
+  });
+
+  it('gói vừa tạo chưa có file ⇒ hỏi lại tài liệu (không tạo gói mới) và lấy được nhãn', async () => {
+    const { service, tiktok } = buildLabelService();
+    tiktok.getShippingDocument
+      .mockResolvedValueOnce({ data: {}, requestId: 'req-3a' })
+      .mockResolvedValueOnce({ data: { docUrl: 'https://label.tiktok.test/late.pdf' }, requestId: 'req-3b' });
+
+    const label = await service.fetchFromTiktok('org-1', 'user-1', 'order-1');
+
+    expect(tiktok.createPackage).toHaveBeenCalledTimes(1);
+    expect(tiktok.getShippingDocument).toHaveBeenCalledTimes(2);
+    expect(label.labelUrl).toBe('https://label.tiktok.test/late.pdf');
+  });
+
+  it('tài liệu vẫn chưa có sau các lần hỏi ⇒ TIKTOK_SHIPPING_DOCUMENT_UNAVAILABLE kèm request id', async () => {
+    const { service, tiktok } = buildLabelService();
+    tiktok.getShippingDocument.mockResolvedValue({ data: {}, requestId: 'req-empty' });
+
+    const error = (await service
+      .fetchFromTiktok('org-1', 'user-1', 'order-1')
+      .catch((caught: unknown) => caught)) as ShippingLabelUnavailableException;
+
+    expect(error.getResponse()).toMatchObject({
+      code: 'TIKTOK_SHIPPING_DOCUMENT_UNAVAILABLE',
+      details: { provider: 'TIKTOK', operation: 'SHIPPING_DOCUMENT', requestId: 'req-empty' },
+    });
+    expect(tiktok.createPackage).toHaveBeenCalledTimes(1);
+  });
+
+  it('TikTok timeout / 5xx ⇒ TIKTOK_UNREACHABLE (bấm lại an toàn), kèm bước lỗi + mã + request id', async () => {
+    const { service, tiktok } = buildLabelService();
+    tiktok.createPackage.mockRejectedValueOnce(
+      new TiktokClientError(TiktokErrorClass.NETWORK, -1, 'socket hang up', 0, 'req-net', 'FULFILLMENT_CREATE_PACKAGE'),
+    );
+
+    const error = (await service
+      .fetchFromTiktok('org-1', 'user-1', 'order-1')
+      .catch((caught: unknown) => caught)) as ShippingLabelUnavailableException;
+
+    expect(error.getResponse()).toMatchObject({
+      code: 'TIKTOK_UNREACHABLE',
+      details: { provider: 'TIKTOK', operation: 'CREATE_PACKAGE', providerCode: '-1', requestId: 'req-net' },
+    });
+  });
+
+  it('lỗi nghiệp vụ TikTok ⇒ giữ nguyên thông điệp + chi tiết an toàn (không token, không URL)', async () => {
+    const { service, tiktok } = buildLabelService({ packages: [{ tiktokPackageId: 'PKG-OLD' }] });
+    tiktok.getShippingDocument.mockRejectedValueOnce(
+      new TiktokClientError(
+        TiktokErrorClass.BUSINESS,
+        21042102,
+        "Documents couldn't be printed after the package has been pickup.",
+        200,
+        'req-biz',
+        'FULFILLMENT_SHIPPING_DOCUMENT',
+      ),
+    );
+
+    const error = (await service
+      .fetchFromTiktok('org-1', 'user-1', 'order-1')
+      .catch((caught: unknown) => caught)) as ShippingLabelUnavailableException;
+    const body = error.getResponse() as Record<string, unknown>;
+
+    expect(body).toMatchObject({
+      code: 'TIKTOK_SHIPPING_LABEL_UNAVAILABLE',
+      details: { operation: 'SHIPPING_DOCUMENT', providerCode: '21042102', requestId: 'req-biz' },
+    });
+    expect(String(body.message)).toContain("couldn't be printed");
+    expect(JSON.stringify(body)).not.toContain('token');
   });
 
   it('Test 9 — nhãn đã lưu đọc lại được từ bản ghi đơn (sau khi tải lại trang)', () => {

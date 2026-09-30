@@ -1,11 +1,15 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { FulfillmentTrigger } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
-import type { CatalogSyncResultDto, FulfillmentAccountDto, PlatformProviderDto } from '../dto/fulfillment.dto';
+import type { CatalogSyncStartedDto, FulfillmentAccountDto, PlatformProviderDto } from '../dto/fulfillment.dto';
 import { FulfillmentAccountNotFoundException } from '../exceptions/fulfillment.exceptions';
 import { FulfillmentCatalogRepository } from '../repositories/fulfillment-catalog.repository';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
-import { FulfillmentCatalogSyncService } from './fulfillment-catalog-sync.service';
+import {
+  CATALOG_SYNC_STALE_MS,
+  CATALOG_SYNC_STATUS,
+  FulfillmentCatalogSyncService,
+} from './fulfillment-catalog-sync.service';
 import { FulfillmentService } from './fulfillment.service';
 
 /**
@@ -49,9 +53,15 @@ export class PlatformFulfillmentService {
           this.prisma.fulfillmentSyncLog.findFirst({
             where: { accountId: account.id },
             orderBy: { createdAt: 'desc' },
-            select: { status: true, errorMessage: true, createdAt: true },
+            select: { status: true, errorMessage: true, createdAt: true, startedAt: true },
           }),
         ]);
+        // RUNNING quá lâu ⇒ tiến trình đã chết giữa chừng; nói thật thay vì "đang đồng bộ" mãi mãi.
+        const lastSyncStatus =
+          lastLog?.status === CATALOG_SYNC_STATUS.RUNNING &&
+          Date.now() - lastLog.startedAt.getTime() > CATALOG_SYNC_STALE_MS
+            ? CATALOG_SYNC_STATUS.INTERRUPTED
+            : (lastLog?.status ?? null);
 
         return {
           id: account.id,
@@ -63,8 +73,10 @@ export class PlatformFulfillmentService {
           catalogues: counts.catalogues,
           products: counts.products,
           variants: counts.variants,
+          colors: counts.colors,
+          sizes: counts.sizes,
           lastSyncedAt: lastSyncedAt?.toISOString() ?? null,
-          lastSyncStatus: lastLog?.status ?? null,
+          lastSyncStatus,
           lastSyncMessage: lastLog?.errorMessage ?? null,
           lastSyncAt: lastLog?.createdAt?.toISOString() ?? null,
         };
@@ -97,22 +109,24 @@ export class PlatformFulfillmentService {
   }
 
   /**
-   * Đồng bộ danh mục của một nhà cung cấp.
+   * Đồng bộ danh mục của một nhà cung cấp — CHẠY NỀN, trả về ngay.
    *
-   * Đi qua đúng `FulfillmentCatalogSyncService.syncAccount` mà tổ chức vẫn dùng, chỉ khác là
-   * `organizationId` lấy từ CHÍNH tài khoản (Super Admin không thuộc tổ chức nghiệp vụ nào).
+   * Đi qua đúng đường đồng bộ mà tổ chức vẫn dùng (`FulfillmentCatalogSyncService`), chỉ khác là
+   * `organizationId` lấy từ CHÍNH tài khoản (Super Admin không thuộc tổ chức nghiệp vụ nào). Tiến độ
+   * và kết quả đọc lại qua `list()` (`lastSyncStatus` RUNNING → SUCCESS/PARTIAL/FAILED).
    */
-  async syncCatalog(accountId: string): Promise<CatalogSyncResultDto> {
+  async syncCatalog(accountId: string, actorUserId?: string): Promise<CatalogSyncStartedDto> {
     const account = await this.prisma.fulfillmentAccount.findFirst({
       where: { id: accountId, deletedAt: null },
       select: { id: true, organizationId: true },
     });
     if (!account) throw new FulfillmentAccountNotFoundException();
 
-    return this.catalogSync.syncAccount(
+    return this.catalogSync.startSync(
       account.organizationId,
       account.id,
       FulfillmentTrigger.MANUAL,
+      actorUserId,
     );
   }
 }

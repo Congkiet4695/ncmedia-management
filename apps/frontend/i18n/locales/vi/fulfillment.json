@@ -108,7 +108,8 @@
       "saved": "Đã lưu nhãn vận chuyển",
       "savedManual": "Đã lưu nhãn bạn cung cấp",
       "savedTiktok": "Đã có nhãn vận chuyển của TikTok",
-      "tracking": "Mã vận đơn: {{value}}"
+      "tracking": "Mã vận đơn: {{value}}",
+      "noResponse": "Chưa nhận được phản hồi (mạng chập chờn hoặc TikTok xử lý lâu). Bấm lại để thử lại — hệ thống kiểm tra gói đã có trên TikTok trước, KHÔNG tạo gói trùng."
     },
     "labelUrlHint": "Link nhãn vận chuyển (PDF/PNG/JPG) — xưởng in phải tải được, nên URL phải công khai.",
     "labelUrlInvalid": "Link nhãn phải là URL http(s) hợp lệ.",
@@ -294,7 +295,9 @@
       "products": "Sản phẩm",
       "provider": "Nhà cung cấp",
       "shared": "Dùng chung",
-      "variants": "Biến thể"
+      "variants": "Biến thể",
+      "colors": "Màu",
+      "sizes": "Size"
     },
     "empty": "Chưa có nhà cung cấp nào trong hệ thống.",
     "noPermission": "Bạn không có quyền xem khu vực quản trị nền tảng.",
@@ -312,7 +315,15 @@
     "syncIncomplete": "Lượt đọc chưa đủ — bước đánh dấu ngừng bán đã được bỏ qua",
     "syncSummary": "{{products}} sản phẩm · {{variants}} biến thể",
     "syncing": "Đang đồng bộ…",
-    "title": "Nhà cung cấp fulfillment (toàn nền tảng)"
+    "title": "Nhà cung cấp fulfillment (toàn nền tảng)",
+    "syncStarted": "Đã bắt đầu đồng bộ danh mục {{name}} — chạy nền, trạng thái tự cập nhật.",
+    "status": {
+      "RUNNING": "Đang đồng bộ",
+      "SUCCESS": "Thành công",
+      "PARTIAL": "Chưa đủ",
+      "FAILED": "Thất bại",
+      "INTERRUPTED": "Bị gián đoạn"
+    }
   },
   "provider": {
     "activate": "Bật",

@@ -31,8 +31,36 @@ export interface ShippingLabelState {
   reusedPackage?: boolean;
 }
 
-/** Thời gian giữ khoá khi lấy nhãn — đủ cho 3 lời gọi TikTok liên tiếp. */
-const LABEL_LOCK_MS = 60_000;
+/**
+ * Thời gian giữ khoá khi lấy nhãn. Một lượt gồm tối đa 4 lời gọi TikTok (chi tiết đơn · dịch vụ ·
+ * tạo gói · tài liệu, cộng vài lần hỏi lại tài liệu), mỗi lời gọi đọc có thể được SDK thử lại có
+ * backoff — khoá phải sống LÂU HƠN cả lượt, nếu không một cú bấm thứ hai sẽ lọt vào và tạo gói thứ hai.
+ */
+const LABEL_LOCK_MS = 5 * 60_000;
+
+/**
+ * Gói vừa tạo thường CHƯA có tài liệu ngay (TikTok còn xử lý). Hỏi lại vài lần, cách nhau ngắn,
+ * trước khi báo "chưa có nhãn" — người dùng không phải bấm lại chỉ vì TikTok chậm vài giây.
+ */
+const DOCUMENT_READY_ATTEMPTS = 3;
+const DOCUMENT_READY_DELAY_MS = 2_000;
+
+/** Kiểu vận chuyển TikTok Shipping (`shipping_type` của đơn) — chỉ kiểu này có nhãn do TikTok cấp. */
+const TIKTOK_SHIPPING_TYPE = 'TIKTOK';
+
+/** Chi tiết lỗi an toàn kèm theo mọi lỗi lấy nhãn — KHÔNG chứa token, chữ ký hay địa chỉ. */
+export interface ShippingLabelErrorDetails {
+  provider: 'TIKTOK';
+  operation:
+    | 'ORDER_DETAIL'
+    | 'SHIPPING_SERVICES'
+    | 'CREATE_PACKAGE'
+    | 'SHIPPING_DOCUMENT'
+    | 'SHOP_CONTEXT'
+    | 'INTERNAL';
+  providerCode: string | null;
+  requestId: string | null;
+}
 
 /** Đang có một lượt lấy nhãn khác chạy cho đúng đơn này. */
 export class ShippingLabelBusyException extends ConflictException {
@@ -48,8 +76,12 @@ export class ShippingLabelBusyException extends ConflictException {
 
 /** TikTok không cấp được nhãn cho đơn này (kèm nguyên văn lý do của TikTok). */
 export class ShippingLabelUnavailableException extends UnprocessableEntityException {
-  constructor(message: string, code = 'TIKTOK_SHIPPING_LABEL_UNAVAILABLE') {
-    super({ code, message });
+  constructor(
+    message: string,
+    code = 'TIKTOK_SHIPPING_LABEL_UNAVAILABLE',
+    details: ShippingLabelErrorDetails | null = null,
+  ) {
+    super({ code, message, ...(details ? { details } : {}) });
   }
 }
 
@@ -174,6 +206,7 @@ export class FulfillmentShippingLabelService {
       throw new ShippingLabelUnavailableException(
         `Lỗi hệ thống khi xử lý nhãn vận chuyển: ${reason}`,
         'SHIPPING_LABEL_INTERNAL_ERROR',
+        { provider: 'TIKTOK', operation: 'INTERNAL', providerCode: null, requestId: null },
       );
     }
   }
@@ -259,14 +292,16 @@ export class FulfillmentShippingLabelService {
     podOrderId: string,
   ): Promise<ShippingLabelState> {
     const order = await this.requireOrder(organizationId, podOrderId);
+    // Đơn người bán tự vận chuyển: TikTok KHÔNG cấp nhãn — nói thẳng, không gọi API một cách mù quáng.
+    this.assertTiktokShipping(order.shippingType);
     const ctx = await this.resolveShopContext(organizationId, order);
 
-    // ---- 1. Đơn đã có gói? Dùng lại, TUYỆT ĐỐI không tạo gói thứ hai ----
+    // ---- 1. Database đã biết gói? Dùng lại, TUYỆT ĐỐI không tạo gói thứ hai ----
     const existingPackageId =
       order.shippingLabelPackageId ?? order.packages[0]?.tiktokPackageId ?? null;
 
     if (existingPackageId) {
-      const document = await this.getDocument(ctx, existingPackageId);
+      const document = await this.getDocument(ctx, existingPackageId, 1);
       return this.persist(organizationId, userId, order, {
         packageId: existingPackageId,
         labelUrl: document.docUrl as string,
@@ -276,8 +311,27 @@ export class FulfillmentShippingLabelService {
       });
     }
 
-    // ---- 2. Chưa có gói: hỏi TikTok những dịch vụ vận chuyển khả dụng ----
-    const services = await this.run(() =>
+    // ---- 2. Hỏi CHÍNH TikTok: đơn đã có gói chưa (Seller Center, hoặc lượt trước bị ngắt)? ----
+    // 🔴 Đây là chốt chống gói TRÙNG khi trình duyệt hết thời gian chờ: lượt trước có thể đã tạo gói
+    // trên TikTok nhưng chưa kịp ghi xuống database. Không hỏi mà tạo luôn là shop có hai gói thật.
+    const detail = await this.run('ORDER_DETAIL', () =>
+      this.tiktok.getOrderFulfillmentInfo(ctx, order.tiktokOrderId),
+    );
+    this.assertTiktokShipping(detail.data.shippingType);
+    const tiktokPackageId = detail.data.packageIds[0] ?? null;
+    if (tiktokPackageId) {
+      const document = await this.getDocument(ctx, tiktokPackageId, DOCUMENT_READY_ATTEMPTS);
+      return this.persist(organizationId, userId, order, {
+        packageId: tiktokPackageId,
+        labelUrl: document.docUrl as string,
+        trackingNumber: document.trackingNumber ?? null,
+        shippingService: null,
+        reusedPackage: true,
+      });
+    }
+
+    // ---- 3. Chưa có gói ở đâu cả: hỏi TikTok những dịch vụ vận chuyển khả dụng ----
+    const services = await this.run('SHIPPING_SERVICES', () =>
       this.tiktok.queryShippingServices(ctx, order.tiktokOrderId),
     );
     const service = this.pickService(services.data.shippingServices ?? []);
@@ -287,11 +341,12 @@ export class FulfillmentShippingLabelService {
           'diện TikTok Shipping, hoặc đã được đóng gói/vận chuyển bằng cách khác. ' +
           'Kiểm tra đơn trên Seller Center, hoặc dán URL nhãn vào ô "Nhãn vận chuyển".',
         'TIKTOK_NO_ELIGIBLE_SHIPPING_SERVICE',
+        { provider: 'TIKTOK', operation: 'SHIPPING_SERVICES', providerCode: null, requestId: services.requestId ?? null },
       );
     }
 
-    // ---- 3. Tạo gói (KHÔNG retry ở tầng SDK — xem TiktokFulfillmentApiService) ----
-    const created = await this.run(() =>
+    // ---- 4. Tạo gói (KHÔNG retry ở tầng SDK — xem TiktokFulfillmentApiService) ----
+    const created = await this.run('CREATE_PACKAGE', () =>
       this.tiktok.createPackage(ctx, {
         orderId: order.tiktokOrderId,
         shippingServiceId: service.id,
@@ -302,11 +357,13 @@ export class FulfillmentShippingLabelService {
       throw new ShippingLabelUnavailableException(
         'TikTok nhận lệnh tạo gói nhưng không trả về `package_id`. Kiểm tra đơn trên Seller ' +
           'Center trước khi thử lại để tránh tạo gói trùng.',
+        'TIKTOK_SHIPPING_LABEL_UNAVAILABLE',
+        { provider: 'TIKTOK', operation: 'CREATE_PACKAGE', providerCode: null, requestId: created.requestId ?? null },
       );
     }
 
-    // ---- 4. Lấy nhãn của gói vừa tạo ----
-    const document = await this.getDocument(ctx, packageId);
+    // ---- 5. Lấy nhãn của gói vừa tạo (TikTok có thể cần vài giây) ----
+    const document = await this.getDocument(ctx, packageId, DOCUMENT_READY_ATTEMPTS);
     return this.persist(organizationId, userId, order, {
       packageId,
       labelUrl: document.docUrl as string,
@@ -331,19 +388,46 @@ export class FulfillmentShippingLabelService {
     return services.find((entry) => entry.isDefault && entry.id) ?? services[0] ?? null;
   }
 
+  /**
+   * Tài liệu nhãn của một gói. `attempts > 1` ⇒ hỏi lại khi TikTok chưa có file (gói vừa tạo); đọc
+   * thuần nên hỏi lại vô hại.
+   */
   private async getDocument(
     ctx: Awaited<ReturnType<PodTiktokShopContextService['resolve']>>,
     packageId: string,
+    attempts: number,
   ): Promise<{ docUrl?: string; trackingNumber?: string }> {
-    const document = await this.run(() => this.tiktok.getShippingDocument(ctx, packageId));
-    if (!document.data.docUrl) {
-      throw new ShippingLabelUnavailableException(
-        'TikTok chưa cấp được file nhãn cho gói này. Thường là gói vừa tạo và TikTok còn đang ' +
-          'xử lý — chờ một lát rồi bấm lại (bấm lại KHÔNG tạo gói mới).',
-        'TIKTOK_SHIPPING_DOCUMENT_UNAVAILABLE',
+    let requestId: string | null = null;
+    for (let attempt = 1; attempt <= attempts; attempt += 1) {
+      const document = await this.run('SHIPPING_DOCUMENT', () =>
+        this.tiktok.getShippingDocument(ctx, packageId),
       );
+      requestId = document.requestId ?? null;
+      if (document.data.docUrl) return document.data;
+      if (attempt < attempts) await this.sleep(DOCUMENT_READY_DELAY_MS);
     }
-    return document.data;
+    throw new ShippingLabelUnavailableException(
+      'TikTok chưa cấp được file nhãn cho gói này. Thường là gói vừa tạo và TikTok còn đang ' +
+        'xử lý — chờ một lát rồi bấm lại (bấm lại KHÔNG tạo gói mới).',
+      'TIKTOK_SHIPPING_DOCUMENT_UNAVAILABLE',
+      { provider: 'TIKTOK', operation: 'SHIPPING_DOCUMENT', providerCode: null, requestId },
+    );
+  }
+
+  /** Chỉ đơn TikTok Shipping mới có nhãn do TikTok cấp. `undefined` (chưa đồng bộ) ⇒ để TikTok trả lời. */
+  private assertTiktokShipping(shippingType: string | null | undefined): void {
+    if (!shippingType || shippingType.toUpperCase() === TIKTOK_SHIPPING_TYPE) return;
+    throw new ShippingLabelUnavailableException(
+      `Đơn này không dùng TikTok Shipping (kiểu vận chuyển: ${shippingType}) — TikTok không cấp nhãn. ` +
+        'Dán URL nhãn của đơn vị vận chuyển bạn dùng vào ô "Nhãn vận chuyển".',
+      'TIKTOK_LABEL_NOT_TIKTOK_SHIPPING',
+      { provider: 'TIKTOK', operation: 'ORDER_DETAIL', providerCode: null, requestId: null },
+    );
+  }
+
+  /** Tách ra để test không phải chờ thật. */
+  protected sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /** Ghi nhãn xuống database: bản ghi gói + nhãn hiệu lực của đơn. */
@@ -447,6 +531,7 @@ export class FulfillmentShippingLabelService {
         throw new ShippingLabelUnavailableException(
           `Không gọi được API TikTok cho shop của đơn này: ${error.message}`,
           'TIKTOK_SHOP_CONTEXT_UNAVAILABLE',
+          { provider: 'TIKTOK', operation: 'SHOP_CONTEXT', providerCode: null, requestId: null },
         );
       }
       throw error;
@@ -459,7 +544,10 @@ export class FulfillmentShippingLabelService {
    * 🔴 Không gộp mọi lỗi thành một câu chung: "thiếu scope" và "đơn không đủ điều kiện" là hai
    * việc phải làm khác hẳn nhau. Chi tiết kỹ thuật (mã lỗi, request id) ghi vào log máy chủ.
    */
-  private async run<T>(call: () => Promise<{ data: T; requestId?: string }>): Promise<{
+  private async run<T>(
+    operation: ShippingLabelErrorDetails['operation'],
+    call: () => Promise<{ data: T; requestId?: string }>,
+  ): Promise<{
     data: T;
     requestId?: string;
   }> {
@@ -467,6 +555,12 @@ export class FulfillmentShippingLabelService {
       return await call();
     } catch (error) {
       if (!(error instanceof TiktokClientError)) throw error;
+      const details: ShippingLabelErrorDetails = {
+        provider: 'TIKTOK',
+        operation,
+        providerCode: String(error.tiktokCode),
+        requestId: error.requestId ?? null,
+      };
 
       this.logger.error({
         module: 'fulfillment',
@@ -483,18 +577,32 @@ export class FulfillmentShippingLabelService {
           'Kết nối TikTok của shop này chưa có quyền Fulfillment/Logistics (hoặc uỷ quyền đã ' +
             'hết hạn). Kết nối lại TikTok Shop với đủ quyền rồi thử lại.',
           'TIKTOK_SCOPE_MISSING',
+          details,
         );
       }
       if (error.errorClass === TiktokErrorClass.RATE_LIMIT) {
         throw new ShippingLabelUnavailableException(
           'TikTok đang giới hạn tần suất gọi API. Chờ một lát rồi bấm lại.',
           'TIKTOK_RATE_LIMITED',
+          details,
+        );
+      }
+      if (error.errorClass === TiktokErrorClass.NETWORK || error.errorClass === TiktokErrorClass.SERVER) {
+        // Mạng/TikTok quá tải (đã thử lại ở tầng SDK). Nếu lỗi rơi đúng bước TẠO GÓI, gói có thể
+        // ĐÃ được tạo — bấm lại là an toàn vì lượt sau hỏi TikTok trước khi tạo.
+        throw new ShippingLabelUnavailableException(
+          `Không kết nối được TikTok (${error.tiktokMessage}). Bấm lại sau ít phút — hệ thống kiểm ` +
+            'tra gói đã có trên TikTok trước, không tạo gói trùng.',
+          'TIKTOK_UNREACHABLE',
+          details,
         );
       }
       // Lỗi nghiệp vụ/mạng: giữ NGUYÊN VĂN thông điệp của TikTok — đó là thứ nói đúng nhất
       // vì sao đơn này không lấy được nhãn.
       throw new ShippingLabelUnavailableException(
         `TikTok từ chối yêu cầu lấy nhãn (mã ${error.tiktokCode}): ${error.tiktokMessage}`,
+        'TIKTOK_SHIPPING_LABEL_UNAVAILABLE',
+        details,
       );
     }
   }

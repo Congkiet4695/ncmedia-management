@@ -108,7 +108,8 @@
       "saved": "Shipping label saved",
       "savedManual": "Your label has been saved",
       "savedTiktok": "TikTok shipping label is attached",
-      "tracking": "Tracking number: {{value}}"
+      "tracking": "Tracking number: {{value}}",
+      "noResponse": "No response received (network issue or TikTok is slow). Click again to retry — the system checks for an existing TikTok package first and will NOT create a duplicate."
     },
     "labelUrlHint": "Shipping label link (PDF/PNG/JPG) — the print shop downloads it, so the URL must be public.",
     "labelUrlInvalid": "The label link must be a valid http(s) URL.",
@@ -294,7 +295,9 @@
       "products": "Products",
       "provider": "Provider",
       "shared": "Shared",
-      "variants": "Variants"
+      "variants": "Variants",
+      "colors": "Colors",
+      "sizes": "Sizes"
     },
     "empty": "No provider configured yet.",
     "noPermission": "You do not have access to the platform admin area.",
@@ -312,7 +315,15 @@
     "syncIncomplete": "Incomplete read — the archive step was skipped",
     "syncSummary": "{{products}} products · {{variants}} variants",
     "syncing": "Syncing…",
-    "title": "Fulfillment providers (platform-wide)"
+    "title": "Fulfillment providers (platform-wide)",
+    "syncStarted": "Catalogue sync for {{name}} started — it runs in the background and the status updates automatically.",
+    "status": {
+      "RUNNING": "Syncing",
+      "SUCCESS": "Success",
+      "PARTIAL": "Incomplete",
+      "FAILED": "Failed",
+      "INTERRUPTED": "Interrupted"
+    }
   },
   "provider": {
     "activate": "Activate",

@@ -22,7 +22,11 @@ import {
   sanitizePlacementMap,
   submitBlockers,
 } from '../features/fulfillment/product-config.ts';
-import { providerErrorText, providerFieldErrors } from '../features/fulfillment/provider-error.ts';
+import {
+  isNoResponseError,
+  providerErrorText,
+  providerFieldErrors,
+} from '../features/fulfillment/provider-error.ts';
 import type {
   FulfillmentState,
   ProviderCatalogProduct,
@@ -326,6 +330,34 @@ check(
   sanitizePlacementMap({ FRONT: 'CF', LEFT: 'XX', LABEL: 'CF' }, AREAS, PLACEMENTS),
   { FRONT: 'CF' },
 );
+
+// ---------------------------------------------------------------------------
+// Lấy nhãn TikTok — lỗi có ích, không "System error"
+// ---------------------------------------------------------------------------
+check(
+  'lỗi TikTok kèm details ⇒ câu hiển thị có bước lỗi · mã TikTok · request id',
+  providerErrorText(
+    providerError({
+      code: 'TIKTOK_SHIPPING_LABEL_UNAVAILABLE',
+      message: "TikTok từ chối yêu cầu lấy nhãn (mã 21042102): Documents couldn't be printed",
+      details: { provider: 'TIKTOK', operation: 'SHIPPING_DOCUMENT', providerCode: '21042102', requestId: 'req-1' },
+    }),
+    'System error',
+  ),
+  "TikTok từ chối yêu cầu lấy nhãn (mã 21042102): Documents couldn't be printed [TIKTOK · SHIPPING_DOCUMENT · 21042102 · req-1]",
+);
+check(
+  'details rỗng/null ⇒ không thêm ngoặc thừa',
+  providerErrorText(providerError({ message: 'x', details: null }), 'y'),
+  'x',
+);
+check('timeout/mất mạng (axios, không có response) ⇒ nhận ra', isNoResponseError({ isAxiosError: true }), true);
+check(
+  'server trả lỗi (có response) ⇒ KHÔNG coi là mất phản hồi',
+  isNoResponseError({ isAxiosError: true, response: { status: 422 } }),
+  false,
+);
+check('lỗi không phải axios ⇒ false', isNoResponseError(new Error('x')), false);
 
 // ---------------------------------------------------------------------------
 console.log('');

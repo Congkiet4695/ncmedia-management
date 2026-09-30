@@ -477,6 +477,14 @@ export class CatalogSyncResultDto {
   @ApiProperty({ type: String, isArray: true }) warnings!: string[];
 }
 
+/** Lượt đồng bộ danh mục đã được đưa vào chạy nền. */
+export class CatalogSyncStartedDto {
+  @ApiProperty() accountId!: string;
+  @ApiProperty({ enum: FulfillmentProvider }) provider!: FulfillmentProvider;
+  @ApiProperty({ enum: ['RUNNING'] }) status!: 'RUNNING';
+  @ApiProperty() startedAt!: string;
+}
+
 /** Kết quả một lượt rà ánh xạ tự động. */
 export class AutoMapResultDto {
   @ApiProperty({ description: 'Số cặp (Product ID + Seller SKU) chưa ánh xạ đã đem đi rà.' })
@@ -499,6 +507,8 @@ export class CatalogStatusDto {
   @ApiProperty() catalogues!: number;
   @ApiProperty() products!: number;
   @ApiProperty() variants!: number;
+  @ApiProperty({ description: 'Số MÀU khác nhau của các biến thể đang hoạt động' }) colors!: number;
+  @ApiProperty({ description: 'Số SIZE khác nhau của các biến thể đang hoạt động' }) sizes!: number;
   @ApiProperty({ nullable: true, type: String }) lastSyncedAt!: string | null;
 }
 
@@ -1188,9 +1198,16 @@ export class PlatformProviderDto {
   @ApiProperty() catalogues!: number;
   @ApiProperty() products!: number;
   @ApiProperty() variants!: number;
+  @ApiProperty({ description: 'Số MÀU khác nhau của các biến thể đang hoạt động' }) colors!: number;
+  @ApiProperty({ description: 'Số SIZE khác nhau của các biến thể đang hoạt động' }) sizes!: number;
   @ApiProperty({ nullable: true, type: String, description: 'Lần ghi danh mục gần nhất.' })
   lastSyncedAt!: string | null;
-  @ApiProperty({ nullable: true, type: String, description: 'Trạng thái lượt đồng bộ gần nhất.' })
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    enum: ['RUNNING', 'SUCCESS', 'PARTIAL', 'FAILED', 'INTERRUPTED'],
+    description: 'Trạng thái lượt đồng bộ gần nhất. INTERRUPTED = RUNNING quá lâu (tiến trình đã dừng giữa chừng).',
+  })
   lastSyncStatus!: string | null;
   @ApiProperty({ nullable: true, type: String }) lastSyncMessage!: string | null;
   @ApiProperty({ nullable: true, type: String }) lastSyncAt!: string | null;

@@ -357,10 +357,22 @@ export interface PlatformProvider {
   catalogues: number;
   products: number;
   variants: number;
+  /** Số màu / size KHÁC NHAU của các biến thể đang hoạt động. */
+  colors: number;
+  sizes: number;
   lastSyncedAt: string | null;
+  /** RUNNING · SUCCESS · PARTIAL · FAILED · INTERRUPTED (RUNNING quá lâu — tiến trình đã dừng). */
   lastSyncStatus: string | null;
   lastSyncMessage: string | null;
   lastSyncAt: string | null;
+}
+
+/** Đồng bộ danh mục đã được đưa vào chạy nền (Super Admin). */
+export interface CatalogSyncStarted {
+  accountId: string;
+  provider: FulfillmentProviderType;
+  status: 'RUNNING';
+  startedAt: string;
 }
 
 export interface FulfillmentState {

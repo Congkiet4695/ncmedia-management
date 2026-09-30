@@ -12,6 +12,7 @@ import type {
   TiktokCreatePackageRequest,
   TiktokCreatedPackage,
   TiktokEligibleShippingServices,
+  TiktokOrderFulfillmentInfo,
   TiktokPackageDetail,
   TiktokShippingDocument,
 } from './types/tiktok-fulfillment.types';
@@ -114,6 +115,43 @@ export class TiktokFulfillmentApiService {
           ctx.shopCipher,
         ),
     });
+  }
+
+  /**
+   * **Get Order Detail** (`GET /order/202309/orders`) — chỉ lấy gói hiện có, kiểu vận chuyển và
+   * trạng thái của MỘT đơn. Đọc thuần.
+   *
+   * 🔴 Dùng TRƯỚC khi tạo gói: đơn có thể đã có gói mà database chưa biết (gói tạo trên Seller
+   * Center, hoặc lượt lấy nhãn trước đã tạo gói nhưng trình duyệt hết thời gian chờ). Tạo thêm lúc
+   * đó là shop có hai gói thật.
+   */
+  async getOrderFulfillmentInfo(
+    ctx: TiktokShopContext,
+    tiktokOrderId: string,
+  ): Promise<TiktokSdkResult<TiktokOrderFulfillmentInfo>> {
+    const result = await this.sdk.execute<{
+      orders?: Array<{ status?: string; shippingType?: string; packages?: Array<{ id?: string }> }>;
+    }>({
+      endpoint: 'ORDER_DETAIL',
+      invoke: () =>
+        this.sdk.api.OrderV202309Api.OrdersGet(
+          [tiktokOrderId],
+          ctx.accessToken,
+          TIKTOK_SDK_CONTENT_TYPE,
+          ctx.shopCipher,
+        ),
+    });
+    const order = result.data?.orders?.[0];
+    return {
+      data: {
+        status: order?.status,
+        shippingType: order?.shippingType,
+        packageIds: (order?.packages ?? [])
+          .map((entry) => entry.id?.trim())
+          .filter((id): id is string => Boolean(id)),
+      },
+      requestId: result.requestId,
+    };
   }
 
   /** **Get Package Detail** — trạng thái gói (để biết gói cũ còn dùng được không). */

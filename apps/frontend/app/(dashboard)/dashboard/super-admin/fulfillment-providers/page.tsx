@@ -55,29 +55,24 @@ function PlatformProvidersView() {
   const translateApiError = useApiError();
   const providers = usePlatformProviders();
   const actions = usePlatformProviderActions();
-  /** Id nhà cung cấp đang đồng bộ — nút của đúng dòng đó mới quay. */
-  const [syncingId, setSyncingId] = useState<string | null>(null);
+  /** Id nhà cung cấp vừa bấm — chỉ để khoá nút trong lúc request "bắt đầu đồng bộ" đang đi. */
+  const [startingId, setStartingId] = useState<string | null>(null);
 
+  /**
+   * Bắt đầu đồng bộ — backend chạy NỀN và trả về ngay. Trạng thái "đang đồng bộ" đọc từ DATABASE
+   * (`lastSyncStatus = RUNNING`), nên tải lại trang hay mở ở máy khác vẫn thấy đúng; danh sách tự hỏi
+   * lại tới khi lượt đó xong (SUCCESS / PARTIAL / FAILED).
+   */
   const sync = async (id: string, name: string): Promise<void> => {
-    if (syncingId) return;
-    setSyncingId(id);
+    if (startingId) return;
+    setStartingId(id);
     try {
-      const result = await actions.syncCatalog.mutateAsync(id);
-      toast.success(t('platform.syncDone', { name }), {
-        description: t('platform.syncSummary', {
-          products: result.products,
-          variants: result.variants,
-        }),
-      });
-      if (!result.complete) {
-        toast.warning(t('platform.syncIncomplete'), {
-          description: result.warnings.join(' · ') || undefined,
-        });
-      }
+      await actions.syncCatalog.mutateAsync(id);
+      toast.success(t('platform.syncStarted', { name }));
     } catch (error) {
       toast.error(t('platform.syncFailed', { name }), { description: translateApiError(error) });
     } finally {
-      setSyncingId(null);
+      setStartingId(null);
     }
   };
 
@@ -106,6 +101,8 @@ function PlatformProvidersView() {
                 <TableHead>{t('platform.column.shared')}</TableHead>
                 <TableHead className="text-right">{t('platform.column.products')}</TableHead>
                 <TableHead className="text-right">{t('platform.column.variants')}</TableHead>
+                <TableHead className="text-right">{t('platform.column.colors')}</TableHead>
+                <TableHead className="text-right">{t('platform.column.sizes')}</TableHead>
                 <TableHead>{t('platform.column.lastSynced')}</TableHead>
                 <TableHead>{t('platform.column.lastResult')}</TableHead>
                 <TableHead className="text-right">{t('platform.column.action')}</TableHead>
@@ -114,7 +111,7 @@ function PlatformProvidersView() {
             <TableBody>
               {providers.isLoading && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={9} className="py-10 text-center text-sm text-muted-foreground">
                     <Loader2 className="mr-2 inline size-4 animate-spin" />
                     {t('common:state.loading')}
                   </TableCell>
@@ -123,7 +120,7 @@ function PlatformProvidersView() {
 
               {!providers.isLoading && (providers.data ?? []).length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={7} className="py-10 text-center text-sm text-muted-foreground">
+                  <TableCell colSpan={9} className="py-10 text-center text-sm text-muted-foreground">
                     {t('platform.empty')}
                   </TableCell>
                 </TableRow>
@@ -165,6 +162,12 @@ function PlatformProvidersView() {
                   <TableCell className="text-right font-mono text-sm">
                     {formatNumber(provider.variants)}
                   </TableCell>
+                  <TableCell className="text-right font-mono text-sm">
+                    {formatNumber(provider.colors)}
+                  </TableCell>
+                  <TableCell className="text-right font-mono text-sm">
+                    {formatNumber(provider.sizes)}
+                  </TableCell>
                   <TableCell className="text-xs text-muted-foreground">
                     {provider.lastSyncedAt ? formatDateTime(provider.lastSyncedAt) : '—'}
                   </TableCell>
@@ -175,14 +178,27 @@ function PlatformProvidersView() {
                           variant={
                             provider.lastSyncStatus === 'SUCCESS'
                               ? 'success'
-                              : provider.lastSyncStatus === 'FAILED'
+                              : provider.lastSyncStatus === 'FAILED' ||
+                                  provider.lastSyncStatus === 'INTERRUPTED'
                                 ? 'destructive'
-                                : 'muted'
+                                : provider.lastSyncStatus === 'PARTIAL'
+                                  ? 'warning'
+                                  : 'muted'
                           }
                         >
-                          {provider.lastSyncStatus}
+                          {provider.lastSyncStatus === 'RUNNING' && (
+                            <Loader2 className="mr-1 size-3 animate-spin" />
+                          )}
+                          {t(`platform.status.${provider.lastSyncStatus}`, {
+                            defaultValue: provider.lastSyncStatus,
+                          })}
                         </Badge>
-                        {provider.lastSyncMessage && (
+                        {provider.lastSyncStatus === 'PARTIAL' && (
+                          <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                            {t('platform.syncIncomplete')}
+                          </p>
+                        )}
+                        {provider.lastSyncMessage && provider.lastSyncStatus !== 'RUNNING' && (
                           <p className="flex gap-1 text-[11px] text-destructive">
                             <AlertTriangle className="mt-px size-3 shrink-0" />
                             {provider.lastSyncMessage}
@@ -194,19 +210,25 @@ function PlatformProvidersView() {
                     )}
                   </TableCell>
                   <TableCell className="text-right">
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      disabled={syncingId !== null}
-                      onClick={() => void sync(provider.id, provider.name)}
-                    >
-                      {syncingId === provider.id ? (
-                        <Loader2 className="size-3.5 animate-spin" />
-                      ) : (
-                        <RefreshCw className="size-3.5" />
-                      )}
-                      {syncingId === provider.id ? t('platform.syncing') : t('platform.sync')}
-                    </Button>
+                    {(() => {
+                      const running =
+                        startingId === provider.id || provider.lastSyncStatus === 'RUNNING';
+                      return (
+                        <Button
+                          size="sm"
+                          variant="outline"
+                          disabled={running || startingId !== null}
+                          onClick={() => void sync(provider.id, provider.name)}
+                        >
+                          {running ? (
+                            <Loader2 className="size-3.5 animate-spin" />
+                          ) : (
+                            <RefreshCw className="size-3.5" />
+                          )}
+                          {running ? t('platform.syncing') : t('platform.sync')}
+                        </Button>
+                      );
+                    })()}
                   </TableCell>
                 </TableRow>
               ))}

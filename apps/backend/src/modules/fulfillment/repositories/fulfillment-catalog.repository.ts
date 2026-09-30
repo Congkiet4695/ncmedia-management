@@ -5,6 +5,7 @@ import {
   FulfillmentProvider,
   Prisma,
 } from '@prisma/client';
+import { FulfillmentRepository } from './fulfillment.repository';
 import { PrismaService } from '../../../database/prisma.service';
 
 /** Một danh mục sắp ghi xuống — đã chuẩn hoá khỏi payload của nhà cung cấp. */
@@ -399,9 +400,15 @@ export class FulfillmentCatalogRepository {
     });
   }
 
+  /**
+   * Một sản phẩm danh mục theo id NỘI BỘ — chỉ khi TÀI KHOẢN của nó dùng được với tổ chức (của
+   * chính tổ chức, hoặc tài khoản dùng chung). 🔴 Không lọc theo `organization_id` của bản ghi: danh
+   * mục của tài khoản dùng chung do tổ chức NỀN TẢNG ghi, lọc như vậy làm mọi tổ chức khác nhận 404
+   * khi tải biến thể (chọn được sản phẩm nhưng không chọn được biến thể) — xem `listCatalogues`.
+   */
   findProductById(organizationId: string, id: string) {
     return this.prisma.fulfillmentProduct.findFirst({
-      where: { id, organizationId, deletedAt: null },
+      where: { id, deletedAt: null, account: FulfillmentRepository.usableAccountWhere(organizationId) },
       include: { catalogue: { select: { id: true, name: true } } },
     });
   }
@@ -421,8 +428,17 @@ export class FulfillmentCatalogRepository {
     catalogues: number;
     products: number;
     variants: number;
+    colors: number;
+    sizes: number;
   }> {
     const active = FulfillmentCatalogItemStatus.ACTIVE;
+    // Màu/size không có bảng riêng — là thuộc tính của biến thể (`fulfillment_variants.color/size`).
+    // Đếm GIÁ TRỊ KHÁC NHAU đang hoạt động, đúng thứ ô chọn Color/Size sẽ hiện.
+    const [distinct] = await this.prisma.$queryRaw<Array<{ colors: bigint; sizes: bigint }>>`
+      SELECT COUNT(DISTINCT color) AS colors, COUNT(DISTINCT size) AS sizes
+      FROM fulfillment_variants
+      WHERE account_id = ${accountId}::uuid AND deleted_at IS NULL AND status = 'ACTIVE'
+    `;
     const [catalogues, products, variants] = await this.prisma.$transaction([
       this.prisma.fulfillmentCatalogue.count({
         where: { accountId, deletedAt: null, status: active },
@@ -434,7 +450,13 @@ export class FulfillmentCatalogRepository {
         where: { accountId, deletedAt: null, status: active },
       }),
     ]);
-    return { catalogues, products, variants };
+    return {
+      catalogues,
+      products,
+      variants,
+      colors: Number(distinct?.colors ?? 0),
+      sizes: Number(distinct?.sizes ?? 0),
+    };
   }
 
   // ---------------------------------------------------------------------------

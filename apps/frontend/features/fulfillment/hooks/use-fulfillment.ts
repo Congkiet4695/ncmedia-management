@@ -58,11 +58,19 @@ export function useOrderShippingMethods(podOrderId?: string, providerId?: string
  * `enabled` để màn hình khác không vô tình gọi API quản trị nền tảng khi người dùng không có
  * quyền — backend vẫn chặn bằng guard, nhưng gọi rồi nhận 403 là lãng phí và gây nhiễu log.
  */
+/** Nhịp hỏi lại khi có nhà cung cấp đang đồng bộ nền (đọc database, không gọi nhà cung cấp). */
+const PLATFORM_SYNC_POLL_MS = 5_000;
+
 export function usePlatformProviders(enabled = true) {
   return useQuery({
     queryKey: [PLATFORM_KEY, 'list'],
     queryFn: () => platformFulfillmentService.list(),
     enabled,
+    // Đang có lượt đồng bộ nền ⇒ hỏi lại tới khi nó xong; không có ⇒ không tự làm mới.
+    refetchInterval: (query) =>
+      (query.state.data ?? []).some((provider) => provider.lastSyncStatus === 'RUNNING')
+        ? PLATFORM_SYNC_POLL_MS
+        : false,
   });
 }
 

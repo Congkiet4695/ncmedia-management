@@ -61,6 +61,18 @@ export interface TiktokShippingDocument {
   trackingNumber?: string;
 }
 
+/**
+ * Phần của **Get Order Detail** (`GET /order/202309/orders?ids=`) mà luồng lấy nhãn cần: gói TikTok
+ * ĐANG CÓ của đơn (kể cả gói do Seller Center tạo, hoặc do một lượt "lấy nhãn" trước bị ngắt giữa
+ * chừng), kiểu vận chuyển và trạng thái đơn — đúng field của `Order202309GetOrderDetailResponseDataOrders`.
+ */
+export interface TiktokOrderFulfillmentInfo {
+  status?: string;
+  /** `TIKTOK` (TikTok Shipping) | `SELLER` (người bán tự vận chuyển). */
+  shippingType?: string;
+  packageIds: string[];
+}
+
 /** Kết quả **Get Package Detail** — dùng để biết gói còn dùng được hay không. */
 export interface TiktokPackageDetail {
   packageId?: string;

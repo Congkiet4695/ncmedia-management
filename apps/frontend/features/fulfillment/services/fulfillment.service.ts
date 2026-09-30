@@ -3,6 +3,7 @@ import { apiClient } from '@/services/api-client';
 import type { ApiResponse, Paginated } from '@/types/api';
 import type { PodDesign, PodDesignPlacement } from '@/features/pod-tiktok/order-types';
 import type {
+  CatalogSyncStarted,
   CreateFulfillmentProviderInput,
   FulfillPayload,
   PlatformProvider,
@@ -31,6 +32,9 @@ import type {
   UpdateFulfillmentProviderInput,
   ShippingLabel,
 } from '../types';
+
+/** Thời gian chờ của "Lấy nhãn từ TikTok" — xem `tiktokLabel`. */
+const TIKTOK_LABEL_TIMEOUT_MS = 240_000;
 
 const BASE_PATH = '/fulfillment';
 /** Khu vực quản trị NỀN TẢNG — tách đường dẫn để không lẫn với API của tổ chức. */
@@ -106,10 +110,18 @@ export const fulfillmentService = {
     return res.data.data;
   },
 
-  /** Lấy nhãn vận chuyển của đơn từ TikTok (tái dùng gói đã có — xem tài liệu backend). */
+  /**
+   * Lấy nhãn vận chuyển của đơn từ TikTok (tái dùng gói đã có — xem tài liệu backend).
+   *
+   * 🔴 Thời gian chờ RIÊNG: một lượt gồm tới 4 lời gọi TikTok (kèm thử lại có backoff), vượt xa 15s
+   * mặc định của apiClient. Hết 15s trình duyệt báo "network error" trong khi backend vẫn chạy (và
+   * có thể đã tạo gói) — chính là lỗi người dùng gặp. Giữ dưới `proxy_read_timeout 300s` của Nginx.
+   */
   async tiktokLabel(podOrderId: string): Promise<ShippingLabel> {
     const res = await apiClient.post<ApiResponse<ShippingLabel>>(
       `/pod/orders/${podOrderId}/fulfillment/tiktok-label`,
+      undefined,
+      { timeout: TIKTOK_LABEL_TIMEOUT_MS },
     );
     return res.data.data;
   },
@@ -236,13 +248,13 @@ export const platformFulfillmentService = {
     return res.data.data;
   },
 
-  /** Đồng bộ danh mục về MỘT bản dùng chung. Tác vụ dài — giao diện phải hiện trạng thái. */
-  async syncCatalog(id: string): Promise<CatalogSyncResult> {
-    const res = await apiClient.post<ApiResponse<CatalogSyncResult>>(
+  /**
+   * Đồng bộ danh mục về MỘT bản dùng chung — backend CHẠY NỀN và trả về ngay (202). Tiến độ đọc
+   * lại qua `list()` (`lastSyncStatus`), nên không còn phụ thuộc thời gian chờ của trình duyệt.
+   */
+  async syncCatalog(id: string): Promise<CatalogSyncStarted> {
+    const res = await apiClient.post<ApiResponse<CatalogSyncStarted>>(
       `${PLATFORM_PATH}/${id}/catalog/sync`,
-      undefined,
-      // Đồng bộ danh mục vài nghìn sản phẩm chạy lâu hơn hẳn một request thường.
-      { timeout: env.uploadTimeoutMs },
     );
     return res.data.data;
   },

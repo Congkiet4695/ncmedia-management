@@ -43,7 +43,7 @@ import {
   SUBMITTABLE_STATUSES,
   submitBlockers,
 } from '../product-config';
-import { providerErrorText } from '../provider-error';
+import { isNoResponseError, providerErrorText } from '../provider-error';
 import {
   FULFILL_FACILITIES,
   FULFILL_PREFERRED_CARRIERS,
@@ -280,9 +280,14 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
           : undefined,
       );
     } catch (error) {
-      toast.error(t('fulfill.label.fetchFailed'), {
-        description: providerErrorText(error, translateApiError(error)),
-      });
+      // Không nhận được phản hồi ⇒ KHÔNG phải "TikTok từ chối": lượt lấy nhãn có thể vẫn đang chạy
+      // hoặc đã xong. Bấm lại an toàn vì backend kiểm tra gói đã có trên TikTok trước khi tạo.
+      const description = isNoResponseError(error)
+        ? t('fulfill.label.noResponse')
+        : providerErrorText(error, translateApiError(error));
+      setLabelError(description);
+      toast.error(t('fulfill.label.fetchFailed'), { description });
+      void stateQuery.refetch();
     }
   };
 
@@ -567,21 +572,26 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                         setForm((prev) => ({ ...prev, shippingMethod: value || undefined }))
                       }
                       options={
-                        shippingByOrder
-                          ? [
-                              // Sellerwix: danh sách do backend tính theo SKU của đơn + quốc gia
-                              // người nhận. Nhãn là tên · hãng · loại, giá trị là `code`.
-                              option('', t('fulfill.selectShippingMethod')),
-                              ...(orderShipping.data?.options ?? []),
-                            ]
-                          : [
-                              option('', t('fulfill.useAccountDefault')),
-                              ...FULFILL_SHIPPING_METHODS.map((value) =>
-                                option(value, t(`fulfill.shippingMethod.${value}`)),
-                              ),
-                            ]
+                        !capabilities
+                          ? // 🔴 Chưa biết nhà cung cấp nhận gì ⇒ KHÔNG hiện tạm danh sách của Mango
+                            // (với Sellerwix đó là mã vận chuyển sai hoàn toàn).
+                            [option('', t('fulfill.config.loadingOptions'))]
+                          : shippingByOrder
+                            ? [
+                                // Sellerwix: danh sách do backend tính theo SKU của đơn + quốc gia
+                                // người nhận. Nhãn là tên · hãng · loại, giá trị là `code`.
+                                option('', t('fulfill.selectShippingMethod')),
+                                ...(orderShipping.data?.options ?? []),
+                              ]
+                            : [
+                                option('', t('fulfill.useAccountDefault')),
+                                ...FULFILL_SHIPPING_METHODS.map((value) =>
+                                  option(value, t(`fulfill.shippingMethod.${value}`)),
+                                ),
+                              ]
                       }
-                      loading={shippingByOrder && orderShipping.isLoading}
+                      disabled={!capabilities}
+                      loading={!capabilities || (shippingByOrder && orderShipping.isLoading)}
                     />
                     {shippingByOrder && (
                       <p className="text-[11px] text-muted-foreground">

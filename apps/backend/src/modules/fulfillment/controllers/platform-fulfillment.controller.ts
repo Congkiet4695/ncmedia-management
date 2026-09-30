@@ -1,6 +1,7 @@
 import { Body, Controller, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, UseGuards } from '@nestjs/common';
 import {
   ApiBearerAuth,
+  ApiAcceptedResponse,
   ApiForbiddenResponse,
   ApiOkResponse,
   ApiOperation,
@@ -14,7 +15,7 @@ import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { SuperAdminGuard } from '../../auth/guards/super-admin.guard';
 import { AuthenticatedUser } from '../../auth/types/authenticated-user.interface';
 import {
-  CatalogSyncResultDto,
+  CatalogSyncStartedDto,
   FulfillmentAccountDto,
   PlatformProviderDto,
   SetGlobalProviderDto,
@@ -84,7 +85,7 @@ export class PlatformFulfillmentController {
   }
 
   @Post(':id/catalog/sync')
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.ACCEPTED)
   @RequirePermissions('platform.fulfillment.sync')
   @ApiOperation({
     summary: 'Đồng bộ danh mục nhà cung cấp (CHỈ Super Admin)',
@@ -94,11 +95,16 @@ export class PlatformFulfillmentController {
       '`(account_id, external_variant_id)` — chạy lại chỉ UPDATE, không bao giờ sinh bản ghi ' +
       'trùng.\\n\\n' +
       '⚠️ Danh mục lớn là tác vụ DÀI (hàng nghìn lời gọi, tự giới hạn 10 request/giây theo ' +
-      'quy định của nhà cung cấp). `complete = false` ⇒ có lượt đọc bị cụt và bước đánh dấu ' +
-      'ngừng bán bị BỎ QUA để không xoá nhầm danh mục khỏi các ô chọn.',
+      'quy định của nhà cung cấp; Sellerwix 100 request/phút). CHẠY NỀN: trả 202 ngay, trạng thái ' +
+      '(RUNNING → SUCCESS / PARTIAL / FAILED) và số liệu đọc lại qua GET danh sách nhà cung cấp. ' +
+      'PARTIAL ⇒ có lượt đọc bị cụt và bước đánh dấu ngừng bán bị BỎ QUA để không xoá nhầm danh mục. ' +
+      'Đang có lượt khác chạy ⇒ 409 FULFILLMENT_CATALOG_SYNC_BUSY.',
   })
-  @ApiOkResponse({ type: CatalogSyncResultDto })
-  sync(@Param('id', ParseUUIDPipe) id: string): Promise<CatalogSyncResultDto> {
-    return this.service.syncCatalog(id);
+  @ApiAcceptedResponse({ type: CatalogSyncStartedDto })
+  sync(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ): Promise<CatalogSyncStartedDto> {
+    return this.service.syncCatalog(id, user.userId);
   }
 }
