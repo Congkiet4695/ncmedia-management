@@ -49,6 +49,8 @@ export const NOTIFICATION_ERROR_CODES = {
   TIMEOUT: 'TELEGRAM_TIMEOUT',
   /** Tổ chức chưa cấu hình hoặc đã tắt Telegram. */
   DISABLED: 'NOTIFICATION_CHANNEL_DISABLED',
+  /** Tổ chức đã tắt LOẠI thông báo này (New Order / Fulfill) trong Cài đặt thông báo. */
+  CATEGORY_DISABLED: 'NOTIFICATION_CATEGORY_DISABLED',
   /** Máy chủ thiếu / sai NOTIFICATION_ENCRYPTION_KEY. */
   ENCRYPTION_KEY_MISSING: 'NOTIFICATION_ENCRYPTION_KEY_MISSING',
   /** Payload không dựng được tin nhắn (dữ liệu hỏng). */

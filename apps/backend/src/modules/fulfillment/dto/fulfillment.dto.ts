@@ -518,6 +518,16 @@ export class CatalogStatusDto {
   @ApiProperty({ description: 'Số MÀU khác nhau của các biến thể đang hoạt động' }) colors!: number;
   @ApiProperty({ description: 'Số SIZE khác nhau của các biến thể đang hoạt động' }) sizes!: number;
   @ApiProperty({ nullable: true, type: String }) lastSyncedAt!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'Trạng thái lượt đồng bộ gần nhất: RUNNING · SUCCESS · PARTIAL · FAILED · INTERRUPTED ' +
+      '(RUNNING quá lâu — tiến trình đã chết). NULL = chưa từng đồng bộ.',
+  })
+  syncStatus!: string | null;
+  @ApiProperty({ nullable: true, type: String }) syncStartedAt!: string | null;
+  @ApiProperty({ nullable: true, type: String }) syncError!: string | null;
 }
 
 /**

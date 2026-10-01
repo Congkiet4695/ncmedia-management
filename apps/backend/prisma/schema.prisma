@@ -310,6 +310,7 @@ model Organization {
   fulfillmentOrders          FulfillmentOrder[]
   approvalLogs               OrganizationApprovalLog[]
   telegramConfig             OrganizationTelegramConfig?
+  notificationPreference     OrganizationNotificationPreference?
   notificationEvents         NotificationEvent[]
 
   /// Màn Super Admin lọc theo trạng thái + sắp theo thời điểm đăng ký.
@@ -995,10 +996,8 @@ model PodTiktokAccount {
   tokenAudits           PodTiktokTokenAudit[]
   oauthStates           PodTiktokOAuthState[]
   products              PodProduct[]
-  productSyncHistories  PodProductSyncHistory[]
   listingPayloads       PodListingPayload[]
   orders                PodOrder[]
-  syncLogs              PodSyncLog[]
   payments              PodTiktokPayment[]
   statements            PodTiktokStatement[]
   statementTransactions PodTiktokStatementTransaction[]
@@ -1008,6 +1007,8 @@ model PodTiktokAccount {
 
   // Không link trùng cùng một seller (open_id) trong CÙNG Organization.
   // Uỷ quyền lại (reauthorize) → UPDATE bản ghi cũ, không tạo mới.
+  shopSyncStatuses PodShopSyncStatus[]
+
   @@unique([organizationId, openId])
   @@index([organizationId])
   @@index([status])
@@ -1106,9 +1107,7 @@ model PodTiktokShop {
   account               PodTiktokAccount                @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   defaultWarehouse      PodTiktokWarehouse?             @relation("PodShopDefaultWarehouse", fields: [defaultWarehouseId], references: [id], onDelete: SetNull, onUpdate: Cascade)
   orders                PodOrder[]
-  syncLogs              PodSyncLog[]
   products              PodProduct[]
-  productSyncHistories  PodProductSyncHistory[]
   warehouses            PodTiktokWarehouse[]
   listingPayloads       PodListingPayload[]
   listingJobItems       PodListingJobItem[]
@@ -1121,6 +1120,8 @@ model PodTiktokShop {
   flashSaleTemplates    PodFlashSaleTemplate[]
 
   // Chống link trùng Shop trong cùng Organization (hàng rào ở tầng DB).
+  syncStatuses PodShopSyncStatus[]
+
   @@unique([organizationId, tiktokShopId])
   @@index([organizationId])
   @@index([accountId])
@@ -1560,61 +1561,6 @@ model PodOrderPackage {
 // PodSyncLog — nhật ký từng lượt đồng bộ (theo shop hoặc theo cả lượt cron).
 // Bảng log: chỉ created_at, KHÔNG soft delete; có job dọn theo retention.
 // ---------------------------------------------------------------------------
-
-model PodSyncLog {
-  id             String  @id @default(uuid()) @db.Uuid
-  organizationId String  @map("organization_id") @db.Uuid
-  /// NULL = dòng tổng hợp của cả lượt cron (nhiều account).
-  accountId      String? @map("account_id") @db.Uuid
-  /// NULL = dòng tổng hợp cấp account/cron.
-  shopId         String? @map("shop_id") @db.Uuid
-
-  trigger PodSyncTrigger
-  status  PodSyncStatus  @default(RUNNING)
-
-  /// Cửa sổ thời gian (Unix seconds) đã quét. Trục thời gian tuỳ pha:
-  /// BACKFILL dùng `create_time`, INCREMENTAL dùng `update_time` (xem `phase`).
-  windowFrom BigInt?      @map("window_from")
-  windowTo   BigInt?      @map("window_to")
-  /// Pha đã chạy: BACKFILL (kéo lịch sử) | INCREMENTAL (đồng bộ định kỳ).
-  phase      PodSyncPhase @default(INCREMENTAL)
-
-  pagesFetched Int @default(0) @map("pages_fetched")
-  /// Số lần gọi TikTok API — theo dõi mức tiêu thụ quota.
-  apiCalls     Int @default(0) @map("api_calls")
-
-  totalOrders      Int  @default(0) @map("total_orders")
-  /// `data.total_count` do TikTok trả về ở trang đầu — đối chiếu với `totalOrders`
-  /// để tự phát hiện đồng bộ thiếu (đây chính là dấu hiệu đã bỏ lỡ ở bug 55/143).
-  tiktokTotalCount Int? @map("tiktok_total_count")
-  createdCount     Int  @default(0) @map("created_count")
-  updatedCount     Int  @default(0) @map("updated_count")
-  skippedCount     Int  @default(0) @map("skipped_count")
-  failedCount      Int  @default(0) @map("failed_count")
-
-  startedAt  DateTime  @map("started_at") @db.Timestamptz(6)
-  finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)
-  durationMs Int?      @map("duration_ms")
-
-  errorCode       String? @map("error_code") @db.VarChar(40)
-  errorMessage    String? @map("error_message") @db.VarChar(1000)
-  /// `request_id` của TikTok — bắt buộc khi mở ticket hỗ trợ.
-  tiktokRequestId String? @map("tiktok_request_id") @db.VarChar(64)
-
-  /// NULL = do scheduler chạy; có giá trị = do người dùng bấm Manual Sync.
-  triggeredBy String? @map("triggered_by") @db.Uuid
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  account PodTiktokAccount? @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  shop    PodTiktokShop?    @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-
-  @@index([organizationId, startedAt])
-  @@index([shopId, startedAt])
-  @@index([accountId, startedAt])
-  @@index([status])
-  @@map("pod_sync_logs")
-}
 
 // ---------------------------------------------------------------------------
 // PodOrderItemDesign — ⛔ LƯU TRỮ LỊCH SỬ, CHỈ ĐỌC. KHÔNG CÒN CODE NÀO GHI VÀO BẢNG NÀY.
@@ -3087,7 +3033,6 @@ model PodProduct {
   videos          PodProductVideo[]
   attributes      PodProductAttribute[]
   rawData         PodProductRawData[]
-  syncLogs        PodProductSyncLog[]
   listingPayloads PodListingPayload[]
   listingJobItems PodListingJobItem[]
   flashSaleItems  PodFlashSaleItem[]
@@ -3437,83 +3382,10 @@ model PodProductBrand {
 // Bảng vận hành: xoá cứng theo retention, không soft delete (giống các bảng log khác).
 // ---------------------------------------------------------------------------
 
-model PodProductSyncHistory {
-  id             String  @id @default(uuid()) @db.Uuid
-  organizationId String  @map("organization_id") @db.Uuid
-  accountId      String  @map("account_id") @db.Uuid
-  shopId         String? @map("shop_id") @db.Uuid
-
-  scope   PodProductSyncScope
-  trigger PodProductSyncTrigger
-  status  PodProductSyncStatus  @default(RUNNING)
-
-  /// Cửa sổ thời gian đã dùng cho INCREMENTAL (Unix giây) — tra được vì sao thiếu dữ liệu.
-  watermarkFrom BigInt? @map("watermark_from")
-  watermarkTo   BigInt? @map("watermark_to")
-
-  /// Số sản phẩm TikTok TRẢ VỀ trong lượt này (đã lọc ACTIVATE ngay tại request).
-  productsFetched     Int @default(0) @map("products_fetched")
-  productsCreated     Int @default(0) @map("products_created")
-  productsUpdated     Int @default(0) @map("products_updated")
-  productsSkipped     Int @default(0) @map("products_skipped")
-  productsFailed      Int @default(0) @map("products_failed")
-  /// Số sản phẩm trong database bị đánh dấu "không còn bán" ở lượt này (chỉ FULL sync).
-  productsDeactivated Int @default(0) @map("products_deactivated")
-  pagesFetched        Int @default(0) @map("pages_fetched")
-  apiCalls            Int @default(0) @map("api_calls")
-
-  startedAt  DateTime  @map("started_at") @db.Timestamptz(6)
-  finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)
-  durationMs Int?      @map("duration_ms")
-
-  errorCode       String? @map("error_code") @db.VarChar(64)
-  errorMessage    String? @map("error_message") @db.VarChar(2000)
-  tiktokRequestId String? @map("tiktok_request_id") @db.VarChar(64)
-
-  /// NULL = do scheduler chạy.
-  triggeredBy String? @map("triggered_by") @db.Uuid
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  account PodTiktokAccount    @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  shop    PodTiktokShop?      @relation(fields: [shopId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-  logs    PodProductSyncLog[]
-
-  @@index([organizationId, startedAt])
-  @@index([accountId, startedAt])
-  @@index([status])
-  @@map("pod_product_sync_histories")
-}
-
 // ---------------------------------------------------------------------------
 // PodProductSyncLog — kết quả xử lý TỪNG sản phẩm trong một lượt đồng bộ.
 // Nhờ bảng này, câu hỏi "vì sao sản phẩm X không về" luôn có câu trả lời.
 // ---------------------------------------------------------------------------
-
-model PodProductSyncLog {
-  id             String  @id @default(uuid()) @db.Uuid
-  organizationId String  @map("organization_id") @db.Uuid
-  historyId      String  @map("history_id") @db.Uuid
-  /// NULL khi sản phẩm lỗi ngay từ bước đọc chi tiết (chưa kịp tạo bản ghi).
-  productId      String? @map("product_id") @db.Uuid
-
-  tiktokProductId String               @map("tiktok_product_id") @db.VarChar(64)
-  action          PodProductSyncAction
-  message         String?              @db.VarChar(1000)
-  errorCode       String?              @map("error_code") @db.VarChar(64)
-  tiktokRequestId String?              @map("tiktok_request_id") @db.VarChar(64)
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
-
-  history PodProductSyncHistory @relation(fields: [historyId], references: [id], onDelete: Cascade, onUpdate: Cascade)
-  product PodProduct?           @relation(fields: [productId], references: [id], onDelete: SetNull, onUpdate: Cascade)
-
-  @@index([historyId])
-  @@index([organizationId, createdAt])
-  @@index([tiktokProductId])
-  @@index([action])
-  @@map("pod_product_sync_logs")
-}
 
 // ---------------------------------------------------------------------------
 // PodProductRawData — RESPONSE GỐC của TikTok.
@@ -6008,4 +5880,96 @@ model NotificationEvent {
   /// Màn hình "Thông báo gần đây" của tổ chức.
   @@index([organizationId, createdAt])
   @@map("notification_events")
+}
+
+// ---------------------------------------------------------------------------
+// OrganizationNotificationPreference — tổ chức muốn nhận LOẠI thông báo nào.
+//
+// Tách khỏi organization_telegram_configs: tuỳ chọn là của TỔ CHỨC (không phụ thuộc kênh), lưu
+// được cả khi chưa cấu hình bot. Chưa có dòng ⇒ mặc định BẬT cả hai (giữ hành vi trước khi có tuỳ chọn).
+// Backend kiểm tuỳ chọn ở CẢ hai đầu: lúc ghi sự kiện (outbox) và lúc worker gửi.
+// ---------------------------------------------------------------------------
+model OrganizationNotificationPreference {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @unique @map("organization_id") @db.Uuid
+
+  /// NEW ORDER — đơn TikTok mới được tạo khi đồng bộ.
+  notifyNewOrder    Boolean @default(true) @map("notify_new_order")
+  /// FULFILL — fulfill thành công và huỷ fulfillment thành công.
+  notifyFulfillment Boolean @default(true) @map("notify_fulfillment")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@map("organization_notification_preferences")
+}
+
+/// Loại đồng bộ theo shop có trạng thái riêng.
+enum PodShopSyncType {
+  /// Đồng bộ đơn TikTok (cron / thủ công / backfill).
+  ORDER
+  /// Đồng bộ sản phẩm TikTok (cron / thủ công).
+  PRODUCT
+
+  @@map("pod_shop_sync_type")
+}
+
+// ---------------------------------------------------------------------------
+// PodShopSyncStatus — TRẠNG THÁI LẦN ĐỒNG BỘ GẦN NHẤT của một shop (KHÔNG phải lịch sử).
+//
+// 🔴 Mỗi (organization_id, shop_id, sync_type) có ĐÚNG MỘT dòng (UNIQUE): mỗi lượt đồng bộ UPDATE dòng
+// đó (INSERT … ON CONFLICT DO UPDATE — nguyên tử, không sinh trùng kể cả khi cron và "Sync Now" chạy cùng
+// lúc). Trước đây mỗi lượt INSERT một dòng mới ⇒ bảng tăng theo (shop × nhịp cron) mãi mãi.
+//
+// `run_id` là FENCING TOKEN: mỗi lượt bắt đầu sinh run_id mới; lượt kết thúc chỉ ghi được khi run_id còn
+// là của nó ⇒ một lượt cũ kết thúc muộn không ghi đè trạng thái của lượt mới hơn.
+//
+// Chỉ là metadata vận hành — không thay thế dữ liệu nghiệp vụ (đơn, sản phẩm, shop).
+// ---------------------------------------------------------------------------
+model PodShopSyncStatus {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @map("organization_id") @db.Uuid
+  accountId      String          @map("account_id") @db.Uuid
+  shopId         String          @map("shop_id") @db.Uuid
+  syncType       PodShopSyncType @map("sync_type")
+
+  /// Lượt đang / vừa ghi dòng này (fencing token).
+  runId   String         @map("run_id") @db.Uuid
+  trigger PodSyncTrigger
+  status  PodSyncStatus  @default(RUNNING)
+
+  startedAt  DateTime  @map("started_at") @db.Timestamptz(6)
+  finishedAt DateTime? @map("finished_at") @db.Timestamptz(6)
+  durationMs Int?      @map("duration_ms")
+
+  /// ORDER: số đơn đã xử lý · PRODUCT: số sản phẩm đã lấy về.
+  totalCount   Int @default(0) @map("total_count")
+  createdCount Int @default(0) @map("created_count")
+  updatedCount Int @default(0) @map("updated_count")
+  skippedCount Int @default(0) @map("skipped_count")
+  failedCount  Int @default(0) @map("failed_count")
+
+  errorCode    String? @map("error_code") @db.VarChar(64)
+  errorMessage String? @map("error_message") @db.VarChar(2000)
+
+  /// Chỉ số chẩn đoán RIÊNG từng loại (ORDER: phase, cửa sổ, trang, api calls, total TikTok, request id ·
+  /// PRODUCT: scope, ngừng bán, trang, api calls) — gom một cột thay vì thêm hàng chục cột hiếm dùng.
+  details Json?
+
+  triggeredBy String?  @map("triggered_by") @db.Uuid
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt   DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  account PodTiktokAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  shop    PodTiktokShop    @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([organizationId, shopId, syncType], map: "pod_shop_sync_statuses_org_shop_type_key")
+  @@index([organizationId, syncType])
+  @@index([status, startedAt])
+  @@map("pod_shop_sync_statuses")
 }

@@ -1,6 +1,10 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
+import { NotificationEventType, Prisma } from '@prisma/client';
 import { NotificationEventRepository } from '../repositories/notification-event.repository';
+import {
+  allowsEvent,
+  NotificationPreferenceRepository,
+} from '../repositories/notification-preference.repository';
 import { TelegramConfigRepository } from '../repositories/telegram-config.repository';
 import type { NotificationEventInput } from '../types/notification-payload.types';
 import { NotificationDispatcherService, NOTIFICATION_LOG_OPERATION } from './notification-dispatcher.service';
@@ -26,11 +30,22 @@ export class NotificationOutboxService {
     private readonly events: NotificationEventRepository,
     private readonly configs: TelegramConfigRepository,
     private readonly dispatcher: NotificationDispatcherService,
+    private readonly preferences: NotificationPreferenceRepository,
   ) {}
 
-  /** Tổ chức đang bật thông báo (dùng được trong transaction của bên gọi). */
-  isEnabled(organizationId: string, tx?: Prisma.TransactionClient): Promise<boolean> {
-    return this.configs.isEnabled(organizationId, tx);
+  /**
+   * Tổ chức có nhận LOẠI thông báo này không (dùng được trong transaction của bên gọi):
+   * Telegram đã cấu hình + đang bật **và** tổ chức bật đúng loại (New Order / Fulfill).
+   *
+   * Chưa cấu hình bot ⇒ false ⇒ không ghi sự kiện ⇒ worker không bao giờ cố gửi.
+   */
+  async isEnabled(
+    organizationId: string,
+    eventType: NotificationEventType,
+    tx?: Prisma.TransactionClient,
+  ): Promise<boolean> {
+    if (!(await this.configs.isEnabled(organizationId, tx))) return false;
+    return allowsEvent(await this.preferences.find(organizationId, tx), eventType);
   }
 
   /** Ghi sự kiện trong transaction của bên gọi — idempotent (ON CONFLICT DO NOTHING). */
@@ -44,7 +59,7 @@ export class NotificationOutboxService {
   /** Ghi sự kiện sau khi nghiệp vụ đã commit rồi đánh thức worker. Không ném lỗi. */
   async publish(event: NotificationEventInput): Promise<void> {
     try {
-      if (!(await this.configs.isEnabled(event.organizationId))) return;
+      if (!(await this.isEnabled(event.organizationId, event.eventType))) return;
       const created = await this.events.enqueue([event]);
       this.logger.log({
         module: 'notification',

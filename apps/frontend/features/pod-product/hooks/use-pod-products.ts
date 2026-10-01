@@ -1,6 +1,7 @@
 'use client';
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { POD_SYNC_STATUS_KEY } from '@/features/pod-tiktok/hooks/use-pod-orders';
 import { podProductService } from '../services/pod-product.service';
 import type {
   CloneProductPayload,
@@ -59,18 +60,6 @@ export function usePodProductFilters() {
   });
 }
 
-export function usePodProductSyncHistory(params: {
-  page?: number;
-  limit?: number;
-  shopId?: string;
-}) {
-  return useQuery({
-    queryKey: [POD_PRODUCT_KEY, 'sync-history', params],
-    queryFn: () => podProductService.syncHistory(params),
-    placeholderData: keepPreviousData,
-  });
-}
-
 /**
  * Sync Now.
  *
@@ -81,7 +70,10 @@ export function useSyncPodProducts() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: PodProductSyncPayload = {}) => podProductService.sync(payload),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: [POD_PRODUCT_KEY] }),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [POD_PRODUCT_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [POD_SYNC_STATUS_KEY, 'PRODUCT'] });
+    },
   });
 }
 

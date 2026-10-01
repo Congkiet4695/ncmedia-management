@@ -41,6 +41,7 @@ import {
 } from '../product-config';
 import { baseCostSaveWarning } from '../base-cost';
 import type { ProductMapping, ProviderCatalogProduct, UpsertProductMappingInput } from '../types';
+import { CatalogSyncNotice } from './catalog-sync-notice';
 import { DesignSlot } from './design-slot';
 import { VariantBaseCost } from './variant-base-cost';
 
@@ -473,6 +474,7 @@ export function ProductConfigPanel({
           {/* ------------------------------------------------------- Sản phẩm nhà cung cấp */}
           <div className="space-y-1">
             <Label>{t('fulfill.config.providerProduct')}</Label>
+            <CatalogSyncNotice accountId={accountId} />
             <Combobox
               value={selectedProduct?.id ?? (productUnavailable ? (mapping?.providerProductId ?? '') : '')}
               onChange={pickProduct}

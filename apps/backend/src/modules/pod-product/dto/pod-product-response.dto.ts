@@ -181,35 +181,6 @@ export class PaginatedPodProductResponseDto {
   @ApiProperty({ type: PodProductPaginationMetaDto }) meta!: PodProductPaginationMetaDto;
 }
 
-/** Một lượt đồng bộ trong màn hình Sync History. */
-export class PodProductSyncHistoryDto {
-  @ApiProperty() id!: string;
-  @ApiProperty({ example: 'INCREMENTAL' }) scope!: string;
-  @ApiProperty({ example: 'MANUAL' }) trigger!: string;
-  @ApiProperty({ example: 'SUCCESS' }) status!: string;
-  @ApiProperty({ nullable: true, type: String }) shopName!: string | null;
-  @ApiProperty({ nullable: true, type: String }) accountName!: string | null;
-  @ApiProperty() productsFetched!: number;
-  @ApiProperty() productsCreated!: number;
-  @ApiProperty() productsUpdated!: number;
-  @ApiProperty() productsSkipped!: number;
-  @ApiProperty() productsFailed!: number;
-  @ApiProperty({ description: 'Số sản phẩm bị đánh dấu ngừng bán trong lượt (chỉ FULL)' })
-  productsDeactivated!: number;
-  @ApiProperty() apiCalls!: number;
-  @ApiProperty() startedAt!: string;
-  @ApiProperty({ nullable: true, type: String }) finishedAt!: string | null;
-  @ApiProperty({ nullable: true, type: Number }) durationMs!: number | null;
-  @ApiProperty({ nullable: true, type: String }) errorCode!: string | null;
-  @ApiProperty({ nullable: true, type: String }) errorMessage!: string | null;
-}
-
-export class PaginatedPodProductSyncHistoryDto {
-  @ApiProperty({ type: PodProductSyncHistoryDto, isArray: true })
-  items!: PodProductSyncHistoryDto[];
-  @ApiProperty({ type: PodProductPaginationMetaDto }) meta!: PodProductPaginationMetaDto;
-}
-
 /** Kết quả trả về ngay sau khi bấm "Sync Now". */
 /** Một shop chạy hỏng trong lượt đồng bộ — giữ NGUYÊN VĂN lỗi TikTok trả về. */
 export class PodProductSyncShopErrorDto {
@@ -278,10 +249,4 @@ export class PodProductSyncResultDto {
    */
   @ApiProperty({ type: [PodProductSyncShopErrorDto] })
   errors!: PodProductSyncShopErrorDto[];
-
-  @ApiProperty({
-    type: [String],
-    description: 'ID các lượt đồng bộ vừa tạo — mở Sync History để xem chi tiết',
-  })
-  historyIds!: string[];
 }

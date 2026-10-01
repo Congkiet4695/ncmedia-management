@@ -1,15 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import {
-  PodProductSyncAction,
-  PodProductSyncScope,
-  PodProductSyncStatus,
-  PodProductSyncTrigger,
   PodTiktokAccountStatus,
   PodTiktokShopStatus,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
-import { accountScopeFilter, shopScopeFilter } from '../../pod-tiktok/shared/shop-scope';
 
 /** Shop + credential của account — đầu vào của một lượt đồng bộ sản phẩm. */
 export interface ProductSyncTarget {
@@ -84,7 +79,7 @@ export interface ProductSyncScopeParams {
 }
 
 /**
- * PodProductSyncRepository — dữ liệu phục vụ VẬN HÀNH đồng bộ: chọn shop, ghi lịch sử,
+ * PodProductSyncRepository — dữ liệu phục vụ VẬN HÀNH đồng bộ: chọn shop, watermark,
  * ghi log từng sản phẩm, cập nhật watermark.
  *
  * Tách khỏi `PodProductRepository` (đọc/ghi sản phẩm) vì hai vòng đời khác nhau: bảng
@@ -152,91 +147,6 @@ export class PodProductSyncRepository {
     };
   }
 
-  /** Mở một lượt đồng bộ (`RUNNING`) — trả về id để ghi log theo lượt. */
-  async startHistory(data: {
-    organizationId: string;
-    accountId: string;
-    shopId: string | null;
-    scope: PodProductSyncScope;
-    trigger: PodProductSyncTrigger;
-    watermarkFrom: bigint | null;
-    watermarkTo: bigint | null;
-    triggeredBy: string | null;
-  }): Promise<string> {
-    const history = await this.prisma.podProductSyncHistory.create({
-      data: { ...data, status: PodProductSyncStatus.RUNNING, startedAt: new Date() },
-      select: { id: true },
-    });
-    return history.id;
-  }
-
-  /** Đóng lượt đồng bộ với số liệu tổng kết. */
-  async finishHistory(
-    id: string,
-    data: {
-      status: PodProductSyncStatus;
-      productsFetched: number;
-      productsCreated: number;
-      productsUpdated: number;
-      productsSkipped: number;
-      productsFailed: number;
-      productsDeactivated?: number;
-      pagesFetched: number;
-      apiCalls: number;
-      startedAt: Date;
-      errorCode?: string | null;
-      errorMessage?: string | null;
-      tiktokRequestId?: string | null;
-    },
-  ): Promise<void> {
-    const finishedAt = new Date();
-    await this.prisma.podProductSyncHistory.update({
-      where: { id },
-      data: {
-        status: data.status,
-        productsFetched: data.productsFetched,
-        productsCreated: data.productsCreated,
-        productsUpdated: data.productsUpdated,
-        productsSkipped: data.productsSkipped,
-        productsFailed: data.productsFailed,
-        productsDeactivated: data.productsDeactivated ?? 0,
-        pagesFetched: data.pagesFetched,
-        apiCalls: data.apiCalls,
-        finishedAt,
-        durationMs: finishedAt.getTime() - data.startedAt.getTime(),
-        errorCode: data.errorCode ?? null,
-        errorMessage: data.errorMessage?.slice(0, 2000) ?? null,
-        tiktokRequestId: data.tiktokRequestId ?? null,
-      },
-    });
-  }
-
-  /**
-   * Ghi log kết quả của từng sản phẩm.
-   *
-   * Ghi theo LÔ để một shop nghìn sản phẩm không sinh nghìn round-trip.
-   */
-  async insertLogs(
-    rows: Array<{
-      organizationId: string;
-      historyId: string;
-      productId: string | null;
-      tiktokProductId: string;
-      action: PodProductSyncAction;
-      message?: string | null;
-      errorCode?: string | null;
-      tiktokRequestId?: string | null;
-    }>,
-  ): Promise<void> {
-    if (rows.length === 0) return;
-    await this.prisma.podProductSyncLog.createMany({
-      data: rows.map((row) => ({
-        ...row,
-        message: row.message?.slice(0, 1000) ?? null,
-      })),
-    });
-  }
-
   /**
    * Cập nhật watermark sau lượt đồng bộ THÀNH CÔNG.
    *
@@ -262,51 +172,5 @@ export class PodProductSyncRepository {
       select: { productSyncFailureCount: true },
     });
     return shop.productSyncFailureCount;
-  }
-
-  /** Lịch sử đồng bộ (phân trang) cho màn hình Sync History. */
-  async findHistories(
-    organizationId: string,
-    params: {
-      page: number;
-      limit: number;
-      accountId?: string;
-      shopId?: string;
-      /** `undefined` = không giới hạn theo shop. Mảng rỗng = chưa được gán shop nào. */
-      shopScope?: string[];
-      accountScope?: string[];
-    },
-  ) {
-    const where: Prisma.PodProductSyncHistoryWhereInput = {
-      organizationId,
-      // 🔴 GIAO của phạm vi và bộ lọc — không phải gán rồi ghi đè.
-      accountId: accountScopeFilter(params.accountScope, params.accountId),
-      shopId: shopScopeFilter(params.shopScope, params.shopId),
-    };
-
-    const [items, total] = await this.prisma.$transaction([
-      this.prisma.podProductSyncHistory.findMany({
-        where,
-        include: {
-          account: { select: { id: true, accountName: true } },
-          shop: { select: { id: true, name: true } },
-        },
-        orderBy: { startedAt: 'desc' },
-        skip: (params.page - 1) * params.limit,
-        take: params.limit,
-      }),
-      this.prisma.podProductSyncHistory.count({ where }),
-    ]);
-
-    return { items, total };
-  }
-
-  /** Chi tiết log của một lượt — trả lời "sản phẩm nào lỗi và vì sao". */
-  findLogs(organizationId: string, historyId: string, limit: number) {
-    return this.prisma.podProductSyncLog.findMany({
-      where: { organizationId, historyId },
-      orderBy: [{ action: 'asc' }, { createdAt: 'asc' }],
-      take: limit,
-    });
   }
 }

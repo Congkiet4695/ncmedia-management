@@ -14,8 +14,9 @@ const CTX = { organizationName: 'HN Media', timezoneOffsetMinutes: 420 };
 
 const ORDER: OrderCreatedPayload = {
   tiktokOrderId: '577593225638089493',
+  sellerName: 'Nguyễn Minh Chinh',
   accountName: 'AZ_VTR_31',
-  shopName: 'AZ_VTR_31',
+  shopName: 'Sunday Crew',
   items: [
     {
       productName: 'Dolly Parton Signature Vintage Graphic Sweatshirt',
@@ -34,8 +35,13 @@ const ORDER: OrderCreatedPayload = {
 describe('formatTelegramMessage', () => {
   it('NEW ORDER — đủ các dòng từ dữ liệu thật, giờ theo UTC+7', () => {
     const text = formatTelegramMessage('ORDER_CREATED', ORDER, CTX);
-    expect(text).toContain('🆕 <b>NEW ORDER</b>');
-    expect(text).toContain('<b>Account:</b> AZ_VTR_31');
+    expect(text).toContain('🛒 <b>NEW ORDER</b>');
+    expect(text).toContain('<b>Seller:</b> Nguyễn Minh Chinh');
+    expect(text).toContain('<b>Shop:</b> Sunday Crew');
+    // Tài khoản TikTok khác tên shop ⇒ hiện thêm để phân biệt.
+    expect(text).toContain('<b>TikTok account:</b> AZ_VTR_31');
+    // Seller / Shop đứng TRƯỚC Order ID.
+    expect(text.indexOf('Seller:')).toBeLessThan(text.indexOf('Order ID:'));
     expect(text).toContain('<code>577593225638089493</code>');
     expect(text).toContain('Dolly Parton Signature Vintage Graphic Sweatshirt');
     expect(text).toContain('<b>Variant:</b> M / Dark Heather');
@@ -44,8 +50,26 @@ describe('formatTelegramMessage', () => {
     expect(text).toContain('29/09/2026 10:00 (UTC+7)');
     expect(text).toContain('<b>Fulfillment:</b> Mango');
     expect(text).toContain('<b>Organization:</b> HN Media');
-    // Shop trùng tên account ⇒ không lặp dòng.
-    expect(text).not.toContain('Shop:');
+  });
+
+  it('NEW ORDER — shop trùng tên tài khoản ⇒ không lặp dòng; chưa gán seller ⇒ "Not assigned"', () => {
+    const text = formatTelegramMessage('ORDER_CREATED', { ...ORDER, shopName: 'AZ_VTR_31', sellerName: null }, CTX);
+    expect(text).toContain('<b>Seller:</b> Not assigned');
+    expect(text).toContain('<b>Shop:</b> AZ_VTR_31');
+    expect(text).not.toContain('TikTok account:');
+  });
+
+  it('NEW ORDER — sự kiện ghi trước khi có trường seller ⇒ bỏ dòng Seller, không đoán', () => {
+    const { sellerName: _omit, ...legacy } = ORDER;
+    void _omit;
+    const text = formatTelegramMessage('ORDER_CREATED', legacy, CTX);
+    expect(text).not.toContain('Seller:');
+    expect(text).toContain('<b>Shop:</b> Sunday Crew');
+  });
+
+  it('NEW ORDER — không chứa thông tin nhạy cảm người mua (payload không mang các trường đó)', () => {
+    const text = formatTelegramMessage('ORDER_CREATED', ORDER, CTX);
+    expect(text).not.toMatch(/address|phone|email|token/i);
   });
 
   it('NEW ORDER nhiều sản phẩm ⇒ danh sách đánh số kèm Variant / Qty', () => {
@@ -96,9 +120,12 @@ describe('formatTelegramMessage', () => {
     expect(text.length).toBeLessThanOrEqual(4096);
   });
 
-  it('ORDER FULFILLED — giá vốn đã xác nhận + production line / shipping / tracking', () => {
+  it('FULFILL SUCCESS — Seller / Shop / Provider / giá vốn đã xác nhận / Status', () => {
     const payload: FulfillmentSubmittedPayload = {
       tiktokOrderId: '5775',
+      sellerName: 'Nguyễn Minh Chinh',
+      shopName: 'Sunday Crew',
+      status: 'SUBMITTED',
       accountName: 'AZ_VTR_31',
       items: ORDER.items,
       provider: 'MangoTeePrints',
@@ -114,8 +141,12 @@ describe('formatTelegramMessage', () => {
       fulfilledAt: '2026-09-29T03:00:00.000Z',
     };
     const text = formatTelegramMessage('FULFILLMENT_SUBMITTED', payload, CTX);
-    expect(text).toContain('✅ <b>ORDER FULFILLED</b>');
-    expect(text).toContain('MangoTeePrints (Mango US)');
+    expect(text).toContain('📦 <b>FULFILL SUCCESS</b>');
+    expect(text).toContain('<b>Seller:</b> Nguyễn Minh Chinh');
+    expect(text).toContain('<b>Shop:</b> Sunday Crew');
+    expect(text).toContain('<b>Provider:</b> MangoTeePrints (Mango US)');
+    expect(text).toContain('<b>Status:</b> Submitted');
+    expect(text).toContain('<b>Time:</b> 29/09/2026 10:00');
     expect(text).toContain('<code>MG-123</code>');
     expect(text).toContain('$10.70');
     expect(text).toContain('<b>Production line:</b> TIKTOK');
@@ -149,9 +180,10 @@ describe('formatTelegramMessage', () => {
     expect(text).toContain('<code>5775</code>');
   });
 
-  it('FULFILLMENT CANCELLED — kèm lý do', () => {
+  it('FULFILL CANCELLED — Seller / Shop / Provider / Status / người huỷ / lý do', () => {
     const payload: FulfillmentCancelledPayload = {
       tiktokOrderId: '5775',
+      shopName: 'Sunday Crew',
       accountName: 'AZ_VTR_31',
       items: [],
       provider: 'MangoTeePrints',
@@ -164,8 +196,9 @@ describe('formatTelegramMessage', () => {
       cancelledBy: 'Seller Lan',
     };
     const text = formatTelegramMessage('FULFILLMENT_CANCELLED', payload, CTX);
-    expect(text).toContain('❌ <b>FULFILLMENT CANCELLED</b>');
-    expect(text).toContain('<b>Fulfillment Provider:</b> MangoTeePrints');
+    expect(text).toContain('↩️ <b>FULFILL CANCELLED</b>');
+    expect(text).toContain('<b>Shop:</b> Sunday Crew');
+    expect(text).toContain('<b>Provider:</b> MangoTeePrints');
     expect(text).toContain('29/09/2026 10:30');
     expect(text).toContain('<b>Reason:</b> Khách huỷ');
     expect(text).toContain('<b>Seller:</b> Seller Lan');

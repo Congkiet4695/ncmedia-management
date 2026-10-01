@@ -22,6 +22,8 @@ export interface NotificationOrderItem {
 /** NEW ORDER — đơn vừa được INSERT lần đầu. */
 export interface OrderCreatedPayload {
   tiktokOrderId: string;
+  /** Seller phụ trách (Order → TikTok Account → Employee → User). NULL = chưa gán; thiếu = sự kiện cũ. */
+  sellerName?: string | null;
   accountName: string | null;
   shopName: string | null;
   items: NotificationOrderItem[];
@@ -39,6 +41,10 @@ export interface OrderCreatedPayload {
 /** Thông tin chung của một đơn fulfillment trong tin nhắn. */
 interface FulfillmentPayloadBase {
   tiktokOrderId: string;
+  /** Seller phụ trách TikTok Account của đơn. NULL = chưa gán; thiếu = sự kiện ghi trước bản này. */
+  sellerName?: string | null;
+  /** Tên shop TikTok của đơn. Thiếu = sự kiện ghi trước bản này. */
+  shopName?: string | null;
   accountName: string | null;
   items: NotificationOrderItem[];
   /** Nhãn nhà cung cấp (MangoTeePrints, Sellerwix…). */
@@ -60,14 +66,14 @@ export interface FulfillmentSubmittedPayload extends FulfillmentPayloadBase {
   productionLine: string | null;
   shippingMethod: string | null;
   fulfilledAt: string | null;
+  /** Trạng thái fulfillment lúc phát (SUBMITTED, IN_PRODUCTION…). Thiếu = sự kiện cũ ⇒ "Submitted". */
+  status?: string;
 }
 
 /** FULFILLMENT CANCELLED — nhà cung cấp đã XÁC NHẬN huỷ. */
 export interface FulfillmentCancelledPayload extends FulfillmentPayloadBase {
   cancelledAt: string | null;
   reason: string | null;
-  /** Seller phụ trách kết nối TikTok của đơn (nếu có). Tuỳ chọn: sự kiện ghi trước bản này không có. */
-  sellerName?: string | null;
   /** Người bấm Huỷ (họ tên, thiếu thì email). Tuỳ chọn: sự kiện ghi trước bản này không có. */
   cancelledBy?: string | null;
 }

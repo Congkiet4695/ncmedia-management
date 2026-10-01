@@ -15,12 +15,16 @@ import { PodPayoutMapper } from './mappers/pod-payout.mapper';
 import { PodTiktokAccountMapper } from './mappers/pod-tiktok-account.mapper';
 import { PodOrderController } from './pod-order.controller';
 import { PodPayoutController } from './pod-payout.controller';
+import { PodDashboardController } from './pod-dashboard.controller';
+import { PodDashboardRepository } from './repositories/pod-dashboard.repository';
+import { PodDashboardService } from './services/pod-dashboard.service';
 import { PodTiktokAccountController } from './pod-tiktok-account.controller';
 import { TiktokCallbackController } from './tiktok-callback.controller';
 import { PodOrderRepository } from './repositories/pod-order.repository';
 import { PodPayoutReportRepository } from './repositories/pod-payout-report.repository';
 import { PodPayoutRepository } from './repositories/pod-payout.repository';
-import { PodSyncLogRepository } from './repositories/pod-sync-log.repository';
+import { PodShopSyncStatusRepository } from './repositories/pod-shop-sync-status.repository';
+import { PodShopSyncStatusService } from './services/pod-shop-sync-status.service';
 import { PodTiktokAccountRepository } from './repositories/pod-tiktok-account.repository';
 import { PodTiktokOAuthStateRepository } from './repositories/pod-tiktok-oauth-state.repository';
 import { PodTiktokShopSyncRepository } from './repositories/pod-tiktok-shop-sync.repository';
@@ -67,8 +71,12 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     PodTiktokAccountController,
     PodOrderController,
     PodPayoutController,
+    PodDashboardController,
   ],
   providers: [
+    // Dashboard quản trị (Hold · shop · đơn · tài chính · seller · xu hướng) — tổng hợp SQL.
+    PodDashboardRepository,
+    PodDashboardService,
     // Sprint 1 — Link Account (luồng OAuth tự động)
     PodTiktokAccountService,
     PodTiktokOAuthService,
@@ -92,7 +100,9 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     PodTiktokTokenService,
     PodTiktokShopContextService,
     PodOrderRepository,
-    PodSyncLogRepository,
+    // Latest Sync Status — MỘT dòng mỗi (tổ chức, shop, loại đồng bộ); dùng chung cho đơn và sản phẩm.
+    PodShopSyncStatusRepository,
+    PodShopSyncStatusService,
     PodOrderMapper,
     PodOrderResponseMapper,
     PodOrderSyncJob,
@@ -120,6 +130,9 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     // nguồn sự thật này, thay vì mỗi nơi tự viết một phép lọc riêng.
     PodAccessScopeService,
     PodScopeGuard,
+    // Trạng thái đồng bộ gần nhất — module Product ghi/đọc qua đây (không tự giữ bảng lịch sử riêng).
+    PodShopSyncStatusRepository,
+    PodShopSyncStatusService,
     // Hạ tầng để các Sprint sau (POD Detail, Fulfillment, Webhook) tái sử dụng.
     TiktokSignatureService,
     TiktokHttpService,

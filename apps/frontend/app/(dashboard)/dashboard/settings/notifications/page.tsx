@@ -3,6 +3,7 @@
 import { useTranslation } from 'react-i18next';
 import { RequirePermission } from '@/components/require-permission';
 import { NotificationEventsTable } from '@/features/notification/components/notification-events-table';
+import { NotificationPreferencesCard } from '@/features/notification/components/notification-preferences-card';
 import { TelegramConfigCard } from '@/features/notification/components/telegram-config-card';
 
 /**
@@ -19,6 +20,7 @@ export default function NotificationSettingsPage() {
           <p className="text-sm text-muted-foreground">{t('pageDescription')}</p>
         </div>
         <TelegramConfigCard />
+        <NotificationPreferencesCard />
         <NotificationEventsTable />
       </div>
     </RequirePermission>

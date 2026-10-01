@@ -203,6 +203,8 @@ export class FulfillmentCatalogSyncService {
     accountId: string,
     trigger: FulfillmentTrigger,
     actorUserId?: string,
+    /** Chạy SAU khi đồng bộ xong (vd rà lại ánh xạ tự động) — lỗi ở đây chỉ ghi log. */
+    afterSync?: () => Promise<unknown>,
   ): Promise<CatalogSyncStarted> {
     const account = await this.repo.findOwnedAccountById(organizationId, accountId);
     if (!account) throw new FulfillmentAccountNotFoundException();
@@ -213,17 +215,42 @@ export class FulfillmentCatalogSyncService {
     const startedAt = new Date();
     const logId = await this.startSyncLog(scope, trigger, startedAt, actorUserId);
 
-    void this.runLocked(lock, scope, account, trigger, startedAt, logId).catch((error: unknown) => {
-      // Kết quả/lỗi đã nằm trong nhật ký đồng bộ — ở đây chỉ chặn promise nền văng ra ngoài.
-      this.logger.error({
-        module: 'fulfillment',
-        operation: 'catalog.sync.background',
-        accountId: account.id,
-        msg: `Đồng bộ nền thất bại: ${(error as Error).message}`,
+    void this.runLocked(lock, scope, account, trigger, startedAt, logId)
+      .then(() => afterSync?.())
+      .catch((error: unknown) => {
+        // Kết quả/lỗi đã nằm trong nhật ký đồng bộ — ở đây chỉ chặn promise nền văng ra ngoài.
+        this.logger.error({
+          module: 'fulfillment',
+          operation: 'catalog.sync.background',
+          accountId: account.id,
+          msg: `Đồng bộ nền thất bại: ${(error as Error).message}`,
+        });
       });
-    });
 
     return { accountId: account.id, provider: account.provider, status: CATALOG_SYNC_STATUS.RUNNING, startedAt: startedAt.toISOString() };
+  }
+
+  /**
+   * Trạng thái HIỂN THỊ của lượt đồng bộ gần nhất.
+   *
+   * 🔴 Nhật ký RUNNING chưa chắc còn chạy: tiến trình chết giữa chừng (deploy / restart / OOM) để lại
+   * dòng RUNNING mãi mãi. Lượt đang chạy thật LUÔN giữ khoá (gia hạn mỗi 2 phút, TTL 10 phút) ⇒ khoá
+   * không còn ⇒ lượt đó đã chết ⇒ INTERRUPTED — giao diện hiện lại nút đồng bộ ngay, không phải chờ
+   * mốc 3 giờ. Không đọc được Redis ⇒ rơi về quy tắc thời gian cũ.
+   */
+  async effectiveSyncStatus(
+    accountId: string,
+    latest: { status: string; startedAt: Date } | null,
+  ): Promise<string | null> {
+    if (!latest) return null;
+    if (latest.status !== CATALOG_SYNC_STATUS.RUNNING) return latest.status;
+    if (Date.now() - latest.startedAt.getTime() > CATALOG_SYNC_STALE_MS) return CATALOG_SYNC_STATUS.INTERRUPTED;
+    try {
+      const held = await this.locks.isHeld(`${CATALOG_SYNC_LOCK_PREFIX}${accountId}`);
+      return held ? CATALOG_SYNC_STATUS.RUNNING : CATALOG_SYNC_STATUS.INTERRUPTED;
+    } catch {
+      return CATALOG_SYNC_STATUS.RUNNING;
+    }
   }
 
   /** Chạy một lượt đã giữ khoá: đọc + ghi danh mục, chốt nhật ký, nhả khoá. */

@@ -41,6 +41,7 @@ function build() {
     findById: jest.fn().mockResolvedValue({
       tiktokOrderId: 'TT-1',
       account: { accountName: 'AZ_VTR_31', seller: { user: { fullName: 'Seller Lan' } } },
+      shop: { name: 'Sunday Crew' },
       items: [
         { id: 'li-1', skuId: 's1', sellerSku: 'SKU1', productName: 'Tee', skuName: 'M / Black' },
         { id: 'li-2', skuId: 's1', sellerSku: 'SKU1', productName: 'Tee', skuName: 'M / Black' },
@@ -74,6 +75,10 @@ describe('FulfillmentNotificationService', () => {
         // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment
         payload: expect.objectContaining({
           tiktokOrderId: 'TT-1',
+          // Seller / Shop lấy từ quan hệ thật của đơn (Order → Account → Seller; Order → Shop).
+          sellerName: 'Seller Lan',
+          shopName: 'Sunday Crew',
+          status: 'SUBMITTED',
           accountName: 'AZ_VTR_31',
           provider: 'MangoTeePrints',
           fulfilledBy: 'Mango US',
@@ -121,6 +126,7 @@ describe('FulfillmentNotificationService', () => {
     expect(repo.findUserDisplayName).toHaveBeenCalledWith(ORG, 'seller-1');
     expect(outbox.publish.mock.calls[0][0].payload).toMatchObject({
       sellerName: 'Seller Lan',
+      shopName: 'Sunday Crew',
       cancelledBy: 'Seller Lan',
     });
     expect(outbox.publish).toHaveBeenCalledWith(

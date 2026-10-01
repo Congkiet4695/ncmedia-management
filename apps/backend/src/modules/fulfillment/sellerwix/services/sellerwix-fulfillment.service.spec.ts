@@ -859,7 +859,7 @@ describe('SellerwixFulfillmentService.shippingMethods', () => {
     expect(result.options).toEqual([
       {
         value: 'UPS Mail Innovations Expedited',
-        label: 'UPS Mail Innovations Expedited · MI · domestic',
+        label: 'UPS Mail Innovations Expedited · MI',
       },
     ]);
     expect(result.warnings).toEqual([]);
@@ -927,7 +927,8 @@ describe('SellerwixFulfillmentService.cancel — hỏi trạng thái THẬT trư
 
     expect(h.cancelOrder).toHaveBeenCalledWith(expect.anything(), 'swx-order-1', { reason: 'khách huỷ' });
     expect(h.record.status).toBe(FulfillmentStatus.CANCELLED);
-    expect(h.repo.addHistory).toHaveBeenCalledWith(
+    // Audit: truy vết được Seller nào đã huỷ, với vai trò gì, vì sao.
+    expect(h.histories).toContainEqual(
       expect.objectContaining({
         eventType: 'CANCEL_REQUEST',
         performedBy: USER,

@@ -117,27 +117,16 @@ function MappingView() {
   };
 
   /**
-   * Kéo danh mục nhà cung cấp về Database.
-   *
-   * Đây là tác vụ DÀI (hàng nghìn lời gọi API), nên phải báo kết quả cụ thể chứ không chỉ
-   * "thành công": `complete = false` nghĩa là đọc thiếu, và người vận hành cần biết để chạy
-   * lại thay vì tin rằng danh mục đã đầy đủ.
+   * Kéo danh mục nhà cung cấp về Database — backend chạy NỀN (danh mục lớn mất hàng chục phút, chạy
+   * trong request thì trình duyệt hết thời gian chờ). Tiến trình hiện ở `CatalogSyncNotice` trong
+   * dialog; danh sách tự làm mới khi xong.
    */
   const handleSyncCatalog = async (accountId: string) => {
     try {
-      const result = await actions.syncCatalog.mutateAsync(accountId);
-      const description = t('mapping.syncCatalogSummary', {
-        catalogues: result.catalogues,
-        products: result.products,
-        variants: result.variants,
+      await actions.syncCatalog.mutateAsync(accountId);
+      toast.info(t('fulfillment:catalogSync.started'), {
+        description: t('fulfillment:catalogSync.startedHint'),
       });
-      if (result.complete) {
-        toast.success(t('mapping.syncCatalogSuccess'), { description });
-      } else {
-        toast.warning(t('mapping.syncCatalogPartial'), {
-          description: `${description} — ${result.warnings[0] ?? ''}`,
-        });
-      }
     } catch (error) {
       toast.error(t('mapping.syncCatalogFailed'), { description: translateApiError(error) });
     }

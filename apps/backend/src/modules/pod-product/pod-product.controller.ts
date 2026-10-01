@@ -28,16 +28,18 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import {
   PodProductQueryDto,
-  PodProductSyncHistoryQueryDto,
   TriggerProductSyncDto,
 } from './dto/pod-product-query.dto';
 import {
   PaginatedPodProductResponseDto,
-  PaginatedPodProductSyncHistoryDto,
   PodProductDetailDto,
   PodProductSyncResultDto,
 } from './dto/pod-product-response.dto';
 import { PodScope } from '../pod-tiktok/decorators/pod-scope.decorator';
+import {
+  PodShopSyncStatusListDto,
+  PodShopSyncStatusQueryDto,
+} from '../pod-tiktok/dto/pod-shop-sync-status.dto';
 import { PodScopeGuard } from '../pod-tiktok/guards/pod-scope.guard';
 import type { PodAccessScope } from '../pod-tiktok/services/pod-access-scope.service';
 import { PodProductEditService } from './services/pod-product-edit.service';
@@ -97,7 +99,7 @@ export class PodProductController {
     return this.service.findAll(user.organizationId, query, scope);
   }
 
-  /** Đặt TRƯỚC `:id` — nếu không, "filters" và "sync-history" bị route `:id` bắt nhầm. */
+  /** Đặt TRƯỚC `:id` — nếu không, "filters" và "sync-status" bị route `:id` bắt nhầm. */
   @Get('filters')
   @RequirePermissions('pod.product.read')
   @ApiOperation({
@@ -108,16 +110,21 @@ export class PodProductController {
     return this.service.findFilterOptions(user.organizationId, scope);
   }
 
-  @Get('sync-history')
+  @Get('sync-status')
   @RequirePermissions('pod.product.read')
-  @ApiOperation({ summary: 'Lịch sử các lượt đồng bộ sản phẩm' })
-  @ApiOkResponse({ type: PaginatedPodProductSyncHistoryDto })
-  findSyncHistory(
+  @ApiOperation({
+    summary: 'Latest Sync Status — trạng thái lần đồng bộ SẢN PHẨM gần nhất của từng shop',
+    description:
+      'Tối đa MỘT dòng mỗi shop (không phải lịch sử). Admin thấy mọi shop của tổ chức; ' +
+      'Seller chỉ thấy shop được gán.',
+  })
+  @ApiOkResponse({ type: PodShopSyncStatusListDto })
+  findSyncStatus(
     @CurrentUser() user: AuthenticatedUser,
     @PodScope() scope: PodAccessScope,
-    @Query() query: PodProductSyncHistoryQueryDto,
-  ): Promise<PaginatedPodProductSyncHistoryDto> {
-    return this.service.findSyncHistories(user.organizationId, query, scope);
+    @Query() query: PodShopSyncStatusQueryDto,
+  ): Promise<PodShopSyncStatusListDto> {
+    return this.service.findSyncStatus(user.organizationId, query, scope);
   }
 
   @Post('sync')

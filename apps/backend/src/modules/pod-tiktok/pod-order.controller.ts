@@ -24,10 +24,10 @@ import { RequirePermissions } from '../auth/decorators/require-permissions.decor
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
-import { PodOrderQueryDto, PodSyncLogQueryDto, TriggerSyncDto } from './dto/pod-order-query.dto';
+import { PodOrderQueryDto, TriggerSyncDto } from './dto/pod-order-query.dto';
+import { PodShopSyncStatusListDto, PodShopSyncStatusQueryDto } from './dto/pod-shop-sync-status.dto';
 import {
   PaginatedPodOrderResponseDto,
-  PaginatedPodSyncLogResponseDto,
   PodOrderResponseDto,
   PodOrderStatsDto,
   PodSyncTriggerResultDto,
@@ -110,16 +110,21 @@ export class PodOrderController {
     return this.service.triggerSync(user.organizationId, user.userId, dto);
   }
 
-  @Get('sync-logs')
+  @Get('sync-status')
   @RequirePermissions('pod.tiktok.order.read')
-  @ApiOperation({ summary: 'Nhật ký đồng bộ (Sync History)' })
-  @ApiOkResponse({ type: PaginatedPodSyncLogResponseDto })
-  findSyncLogs(
+  @ApiOperation({
+    summary: 'Latest Sync Status — trạng thái lần đồng bộ ĐƠN gần nhất của từng shop',
+    description:
+      'Tối đa MỘT dòng mỗi shop (không phải lịch sử). Admin thấy mọi shop của tổ chức; ' +
+      'Seller chỉ thấy shop được gán.',
+  })
+  @ApiOkResponse({ type: PodShopSyncStatusListDto })
+  findSyncStatus(
     @CurrentUser() user: AuthenticatedUser,
     @PodScope() scope: PodAccessScope,
-    @Query() query: PodSyncLogQueryDto,
-  ): Promise<PaginatedPodSyncLogResponseDto> {
-    return this.service.findSyncLogs(user.organizationId, query, scope);
+    @Query() query: PodShopSyncStatusQueryDto,
+  ): Promise<PodShopSyncStatusListDto> {
+    return this.service.findSyncStatus(user.organizationId, query, scope);
   }
 
   // Đặt CUỐI để `orders/stats` và `orders/sync` không bị `:id` bắt nhầm.

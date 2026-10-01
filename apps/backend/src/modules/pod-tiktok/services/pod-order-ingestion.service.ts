@@ -31,6 +31,7 @@ export interface IngestionResult {
 
 /** Ngữ cảnh thông báo NEW ORDER của một lô — `null` ⇒ lô này không phát thông báo. */
 interface NewOrderNotifyContext {
+  sellerName: string | null;
   accountName: string | null;
   shopName: string | null;
   fulfillmentProvider: string | null;
@@ -192,13 +193,13 @@ export class PodOrderIngestionService {
   ): Promise<NewOrderNotifyContext | null> {
     if (createCount === 0 || ctx.source === 'BACKFILL') return null;
     try {
-      if (!(await this.notifications.isEnabled(ctx.organizationId))) return null;
+      if (!(await this.notifications.isEnabled(ctx.organizationId, 'ORDER_CREATED'))) return null;
       const context = await this.repo.findNotificationContext(
         ctx.organizationId,
         ctx.accountId,
         ctx.shopId,
       );
-      return context ?? { accountName: null, shopName: null, fulfillmentProvider: null };
+      return context ?? { sellerName: null, accountName: null, shopName: null, fulfillmentProvider: null };
     } catch (error) {
       this.logger.warn({
         module: 'pod-tiktok',
@@ -261,6 +262,7 @@ export class PodOrderIngestionService {
       entityId: orderId,
       payload: {
         tiktokOrderId: mapped.tiktokOrderId,
+        sellerName: notify.sellerName,
         accountName: notify.accountName,
         shopName: notify.shopName,
         items: groupOrderLines(

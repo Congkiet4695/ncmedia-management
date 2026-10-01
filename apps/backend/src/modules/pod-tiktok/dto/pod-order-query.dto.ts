@@ -2,7 +2,6 @@ import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
-  IsEnum,
   IsIn,
   IsInt,
   IsISO8601,
@@ -13,7 +12,6 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { PodSyncStatus, PodSyncTrigger } from '@prisma/client';
 import { TIKTOK_ORDER_STATUSES } from '../constants/tiktok.constants';
 import { POD_DATE_PRESETS, type PodDatePreset } from '../utils/date-range.util';
 
@@ -163,44 +161,6 @@ export class PodOrderQueryDto {
   @IsOptional()
   @IsIn(['asc', 'desc'])
   sortOrder?: 'asc' | 'desc' = 'desc';
-}
-
-/** Query nhật ký đồng bộ. */
-export class PodSyncLogQueryDto {
-  @ApiPropertyOptional({ minimum: 1, default: 1 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page?: number = 1;
-
-  @ApiPropertyOptional({ minimum: 1, maximum: 100, default: 20 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number = 20;
-
-  @ApiPropertyOptional({ format: 'uuid' })
-  @IsOptional()
-  @IsUUID()
-  shopId?: string;
-
-  @ApiPropertyOptional({ format: 'uuid' })
-  @IsOptional()
-  @IsUUID()
-  accountId?: string;
-
-  @ApiPropertyOptional({ enum: PodSyncStatus })
-  @IsOptional()
-  @IsEnum(PodSyncStatus)
-  status?: PodSyncStatus;
-
-  @ApiPropertyOptional({ enum: PodSyncTrigger })
-  @IsOptional()
-  @IsEnum(PodSyncTrigger)
-  trigger?: PodSyncTrigger;
 }
 
 /** Body của trigger đồng bộ thủ công. */

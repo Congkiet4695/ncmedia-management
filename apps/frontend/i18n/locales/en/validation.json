@@ -106,6 +106,7 @@
     "TELEGRAM_CONFIG_NOT_FOUND": "Telegram is not configured for this organization.",
     "TELEGRAM_TEST_RATE_LIMITED": "Too many test messages. Please wait a minute.",
     "NOTIFICATION_EVENT_NOT_FOUND": "Notification not found.",
-    "NOTIFICATION_EVENT_NOT_RETRYABLE": "Only failed or skipped notifications can be resent."
+    "NOTIFICATION_EVENT_NOT_RETRYABLE": "Only failed or skipped notifications can be resent.",
+    "DASHBOARD_RANGE_INVALID": "Invalid date range (max 366 days, start ≤ end)."
   }
 }

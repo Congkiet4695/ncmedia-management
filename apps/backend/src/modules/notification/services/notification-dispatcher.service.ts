@@ -18,6 +18,11 @@ import {
   EventResult,
   NotificationEventRepository,
 } from '../repositories/notification-event.repository';
+import {
+  allowsEvent,
+  type NotificationPreferences,
+  NotificationPreferenceRepository,
+} from '../repositories/notification-preference.repository';
 import { TelegramConfigRepository } from '../repositories/telegram-config.repository';
 import type { NotificationPayloadMap } from '../types/notification-payload.types';
 import { NotificationEncryptionService } from './notification-encryption.service';
@@ -44,6 +49,8 @@ interface OrgChannel {
   config: OrganizationTelegramConfig | null;
   botToken: string | null;
   organizationName: string | null;
+  /** Loại thông báo tổ chức đang bật (đọc lại LÚC GỬI — tắt sau khi đã ghi sự kiện vẫn có hiệu lực). */
+  preferences: NotificationPreferences | null;
   /** Lỗi cấu hình dùng chung cho mọi sự kiện của tổ chức trong lượt này (vd thiếu khoá mã hoá). */
   blocked: { status: NotificationEventStatus; code: string; message: string } | null;
   /** Telegram đang giới hạn tần suất chat này tới thời điểm này. */
@@ -86,6 +93,7 @@ export class NotificationDispatcherService {
     private readonly configs: TelegramConfigRepository,
     private readonly telegram: TelegramBotClient,
     private readonly encryption: NotificationEncryptionService,
+    private readonly preferences: NotificationPreferenceRepository,
   ) {}
 
   /**
@@ -156,6 +164,7 @@ export class NotificationDispatcherService {
       config,
       botToken: null,
       organizationName: null,
+      preferences: null,
       blocked: null,
       rateLimitedUntil: null,
     };
@@ -186,6 +195,7 @@ export class NotificationDispatcherService {
       return channel;
     }
     channel.organizationName = await this.configs.findOrganizationName(organizationId);
+    channel.preferences = await this.preferences.find(organizationId);
     return channel;
   }
 
@@ -203,6 +213,16 @@ export class NotificationDispatcherService {
         status: channel.blocked.status,
         lastErrorCode: channel.blocked.code,
         errorMessage: channel.blocked.message,
+      }, summary);
+      return;
+    }
+
+    // Tổ chức đã TẮT loại thông báo này ⇒ bỏ qua, không gọi Telegram.
+    if (channel.preferences && !allowsEvent(channel.preferences, event.eventType)) {
+      await this.complete(event, lockToken, channel, {
+        status: NotificationEventStatus.SKIPPED,
+        lastErrorCode: NOTIFICATION_ERROR_CODES.CATEGORY_DISABLED,
+        errorMessage: 'Tổ chức đã tắt loại thông báo này trong Cài đặt thông báo',
       }, summary);
       return;
     }

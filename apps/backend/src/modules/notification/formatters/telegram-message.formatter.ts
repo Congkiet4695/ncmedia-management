@@ -52,10 +52,9 @@ export function formatTelegramMessage<K extends NotificationEventType>(
 function orderCreatedLines(payload: OrderCreatedPayload, context: MessageContext): string[] {
   if (!payload?.tiktokOrderId) throw new Error('Payload ORDER_CREATED thiếu tiktokOrderId');
   return [
-    '🆕 <b>NEW ORDER</b>',
+    '🛒 <b>NEW ORDER</b>',
     '',
-    ...field('🏪', 'Account', payload.accountName),
-    ...field('🛍', 'Shop', payload.shopName !== payload.accountName ? payload.shopName : null),
+    ...partyLines(payload),
     ...field('🆔', 'Order ID', payload.tiktokOrderId, true),
     ...itemLines(payload.items, true),
     ...field('💰', 'Total', formatMoney(payload.totalAmount, payload.currency)),
@@ -70,13 +69,13 @@ function fulfillmentSubmittedLines(
 ): string[] {
   if (!payload?.tiktokOrderId) throw new Error('Payload FULFILLMENT_SUBMITTED thiếu tiktokOrderId');
   return [
-    '✅ <b>ORDER FULFILLED</b>',
+    '📦 <b>FULFILL SUCCESS</b>',
     '',
-    ...field('🏪', 'Account', payload.accountName),
+    ...partyLines(payload),
     ...field('🆔', 'Order ID', payload.tiktokOrderId, true),
-    ...itemLines(payload.items, false),
-    ...field('🏭', 'Fulfillment Provider', providerLabel(payload.provider, payload.fulfilledBy)),
+    ...field('🏭', 'Provider', providerLabel(payload.provider, payload.fulfilledBy)),
     ...field('🔖', 'Provider Order ID', payload.providerOrderId ?? payload.externalOrderId, true),
+    ...itemLines(payload.items, false),
     ...field(
       '💵',
       'Base Cost',
@@ -87,7 +86,8 @@ function fulfillmentSubmittedLines(
     ...field('🏗', 'Production line', payload.productionLine),
     ...field('🚚', 'Shipping method', payload.shippingMethod),
     ...field('📮', 'Tracking', payload.trackingNumber, true),
-    ...field('📅', 'Fulfilled at', formatDateTime(payload.fulfilledAt, context.timezoneOffsetMinutes)),
+    ...field('📌', 'Status', payload.status ? statusLabel(payload.status) : 'Submitted'),
+    ...field('📅', 'Time', formatDateTime(payload.fulfilledAt, context.timezoneOffsetMinutes)),
   ];
 }
 
@@ -97,19 +97,38 @@ function fulfillmentCancelledLines(
 ): string[] {
   if (!payload?.tiktokOrderId) throw new Error('Payload FULFILLMENT_CANCELLED thiếu tiktokOrderId');
   return [
-    '❌ <b>FULFILLMENT CANCELLED</b>',
+    '↩️ <b>FULFILL CANCELLED</b>',
     '',
-    ...field('🏪', 'Account', payload.accountName),
-    ...field('🧑‍💼', 'Seller', payload.sellerName),
+    ...partyLines(payload),
     ...field('🆔', 'Order ID', payload.tiktokOrderId, true),
-    ...itemLines(payload.items, false),
-    ...field('🏭', 'Fulfillment Provider', providerLabel(payload.provider, payload.fulfilledBy)),
+    ...field('🏭', 'Provider', providerLabel(payload.provider, payload.fulfilledBy)),
     ...field('🔖', 'Provider Order ID', payload.providerOrderId ?? payload.externalOrderId, true),
+    ...itemLines(payload.items, false),
     ...field('📌', 'Status', 'Cancelled'),
     ...field('🙋', 'Cancelled by', payload.cancelledBy),
-    ...field('📅', 'Cancelled at', formatDateTime(payload.cancelledAt, context.timezoneOffsetMinutes)),
     ...field('📝', 'Reason', payload.reason),
+    ...field('📅', 'Time', formatDateTime(payload.cancelledAt, context.timezoneOffsetMinutes)),
   ];
+}
+
+/**
+ * Seller + Shop — BẮT BUỘC có trong mọi tin. Seller `null` (kết nối TikTok chưa gán seller) ⇒ ghi rõ
+ * "Not assigned"; `undefined` (sự kiện ghi trước khi có trường này) ⇒ bỏ dòng, không đoán.
+ * Tài khoản TikTok chỉ hiện thêm khi tên khác tên shop.
+ */
+function partyLines(payload: { sellerName?: string | null; shopName?: string | null; accountName: string | null }): string[] {
+  const shop = payload.shopName ?? payload.accountName;
+  return [
+    ...(payload.sellerName === undefined ? [] : field('👤', 'Seller', payload.sellerName ?? 'Not assigned')),
+    ...field('🏪', 'Shop', shop),
+    ...field('🔗', 'TikTok account', payload.accountName && payload.accountName !== shop ? payload.accountName : null),
+  ];
+}
+
+/** `SUBMITTED` → `Submitted`, `IN_PRODUCTION` → `In production`. */
+function statusLabel(status: string): string {
+  const text = status.toLowerCase().replace(/_/g, ' ');
+  return text.charAt(0).toUpperCase() + text.slice(1);
 }
 
 /** `🏭 Fulfillment Provider: Mango (Mango US)` — nhà cung cấp + tài khoản thực nhận đơn. */

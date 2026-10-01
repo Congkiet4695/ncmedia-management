@@ -6,9 +6,14 @@ import {
   Optional,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PodProductSyncStatus, PodProductSyncTrigger, Prisma } from '@prisma/client';
+import { PodProductSyncStatus, PodProductSyncTrigger, PodShopSyncType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { DistributedLockService } from '../../pod-tiktok/infra/distributed-lock.service';
+import type {
+  PodShopSyncStatusListDto,
+  PodShopSyncStatusQueryDto,
+} from '../../pod-tiktok/dto/pod-shop-sync-status.dto';
+import { PodShopSyncStatusService } from '../../pod-tiktok/services/pod-shop-sync-status.service';
 import {
   SHOP_CONNECTION_SELECT,
   connectionNameOf,
@@ -21,13 +26,11 @@ import {
 } from '../constants/pod-product.constants';
 import type {
   PaginatedPodProductResponseDto,
-  PaginatedPodProductSyncHistoryDto,
   PodProductDetailDto,
   PodProductSyncResultDto,
 } from '../dto/pod-product-response.dto';
 import type {
   PodProductQueryDto,
-  PodProductSyncHistoryQueryDto,
   TriggerProductSyncDto,
 } from '../dto/pod-product-query.dto';
 import {
@@ -79,6 +82,8 @@ export class PodProductService {
     private readonly accessScope: PodAccessScopeService,
     private readonly catalog: PodProductCatalogService,
     private readonly lock: DistributedLockService,
+    /** Latest Sync Status (PRODUCT) — đọc chung qua module POD TikTok. */
+    private readonly syncStatus: PodShopSyncStatusService,
     /** `tiktok.productSync.requestDeadlineMs` — đặt cuối + `@Optional()` cho test dựng bằng vị trí. */
     @Optional() config?: ConfigService,
   ) {
@@ -258,7 +263,6 @@ export class PodProductService {
         errorCode: item.errorCode ?? null,
         errorMessage: item.errorMessage ?? null,
       })),
-      historyIds: outcomes.map((item) => item.historyId).filter(Boolean),
     };
   }
 
@@ -285,30 +289,13 @@ export class PodProductService {
     return this.findOne(organizationId, id, scope);
   }
 
-  async findSyncHistories(
+  /** Latest Sync Status (sản phẩm) — một dòng mỗi shop trong phạm vi. */
+  findSyncStatus(
     organizationId: string,
-    query: PodProductSyncHistoryQueryDto,
+    query: PodShopSyncStatusQueryDto,
     scope: PodAccessScope,
-  ): Promise<PaginatedPodProductSyncHistoryDto> {
-    this.accessScope.assertShopAllowed(scope, query.shopId);
-    this.accessScope.assertAccountAllowed(scope, query.accountId);
-
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
-
-    const { items, total } = await this.syncRepo.findHistories(organizationId, {
-      page,
-      limit,
-      accountId: query.accountId,
-      shopId: query.shopId,
-      shopScope: this.accessScope.shopFilter(scope)?.in,
-      accountScope: this.accessScope.accountFilter(scope)?.in,
-    });
-
-    return {
-      items: items.map((item) => this.mapper.toSyncHistory(item)),
-      meta: { total, page, limit, totalPages: total === 0 ? 0 : Math.ceil(total / limit) },
-    };
+  ): Promise<PodShopSyncStatusListDto> {
+    return this.syncStatus.findLatest(organizationId, PodShopSyncType.PRODUCT, scope, query.shopId);
   }
 
   /**

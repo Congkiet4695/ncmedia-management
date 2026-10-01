@@ -284,32 +284,7 @@ export interface PodProductSyncResult {
   removedProducts: number;
   skippedInactiveShops: PodProductSyncSkippedShop[];
   errors: PodProductSyncShopError[];
-  historyIds: string[];
 }
-
-export interface PodProductSyncHistoryItem {
-  id: string;
-  scope: string;
-  trigger: string;
-  status: string;
-  shopName: string | null;
-  accountName: string | null;
-  productsFetched: number;
-  productsCreated: number;
-  productsUpdated: number;
-  productsSkipped: number;
-  productsFailed: number;
-  /** Số sản phẩm bị đánh dấu ngừng bán trong lượt (chỉ ở lượt quét toàn bộ). */
-  productsDeactivated: number;
-  apiCalls: number;
-  startedAt: string;
-  finishedAt: string | null;
-  durationMs: number | null;
-  errorCode: string | null;
-  errorMessage: string | null;
-}
-
-export type PodProductSyncHistoryResult = Paginated<PodProductSyncHistoryItem>;
 
 /**
  * Một dòng SKU trong bộ chọn Flash Sale (`GET /pod/products/variants`).

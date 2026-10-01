@@ -138,13 +138,20 @@ export class PodOrderRepository {
     organizationId: string,
     accountId: string,
     shopId: string,
-  ): Promise<{ accountName: string; shopName: string | null; fulfillmentProvider: string | null } | null> {
+  ): Promise<{
+    accountName: string;
+    shopName: string | null;
+    sellerName: string | null;
+    fulfillmentProvider: string | null;
+  } | null> {
     const account = await this.prisma.podTiktokAccount.findFirst({
       where: { id: accountId, organizationId },
       select: {
         accountName: true,
         fulfillmentAccount: { select: { name: true, deletedAt: true } },
         shops: { where: { id: shopId, organizationId }, select: { name: true } },
+        // Seller = Employee phụ trách kết nối (ADR-007: họ tên nằm ở User).
+        seller: { select: { deletedAt: true, user: { select: { fullName: true, email: true } } } },
       },
     });
     if (!account) return null;
@@ -152,6 +159,10 @@ export class PodOrderRepository {
     return {
       accountName: account.accountName,
       shopName: account.shops[0]?.name ?? null,
+      sellerName:
+        account.seller && !account.seller.deletedAt
+          ? account.seller.user?.fullName?.trim() || account.seller.user?.email || null
+          : null,
       fulfillmentProvider: provider && !provider.deletedAt ? provider.name : null,
     };
   }

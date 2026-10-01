@@ -41,6 +41,14 @@ export class DistributedLockService {
 
   constructor(private readonly redis: RedisService) {}
 
+  /**
+   * Khoá có đang được giữ không (CHỈ để hiển thị trạng thái — không dùng để quyết định giành khoá,
+   * việc đó luôn đi qua `acquire` nguyên tử).
+   */
+  async isHeld(key: string): Promise<boolean> {
+    return (await this.redis.client.exists(key)) === 1;
+  }
+
   /** Giành khoá. Trả `null` nếu đã có tiến trình khác giữ. */
   async acquire(key: string, ttlMs: number): Promise<AcquiredLock | null> {
     const fenceToken = randomUUID();

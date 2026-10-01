@@ -20,9 +20,11 @@ import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../../src/database/prisma.service';
 import { NotificationEventRepository } from '../../src/modules/notification/repositories/notification-event.repository';
 import { TelegramConfigRepository } from '../../src/modules/notification/repositories/telegram-config.repository';
+import { NotificationPreferenceRepository } from '../../src/modules/notification/repositories/notification-preference.repository';
 import { TelegramBotClient } from '../../src/modules/notification/clients/telegram-bot.client';
 import { NotificationEncryptionService } from '../../src/modules/notification/services/notification-encryption.service';
 import { NotificationDispatcherService } from '../../src/modules/notification/services/notification-dispatcher.service';
+import { NotificationOutboxService } from '../../src/modules/notification/services/notification-outbox.service';
 import type { NotificationEventInput } from '../../src/modules/notification/types/notification-payload.types';
 
 let pass = 0;
@@ -112,8 +114,9 @@ async function main(): Promise<void> {
   const events = new NotificationEventRepository(prisma);
   const configs = new TelegramConfigRepository(prisma);
   const encryption = new NotificationEncryptionService(config);
+  const preferences = new NotificationPreferenceRepository(prisma);
   const dispatcher = () =>
-    new NotificationDispatcherService(config, events, configs, new TelegramBotClient(config), encryption);
+    new NotificationDispatcherService(config, events, configs, new TelegramBotClient(config), encryption, preferences);
 
   const suffix = randomUUID().slice(0, 8);
   const orgA = await prisma.organization.create({ data: { name: `NotifTest A ${suffix}`, slug: `notif-a-${suffix}` } });
@@ -251,6 +254,27 @@ async function main(): Promise<void> {
     received.length = 0;
     await dispatcher().runOnce();
     check('sau khi sửa cấu hình: "Gửi lại tất cả lỗi" ⇒ gửi thành công', requeued === 2 && received.length === 2, { requeued, received: received.length });
+
+    console.log('\n[5b] Tuỳ chọn loại thông báo (DB thật)');
+    const outbox = new NotificationOutboxService(events, configs, dispatcher(), preferences);
+    check('chưa lưu tuỳ chọn ⇒ NEW ORDER + FULFILL đều bật', (await outbox.isEnabled(orgA.id, 'ORDER_CREATED')) && (await outbox.isEnabled(orgA.id, 'FULFILLMENT_SUBMITTED')));
+    await preferences.save(orgA.id, orgA.id, { newOrder: false, fulfillment: true });
+    check('A tắt New Order ⇒ không ghi ORDER_CREATED; FULFILL vẫn ghi', !(await outbox.isEnabled(orgA.id, 'ORDER_CREATED')) && (await outbox.isEnabled(orgA.id, 'FULFILLMENT_CANCELLED')));
+    check('tuỳ chọn của A KHÔNG ảnh hưởng B', await outbox.isEnabled(orgB.id, 'ORDER_CREATED'));
+    // Sự kiện đã ghi TRƯỚC khi tắt ⇒ worker bỏ qua lúc gửi.
+    const queuedBefore = orderEvent(orgA.id);
+    await events.enqueue([queuedBefore]);
+    received.length = 0;
+    await dispatcher().runOnce();
+    row = await prisma.notificationEvent.findFirst({ where: { entityId: queuedBefore.entityId } });
+    check('sự kiện NEW ORDER ghi trước khi tắt ⇒ SKIPPED lúc gửi, không gọi Telegram', row?.status === 'SKIPPED' && row.lastErrorCode === 'NOTIFICATION_CATEGORY_DISABLED' && received.length === 0, row);
+    await preferences.save(orgA.id, orgA.id, { newOrder: false, fulfillment: false });
+    await prisma.organizationTelegramConfig.update({ where: { organizationId: orgB.id }, data: { enabled: true } });
+    check('A tắt cả hai ⇒ không ghi loại nào', !(await outbox.isEnabled(orgA.id, 'ORDER_CREATED')) && !(await outbox.isEnabled(orgA.id, 'FULFILLMENT_SUBMITTED')));
+    await prisma.organizationTelegramConfig.update({ where: { organizationId: orgA.id }, data: { enabled: false } });
+    await preferences.save(orgA.id, orgA.id, { newOrder: true, fulfillment: true });
+    check('chưa bật / chưa cấu hình bot ⇒ không ghi dù tuỳ chọn bật', !(await outbox.isEnabled(orgA.id, 'ORDER_CREATED')));
+    await prisma.organizationTelegramConfig.update({ where: { organizationId: orgA.id }, data: { enabled: true } });
 
     console.log('\n[6] Tổ chức tắt Telegram');
     await prisma.organizationTelegramConfig.update({ where: { organizationId: orgB.id }, data: { enabled: false } });

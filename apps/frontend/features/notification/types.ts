@@ -24,6 +24,12 @@ export interface TelegramConfig {
   updatedAt: string | null;
 }
 
+/** Loại thông báo tổ chức muốn nhận — lưu riêng theo tổ chức, backend áp dụng khi ghi và khi gửi. */
+export interface NotificationPreferences {
+  newOrder: boolean;
+  fulfillment: boolean;
+}
+
 export interface SaveTelegramConfigInput {
   /** Bỏ trống khi cập nhật ⇒ giữ token cũ. */
   botToken?: string;

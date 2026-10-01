@@ -2,10 +2,14 @@
 
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { podOrderService } from '../services/pod-order.service';
-import type { PodOrderQuery, PodSyncLogQuery, TriggerSyncPayload } from '../order-types';
+import type { PodOrderQuery, PodShopSyncType, TriggerSyncPayload } from '../order-types';
 
 const POD_ORDERS_KEY = 'pod-tiktok-orders';
-const POD_SYNC_LOGS_KEY = 'pod-tiktok-sync-logs';
+/** Cache key của Latest Sync Status — module sản phẩm cũng làm mới theo key này sau Sync Now. */
+export const POD_SYNC_STATUS_KEY = 'pod-shop-sync-status';
+
+/** Nhịp tự làm mới khi còn shop đang RUNNING (ms). */
+const SYNC_STATUS_POLL_MS = 5_000;
 
 export function usePodOrders(query: PodOrderQuery) {
   return useQuery({
@@ -41,23 +45,28 @@ export function usePodOrderStats(query: PodOrderQuery = {}) {
   });
 }
 
-export function usePodSyncLogs(query: PodSyncLogQuery, enabled = true) {
+/**
+ * Latest Sync Status của một loại đồng bộ. Còn shop đang RUNNING ⇒ tự làm mới cho tới khi xong,
+ * để người dùng thấy kết quả mà không phải mở lại.
+ */
+export function useLatestSyncStatus(syncType: PodShopSyncType, enabled = true) {
   return useQuery({
-    queryKey: [POD_SYNC_LOGS_KEY, 'list', query],
-    queryFn: () => podOrderService.syncLogs(query),
-    placeholderData: keepPreviousData,
+    queryKey: [POD_SYNC_STATUS_KEY, syncType],
+    queryFn: () => podOrderService.syncStatus(syncType),
     enabled,
+    refetchInterval: (query) =>
+      query.state.data?.some((item) => item.status === 'RUNNING') ? SYNC_STATUS_POLL_MS : false,
   });
 }
 
-/** Sau khi đồng bộ xong phải làm mới cả danh sách đơn lẫn nhật ký. */
+/** Sau khi đồng bộ xong phải làm mới cả danh sách đơn lẫn trạng thái đồng bộ. */
 export function useTriggerPodSync() {
   const queryClient = useQueryClient();
   return useMutation({
     mutationFn: (payload: TriggerSyncPayload) => podOrderService.triggerSync(payload),
     onSuccess: () => {
       void queryClient.invalidateQueries({ queryKey: [POD_ORDERS_KEY] });
-      void queryClient.invalidateQueries({ queryKey: [POD_SYNC_LOGS_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [POD_SYNC_STATUS_KEY] });
     },
   });
 }

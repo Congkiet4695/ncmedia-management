@@ -106,6 +106,7 @@
     "TELEGRAM_CONFIG_NOT_FOUND": "Tổ chức chưa cấu hình Telegram.",
     "TELEGRAM_TEST_RATE_LIMITED": "Gửi thử quá nhiều lần. Vui lòng đợi một phút.",
     "NOTIFICATION_EVENT_NOT_FOUND": "Không tìm thấy thông báo.",
-    "NOTIFICATION_EVENT_NOT_RETRYABLE": "Chỉ gửi lại được thông báo lỗi hoặc bị bỏ qua."
+    "NOTIFICATION_EVENT_NOT_RETRYABLE": "Chỉ gửi lại được thông báo lỗi hoặc bị bỏ qua.",
+    "DASHBOARD_RANGE_INVALID": "Khoảng ngày không hợp lệ (tối đa 366 ngày, ngày bắt đầu ≤ ngày kết thúc)."
   }
 }

@@ -1363,7 +1363,6 @@
       "summary": "{{succeeded}}/{{total}} shop · tạo {{created}} · cập nhật {{updated}} · bỏ qua {{skipped}}",
       "summaryFailed": " · lỗi {{failed}}"
     },
-    "syncHistory": "Lịch sử đồng bộ",
     "title": "POD Orders",
     "totalAmount": "Total Amount",
     "totalOrders": "Tổng đơn",
@@ -1669,15 +1668,6 @@
       "success": "Đã đồng bộ lại sản phẩm từ TikTok",
       "failed": "Không đồng bộ lại được sản phẩm này"
     },
-    "syncHistory": {
-      "action": "Lịch sử đồng bộ",
-      "apiCalls": "{{count}} lượt gọi API",
-      "counters": "Lấy về: {{fetched}} · Tạo mới: {{created}} · Cập nhật: {{updated}} · Bỏ qua: {{skipped}} · Lỗi: {{failed}}",
-      "deactivated": "Không còn quản lý (nháp/đã xoá): {{count}}",
-      "description": "Từng lượt chạy đã lấy về những gì và lỗi ở đâu.",
-      "empty": "Chưa có lượt đồng bộ nào.",
-      "title": "Lịch sử đồng bộ sản phẩm"
-    },
     "detail": {
       "back": "Về danh sách sản phẩm",
       "variants": "Biến thể (SKU)",
@@ -1899,29 +1889,27 @@
     "PARTIALLY_SHIPPING": "Giao một phần",
     "UNPAID": "Chưa thanh toán"
   },
-  "syncHistory": {
-    "apiCalls": "API",
+  "latestSync": {
+    "action": "Trạng thái đồng bộ",
     "created": "Tạo",
-    "description": "Nhật ký các lượt đồng bộ đơn từ TikTok (theo lịch và thủ công).",
+    "descriptionOrder": "Lần đồng bộ đơn gần nhất của từng shop (theo lịch hoặc Sync Now).",
+    "descriptionProduct": "Lần đồng bộ sản phẩm gần nhất của từng shop (theo lịch hoặc Sync Now).",
     "duration": "Thời lượng",
-    "empty": "Chưa có lượt đồng bộ nào.",
+    "empty": "Chưa có shop nào được đồng bộ.",
     "endedAt": "Kết thúc",
+    "error": "Lỗi gần nhất",
     "failed": "Lỗi",
-    "loadFailed": "Không tải được lịch sử đồng bộ",
-    "missingOrdersHint": "TikTok báo có {{expected}} đơn trong cửa sổ này nhưng chỉ nhận được {{actual}}",
-    "pageWithRuns": "Trang {{page}}/{{totalPages}} · {{total}} lượt",
-    "phase": "Pha",
-    "phaseBackfill": "Kéo lịch sử",
-    "phaseBackfillHint": "Kéo lịch sử theo create_time",
-    "phaseIncremental": "Định kỳ",
-    "phaseIncrementalHint": "Đồng bộ định kỳ theo update_time",
     "shop": "Shop",
-    "skipped": "Bỏ qua",
     "startedAt": "Bắt đầu",
     "status": "Trạng thái",
-    "systemWide": "Toàn hệ thống",
+    "title": "Trạng thái đồng bộ gần nhất",
     "total": "Tổng",
     "trigger": "Nguồn",
+    "triggers": {
+      "BACKFILL": "Kéo lịch sử",
+      "CRON": "Tự động (lịch)",
+      "MANUAL": "Thủ công"
+    },
     "updated": "Cập nhật"
   },
   "syncStatus": {

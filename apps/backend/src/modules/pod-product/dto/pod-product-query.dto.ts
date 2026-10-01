@@ -171,34 +171,6 @@ export class PodProductQueryDto {
   sortOrder?: 'asc' | 'desc';
 }
 
-/** Query cho danh sách lịch sử đồng bộ. */
-export class PodProductSyncHistoryQueryDto {
-  @ApiPropertyOptional({ default: 1 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  page?: number;
-
-  @ApiPropertyOptional({ default: 20, maximum: 100 })
-  @IsOptional()
-  @Type(() => Number)
-  @IsInt()
-  @Min(1)
-  @Max(100)
-  limit?: number;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsUUID()
-  accountId?: string;
-
-  @ApiPropertyOptional()
-  @IsOptional()
-  @IsUUID()
-  shopId?: string;
-}
-
 /**
  * Yêu cầu đồng bộ thủ công ("Sync Now").
  *

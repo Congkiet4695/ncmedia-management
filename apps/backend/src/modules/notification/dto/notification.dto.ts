@@ -175,3 +175,14 @@ export class PaginatedNotificationEventDto {
 export class RequeueResultDto {
   @ApiProperty({ description: 'Số thông báo đã đưa lại hàng đợi.' }) requeued!: number;
 }
+
+/** Loại thông báo tổ chức muốn nhận — GET / PUT /notifications/preferences. */
+export class NotificationPreferencesDto {
+  @ApiProperty({ description: 'NEW ORDER — đơn TikTok mới được tạo khi đồng bộ (thủ công / tự động).' })
+  @IsBoolean()
+  newOrder!: boolean;
+
+  @ApiProperty({ description: 'FULFILL — fulfill thành công và huỷ fulfillment thành công.' })
+  @IsBoolean()
+  fulfillment!: boolean;
+}

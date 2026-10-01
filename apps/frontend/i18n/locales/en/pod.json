@@ -1363,7 +1363,6 @@
       "summary": "{{succeeded}}/{{total}} shops · {{created}} created · {{updated}} updated · {{skipped}} skipped",
       "summaryFailed": " · {{failed}} failed"
     },
-    "syncHistory": "Sync history",
     "title": "POD Orders",
     "totalAmount": "Total amount",
     "totalOrders": "Total orders",
@@ -1669,15 +1668,6 @@
       "success": "Product re-synced from TikTok",
       "failed": "Could not re-sync this product"
     },
-    "syncHistory": {
-      "action": "Sync history",
-      "apiCalls": "{{count}} API calls",
-      "counters": "Fetched: {{fetched}} · Created: {{created}} · Updated: {{updated}} · Skipped: {{skipped}} · Failed: {{failed}}",
-      "deactivated": "No longer managed (draft/deleted): {{count}}",
-      "description": "Every sync run, what it pulled and what failed.",
-      "empty": "No sync has run yet.",
-      "title": "Product sync history"
-    },
     "detail": {
       "back": "Back to products",
       "variants": "Variants (SKUs)",
@@ -1899,29 +1889,27 @@
     "PARTIALLY_SHIPPING": "Partially shipping",
     "UNPAID": "Unpaid"
   },
-  "syncHistory": {
-    "apiCalls": "API",
+  "latestSync": {
+    "action": "Sync status",
     "created": "Created",
-    "description": "Log of order syncs from TikTok (scheduled and manual).",
+    "descriptionOrder": "Latest order sync of each shop (scheduled or Sync Now).",
+    "descriptionProduct": "Latest product sync of each shop (scheduled or Sync Now).",
     "duration": "Duration",
-    "empty": "No sync runs yet.",
+    "empty": "No shop has been synced yet.",
     "endedAt": "Ended",
+    "error": "Last error",
     "failed": "Failed",
-    "loadFailed": "Could not load the sync history",
-    "missingOrdersHint": "TikTok reported {{expected}} orders in this window but only {{actual}} were received",
-    "pageWithRuns": "Page {{page}} of {{totalPages}} · {{total}} runs",
-    "phase": "Phase",
-    "phaseBackfill": "Backfill",
-    "phaseBackfillHint": "Backfill by create_time",
-    "phaseIncremental": "Incremental",
-    "phaseIncrementalHint": "Incremental sync by update_time",
     "shop": "Shop",
-    "skipped": "Skipped",
     "startedAt": "Started",
     "status": "Status",
-    "systemWide": "System-wide",
+    "title": "Latest Sync Status",
     "total": "Total",
     "trigger": "Trigger",
+    "triggers": {
+      "BACKFILL": "Backfill",
+      "CRON": "Scheduled (cron)",
+      "MANUAL": "Manual"
+    },
     "updated": "Updated"
   },
   "syncStatus": {

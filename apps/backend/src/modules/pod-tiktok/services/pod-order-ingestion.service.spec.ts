@@ -75,6 +75,7 @@ describe('PodOrderIngestionService — Compare Logic', () => {
       upsertItem: jest.fn().mockResolvedValue(undefined),
       upsertPackages: jest.fn().mockResolvedValue(undefined),
       findNotificationContext: jest.fn().mockResolvedValue({
+        sellerName: 'Nguyễn Minh Chinh',
         accountName: 'AZ_VTR_31',
         shopName: 'AZ Shop',
         fulfillmentProvider: 'Mango US',
@@ -369,6 +370,8 @@ describe('PodOrderIngestionService — Compare Logic', () => {
       });
       expect(events[0].payload).toMatchObject({
         tiktokOrderId: 'A',
+        sellerName: 'Nguyễn Minh Chinh',
+        shopName: 'AZ Shop',
         accountName: 'AZ_VTR_31',
         totalAmount: '100',
         currency: 'USD',

@@ -9,16 +9,7 @@ import type {
   PodProductAttributeDto,
   PodProductDetailDto,
   PodProductListItemDto,
-  PodProductSyncHistoryDto,
 } from '../dto/pod-product-response.dto';
-
-/** Bản ghi lịch sử kèm quan hệ (đúng shape repository trả về). */
-type SyncHistoryRow = Prisma.PodProductSyncHistoryGetPayload<{
-  include: {
-    account: { select: { id: true; accountName: true } };
-    shop: { select: { id: true; name: true } };
-  };
-}>;
 
 /**
  * PodProductResponseMapper — DB → DTO.
@@ -114,29 +105,6 @@ export class PodProductResponseMapper {
         format: video.format,
       })),
       attributes: row.attributes.map((attribute) => this.toAttribute(attribute)),
-    };
-  }
-
-  toSyncHistory(row: SyncHistoryRow): PodProductSyncHistoryDto {
-    return {
-      id: row.id,
-      scope: row.scope,
-      trigger: row.trigger,
-      status: row.status,
-      shopName: row.shop?.name ?? null,
-      accountName: row.account?.accountName ?? null,
-      productsFetched: row.productsFetched,
-      productsCreated: row.productsCreated,
-      productsUpdated: row.productsUpdated,
-      productsSkipped: row.productsSkipped,
-      productsDeactivated: row.productsDeactivated,
-      productsFailed: row.productsFailed,
-      apiCalls: row.apiCalls,
-      startedAt: row.startedAt.toISOString(),
-      finishedAt: row.finishedAt?.toISOString() ?? null,
-      durationMs: row.durationMs,
-      errorCode: row.errorCode,
-      errorMessage: row.errorMessage,
     };
   }
 

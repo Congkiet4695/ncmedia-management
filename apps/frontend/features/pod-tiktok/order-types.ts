@@ -20,9 +20,8 @@ export type PodSyncStatus = (typeof POD_SYNC_STATUSES)[number];
 export const POD_SYNC_TRIGGERS = ['CRON', 'MANUAL', 'BACKFILL'] as const;
 export type PodSyncTrigger = (typeof POD_SYNC_TRIGGERS)[number];
 
-/** Pha đồng bộ: kéo lịch sử (create_time) hay đồng bộ định kỳ (update_time). */
-export const POD_SYNC_PHASES = ['BACKFILL', 'INCREMENTAL'] as const;
-export type PodSyncPhase = (typeof POD_SYNC_PHASES)[number];
+/** Loại đồng bộ theo shop có trạng thái riêng (một dòng mỗi shop mỗi loại). */
+export type PodShopSyncType = 'ORDER' | 'PRODUCT';
 
 /** Vị trí in design. Backend hỗ trợ sẵn 5 vị trí; UI hiện dùng FRONT/BACK. */
 export const POD_DESIGN_PLACEMENTS = ['FRONT', 'BACK', 'LEFT', 'RIGHT', 'SLEEVE'] as const;
@@ -323,39 +322,31 @@ export interface PodOrderStats {
   byStatus: Record<string, number>;
 }
 
-export interface PodSyncLog {
-  id: string;
-  shopId: string | null;
+/**
+ * Latest Sync Status — trạng thái lần đồng bộ GẦN NHẤT của một shop (không phải lịch sử).
+ * `GET /pod/tiktok/sync-status` (đơn) · `GET /pod/products/sync-status` (sản phẩm).
+ */
+export interface PodShopSyncStatus {
+  shopId: string;
   shopName: string | null;
   accountName: string | null;
+  syncType: PodShopSyncType;
   trigger: PodSyncTrigger;
   status: PodSyncStatus;
-  /** BACKFILL = kéo lịch sử theo create_time; INCREMENTAL = đồng bộ định kỳ theo update_time. */
-  phase: PodSyncPhase;
-  startTime: string;
-  endTime: string | null;
+  startedAt: string;
+  finishedAt: string | null;
   durationMs: number | null;
-  totalOrders: number;
-  /** Số đơn TikTok báo có trong cửa sổ — lệch với totalOrders là dấu hiệu thiếu đơn. */
-  tiktokTotalCount: number | null;
+  /** ORDER: số đơn đã xử lý · PRODUCT: số sản phẩm đã lấy về. */
+  total: number;
   created: number;
   updated: number;
   skipped: number;
   failed: number;
-  pagesFetched: number;
-  apiCalls: number;
   errorCode: string | null;
   errorMessage: string | null;
-  tiktokRequestId: string | null;
-}
-
-export type PodSyncLogListResult = Paginated<PodSyncLog>;
-
-export interface PodSyncLogQuery extends PaginationParams {
-  shopId?: string;
-  accountId?: string;
-  status?: PodSyncStatus;
-  trigger?: PodSyncTrigger;
+  /** Chỉ số chẩn đoán riêng từng loại (phase, số trang, số lần gọi API, request id…). */
+  details: Record<string, unknown> | null;
+  updatedAt: string;
 }
 
 /** Payload kích hoạt đồng bộ thủ công. */

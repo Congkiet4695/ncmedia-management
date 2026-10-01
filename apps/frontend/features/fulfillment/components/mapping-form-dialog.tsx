@@ -21,6 +21,7 @@ import {
   useTiktokProductOptions,
 } from '../hooks/use-fulfillment';
 import type { ProductMapping, TiktokProductOption, UpsertProductMappingInput } from '../types';
+import { CatalogSyncNotice } from './catalog-sync-notice';
 import { VariantBaseCost } from './variant-base-cost';
 
 /** Ứng viên do ánh xạ tự động tìm được — mở dialog ra là đã lọc sẵn. */
@@ -468,6 +469,7 @@ export function MappingFormDialog({
               </Button>
             )}
           </div>
+          <CatalogSyncNotice accountId={accountId || null} />
           <div className="relative">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input

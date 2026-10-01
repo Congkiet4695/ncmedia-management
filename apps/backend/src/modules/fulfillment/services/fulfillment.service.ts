@@ -4,6 +4,7 @@ import {
   FulfillmentAccount,
   FulfillmentOrder,
   FulfillmentProvider,
+  FulfillmentTrigger,
   FulfillmentStatus,
   Prisma,
 } from '@prisma/client';
@@ -49,6 +50,8 @@ import { MANGO_SHIPPING_METHODS } from '../mango/constants/mango.constants';
 import { SellerwixCredentialService } from '../sellerwix/services/sellerwix-credential.service';
 import { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 import { FulfillmentVariantPriceService } from './fulfillment-variant-price.service';
+import { FulfillmentCatalogSyncService } from './fulfillment-catalog-sync.service';
+import { ProductMappingAutoService } from './product-mapping-auto.service';
 import { ProductDesignMapper, type DesignForDto } from '../mappers/product-design.mapper';
 import {
   FulfillmentOrderWithRelations,
@@ -91,6 +94,8 @@ export class FulfillmentService {
     private readonly accessScope: PodAccessScopeService,
     private readonly gateway: FulfillmentProviderGateway,
     private readonly variantPrice: FulfillmentVariantPriceService,
+    private readonly catalogSync?: FulfillmentCatalogSyncService,
+    private readonly autoMap?: ProductMappingAutoService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -150,7 +155,36 @@ export class FulfillmentService {
       msg: 'Đã thêm tài khoản nhà cung cấp fulfillment',
     });
 
+    this.startInitialCatalogSync(organizationId, actorUserId, account.id);
     return this.toAccountDto(account, webhookSecret);
+  }
+
+  /**
+   * Nhà cung cấp vừa được thêm ⇒ đồng bộ danh mục NGAY (chạy nền).
+   *
+   * 🔴 Không có bước này, danh mục của nhà cung cấp mới trống cho tới khi ai đó nhớ bấm "Đồng bộ
+   * danh mục" (lịch đồng bộ mặc định tắt): ô Provider Product rỗng ⇒ không lưu được cấu hình sản
+   * phẩm ⇒ Sellerwix không có SKU biến thể để hỏi phương thức vận chuyển — chính là lỗi "Shipping
+   * method trống". Lỗi ở đây KHÔNG làm hỏng việc thêm nhà cung cấp (chỉ ghi log; người dùng vẫn
+   * đồng bộ tay được).
+   */
+  private startInitialCatalogSync(organizationId: string, actorUserId: string, accountId: string): void {
+    if (!this.catalogSync) return;
+    this.catalogSync
+      .startSync(organizationId, accountId, FulfillmentTrigger.MANUAL, actorUserId, () =>
+        this.autoMap
+          ? this.autoMap.resolveOrganization(organizationId, { accountFilter: accountId, actorUserId })
+          : Promise.resolve(),
+      )
+      .catch((error: unknown) =>
+        this.logger.warn({
+          module: 'fulfillment',
+          operation: 'account.create.catalog-sync',
+          organizationId,
+          accountId,
+          msg: `Không khởi động được đồng bộ danh mục cho nhà cung cấp mới: ${(error as Error).message}`,
+        }),
+      );
   }
 
   async updateAccount(

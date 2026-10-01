@@ -12,6 +12,7 @@ import type { Locale, Namespace } from './config';
 
 import viAccount from './locales/vi/account.json';
 import viAuth from './locales/vi/auth.json';
+import viDashboard from './locales/vi/dashboard.json';
 import viCommon from './locales/vi/common.json';
 import viEmployee from './locales/vi/employee.json';
 import viFulfillment from './locales/vi/fulfillment.json';
@@ -26,6 +27,7 @@ import viValidation from './locales/vi/validation.json';
 
 import enAccount from './locales/en/account.json';
 import enAuth from './locales/en/auth.json';
+import enDashboard from './locales/en/dashboard.json';
 import enCommon from './locales/en/common.json';
 import enEmployee from './locales/en/employee.json';
 import enFulfillment from './locales/en/fulfillment.json';
@@ -60,6 +62,7 @@ export const resources = {
     profile: viProfile,
     superAdmin: viSuperAdmin,
     notification: viNotification,
+    dashboard: viDashboard,
   },
   en: {
     common: enCommon,
@@ -75,5 +78,6 @@ export const resources = {
     profile: enProfile,
     superAdmin: enSuperAdmin,
     notification: enNotification,
+    dashboard: enDashboard,
   },
 } satisfies Record<Locale, Record<Namespace, unknown>>;

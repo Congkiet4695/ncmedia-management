@@ -11,6 +11,7 @@ import {
 } from '../exceptions/notification.exceptions';
 import { NotificationEventRepository } from '../repositories/notification-event.repository';
 import { TelegramConfigRepository } from '../repositories/telegram-config.repository';
+import type { NotificationPreferenceRepository } from '../repositories/notification-preference.repository';
 import { NotificationDispatcherService } from './notification-dispatcher.service';
 import { NotificationEncryptionService } from './notification-encryption.service';
 import { TelegramConfigService } from './telegram-config.service';
@@ -72,6 +73,10 @@ function build(existing: OrganizationTelegramConfig | null = saved()) {
   let counter = 0;
   const redis = { client: { incr: jest.fn(() => Promise.resolve(++counter)), expire: jest.fn() } };
   const config = { get: (_key: string, fallback: unknown) => fallback } as unknown as ConfigService;
+  const preferences = {
+    find: jest.fn().mockResolvedValue({ newOrder: true, fulfillment: true }),
+    save: jest.fn((_org: string, _actor: string, value: unknown) => Promise.resolve(value)),
+  };
   const service = new TelegramConfigService(
     configs as unknown as TelegramConfigRepository,
     events as unknown as NotificationEventRepository,
@@ -80,8 +85,9 @@ function build(existing: OrganizationTelegramConfig | null = saved()) {
     dispatcher as unknown as NotificationDispatcherService,
     redis as unknown as RedisService,
     config,
+    preferences as unknown as NotificationPreferenceRepository,
   );
-  return { service, configs, events, telegram, dispatcher };
+  return { service, configs, events, telegram, dispatcher, preferences };
 }
 
 describe('TelegramConfigService', () => {
@@ -175,5 +181,26 @@ describe('TelegramConfigService', () => {
     events.requeue.mockResolvedValue(false);
     await expect(service.retryEvent(ORG, 'e1')).rejects.toBeInstanceOf(NotificationEventNotRetryableException);
     expect(dispatcher.kick).not.toHaveBeenCalled();
+  });
+});
+
+describe('TelegramConfigService — tuỳ chọn loại thông báo', () => {
+  it('đọc / lưu theo ĐÚNG tổ chức của người gọi', async () => {
+    const { service, preferences } = build();
+    await service.getPreferences(ORG);
+    expect(preferences.find).toHaveBeenCalledWith(ORG);
+
+    const saved = await service.savePreferences(ORG, 'admin', { newOrder: false, fulfillment: true });
+    expect(preferences.save).toHaveBeenCalledWith(ORG, 'admin', { newOrder: false, fulfillment: true });
+    expect(saved).toEqual({ newOrder: false, fulfillment: true });
+  });
+
+  it('lưu được cả khi tổ chức CHƯA cấu hình Telegram', async () => {
+    const { service, preferences } = build(null);
+    await expect(service.savePreferences(ORG, 'admin', { newOrder: true, fulfillment: false })).resolves.toEqual({
+      newOrder: true,
+      fulfillment: false,
+    });
+    expect(preferences.save).toHaveBeenCalled();
   });
 });

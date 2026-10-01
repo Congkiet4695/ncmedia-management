@@ -6,6 +6,21 @@ import type { NotificationEventQuery } from '../types';
 
 const KEY = 'notification';
 
+export function useNotificationPreferences() {
+  return useQuery({
+    queryKey: [KEY, 'preferences'],
+    queryFn: () => notificationService.getPreferences(),
+  });
+}
+
+export function useSaveNotificationPreferences() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: notificationService.savePreferences,
+    onSuccess: (saved) => queryClient.setQueryData([KEY, 'preferences'], saved),
+  });
+}
+
 export function useTelegramConfig() {
   return useQuery({
     queryKey: [KEY, 'telegram'],

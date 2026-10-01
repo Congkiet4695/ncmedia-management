@@ -681,6 +681,10 @@ export interface CatalogStatus {
   products: number;
   variants: number;
   lastSyncedAt: string | null;
+  /** Lượt đồng bộ gần nhất: RUNNING · SUCCESS · PARTIAL · FAILED · INTERRUPTED; null = chưa từng. */
+  syncStatus: 'RUNNING' | 'SUCCESS' | 'PARTIAL' | 'FAILED' | 'INTERRUPTED' | null;
+  syncStartedAt: string | null;
+  syncError: string | null;
 }
 
 /** Kết quả một lượt rà ánh xạ tự động. */

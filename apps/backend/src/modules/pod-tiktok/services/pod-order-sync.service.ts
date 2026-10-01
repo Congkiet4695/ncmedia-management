@@ -1,12 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PodSyncPhase, PodSyncStatus, PodSyncTrigger } from '@prisma/client';
+import { PodShopSyncType, PodSyncPhase, PodSyncStatus, PodSyncTrigger, Prisma } from '@prisma/client';
 import { TiktokOrderClient } from '../clients/tiktok-order.client';
 import { TiktokClientError } from '../exceptions/pod-tiktok.exceptions';
 import { OrderSyncHookRegistry } from '../../../common/hooks/order-sync-hook.registry';
 import { DistributedLockService } from '../infra/distributed-lock.service';
 import { PodTiktokAccountRepository } from '../repositories/pod-tiktok-account.repository';
-import { PodSyncLogRepository } from '../repositories/pod-sync-log.repository';
+import { PodShopSyncStatusRepository } from '../repositories/pod-shop-sync-status.repository';
 import { PodOrderIngestionService, IngestionResult } from './pod-order-ingestion.service';
 import { PodTiktokTokenService } from './pod-tiktok-token.service';
 import { TiktokEncryptionService } from './tiktok-encryption.service';
@@ -55,6 +55,22 @@ export interface ShopSyncOutcome {
   errorCode?: string;
   errorMessage?: string;
   tiktokRequestId?: string;
+}
+
+/**
+ * Chỉ số chẩn đoán của lượt đồng bộ đơn — lưu vào cột `details` của dòng trạng thái (BigInt ⇒ chuỗi
+ * vì JSON không có BigInt). Bỏ các khoá không có giá trị.
+ */
+export function orderSyncDetails(outcome: ShopSyncOutcome): Prisma.InputJsonObject {
+  return {
+    phase: outcome.phase,
+    windowFrom: outcome.windowFrom.toString(),
+    windowTo: outcome.windowTo.toString(),
+    pagesFetched: outcome.pagesFetched,
+    apiCalls: outcome.apiCalls,
+    ...(outcome.tiktokTotalCount === undefined ? {} : { tiktokTotalCount: outcome.tiktokTotalCount }),
+    ...(outcome.tiktokRequestId ? { tiktokRequestId: outcome.tiktokRequestId } : {}),
+  };
 }
 
 export interface SyncShopOptions {
@@ -106,7 +122,7 @@ export class PodOrderSyncService {
     private readonly ingestion: PodOrderIngestionService,
     private readonly tokenService: PodTiktokTokenService,
     private readonly accountRepo: PodTiktokAccountRepository,
-    private readonly syncLogRepo: PodSyncLogRepository,
+    private readonly syncStatusRepo: PodShopSyncStatusRepository,
     private readonly encryption: TiktokEncryptionService,
     private readonly lock: DistributedLockService,
     private readonly syncHooks: OrderSyncHookRegistry,
@@ -141,10 +157,12 @@ export class PodOrderSyncService {
     }
 
     const startedAt = new Date();
-    const log = await this.syncLogRepo.start({
+    // 🔴 Ghi vào DÒNG trạng thái duy nhất của (tổ chức, shop, ORDER) — upsert nguyên tử, không thêm dòng.
+    const run = await this.syncStatusRepo.start({
       organizationId: target.organizationId,
       accountId: target.accountId,
       shopId: target.id,
+      syncType: PodShopSyncType.ORDER,
       trigger: options.trigger,
       triggeredBy: options.triggeredBy,
       startedAt,
@@ -171,22 +189,16 @@ export class PodOrderSyncService {
       await this.lock.release(acquired);
     }
 
-    await this.syncLogRepo.finish(log.id, startedAt, {
+    await this.syncStatusRepo.finish(run, {
       status: outcome.status,
-      phase: outcome.phase,
-      windowFrom: outcome.windowFrom,
-      windowTo: outcome.windowTo,
-      pagesFetched: outcome.pagesFetched,
-      apiCalls: outcome.apiCalls,
-      totalOrders: outcome.totalOrders,
-      tiktokTotalCount: outcome.tiktokTotalCount ?? null,
+      totalCount: outcome.totalOrders,
       createdCount: outcome.created,
       updatedCount: outcome.updated,
       skippedCount: outcome.skipped,
       failedCount: outcome.failed,
       errorCode: outcome.errorCode ?? null,
       errorMessage: outcome.errorMessage ?? null,
-      tiktokRequestId: outcome.tiktokRequestId ?? null,
+      details: orderSyncDetails(outcome),
     });
 
     await this.applyCircuitBreaker(target, outcome);

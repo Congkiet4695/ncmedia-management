@@ -10,6 +10,8 @@ import { ProductDesignMapper } from '../mappers/product-design.mapper';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import { FulfillmentReadinessService } from './fulfillment-readiness.service';
 import { FulfillmentService } from './fulfillment.service';
+import type { FulfillmentCatalogSyncService } from './fulfillment-catalog-sync.service';
+import type { ProductMappingAutoService } from './product-mapping-auto.service';
 import { FulfillmentVariantPriceService } from './fulfillment-variant-price.service';
 import type { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 
@@ -70,6 +72,12 @@ function build(repoOverrides: Record<string, jest.Mock> = {}) {
       repoOverrides.findAccountById;
   }
 
+  const catalogSync = {
+    startSync: jest.fn((_org: string, _acc: string, _trigger: unknown, _actor: string, after?: () => Promise<unknown>) =>
+      Promise.resolve(after).then(() => ({ status: 'RUNNING' })),
+    ),
+  };
+  const autoMap = { resolveOrganization: jest.fn().mockResolvedValue({}) };
   const service = new FulfillmentService(
     { get: (_key: string, fallback?: string) => fallback ?? '' } as unknown as ConfigService,
     // Năm phụ thuộc dưới đây không tham gia luồng quản lý nhà cung cấp.
@@ -87,11 +95,43 @@ function build(repoOverrides: Record<string, jest.Mock> = {}) {
     {
       lookup: jest.fn().mockResolvedValue({ ok: false, reason: 'VARIANT_NOT_FOUND', message: 'none' }),
     } as unknown as FulfillmentVariantPriceService,
+    catalogSync as unknown as FulfillmentCatalogSyncService,
+    autoMap as unknown as ProductMappingAutoService,
   );
-  return { service, repo: repo as unknown as Record<string, jest.Mock> };
+  return { service, repo: repo as unknown as Record<string, jest.Mock>, catalogSync, autoMap };
 }
 
 describe('FulfillmentService — quản lý nhà cung cấp', () => {
+  describe('createAccount — tự đồng bộ danh mục', () => {
+    it('thêm nhà cung cấp ⇒ bắt đầu đồng bộ danh mục NỀN cho đúng tài khoản vừa tạo (Sellerwix không còn danh mục trống)', async () => {
+      const { service, catalogSync } = build();
+
+      await service.createAccount('org-1', 'user-1', {
+        provider: FulfillmentProvider.MANGO,
+        name: 'Mango mới',
+        apiKey: 'mk_live_1234567890',
+      });
+
+      expect(catalogSync.startSync).toHaveBeenCalledTimes(1);
+      const [org, accountId, , actor] = catalogSync.startSync.mock.calls[0] as unknown as [string, string, unknown, string];
+      expect(org).toBe('org-1');
+      expect(actor).toBe('user-1');
+      expect(typeof accountId).toBe('string');
+    });
+
+    it('không khởi động được đồng bộ (vd đang chạy) ⇒ vẫn thêm nhà cung cấp thành công', async () => {
+      const { service, catalogSync } = build();
+      catalogSync.startSync.mockRejectedValueOnce(new Error('busy'));
+      await expect(
+        service.createAccount('org-1', 'user-1', {
+          provider: FulfillmentProvider.MANGO,
+          name: 'Mango mới',
+          apiKey: 'mk_live_1234567890',
+        }),
+      ).resolves.toBeDefined();
+    });
+  });
+
   describe('createAccount', () => {
     it('MÃ HOÁ API key trước khi lưu — giá trị thô không chạm tới database', async () => {
       const { service, repo } = build();

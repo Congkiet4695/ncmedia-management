@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PodSyncTrigger } from '@prisma/client';
+import { PodShopSyncType, PodSyncTrigger } from '@prisma/client';
 import { DistributedLockService } from '../infra/distributed-lock.service';
 import { PodTiktokAccountRepository } from '../repositories/pod-tiktok-account.repository';
-import { PodSyncLogRepository } from '../repositories/pod-sync-log.repository';
+import { PodShopSyncStatusRepository } from '../repositories/pod-shop-sync-status.repository';
 import { PodOrderSyncService, ShopSyncOutcome, SyncShopTarget } from './pod-order-sync.service';
 import { PodPayoutSyncService } from './pod-payout-sync.service';
 
@@ -51,7 +51,7 @@ export class PodSyncOrchestratorService {
   constructor(
     private readonly config: ConfigService,
     private readonly accountRepo: PodTiktokAccountRepository,
-    private readonly syncLogRepo: PodSyncLogRepository,
+    private readonly syncStatusRepo: PodShopSyncStatusRepository,
     private readonly syncService: PodOrderSyncService,
     private readonly payoutSyncService: PodPayoutSyncService,
     private readonly lock: DistributedLockService,
@@ -89,8 +89,11 @@ export class PodSyncOrchestratorService {
     }
 
     try {
-      // Dọn nhật ký bị treo từ lần chạy trước (tiến trình chết / deploy cắt ngang).
-      const stale = await this.syncLogRepo.failStaleRuns(new Date(Date.now() - 2 * deadlineMs));
+      // Dọn trạng thái bị treo từ lần chạy trước (tiến trình chết / deploy cắt ngang).
+      const stale = await this.syncStatusRepo.failStaleRuns(
+        PodShopSyncType.ORDER,
+        new Date(Date.now() - 2 * deadlineMs),
+      );
       if (stale > 0) {
         this.logger.warn({
           module: 'pod-tiktok',

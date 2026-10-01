@@ -1,13 +1,15 @@
 import {
-  PodProductSyncAction,
   PodProductSyncScope,
   PodProductSyncStatus,
   PodProductSyncTrigger,
+  PodShopSyncType,
+  PodSyncTrigger,
 } from '@prisma/client';
 import { callArg } from '../../../testing/mock-call.util';
 import { TiktokErrorClass } from '../../pod-tiktok/constants/tiktok-error-code.constants';
 import { TiktokClientError } from '../../pod-tiktok/exceptions/pod-tiktok.exceptions';
 import { DistributedLockService } from '../../pod-tiktok/infra/distributed-lock.service';
+import { PodShopSyncStatusRepository } from '../../pod-tiktok/repositories/pod-shop-sync-status.repository';
 import { PodTiktokTokenService } from '../../pod-tiktok/services/pod-tiktok-token.service';
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
 import { TiktokProductApiService } from '../../tiktok-sdk/tiktok-product-api.service';
@@ -23,7 +25,23 @@ import { PodProductSyncService } from './pod-product-sync.service';
 const ORG = '11111111-1111-1111-1111-111111111111';
 const SHOP = '22222222-2222-2222-2222-222222222222';
 const ACCOUNT = '33333333-3333-3333-3333-333333333333';
-const HISTORY = '44444444-4444-4444-4444-444444444444';
+const RUN = {
+  organizationId: ORG,
+  shopId: SHOP,
+  syncType: PodShopSyncType.PRODUCT,
+  runId: '44444444-4444-4444-4444-444444444444',
+  startedAt: new Date(),
+};
+
+/** Dữ liệu `finish` của dòng trạng thái (đối số thứ 2). */
+interface FinishArg {
+  status: string;
+  totalCount: number;
+  createdCount: number;
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  details: { scope: PodProductSyncScope; productsDeactivated: number };
+}
 
 const TARGET: ProductSyncTarget = {
   id: SHOP,
@@ -90,12 +108,11 @@ describe('PodProductSyncService', () => {
   let syncRepo: {
     findSyncTargets: jest.Mock;
     findSyncCandidates: jest.Mock;
-    startHistory: jest.Mock;
-    finishHistory: jest.Mock;
-    insertLogs: jest.Mock;
     updateWatermark: jest.Mock;
     incrementFailure: jest.Mock;
   };
+  /** Dòng "Latest Sync Status" (PRODUCT) của shop. */
+  let syncStatus: { start: jest.Mock; finish: jest.Mock };
   let productApi: { searchAllProducts: jest.Mock; getProduct: jest.Mock };
   let lock: { acquire: jest.Mock; release: jest.Mock };
   /** Hàng đợi hoãn theo shop — kiểm chứng "publish shop nào thì hẹn đúng shop đó". */
@@ -112,11 +129,12 @@ describe('PodProductSyncService', () => {
     syncRepo = {
       findSyncTargets: jest.fn().mockResolvedValue([TARGET]),
       findSyncCandidates: jest.fn().mockResolvedValue([candidate()]),
-      startHistory: jest.fn().mockResolvedValue(HISTORY),
-      finishHistory: jest.fn().mockResolvedValue(undefined),
-      insertLogs: jest.fn().mockResolvedValue(undefined),
       updateWatermark: jest.fn().mockResolvedValue(undefined),
       incrementFailure: jest.fn().mockResolvedValue(1),
+    };
+    syncStatus = {
+      start: jest.fn().mockResolvedValue(RUN),
+      finish: jest.fn().mockResolvedValue(true),
     };
     productApi = {
       searchAllProducts: jest.fn().mockResolvedValue([{ id: 'p1' }, { id: 'p2' }]),
@@ -144,6 +162,7 @@ describe('PodProductSyncService', () => {
     service = new PodProductSyncService(
       repo as unknown as PodProductRepository,
       syncRepo as unknown as PodProductSyncRepository,
+      syncStatus as unknown as PodShopSyncStatusRepository,
       new PodProductMapper(),
       productApi as unknown as TiktokProductApiService,
       tokenService,
@@ -160,7 +179,7 @@ describe('PodProductSyncService', () => {
     it('đã có watermark → INCREMENTAL và truyền `updateTimeGe` có trừ overlap', async () => {
       await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
 
-      expect(callArg<{ scope: PodProductSyncScope }>(syncRepo.startHistory, 0, 0).scope).toBe(
+      expect(callArg<FinishArg>(syncStatus.finish, 0, 1).details.scope).toBe(
         PodProductSyncScope.INCREMENTAL,
       );
       const filter = callArg<{ updateTimeGe?: number }>(productApi.searchAllProducts, 0, 1);
@@ -174,7 +193,7 @@ describe('PodProductSyncService', () => {
         { trigger: PodProductSyncTrigger.SCHEDULER },
       );
 
-      expect(callArg<{ scope: PodProductSyncScope }>(syncRepo.startHistory, 0, 0).scope).toBe(
+      expect(callArg<FinishArg>(syncStatus.finish, 0, 1).details.scope).toBe(
         PodProductSyncScope.FULL,
       );
       // 🔴 Không còn `{}`: bộ lọc trạng thái được áp NGAY TẠI REQUEST, không có `updateTimeGe`.
@@ -274,10 +293,7 @@ describe('PodProductSyncService', () => {
       // Chỉ đụng đúng shop này, và chỉ những sản phẩm KHÔNG nằm trong lượt quét.
       expect(repo.deactivateMissing).toHaveBeenCalledWith(ORG, SHOP, ['p1', 'p2']);
       expect(outcome.deactivated).toBe(7);
-      expect(
-        callArg<{ productsDeactivated?: number }>(syncRepo.finishHistory, 0, 1)
-          .productsDeactivated,
-      ).toBe(7);
+      expect(callArg<FinishArg>(syncStatus.finish, 0, 1).details.productsDeactivated).toBe(7);
     });
 
     it('🔴 lượt INCREMENTAL KHÔNG đối soát — "không đổi" không đồng nghĩa "ngừng bán"', async () => {
@@ -318,8 +334,64 @@ describe('PodProductSyncService', () => {
     });
   });
 
+  describe('Latest Sync Status (một dòng mỗi shop)', () => {
+    it('lịch tự động (SCHEDULER) ⇒ ghi dòng PRODUCT với trigger CRON', async () => {
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(syncStatus.start).toHaveBeenCalledTimes(1);
+      const start = callArg<{ syncType: string; trigger: string; shopId: string }>(
+        syncStatus.start,
+        0,
+        0,
+      );
+      expect(start).toMatchObject({ syncType: PodShopSyncType.PRODUCT, trigger: PodSyncTrigger.CRON, shopId: SHOP });
+      // `finish` nhận đúng handle (fencing token) mà `start` trả về.
+      expect(callArg(syncStatus.finish, 0, 0)).toBe(RUN);
+    });
+
+    it('Sync Now (MANUAL) ⇒ trigger MANUAL', async () => {
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.MANUAL, triggeredBy: 'user-1' });
+
+      expect(callArg<{ trigger: string; triggeredBy: string }>(syncStatus.start, 0, 0)).toMatchObject({
+        trigger: PodSyncTrigger.MANUAL,
+        triggeredBy: 'user-1',
+      });
+    });
+
+    it('SUCCESS ⇒ XOÁ lỗi của lượt trước (errorCode / errorMessage = null)', async () => {
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      const finish = callArg<FinishArg>(syncStatus.finish, 0, 1);
+      expect(finish.status).toBe('SUCCESS');
+      expect(finish.errorCode).toBeNull();
+      expect(finish.errorMessage).toBeNull();
+    });
+
+    it('lỗi TikTok ⇒ FAILED kèm mã + thông điệp lỗi', async () => {
+      productApi.searchAllProducts.mockRejectedValue(
+        new TiktokClientError(TiktokErrorClass.NETWORK, 0, 'Request timeout', 0, 'req-x'),
+      );
+
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      const finish = callArg<FinishArg>(syncStatus.finish, 0, 1);
+      expect(finish.status).toBe('FAILED');
+      expect(finish.errorMessage).toBeTruthy();
+    });
+
+    it('🔴 lượt SINGLE (làm mới MỘT sản phẩm) KHÔNG ghi đè trạng thái của shop', async () => {
+      await service.syncShop(TARGET, {
+        trigger: PodProductSyncTrigger.MANUAL,
+        tiktokProductId: 'p9',
+      });
+
+      expect(syncStatus.start).not.toHaveBeenCalled();
+      expect(syncStatus.finish).not.toHaveBeenCalled();
+    });
+  });
+
   describe('ghi dữ liệu', () => {
-    it('sản phẩm mới → tạo bản ghi, lưu payload gốc, ghi log CREATED', async () => {
+    it('sản phẩm mới → tạo bản ghi, lưu payload gốc, số đếm vào trạng thái shop', async () => {
       const outcome = await service.syncShop(TARGET, {
         trigger: PodProductSyncTrigger.SCHEDULER,
       });
@@ -328,9 +400,9 @@ describe('PodProductSyncService', () => {
       expect(repo.upsertAggregate).toHaveBeenCalledTimes(2);
       expect(repo.saveRawData).toHaveBeenCalledTimes(2);
 
-      const logs = callArg<Array<{ action: PodProductSyncAction }>>(syncRepo.insertLogs, 0, 0);
-      expect(logs).toHaveLength(2);
-      expect(logs.every((log) => log.action === PodProductSyncAction.CREATED)).toBe(true);
+      const finish = callArg<FinishArg>(syncStatus.finish, 0, 1);
+      expect(finish.totalCount).toBe(2);
+      expect(finish.createdCount).toBe(2);
     });
 
     it('🔴 payload không đổi → BỎ QUA, không ghi DB (tiết kiệm ghi + giữ idempotent)', async () => {
@@ -420,7 +492,7 @@ describe('PodProductSyncService', () => {
 
       expect(outcome.status).toBe('LOCKED');
       expect(productApi.searchAllProducts).not.toHaveBeenCalled();
-      expect(syncRepo.startHistory).not.toHaveBeenCalled();
+      expect(syncStatus.start).not.toHaveBeenCalled();
     });
 
     it('luôn nhả khoá kể cả khi lượt chạy lỗi', async () => {
@@ -527,7 +599,7 @@ describe('PodProductSyncService', () => {
       ]);
       expect(new Set(searchedShops())).toEqual(new Set(['shop-a', 'shop-d']));
       // Shop bỏ qua không tạo lịch sử, không tăng bộ đếm lỗi.
-      expect(syncRepo.startHistory).toHaveBeenCalledTimes(2);
+      expect(syncStatus.start).toHaveBeenCalledTimes(2);
       expect(syncRepo.incrementFailure).not.toHaveBeenCalled();
     });
 
@@ -604,7 +676,7 @@ describe('PodProductSyncService', () => {
       expect(outcomes[0].status).toBe('DEFERRED');
       expect(queue.schedule).toHaveBeenCalledWith('shop-a', 0, 0);
       expect(productApi.searchAllProducts).not.toHaveBeenCalled();
-      expect(syncRepo.startHistory).not.toHaveBeenCalled();
+      expect(syncStatus.start).not.toHaveBeenCalled();
     });
 
     it('🔴 hết giờ GIỮA lúc ghi ⇒ dừng giữa các lô, PARTIAL + mã rõ ràng, không đẩy watermark, vào hàng đợi', async () => {
@@ -626,7 +698,7 @@ describe('PodProductSyncService', () => {
       // Lô đầu (3 sản phẩm) chạy trọn, lô sau không bắt đầu.
       expect(productApi.getProduct).toHaveBeenCalledTimes(3);
       expect(outcomes[0].status).toBe('DEFERRED');
-      const finish = callArg<{ status: string; errorCode?: string }>(syncRepo.finishHistory, 0, 1);
+      const finish = callArg<FinishArg>(syncStatus.finish, 0, 1);
       expect(finish.status).toBe(PodProductSyncStatus.PARTIAL);
       expect(finish.errorCode).toBe('SYNC_DEADLINE_EXCEEDED');
       expect(syncRepo.updateWatermark).not.toHaveBeenCalled();

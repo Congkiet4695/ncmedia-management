@@ -1,0 +1,111 @@
+{
+  "retry": "Retry",
+  "unassigned": "No seller assigned",
+  "filter": {
+    "from": "From",
+    "to": "To",
+    "currency": "Currency",
+    "shop": "Shop",
+    "seller": "Seller",
+    "allShops": "All shops",
+    "allSellers": "All sellers"
+  },
+  "hold": {
+    "title": "Total amount on hold",
+    "hint": "Money TikTok has NOT settled yet: Σ estimated settlement amount (est_settlement_amount) of unsettled transactions (Finance API). Current snapshot, not tied to the date range. Other currencies are listed separately, never converted.",
+    "shops": "shops"
+  },
+  "shop": {
+    "title": "Shop status",
+    "hint": "Based on the TikTok shop status stored in the system: Live = ACTIVE; Die = INACTIVE (reported inactive by TikTok); Deauthorized = DEAUTHORIZED.",
+    "live": "Live",
+    "inactive": "Die",
+    "deauthorized": "Deauthorized",
+    "total": "Total shops",
+    "shops": "shops"
+  },
+  "holdBySeller": {
+    "title": "On hold by seller",
+    "hint": "Hold grouped by the seller assigned to the TikTok account. Shop = shops with unsettled money. Every seller with a hold, descending.",
+    "seller": "Seller",
+    "shop": "Shops",
+    "empty": "Nothing on hold."
+  },
+  "period": {
+    "title": "Orders by period",
+    "hint": "Orders placed in the period (operations time zone). Est. Rev = proceeds of those orders (settled, otherwise TikTok estimate). Payout = money TikTok paid out in the period. % versus the previous period.",
+    "today": "Today",
+    "yesterday": "Yesterday",
+    "thisMonth": "This month",
+    "lastMonth": "Last month",
+    "estRevenue": "Est. Rev:",
+    "payout": "Payout:",
+    "noBaseline": "No orders in the previous period — % not available"
+  },
+  "finance": {
+    "title": "Finance",
+    "hint": "Paid = money TikTok paid out (PAID payments) in the range. Processing = settled statements whose payment is still PROCESSING.",
+    "paid": "Paid:",
+    "processing": "Processing amount"
+  },
+  "orders": {
+    "title": "Orders",
+    "count": "{{count}} orders",
+    "delivered": "{{count}} delivered",
+    "noData": "No data yet",
+    "returnsUnavailable": "TikTok Return & Refund is not synced yet, so there are no return figures.",
+    "group": {
+      "UNPAID": "Awaiting payment",
+      "TO_SHIP": "To ship",
+      "AWAITING_COLLECTION": "Awaiting collection",
+      "SHIPPING": "In transit",
+      "DELIVERED": "Delivered",
+      "CANCELLED": "Cancelled",
+      "OTHER": "Other status",
+      "RETURNED": "Returned"
+    }
+  },
+  "sellers": {
+    "title": "Seller statistics",
+    "hint": "Seller = employee assigned as seller of a TikTok account. Uses the shared date range and filters; On hold is the current snapshot.",
+    "activeOnly": "Active employees only",
+    "search": "Search seller…",
+    "empty": "No sellers.",
+    "inactive": "Inactive",
+    "returnsUnavailable": "No return data yet (requires TikTok Return & Refund integration).",
+    "col": {
+      "name": "Seller",
+      "orders": "Total orders",
+      "returns": "Returns",
+      "estRevenue": "Est. revenue",
+      "revenue": "Revenue",
+      "baseCost": "Base cost",
+      "profit": "PF",
+      "paid": "Paid",
+      "processing": "Processing",
+      "hold": "On hold"
+    },
+    "colHint": {
+      "estRevenue": "Order proceeds: settled amount, otherwise TikTok estimate.",
+      "revenue": "Amount paid by buyers (GMV), excluding cancelled orders.",
+      "baseCost": "Product cost confirmed by the fulfillment provider (current attempt).",
+      "profit": "PF = Est. revenue − Base cost. Orders without a confirmed base cost count as 0 cost.",
+      "paid": "Money TikTok paid out in the range.",
+      "processing": "Settled but not paid out yet (payment PROCESSING).",
+      "hold": "Money TikTok has not settled yet (current)."
+    }
+  },
+  "trend": {
+    "title": "Trends",
+    "finance": "Finance",
+    "orders": "Orders",
+    "financeTitle": "Finance trend ({{currency}})",
+    "ordersTitle": "Order trend",
+    "paid": "Paid",
+    "processing": "Processing",
+    "total": "Total orders",
+    "delivered": "Delivered",
+    "inProgress": "Processing / in transit",
+    "cancelled": "Cancelled"
+  }
+}

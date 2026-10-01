@@ -19,7 +19,6 @@ import type {
   AutoMapResult,
   CatalogProductQuery,
   CatalogStatus,
-  CatalogSyncResult,
   PaginatedCatalogProducts,
   ProductDesignKey,
   ProductMapping,
@@ -344,9 +343,12 @@ export const productMappingService = {
     return res.data.data;
   },
 
-  /** Kéo danh mục từ nhà cung cấp về Database. Tác vụ DÀI — giao diện phải hiện tiến trình. */
-  async syncCatalog(accountId: string): Promise<CatalogSyncResult> {
-    const res = await apiClient.post<ApiResponse<CatalogSyncResult>>(
+  /**
+   * Kéo danh mục từ nhà cung cấp về Database — CHẠY NỀN ở backend (trả về ngay `RUNNING`).
+   * Theo dõi bằng `catalogStatus` (`syncStatus`).
+   */
+  async syncCatalog(accountId: string): Promise<CatalogSyncStarted> {
+    const res = await apiClient.post<ApiResponse<CatalogSyncStarted>>(
       `${BASE_PATH}/accounts/${accountId}/catalog/sync`,
     );
     return res.data.data;

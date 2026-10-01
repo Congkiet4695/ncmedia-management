@@ -1,15 +1,15 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PodSyncTrigger } from '@prisma/client';
+import { PodShopSyncType, PodSyncTrigger } from '@prisma/client';
 import { resolveDateRange } from '../utils/date-range.util';
 import {
   PaginatedPodOrderResponseDto,
-  PaginatedPodSyncLogResponseDto,
   PodOrderResponseDto,
   PodOrderStatsDto,
   PodSyncTriggerResultDto,
 } from '../dto/pod-order-response.dto';
-import { PodOrderQueryDto, PodSyncLogQueryDto, TriggerSyncDto } from '../dto/pod-order-query.dto';
+import { PodOrderQueryDto, TriggerSyncDto } from '../dto/pod-order-query.dto';
+import { PodShopSyncStatusListDto, PodShopSyncStatusQueryDto } from '../dto/pod-shop-sync-status.dto';
 import {
   PodOrderNotFoundException,
   PodTiktokAccountNotFoundException,
@@ -25,7 +25,8 @@ import { PodOrderDesignResolver } from './pod-order-design-resolver.service';
 import { PodOrderProductImageResolver } from './pod-order-product-image.resolver';
 import { PodOrderRepository } from '../repositories/pod-order.repository';
 import { PodOrderFinanceService } from './pod-order-finance.service';
-import { PodSyncLogRepository } from '../repositories/pod-sync-log.repository';
+import { PodShopSyncStatusRepository } from '../repositories/pod-shop-sync-status.repository';
+import { PodShopSyncStatusService } from './pod-shop-sync-status.service';
 import { PodTiktokAccountRepository } from '../repositories/pod-tiktok-account.repository';
 import { PodOrderSyncService } from './pod-order-sync.service';
 import { PodSyncOrchestratorService } from './pod-sync-orchestrator.service';
@@ -39,7 +40,8 @@ export class PodOrderService {
   constructor(
     private readonly config: ConfigService,
     private readonly repo: PodOrderRepository,
-    private readonly syncLogRepo: PodSyncLogRepository,
+    private readonly syncStatusRepo: PodShopSyncStatusRepository,
+    private readonly syncStatusService: PodShopSyncStatusService,
     private readonly accountRepo: PodTiktokAccountRepository,
     private readonly mapper: PodOrderResponseMapper,
     private readonly syncService: PodOrderSyncService,
@@ -193,29 +195,13 @@ export class PodOrderService {
     throw new PodShopForbiddenException();
   }
 
-  async findSyncLogs(
+  /** Latest Sync Status (đơn) — một dòng mỗi shop trong phạm vi. */
+  findSyncStatus(
     organizationId: string,
-    query: PodSyncLogQueryDto,
+    query: PodShopSyncStatusQueryDto,
     scope: PodAccessScope,
-  ): Promise<PaginatedPodSyncLogResponseDto> {
-    const page = query.page ?? 1;
-    const limit = query.limit ?? 20;
-    this.accessScope.assertShopAllowed(scope, query.shopId);
-    this.accessScope.assertAccountAllowed(scope, query.accountId);
-    const { items, total } = await this.syncLogRepo.findMany(organizationId, {
-      // Nhật ký đồng bộ cũng gắn với shop ⇒ cùng phạm vi.
-      shopScope: scope.allShops ? undefined : scope.shopIds,
-      page,
-      limit,
-      shopId: query.shopId,
-      accountId: query.accountId,
-      status: query.status,
-      trigger: query.trigger,
-    });
-    return {
-      items: items.map((log) => this.mapper.toSyncLogDto(log)),
-      meta: { total, page, limit, totalPages: total === 0 ? 0 : Math.ceil(total / limit) },
-    };
+  ): Promise<PodShopSyncStatusListDto> {
+    return this.syncStatusService.findLatest(organizationId, PodShopSyncType.ORDER, scope, query.shopId);
   }
 
   /**
@@ -246,9 +232,12 @@ export class PodOrderService {
     // RUNNING vĩnh viễn, khiến người dùng không bao giờ bấm đồng bộ lại được cho shop
     // này (khoá Redis đã tự hết hạn từ lâu). `runAll` cũng dọn theo cách này.
     const deadlineMs = this.config.get<number>('tiktok.sync.runDeadlineMs', 240_000);
-    await this.syncLogRepo.failStaleRuns(new Date(Date.now() - 2 * deadlineMs));
+    await this.syncStatusRepo.failStaleRuns(
+      PodShopSyncType.ORDER,
+      new Date(Date.now() - 2 * deadlineMs),
+    );
 
-    if (await this.syncLogRepo.hasRunningForShop(organizationId, dto.shopId)) {
+    if (await this.syncStatusRepo.isRunning(organizationId, dto.shopId, PodShopSyncType.ORDER)) {
       throw new PodTiktokSyncInProgressException();
     }
 

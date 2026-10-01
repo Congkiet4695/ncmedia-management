@@ -792,7 +792,9 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
         .intersectShippingMethods(perVariant, order.recipientRegionCode)
         .map((method) => ({
           value: method.code,
-          label: [method.name, method.carrier, method.type].filter(Boolean).join(' · '),
+          // Nhãn = tên (+ hãng). KHÔNG đưa `type` (domestic / international / both — giá trị kỹ thuật,
+          // đã dùng để lọc theo quốc gia người nhận ở bước trên) ra giao diện.
+          label: [method.name, method.carrier].filter(Boolean).join(' · '),
         }));
       if (options.length === 0) {
         warnings.push(

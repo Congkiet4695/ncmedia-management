@@ -433,5 +433,15 @@
   "submittedAt": "Submitted at",
   "syncedAt": "Synced at",
   "title": "Fulfillment",
-  "tracking": "Tracking"
+  "tracking": "Tracking",
+  "catalogSync": {
+    "started": "Catalog sync started",
+    "startedHint": "Runs in the background — a large catalog can take tens of minutes. Lists refresh automatically when done.",
+    "failed": "Could not start the catalog sync",
+    "running": "Syncing the provider catalog (started {{at}}) — the product list refreshes automatically when done.",
+    "empty": "This provider’s catalog has no data yet (not synced), so no product can be selected.",
+    "lastError": "Previous sync failed: {{error}}",
+    "askAdmin": "Ask an admin to sync the catalog on the Product Mapping screen.",
+    "start": "Sync catalog"
+  }
 }

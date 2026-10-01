@@ -55,8 +55,8 @@
     "allStatuses": "Tất cả trạng thái",
     "type": {
       "ORDER_CREATED": "Đơn mới",
-      "FULFILLMENT_SUBMITTED": "Đã fulfill",
-      "FULFILLMENT_CANCELLED": "Huỷ fulfillment"
+      "FULFILLMENT_SUBMITTED": "Fulfill thành công",
+      "FULFILLMENT_CANCELLED": "Huỷ fulfill"
     },
     "status": {
       "PENDING": "Chờ gửi",
@@ -81,5 +81,20 @@
     "retryQueued": "Đã đưa thông báo vào hàng đợi gửi",
     "retryAllQueued": "Đã đưa {{count}} thông báo vào hàng đợi gửi",
     "retryFailed": "Không gửi lại được"
+  },
+  "preferences": {
+    "title": "Loại thông báo",
+    "description": "Chọn những sự kiện tổ chức muốn nhận qua Telegram. Áp dụng riêng cho tổ chức này.",
+    "saved": "Đã lưu loại thông báo",
+    "saveFailed": "Không lưu được loại thông báo",
+    "telegramNotReady": "Telegram chưa được cấu hình hoặc đang tắt — lựa chọn vẫn được lưu và sẽ áp dụng khi bật Telegram.",
+    "newOrder": {
+      "label": "Đơn mới (New Order)",
+      "hint": "Nhận thông báo khi phát hiện đơn TikTok mới lúc đồng bộ (thủ công hoặc tự động)."
+    },
+    "fulfillment": {
+      "label": "Fulfill",
+      "hint": "Nhận thông báo khi fulfill đơn thành công hoặc huỷ fulfillment thành công."
+    }
   }
 }

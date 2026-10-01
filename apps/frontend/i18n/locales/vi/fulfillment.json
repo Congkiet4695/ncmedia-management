@@ -433,5 +433,15 @@
   "submittedAt": "Gửi lúc",
   "syncedAt": "Đồng bộ lúc",
   "title": "Xưởng in",
-  "tracking": "Vận đơn"
+  "tracking": "Vận đơn",
+  "catalogSync": {
+    "started": "Đã bắt đầu đồng bộ danh mục",
+    "startedHint": "Đồng bộ chạy nền — danh mục lớn có thể mất vài chục phút. Danh sách tự cập nhật khi xong.",
+    "failed": "Không bắt đầu được đồng bộ danh mục",
+    "running": "Đang đồng bộ danh mục nhà cung cấp (bắt đầu {{at}}) — danh sách sản phẩm sẽ tự cập nhật khi xong.",
+    "empty": "Danh mục của nhà cung cấp này chưa có dữ liệu (chưa đồng bộ) nên chưa chọn được sản phẩm.",
+    "lastError": "Lần đồng bộ trước lỗi: {{error}}",
+    "askAdmin": "Nhờ Admin đồng bộ danh mục ở màn hình Product Mapping.",
+    "start": "Đồng bộ danh mục"
+  }
 }

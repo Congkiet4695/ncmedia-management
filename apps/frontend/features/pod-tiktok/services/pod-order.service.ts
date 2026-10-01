@@ -5,13 +5,18 @@ import type {
   PodOrderListResult,
   PodOrderQuery,
   PodOrderStats,
-  PodSyncLogListResult,
-  PodSyncLogQuery,
+  PodShopSyncStatus,
+  PodShopSyncType,
   SyncTriggerResult,
   TriggerSyncPayload,
 } from '../order-types';
 
 const BASE_PATH = '/pod/tiktok';
+
+const SYNC_STATUS_PATH: Record<PodShopSyncType, string> = {
+  ORDER: `${BASE_PATH}/sync-status`,
+  PRODUCT: '/pod/products/sync-status',
+};
 
 function clean<T extends Record<string, unknown>>(obj: T): Partial<T> {
   return Object.fromEntries(
@@ -61,10 +66,15 @@ export const podOrderService = {
     return res.data.data;
   },
 
-  async syncLogs(query: PodSyncLogQuery): Promise<PodSyncLogListResult> {
-    const res = await apiClient.get<ApiResponse<PodSyncLogListResult>>(`${BASE_PATH}/sync-logs`, {
-      params: clean(query as Record<string, unknown>),
-    });
-    return res.data.data;
+  /**
+   * Latest Sync Status — tối đa MỘT dòng mỗi shop (trong phạm vi người dùng), nên không phân trang.
+   * Đơn và sản phẩm dùng chung một dạng dữ liệu, khác endpoint (khác quyền đọc).
+   */
+  async syncStatus(syncType: PodShopSyncType, shopId?: string): Promise<PodShopSyncStatus[]> {
+    const res = await apiClient.get<ApiResponse<{ items: PodShopSyncStatus[] }>>(
+      SYNC_STATUS_PATH[syncType],
+      { params: clean({ shopId }) },
+    );
+    return res.data.data.items;
   },
 };

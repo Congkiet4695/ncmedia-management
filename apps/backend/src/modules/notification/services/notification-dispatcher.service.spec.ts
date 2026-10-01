@@ -4,6 +4,10 @@ import { TelegramApiError, TelegramBotClient } from '../clients/telegram-bot.cli
 import { NOTIFICATION_ERROR_CODES } from '../constants/notification.constants';
 import { NotificationEventRepository } from '../repositories/notification-event.repository';
 import { TelegramConfigRepository } from '../repositories/telegram-config.repository';
+import type {
+  NotificationPreferenceRepository,
+  NotificationPreferences,
+} from '../repositories/notification-preference.repository';
 import { backoffMs, maskChatId, NotificationDispatcherService } from './notification-dispatcher.service';
 import { NotificationEncryptionService } from './notification-encryption.service';
 
@@ -72,6 +76,7 @@ function build(options: {
   configs?: Record<string, OrganizationTelegramConfig | null>;
   encryptionReady?: boolean;
   maxAttempts?: number;
+  preferences?: Record<string, NotificationPreferences>;
 }) {
   const settings: Record<string, unknown> = {
     'notification.dispatch.batchSize': 50,
@@ -98,12 +103,18 @@ function build(options: {
     isConfigured: () => options.encryptionReady ?? true,
     decrypt: (value: string) => value.replace('enc:', ''),
   };
+  const preferences = {
+    find: jest.fn((org: string) =>
+      Promise.resolve(options.preferences?.[org] ?? { newOrder: true, fulfillment: true }),
+    ),
+  };
   const service = new NotificationDispatcherService(
     config,
     events as unknown as NotificationEventRepository,
     configs as unknown as TelegramConfigRepository,
     telegram as unknown as TelegramBotClient,
     encryption as unknown as NotificationEncryptionService,
+    preferences as unknown as NotificationPreferenceRepository,
   );
   const finishCall = (index: number) =>
     events.finish.mock.calls[index] as [string, string, { status: NotificationEventStatus; nextAttemptAt?: Date; lastErrorCode?: string }];
@@ -271,5 +282,72 @@ describe('helpers', () => {
     expect(maskChatId('-1001234567890')).toBe('-100******7890');
     expect(maskChatId('@abc')).toBe('***bc');
     expect(maskChatId(null)).toBeUndefined();
+  });
+});
+
+describe('NotificationDispatcherService — tuỳ chọn loại thông báo (kiểm LÚC GỬI)', () => {
+  const fulfillEvent = (id: string, org = ORG_A) =>
+    event(id, org, {
+      eventType: 'FULFILLMENT_SUBMITTED',
+      entityType: 'FULFILLMENT_ORDER',
+      payload: {
+        tiktokOrderId: `TT-${id}`,
+        accountName: 'Acc',
+        items: [],
+        provider: 'MangoTeePrints',
+        fulfilledBy: null,
+        providerOrderId: 'MG-1',
+        externalOrderId: 'NC-1',
+        baseCost: null,
+        baseCostConfirmed: false,
+        currency: null,
+        trackingNumber: null,
+        productionLine: null,
+        shippingMethod: null,
+        fulfilledAt: null,
+      },
+    });
+
+  it('New Order TẮT ⇒ sự kiện NEW ORDER đã ghi trước đó bị SKIPPED, không gọi Telegram; Fulfill vẫn gửi', async () => {
+    const { service, telegram, finishCall } = build({
+      claimed: [event('o1'), fulfillEvent('f1')],
+      preferences: { [ORG_A]: { newOrder: false, fulfillment: true } },
+    });
+
+    await service.runOnce();
+
+    expect(finishCall(0)[2]).toMatchObject({ status: 'SKIPPED', lastErrorCode: NOTIFICATION_ERROR_CODES.CATEGORY_DISABLED });
+    expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
+    expect((telegram.sendMessage.mock.calls as string[][])[0][2]).toContain('FULFILL SUCCESS');
+  });
+
+  it('Fulfill TẮT ⇒ chỉ NEW ORDER được gửi', async () => {
+    const { service, telegram, finishCall } = build({
+      claimed: [event('o1'), fulfillEvent('f1')],
+      preferences: { [ORG_A]: { newOrder: true, fulfillment: false } },
+    });
+    await service.runOnce();
+    expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
+    expect((telegram.sendMessage.mock.calls as string[][])[0][2]).toContain('NEW ORDER');
+    expect(finishCall(1)[2].status).toBe('SKIPPED');
+  });
+
+  it('Cả hai TẮT ⇒ không gọi Telegram', async () => {
+    const { service, telegram } = build({
+      claimed: [event('o1'), fulfillEvent('f1')],
+      preferences: { [ORG_A]: { newOrder: false, fulfillment: false } },
+    });
+    await service.runOnce();
+    expect(telegram.sendMessage).not.toHaveBeenCalled();
+  });
+
+  it('tuỳ chọn RIÊNG từng tổ chức: A tắt New Order không ảnh hưởng B', async () => {
+    const { service, telegram } = build({
+      claimed: [event('a1', ORG_A), event('b1', ORG_B)],
+      preferences: { [ORG_A]: { newOrder: false, fulfillment: true } },
+    });
+    await service.runOnce();
+    expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
+    expect((telegram.sendMessage.mock.calls as string[][])[0][0]).toBe(`${ORG_B}-token`);
   });
 });

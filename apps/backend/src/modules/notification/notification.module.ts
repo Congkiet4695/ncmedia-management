@@ -4,6 +4,7 @@ import { AuthModule } from '../auth/auth.module';
 import { TelegramBotClient } from './clients/telegram-bot.client';
 import { NotificationController } from './controllers/notification.controller';
 import { NotificationEventRepository } from './repositories/notification-event.repository';
+import { NotificationPreferenceRepository } from './repositories/notification-preference.repository';
 import { TelegramConfigRepository } from './repositories/telegram-config.repository';
 import { NotificationDispatchJob } from './scheduler/notification-dispatch.job';
 import { NotificationDispatcherService } from './services/notification-dispatcher.service';
@@ -32,6 +33,7 @@ import { TelegramConfigService } from './services/telegram-config.service';
     NotificationEncryptionService,
     TelegramConfigRepository,
     NotificationEventRepository,
+    NotificationPreferenceRepository,
     NotificationDispatcherService,
     NotificationOutboxService,
     TelegramConfigService,

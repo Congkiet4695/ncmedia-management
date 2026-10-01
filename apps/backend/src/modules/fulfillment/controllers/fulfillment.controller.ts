@@ -18,6 +18,7 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
+  ApiAcceptedResponse,
   ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
@@ -49,7 +50,7 @@ import {
   CatalogueDto,
   CatalogProductQueryDto,
   CatalogStatusDto,
-  CatalogSyncResultDto,
+  CatalogSyncStartedDto,
   AutoMapResultDto,
   PaginatedCatalogProductDto,
   ProviderCatalogVariationDto,
@@ -385,36 +386,33 @@ export class FulfillmentController {
   }
 
   @Post('accounts/:id/catalog/sync')
-  @HttpCode(HttpStatus.OK)
+  @HttpCode(HttpStatus.ACCEPTED)
   @RequirePermissions('fulfillment.config')
   @ApiOperation({
-    summary: 'Đồng bộ danh mục nhà cung cấp về Database (thủ công)',
+    summary: 'Đồng bộ danh mục nhà cung cấp về Database (thủ công, CHẠY NỀN)',
     description:
       'Kéo Catalogue → Product → Variant từ nhà cung cấp và ghi vào Database (đã có thì ' +
       'UPDATE, chưa có thì INSERT — không sinh bản ghi trùng). Chạy xong sẽ rà lại ánh xạ ' +
       'tự động cho những sản phẩm trước đó chưa tìm được.\n\n' +
-      '⚠️ Với danh mục lớn đây là một tác vụ DÀI (hàng nghìn lời gọi API, tự giới hạn ' +
-      '10 request/giây theo quy định của nhà cung cấp).\n\n' +
-      '`complete = false` nghĩa là có lượt đọc bị cụt; khi đó bước đánh dấu ngừng bán bị BỎ ' +
-      'QUA để không xoá nhầm danh mục khỏi các ô chọn — xem `warnings`.',
+      '🔴 Trả về NGAY `status = RUNNING` (202): danh mục lớn là tác vụ rất DÀI (Sellerwix ~1.000 ' +
+      'sản phẩm ≈ 1.400 lời gọi, trần 100 request/phút ⇒ ~25 phút) — chạy trong request thì trình ' +
+      'duyệt / Nginx hết thời gian chờ trong khi đồng bộ vẫn chạy. Theo dõi bằng ' +
+      '`GET accounts/{id}/catalog/status` (`syncStatus`). Đang có lượt khác ⇒ 409 ' +
+      '`FULFILLMENT_CATALOG_SYNC_BUSY`.',
   })
-  @ApiOkResponse({ type: CatalogSyncResultDto })
-  async syncCatalog(
+  @ApiAcceptedResponse({ type: CatalogSyncStartedDto })
+  syncCatalog(
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
-  ): Promise<CatalogSyncResultDto> {
-    const result = await this.catalogSync.syncAccount(
+  ): Promise<CatalogSyncStartedDto> {
+    return this.catalogSync.startSync(
       user.organizationId,
       id,
       FulfillmentTrigger.MANUAL,
       user.userId,
+      // Danh mục vừa đổi ⇒ những sản phẩm chưa ánh xạ được có thể đã ánh xạ được.
+      () => this.autoMap.resolveOrganization(user.organizationId, { accountFilter: id, actorUserId: user.userId }),
     );
-    // Danh mục vừa đổi ⇒ những sản phẩm chưa ánh xạ được có thể đã ánh xạ được.
-    await this.autoMap.resolveOrganization(user.organizationId, {
-      accountFilter: id,
-      actorUserId: user.userId,
-    });
-    return result;
   }
 
   @Post('mappings/auto-resolve')

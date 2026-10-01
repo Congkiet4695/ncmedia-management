@@ -388,7 +388,10 @@ export class FulfillmentCatalogRepository {
             },
           },
         },
-        orderBy: { name: 'asc' },
+        // 🔴 Khoá phụ `id` BẮT BUỘC: tên sản phẩm KHÔNG duy nhất (Sellerwix có ~30 nhóm trùng tên khác
+        // SKU). Chỉ sắp theo tên thì thứ tự không tất định ⇒ các trang chồng lên nhau, ô chọn cuộn vô hạn
+        // hiện trùng sản phẩm và BỎ SÓT sản phẩm khác.
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
         skip: (params.page - 1) * params.limit,
         take: params.limit,
       }),
@@ -420,6 +423,16 @@ export class FulfillmentCatalogRepository {
     return this.prisma.fulfillmentProduct.findFirst({
       where: { id, deletedAt: null, account: FulfillmentRepository.usableAccountWhere(organizationId) },
       include: { catalogue: { select: { id: true, name: true } } },
+    });
+  }
+
+  /** Lượt đồng bộ danh mục GẦN NHẤT của một tài khoản (đang chạy / xong / lỗi). */
+  latestCatalogSync(accountId: string) {
+    return this.prisma.fulfillmentSyncLog.findFirst({
+      // Nhật ký đồng bộ TRẠNG THÁI ĐƠN không ghi account_id ⇒ có account_id là lượt đồng bộ danh mục.
+      where: { accountId },
+      orderBy: { startedAt: 'desc' },
+      select: { status: true, startedAt: true, finishedAt: true, errorMessage: true },
     });
   }
 

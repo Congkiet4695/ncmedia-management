@@ -3,7 +3,12 @@ import { FulfillmentProvider } from '@prisma/client';
 import { sellerwixPrintAreasOf } from '../sellerwix/mappers/sellerwix-order.mapper';
 import { mangoVariantProductionLine } from '../mango/mappers/mango-order.mapper';
 import { FulfillmentCatalogRepository } from '../repositories/fulfillment-catalog.repository';
-import { businessProductSku } from './fulfillment-catalog-sync.service';
+import {
+  businessProductSku,
+  CATALOG_SYNC_STALE_MS,
+  CATALOG_SYNC_STATUS,
+  FulfillmentCatalogSyncService,
+} from './fulfillment-catalog-sync.service';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import { FulfillmentAccountNotFoundException } from '../exceptions/fulfillment.exceptions';
 import type {
@@ -39,6 +44,8 @@ export class FulfillmentCatalogQueryService {
   constructor(
     private readonly repo: FulfillmentRepository,
     private readonly catalogRepo: FulfillmentCatalogRepository,
+    /** Kiểm khoá Redis để biết lượt RUNNING còn sống không (thiếu ⇒ chỉ dùng mốc thời gian). */
+    private readonly catalogSync?: FulfillmentCatalogSyncService,
   ) {}
 
   /** Danh mục của một tài khoản (bước 2 của luồng ánh xạ). */
@@ -164,11 +171,26 @@ export class FulfillmentCatalogQueryService {
   /** Số bản ghi đang có + thời điểm đồng bộ gần nhất — màn hình cấu hình nhà cung cấp. */
   async status(organizationId: string, accountId: string) {
     await this.assertAccount(organizationId, accountId);
-    const [counts, lastSyncedAt] = await Promise.all([
+    const [counts, lastSyncedAt, latest] = await Promise.all([
       this.catalogRepo.countActive(accountId),
       this.catalogRepo.lastSyncedAt(accountId),
+      this.catalogRepo.latestCatalogSync(accountId),
     ]);
-    return { ...counts, lastSyncedAt: lastSyncedAt?.toISOString() ?? null };
+    // RUNNING mà tiến trình đã chết (khoá không còn / quá lâu) ⇒ INTERRUPTED: nói thật thay vì
+    // "đang đồng bộ" mãi mãi — giao diện hiện lại nút đồng bộ.
+    const syncStatus = this.catalogSync
+      ? await this.catalogSync.effectiveSyncStatus(accountId, latest)
+      : latest?.status === CATALOG_SYNC_STATUS.RUNNING &&
+          Date.now() - latest.startedAt.getTime() > CATALOG_SYNC_STALE_MS
+        ? CATALOG_SYNC_STATUS.INTERRUPTED
+        : (latest?.status ?? null);
+    return {
+      ...counts,
+      lastSyncedAt: lastSyncedAt?.toISOString() ?? null,
+      syncStatus,
+      syncStartedAt: latest?.startedAt.toISOString() ?? null,
+      syncError: latest?.errorMessage ?? null,
+    };
   }
 
   /** Sản phẩm dạng phẳng (không phân trang) — chỉ dùng khi thực sự cần cả danh sách. */

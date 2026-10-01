@@ -38,6 +38,7 @@
     "scripts/verify-edit-product.ts",
     "scripts/verify-rich-text-format.ts",
     "scripts/verify-custom-listing.ts",
-    "scripts/verify-sku-sync.ts"
+    "scripts/verify-sku-sync.ts",
+    "scripts/verify-dashboard.ts"
   ]
 }

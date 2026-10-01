@@ -1,7 +1,7 @@
 import { ConfigService } from '@nestjs/config';
 import { PodSyncPhase, PodSyncStatus, PodSyncTrigger } from '@prisma/client';
 import { DistributedLockService } from '../infra/distributed-lock.service';
-import { PodSyncLogRepository } from '../repositories/pod-sync-log.repository';
+import { PodShopSyncStatusRepository } from '../repositories/pod-shop-sync-status.repository';
 import { PodTiktokAccountRepository } from '../repositories/pod-tiktok-account.repository';
 import { PodOrderSyncService, ShopSyncOutcome } from './pod-order-sync.service';
 import { PodPayoutSyncService } from './pod-payout-sync.service';
@@ -86,7 +86,7 @@ describe('PodSyncOrchestratorService — Scheduler Flow', () => {
     service = new PodSyncOrchestratorService(
       config as unknown as ConfigService,
       accountRepo as unknown as PodTiktokAccountRepository,
-      syncLogRepo as unknown as PodSyncLogRepository,
+      syncLogRepo as unknown as PodShopSyncStatusRepository,
       syncService as unknown as PodOrderSyncService,
       payoutSyncService as unknown as PodPayoutSyncService,
       lock as unknown as DistributedLockService,
@@ -112,7 +112,7 @@ describe('PodSyncOrchestratorService — Scheduler Flow', () => {
 
     it('dọn nhật ký bị treo trước khi chạy', async () => {
       await service.runAll();
-      expect(syncLogRepo.failStaleRuns).toHaveBeenCalledWith(expect.any(Date));
+      expect(syncLogRepo.failStaleRuns).toHaveBeenCalledWith('ORDER', expect.any(Date));
     });
   });
 

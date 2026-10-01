@@ -12,7 +12,6 @@ import type {
   PodProductListResult,
   PodProductQuery,
   UpdatePodProductPayload,
-  PodProductSyncHistoryResult,
   PodProductSyncPayload,
   PodProductSyncResult,
 } from '../types';
@@ -116,18 +115,6 @@ export const podProductService = {
   /** Đồng bộ lại đúng một sản phẩm (màn hình chi tiết). */
   async resync(id: string): Promise<PodProductDetail> {
     const res = await apiClient.post<ApiResponse<PodProductDetail>>(`${BASE_PATH}/${id}/sync`);
-    return res.data.data;
-  },
-
-  async syncHistory(params: {
-    page?: number;
-    limit?: number;
-    shopId?: string;
-  }): Promise<PodProductSyncHistoryResult> {
-    const res = await apiClient.get<ApiResponse<PodProductSyncHistoryResult>>(
-      `${BASE_PATH}/sync-history`,
-      { params: clean(params as Record<string, unknown>) },
-    );
     return res.data.data;
   },
 };

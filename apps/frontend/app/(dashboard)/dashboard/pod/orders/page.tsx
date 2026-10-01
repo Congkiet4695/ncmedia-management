@@ -29,7 +29,7 @@ import { BulkToolbar } from '@/features/pod-tiktok/components/orders/bulk-toolba
 import { PodOrderTable } from '@/features/pod-tiktok/components/pod-order-table';
 import { UploadDesignDialog } from '@/features/pod-tiktok/components/upload-design-dialog';
 import { usePodOrderStatusLabel } from '@/features/pod-tiktok/components/pod-order-status-badge';
-import { SyncHistoryDialog } from '@/features/pod-tiktok/components/sync-history-dialog';
+import { LatestSyncStatusDialog } from '@/features/pod-tiktok/components/latest-sync-status-dialog';
 import {
   usePodOrderStats,
   usePodOrders,
@@ -248,7 +248,7 @@ function PodOrdersView() {
         <div className="flex flex-wrap items-center gap-2">
           <Button variant="outline" onClick={() => setHistoryOpen(true)}>
             <History className="size-4" />
-            {t('orders.syncHistory')}
+            {t('latestSync.action')}
           </Button>
           {canSync && (
             <>
@@ -466,7 +466,11 @@ function PodOrdersView() {
         onClose={() => setLightbox(null)}
       />
 
-      <SyncHistoryDialog open={historyOpen} onClose={() => setHistoryOpen(false)} />
+      <LatestSyncStatusDialog
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        syncType="ORDER"
+      />
     </div>
   );
 }

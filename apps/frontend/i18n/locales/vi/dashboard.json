@@ -1,0 +1,111 @@
+{
+  "retry": "Thử lại",
+  "unassigned": "Chưa gán seller",
+  "filter": {
+    "from": "Từ ngày",
+    "to": "Đến ngày",
+    "currency": "Đơn vị tiền",
+    "shop": "Shop",
+    "seller": "Seller",
+    "allShops": "Tất cả shop",
+    "allSellers": "Tất cả seller"
+  },
+  "hold": {
+    "title": "Tổng tiền đang hold",
+    "hint": "Tiền TikTok CHƯA quyết toán cho seller: Σ số tiền ước tính quyết toán (est_settlement_amount) của các giao dịch chưa quyết toán (Finance API — unsettled). Ảnh chụp hiện tại, không theo khoảng ngày. Đơn vị tiền khác hiển thị riêng, không quy đổi.",
+    "shops": "shops"
+  },
+  "shop": {
+    "title": "Trạng thái shop",
+    "hint": "Theo trạng thái shop TikTok trong hệ thống: Live = ACTIVE; Die = INACTIVE (TikTok báo không hoạt động); Mất uỷ quyền = DEAUTHORIZED.",
+    "live": "Live",
+    "inactive": "Die",
+    "deauthorized": "Mất uỷ quyền",
+    "total": "Tổng shop",
+    "shops": "shops"
+  },
+  "holdBySeller": {
+    "title": "Tiền hold theo nhân sự",
+    "hint": "Hold gom theo seller phụ trách TikTok Account. Shop = số shop có tiền chưa quyết toán. Đủ mọi seller có hold, giảm dần.",
+    "seller": "Nhân sự",
+    "shop": "Shop",
+    "empty": "Không có khoản hold nào."
+  },
+  "period": {
+    "title": "Đơn hàng theo kỳ",
+    "hint": "Số đơn đặt trong kỳ (giờ vận hành). Est. Rev = tiền thu về của các đơn đó (đã quyết toán, chưa thì ước tính của TikTok). Payout = tiền TikTok đã chi trong kỳ. % so với kỳ liền trước.",
+    "today": "Hôm nay",
+    "yesterday": "Hôm qua",
+    "thisMonth": "Tháng này",
+    "lastMonth": "Tháng trước",
+    "estRevenue": "Est. Rev:",
+    "payout": "Payout:",
+    "noBaseline": "Kỳ trước không có đơn — không tính được %"
+  },
+  "finance": {
+    "title": "Tài chính",
+    "hint": "Đã thanh toán = tiền TikTok đã chi (payment PAID) trong khoảng. Đang xử lý = statement đã quyết toán nhưng payment còn PROCESSING.",
+    "paid": "Đã thanh toán:",
+    "processing": "Số tiền đang xử lý"
+  },
+  "orders": {
+    "title": "Đơn hàng",
+    "count": "{{count}} đơn",
+    "delivered": "{{count}} giao thành công",
+    "noData": "Chưa có dữ liệu",
+    "returnsUnavailable": "Hệ thống chưa đồng bộ TikTok Return & Refund nên chưa có số đơn hoàn.",
+    "group": {
+      "UNPAID": "Chờ thanh toán",
+      "TO_SHIP": "Chờ gửi hàng",
+      "AWAITING_COLLECTION": "Chờ lấy hàng",
+      "SHIPPING": "Vận chuyển",
+      "DELIVERED": "Giao thành công",
+      "CANCELLED": "Đã huỷ",
+      "OTHER": "Trạng thái khác",
+      "RETURNED": "Đơn hoàn"
+    }
+  },
+  "sellers": {
+    "title": "Thống kê seller",
+    "hint": "Seller = nhân viên được gán làm seller của TikTok Account. Theo khoảng ngày + bộ lọc chung; On hold là ảnh chụp hiện tại.",
+    "activeOnly": "Chỉ hiện nhân viên đang hoạt động",
+    "search": "Tìm seller…",
+    "empty": "Không có seller nào.",
+    "inactive": "Ngừng hoạt động",
+    "returnsUnavailable": "Chưa có dữ liệu hoàn hàng (cần tích hợp TikTok Return & Refund).",
+    "col": {
+      "name": "Tên seller",
+      "orders": "Tổng đơn hàng",
+      "returns": "Đơn hoàn",
+      "estRevenue": "Doanh thu dự kiến",
+      "revenue": "Doanh thu",
+      "baseCost": "Basecost",
+      "profit": "PF",
+      "paid": "Đã thanh toán",
+      "processing": "Đang xử lý",
+      "hold": "On hold"
+    },
+    "colHint": {
+      "estRevenue": "Tiền thu về của đơn: đã quyết toán, chưa thì ước tính của TikTok.",
+      "revenue": "Tổng tiền khách trả (GMV), không tính đơn đã huỷ.",
+      "baseCost": "Giá vốn sản phẩm đã được nhà cung cấp fulfillment xác nhận (lần gửi đang hiệu lực).",
+      "profit": "PF = Doanh thu dự kiến − Basecost. Đơn chưa fulfill / chưa có giá vốn xác nhận tính giá vốn = 0.",
+      "paid": "Tiền TikTok đã chi trong khoảng.",
+      "processing": "Đã quyết toán, chưa chi (payment PROCESSING).",
+      "hold": "Tiền TikTok chưa quyết toán (hiện tại)."
+    }
+  },
+  "trend": {
+    "title": "Biểu đồ xu hướng",
+    "finance": "Tài chính",
+    "orders": "Đơn hàng",
+    "financeTitle": "Xu hướng tài chính ({{currency}})",
+    "ordersTitle": "Xu hướng đơn hàng",
+    "paid": "Đã thanh toán",
+    "processing": "Đang xử lý",
+    "total": "Tổng đơn",
+    "delivered": "Giao thành công",
+    "inProgress": "Đang xử lý / vận chuyển",
+    "cancelled": "Đã huỷ"
+  }
+}

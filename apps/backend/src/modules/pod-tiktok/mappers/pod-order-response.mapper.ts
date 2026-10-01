@@ -4,21 +4,12 @@ import {
   PodOrderItemDto,
   PodOrderListItemDto,
   PodOrderResponseDto,
-  PodSyncLogDto,
 } from '../dto/pod-order-response.dto';
 import { StorageMapper } from '../../storage/storage.mapper';
 import type { ResolvedItemDesigns } from '../services/pod-order-design-resolver.service';
 import type { ResolvedProductImage } from '../services/pod-order-product-image.resolver';
 import { PodOrderWithRelations } from '../types/pod-order-with-relations.type';
 import type { OrderFinancials } from '../shared/order-financials';
-
-/** Dòng nhật ký kèm quan hệ shop/account (khớp include của repository). */
-type SyncLogRow = Prisma.PodSyncLogGetPayload<{
-  include: {
-    shop: { select: { id: true; name: true } };
-    account: { select: { id: true; accountName: true } };
-  };
-}>;
 
 /**
  * PodOrderResponseMapper — Entity → Response DTO.
@@ -146,32 +137,6 @@ export class PodOrderResponseMapper {
       lastSync: order.lastSyncedAt.toISOString(),
       // Sản phẩm đi kèm ngay ở danh sách (đã nạp sẵn qua include — không phát sinh N+1).
       items: order.items.map((item) => this.toItemDto(item, designs, productImages)),
-    };
-  }
-
-  toSyncLogDto(log: SyncLogRow): PodSyncLogDto {
-    return {
-      id: log.id,
-      shopId: log.shopId,
-      shopName: log.shop?.name ?? null,
-      accountName: log.account?.accountName ?? null,
-      trigger: log.trigger,
-      status: log.status,
-      phase: log.phase,
-      startTime: log.startedAt.toISOString(),
-      endTime: log.finishedAt?.toISOString() ?? null,
-      durationMs: log.durationMs,
-      totalOrders: log.totalOrders,
-      tiktokTotalCount: log.tiktokTotalCount,
-      created: log.createdCount,
-      updated: log.updatedCount,
-      skipped: log.skippedCount,
-      failed: log.failedCount,
-      pagesFetched: log.pagesFetched,
-      apiCalls: log.apiCalls,
-      errorCode: log.errorCode,
-      errorMessage: log.errorMessage,
-      tiktokRequestId: log.tiktokRequestId,
     };
   }
 

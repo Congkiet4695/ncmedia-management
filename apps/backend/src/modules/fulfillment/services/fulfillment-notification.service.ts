@@ -77,6 +77,7 @@ export class FulfillmentNotificationService {
           productionLine: record.productionLine,
           shippingMethod: record.shippingMethod,
           fulfilledAt: (record.submittedAt ?? new Date()).toISOString(),
+          status: record.status,
         },
       });
     } catch (error) {
@@ -109,7 +110,6 @@ export class FulfillmentNotificationService {
           externalOrderId: record.externalOrderId,
           cancelledAt: (record.cancelledAt ?? new Date()).toISOString(),
           reason: reason?.trim() || null,
-          sellerName: order.sellerName,
           cancelledBy,
         },
       });
@@ -126,6 +126,7 @@ export class FulfillmentNotificationService {
     tiktokOrderId: string;
     accountName: string | null;
     sellerName: string | null;
+    shopName: string | null;
     items: NotificationOrderItem[];
   } | null> {
     const order = await this.podOrderRepo.findById(record.organizationId, record.podOrderId);
@@ -135,7 +136,9 @@ export class FulfillmentNotificationService {
     return {
       tiktokOrderId: order.tiktokOrderId,
       accountName: order.account?.accountName ?? null,
-      sellerName: order.account?.seller?.user?.fullName ?? null,
+      // Seller / Shop lấy từ quan hệ THẬT: Order → TikTok Account → Employee → User; Order → Shop.
+      sellerName: order.account?.seller?.user?.fullName?.trim() || order.account?.seller?.user?.email || null,
+      shopName: order.shop?.name ?? null,
       items: groupOrderLines(lines),
     };
   }

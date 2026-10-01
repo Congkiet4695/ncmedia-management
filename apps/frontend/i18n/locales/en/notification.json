@@ -81,5 +81,20 @@
     "retryQueued": "Notification queued for sending",
     "retryAllQueued": "{{count}} notification(s) queued for sending",
     "retryFailed": "Could not resend"
+  },
+  "preferences": {
+    "title": "Notification types",
+    "description": "Choose which events this organization receives on Telegram. Applies to this organization only.",
+    "saved": "Notification types saved",
+    "saveFailed": "Could not save notification types",
+    "telegramNotReady": "Telegram is not configured or is disabled — your choice is saved and applies once Telegram is enabled.",
+    "newOrder": {
+      "label": "New Order",
+      "hint": "Receive a notification when a new TikTok order is detected during sync (manual or automatic)."
+    },
+    "fulfillment": {
+      "label": "Fulfill",
+      "hint": "Receive a notification when an order is fulfilled or a fulfillment is cancelled."
+    }
   }
 }

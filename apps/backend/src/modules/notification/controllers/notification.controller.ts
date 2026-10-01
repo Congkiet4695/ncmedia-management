@@ -30,6 +30,7 @@ import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { AuthenticatedUser } from '../../auth/types/authenticated-user.interface';
 import {
   NotificationEventQueryDto,
+  NotificationPreferencesDto,
   PaginatedNotificationEventDto,
   RequeueResultDto,
   SaveTelegramConfigDto,
@@ -54,6 +55,31 @@ import { TelegramConfigService } from '../services/telegram-config.service';
 @Controller('notifications')
 export class NotificationController {
   constructor(private readonly service: TelegramConfigService) {}
+
+  @Get('preferences')
+  @ApiOperation({
+    summary: 'Loại thông báo tổ chức muốn nhận (New Order / Fulfill)',
+    description: 'Chưa từng lưu ⇒ mặc định bật cả hai. Lưu được cả khi chưa cấu hình Telegram.',
+  })
+  @ApiOkResponse({ type: NotificationPreferencesDto })
+  getPreferences(@CurrentUser() user: AuthenticatedUser): Promise<NotificationPreferencesDto> {
+    return this.service.getPreferences(user.organizationId);
+  }
+
+  @Put('preferences')
+  @ApiOperation({
+    summary: 'Lưu loại thông báo tổ chức muốn nhận',
+    description:
+      'Backend áp dụng ở CẢ hai đầu: không ghi sự kiện cho loại đã tắt, và worker bỏ qua (SKIPPED) ' +
+      'sự kiện đã ghi trước khi tắt. Riêng của từng tổ chức.',
+  })
+  @ApiOkResponse({ type: NotificationPreferencesDto })
+  savePreferences(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: NotificationPreferencesDto,
+  ): Promise<NotificationPreferencesDto> {
+    return this.service.savePreferences(user.organizationId, user.userId, dto);
+  }
 
   @Get('telegram')
   @ApiOperation({

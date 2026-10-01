@@ -362,48 +362,6 @@ export class PaginatedPodOrderResponseDto {
 }
 
 /** Một dòng nhật ký đồng bộ. */
-export class PodSyncLogDto {
-  @ApiProperty() id!: string;
-  @ApiProperty({ nullable: true, type: String }) shopId!: string | null;
-  @ApiProperty({ nullable: true, type: String }) shopName!: string | null;
-  /** Tên KẾT NỐI do người vận hành đặt — nhật ký đã có sẵn trường này từ trước. */
-  @ApiProperty({ nullable: true, type: String }) accountName!: string | null;
-  @ApiProperty({ example: 'CRON' }) trigger!: string;
-  @ApiProperty({ example: 'SUCCESS' }) status!: string;
-  @ApiProperty({
-    example: 'INCREMENTAL',
-    description:
-      'BACKFILL = kéo lịch sử theo create_time; INCREMENTAL = đồng bộ định kỳ theo update_time',
-  })
-  phase!: string;
-  @ApiProperty() startTime!: string;
-  @ApiProperty({ nullable: true, type: String }) endTime!: string | null;
-  @ApiProperty({ nullable: true, type: Number, description: 'Thời lượng (ms)' })
-  durationMs!: number | null;
-  @ApiProperty() totalOrders!: number;
-  @ApiProperty({
-    nullable: true,
-    type: Number,
-    description: 'Số đơn TikTok báo có trong cửa sổ — lệch với totalOrders là dấu hiệu thiếu đơn',
-  })
-  tiktokTotalCount!: number | null;
-  @ApiProperty() created!: number;
-  @ApiProperty() updated!: number;
-  @ApiProperty() skipped!: number;
-  @ApiProperty() failed!: number;
-  @ApiProperty() pagesFetched!: number;
-  @ApiProperty({ description: 'Số lần gọi TikTok API' }) apiCalls!: number;
-  @ApiProperty({ nullable: true, type: String }) errorCode!: string | null;
-  @ApiProperty({ nullable: true, type: String }) errorMessage!: string | null;
-  @ApiProperty({ nullable: true, type: String, description: 'request_id của TikTok' })
-  tiktokRequestId!: string | null;
-}
-
-export class PaginatedPodSyncLogResponseDto {
-  @ApiProperty({ type: PodSyncLogDto, isArray: true }) items!: PodSyncLogDto[];
-  @ApiProperty({ type: PodPaginationMetaDto }) meta!: PodPaginationMetaDto;
-}
-
 /** Kết quả trigger đồng bộ thủ công. */
 export class PodSyncTriggerResultDto {
   @ApiProperty() shopsTotal!: number;

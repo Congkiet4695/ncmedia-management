@@ -240,6 +240,30 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
     setForm((prev) => (prev.note ? { note: prev.note } : {}));
   }, [activeProviderId]);
 
+  /**
+   * Fulfill lại (sau khi huỷ / gửi lỗi) ⇒ chọn sẵn phương thức vận chuyển của LẦN GỬI TRƯỚC — chỉ
+   * khi cùng nhà cung cấp và giá trị đó vẫn nằm trong danh sách hợp lệ hiện tại (Sellerwix tính theo
+   * biến thể + quốc gia người nhận, có thể đã đổi). Không giẫm lên lựa chọn người dùng vừa bấm.
+   */
+  const previousShipping =
+    state?.fulfillment && state.fulfillment.provider === state.provider?.type
+      ? state.fulfillment.shippingMethod
+      : null;
+  const shippingValues = useMemo(
+    () =>
+      shippingByOrder
+        ? (orderShipping.data?.options ?? []).map((entry) => entry.value)
+        : capabilities
+          ? [...FULFILL_SHIPPING_METHODS]
+          : [],
+    [shippingByOrder, orderShipping.data, capabilities],
+  );
+  useEffect(() => {
+    if (!previousShipping || form.shippingMethod) return;
+    if (!shippingValues.includes(previousShipping as (typeof shippingValues)[number])) return;
+    setForm((prev) => (prev.shippingMethod ? prev : { ...prev, shippingMethod: previousShipping }));
+  }, [previousShipping, shippingValues, form.shippingMethod]);
+
   const savedLabelUrl = stateQuery.data?.shippingLabel?.labelUrl ?? '';
   useEffect(() => {
     setLabelInput(savedLabelUrl);

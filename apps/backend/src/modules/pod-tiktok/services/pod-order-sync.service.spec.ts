@@ -1,11 +1,11 @@
 import { ConfigService } from '@nestjs/config';
-import { PodSyncStatus, PodSyncTrigger } from '@prisma/client';
+import { PodShopSyncType, PodSyncStatus, PodSyncTrigger } from '@prisma/client';
 import { TiktokOrderClient } from '../clients/tiktok-order.client';
 import { TiktokErrorClass } from '../constants/tiktok-error-code.constants';
 import { TiktokClientError } from '../exceptions/pod-tiktok.exceptions';
 import { OrderSyncHookRegistry } from '../../../common/hooks/order-sync-hook.registry';
 import { DistributedLockService } from '../infra/distributed-lock.service';
-import { PodSyncLogRepository } from '../repositories/pod-sync-log.repository';
+import { PodShopSyncStatusRepository } from '../repositories/pod-shop-sync-status.repository';
 import { PodTiktokAccountRepository } from '../repositories/pod-tiktok-account.repository';
 import { PodOrderIngestionService } from './pod-order-ingestion.service';
 import { PodOrderSyncService, SyncShopTarget } from './pod-order-sync.service';
@@ -81,7 +81,15 @@ describe('PodOrderSyncService', () => {
     recordShopSyncFailure: jest.Mock;
     pauseShopSync: jest.Mock;
   };
-  let syncLogRepo: { start: jest.Mock; finish: jest.Mock };
+  let syncStatusRepo: { start: jest.Mock; finish: jest.Mock };
+  /** Handle (fencing token) mà `start` trả về — `finish` phải nhận lại đúng nó. */
+  const RUN = {
+    organizationId: 'org-uuid',
+    shopId: 'shop-uuid',
+    syncType: PodShopSyncType.ORDER,
+    runId: 'run-uuid',
+    startedAt: new Date(),
+  };
   let lock: { acquire: jest.Mock; release: jest.Mock };
   let syncHooks: { notifyOrdersSynced: jest.Mock };
 
@@ -107,9 +115,9 @@ describe('PodOrderSyncService', () => {
       recordShopSyncFailure: jest.fn().mockResolvedValue(1),
       pauseShopSync: jest.fn().mockResolvedValue(undefined),
     };
-    syncLogRepo = {
-      start: jest.fn().mockResolvedValue({ id: 'log-uuid' }),
-      finish: jest.fn().mockResolvedValue(undefined),
+    syncStatusRepo = {
+      start: jest.fn().mockResolvedValue(RUN),
+      finish: jest.fn().mockResolvedValue(true),
     };
     lock = {
       acquire: jest.fn().mockResolvedValue({ key: 'k', fenceToken: 'f' }),
@@ -123,7 +131,7 @@ describe('PodOrderSyncService', () => {
       ingestion as unknown as PodOrderIngestionService,
       tokenService as unknown as PodTiktokTokenService,
       accountRepo as unknown as PodTiktokAccountRepository,
-      syncLogRepo as unknown as PodSyncLogRepository,
+      syncStatusRepo as unknown as PodShopSyncStatusRepository,
       { decrypt: () => 'PLAIN_SHOP_CIPHER' } as unknown as TiktokEncryptionService,
       lock as unknown as DistributedLockService,
       // Hook sau đồng bộ (ánh xạ tự động của Fulfillment) — không thuộc phạm vi bộ test này.
@@ -421,7 +429,7 @@ describe('PodOrderSyncService', () => {
       expect(orderClient.searchOrders).not.toHaveBeenCalled();
       expect(outcome.status).toBe(PodSyncStatus.FAILED);
       expect(outcome.errorCode).toBe('REAUTH_REQUIRED');
-      expect(syncLogRepo.finish).toHaveBeenCalled();
+      expect(syncStatusRepo.finish).toHaveBeenCalled();
     });
   });
 
@@ -446,9 +454,8 @@ describe('PodOrderSyncService', () => {
       const outcome = await service.syncShop(buildTarget(), { trigger: PodSyncTrigger.CRON });
 
       expect(outcome.errorCode).toBe('36009002');
-      expect(syncLogRepo.finish).toHaveBeenCalledWith(
-        'log-uuid',
-        expect.any(Date),
+      expect(syncStatusRepo.finish).toHaveBeenCalledWith(
+        RUN,
         expect.objectContaining({ status: PodSyncStatus.FAILED, errorCode: '36009002' }),
       );
     });
@@ -509,10 +516,12 @@ describe('PodOrderSyncService', () => {
       const outcome = await service.syncShop(buildTarget(), { trigger: PodSyncTrigger.CRON });
 
       expect(outcome.tiktokTotalCount).toBe(143);
-      expect(syncLogRepo.finish).toHaveBeenCalledWith(
-        'log-uuid',
-        expect.any(Date),
-        expect.objectContaining({ tiktokTotalCount: 143, totalOrders: 1 }),
+      expect(syncStatusRepo.finish).toHaveBeenCalledWith(
+        RUN,
+        expect.objectContaining({
+          totalCount: 1,
+          details: expect.objectContaining({ tiktokTotalCount: 143 }) as unknown,
+        }),
       );
     });
   });
@@ -525,7 +534,7 @@ describe('PodOrderSyncService', () => {
 
       expect(outcome.status).toBe(PodSyncStatus.SKIPPED);
       expect(orderClient.searchOrders).not.toHaveBeenCalled();
-      expect(syncLogRepo.start).not.toHaveBeenCalled();
+      expect(syncStatusRepo.start).not.toHaveBeenCalled();
     });
   });
 
@@ -548,18 +557,33 @@ describe('PodOrderSyncService', () => {
 
       await service.syncShop(buildTarget(), { trigger: PodSyncTrigger.CRON });
 
-      expect(syncLogRepo.finish).toHaveBeenCalledWith(
-        'log-uuid',
-        expect.any(Date),
+      expect(syncStatusRepo.finish).toHaveBeenCalledWith(
+        RUN,
         expect.objectContaining({
           status: PodSyncStatus.SUCCESS,
-          totalOrders: 10,
+          totalCount: 10,
           createdCount: 4,
           updatedCount: 3,
           skippedCount: 2,
           failedCount: 0,
-          pagesFetched: 1,
-          apiCalls: 1,
+          // Thành công ⇒ XOÁ lỗi của lượt trước (FAILED → SUCCESS không còn mang lỗi cũ).
+          errorCode: null,
+          errorMessage: null,
+          details: expect.objectContaining({ pagesFetched: 1, apiCalls: 1 }) as unknown,
+        }),
+      );
+    });
+
+    it('ghi vào dòng trạng thái ORDER của đúng shop, kèm trigger', async () => {
+      await service.syncShop(buildTarget(), { trigger: PodSyncTrigger.MANUAL, triggeredBy: 'user-1' });
+
+      expect(syncStatusRepo.start).toHaveBeenCalledTimes(1);
+      expect(syncStatusRepo.start).toHaveBeenCalledWith(
+        expect.objectContaining({
+          shopId: 'shop-uuid',
+          syncType: PodShopSyncType.ORDER,
+          trigger: PodSyncTrigger.MANUAL,
+          triggeredBy: 'user-1',
         }),
       );
     });

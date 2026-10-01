@@ -2,6 +2,7 @@ import { apiClient } from '@/services/api-client';
 import type { ApiResponse } from '@/types/api';
 import type {
   NotificationEventQuery,
+  NotificationPreferences,
   PaginatedNotificationEvents,
   SaveTelegramConfigInput,
   TelegramConfig,
@@ -16,6 +17,16 @@ const BASE_PATH = '/notifications';
  * giao diện không gửi id tổ chức nào).
  */
 export const notificationService = {
+  async getPreferences(): Promise<NotificationPreferences> {
+    const res = await apiClient.get<ApiResponse<NotificationPreferences>>(`${BASE_PATH}/preferences`);
+    return res.data.data;
+  },
+
+  async savePreferences(input: NotificationPreferences): Promise<NotificationPreferences> {
+    const res = await apiClient.put<ApiResponse<NotificationPreferences>>(`${BASE_PATH}/preferences`, input);
+    return res.data.data;
+  },
+
   async getTelegram(): Promise<TelegramConfig> {
     const res = await apiClient.get<ApiResponse<TelegramConfig>>(`${BASE_PATH}/telegram`);
     return res.data.data;

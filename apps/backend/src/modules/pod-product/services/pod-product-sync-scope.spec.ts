@@ -44,6 +44,8 @@ function buildService(outcomes: unknown[] = []) {
     // trên đường đi của `triggerSync` — để trống đúng với những phụ thuộc khác ở đây.
     {} as never,
     {} as never,
+    // `syncStatus` chỉ phục vụ màn hình Latest Sync Status.
+    {} as never,
   );
 
   /** Bộ lọc đã thực sự chuyển xuống tầng đồng bộ. */
@@ -126,7 +128,6 @@ describe('triggerSync — bản tổng kết theo shop', () => {
   const outcome = (shopId: string, status: string, extra: Record<string, unknown> = {}) => ({
     shopId,
     shopName: `Shop ${shopId}`,
-    historyId: status === 'SKIPPED' || status === 'LOCKED' ? '' : `h-${shopId}`,
     status,
     fetched: 0,
     created: 0,

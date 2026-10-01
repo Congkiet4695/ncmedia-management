@@ -1,5 +1,6 @@
 'use client';
 
+import { useEffect, useRef } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   fulfillmentProviderService,
@@ -398,13 +399,30 @@ export function useProviderVariantPrice(accountId?: string, variantId?: string) 
   });
 }
 
-/** Tình trạng bản sao danh mục — số bản ghi + lần đồng bộ gần nhất. */
+/**
+ * Tình trạng bản sao danh mục — số bản ghi + lượt đồng bộ gần nhất.
+ *
+ * Đồng bộ chạy NỀN ở backend (danh mục Sellerwix ~25 phút) ⇒ khi `syncStatus = RUNNING` thì tự hỏi
+ * lại mỗi 5 giây, và lúc chạy xong làm mới mọi danh sách danh mục / ánh xạ đang hiển thị.
+ */
 export function useCatalogStatus(accountId?: string) {
-  return useQuery({
+  const queryClient = useQueryClient();
+  const query = useQuery({
     queryKey: [MAPPING_KEY, 'catalog-status', accountId],
     queryFn: () => productMappingService.catalogStatus(accountId as string),
     enabled: Boolean(accountId),
+    refetchInterval: (current) => (current.state.data?.syncStatus === 'RUNNING' ? 5_000 : false),
   });
+  const running = query.data?.syncStatus === 'RUNNING';
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (wasRunning.current && !running) {
+      void queryClient.invalidateQueries({ queryKey: [MAPPING_KEY] });
+      void queryClient.invalidateQueries({ queryKey: [KEY] });
+    }
+    wasRunning.current = running;
+  }, [running, queryClient]);
+  return query;
 }
 
 /**

@@ -25,6 +25,10 @@ import {
   TelegramTestRateLimitedException,
 } from '../exceptions/notification.exceptions';
 import { NotificationEventRepository } from '../repositories/notification-event.repository';
+import {
+  NotificationPreferenceRepository,
+  type NotificationPreferences,
+} from '../repositories/notification-preference.repository';
 import { TelegramConfigRepository } from '../repositories/telegram-config.repository';
 import { NotificationDispatcherService, maskChatId } from './notification-dispatcher.service';
 import { NotificationEncryptionService } from './notification-encryption.service';
@@ -48,7 +52,31 @@ export class TelegramConfigService {
     private readonly dispatcher: NotificationDispatcherService,
     private readonly redis: RedisService,
     private readonly config: ConfigService,
+    private readonly preferences: NotificationPreferenceRepository,
   ) {}
+
+  getPreferences(organizationId: string): Promise<NotificationPreferences> {
+    return this.preferences.find(organizationId);
+  }
+
+  async savePreferences(
+    organizationId: string,
+    actorUserId: string,
+    dto: NotificationPreferences,
+  ): Promise<NotificationPreferences> {
+    const saved = await this.preferences.save(organizationId, actorUserId, {
+      newOrder: dto.newOrder,
+      fulfillment: dto.fulfillment,
+    });
+    this.logger.log({
+      module: 'notification',
+      operation: 'preferences.save',
+      organizationId,
+      ...saved,
+      msg: 'Đã lưu loại thông báo của tổ chức',
+    });
+    return saved;
+  }
 
   async get(organizationId: string): Promise<TelegramConfigDto> {
     return this.toDto(await this.configs.findByOrganization(organizationId));

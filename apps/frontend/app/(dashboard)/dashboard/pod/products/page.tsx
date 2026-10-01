@@ -16,7 +16,7 @@ import { useClampedPage } from '@/hooks/use-clamped-page';
 import { useAuth } from '@/hooks/use-auth';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { ImageLightbox } from '@/features/pod-tiktok/components/image-lightbox';
-import { ProductSyncHistoryDialog } from '@/features/pod-product/components/product-sync-history-dialog';
+import { LatestSyncStatusDialog } from '@/features/pod-tiktok/components/latest-sync-status-dialog';
 import { EditProductDialog } from '@/features/pod-product/components/edit-product-dialog';
 import { CloneProductDialog } from '@/features/pod-product/components/clone-product-dialog';
 import {
@@ -283,7 +283,7 @@ function PodProductsView() {
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" onClick={() => setHistoryOpen(true)}>
             <History className="size-4" />
-            {t('products.syncHistory.action')}
+            {t('latestSync.action')}
           </Button>
           {canSync && (
             <>
@@ -460,7 +460,11 @@ function PodProductsView() {
         </CardContent>
       </Card>
 
-      <ProductSyncHistoryDialog open={historyOpen} onClose={() => setHistoryOpen(false)} />
+      <LatestSyncStatusDialog
+        open={historyOpen}
+        onClose={() => setHistoryOpen(false)}
+        syncType="PRODUCT"
+      />
 
       {/* Chỉ gắn vào cây khi thật sự mở: modal tự tải chi tiết sản phẩm, và giữ nó trong DOM
           ở trạng thái đóng nghĩa là mỗi lần bảng render lại đều kéo theo nó. */}
