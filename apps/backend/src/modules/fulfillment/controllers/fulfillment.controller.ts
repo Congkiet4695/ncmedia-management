@@ -71,6 +71,7 @@ import {
   TestConnectionResultDto,
   UpsertProductMappingDto,
   VariantPriceDto,
+  UpdateManualBaseCostDto,
 } from '../dto/fulfillment.dto';
 import { FulfillmentCatalogQueryService } from '../services/fulfillment-catalog-query.service';
 import { FulfillmentCatalogSyncService } from '../services/fulfillment-catalog-sync.service';
@@ -556,15 +557,23 @@ export class FulfillmentController {
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('pod.tiktok.design.upload')
   @ApiOperation({
-    summary: 'Đặt / thay thế design tại MỘT vị trí in bằng URL công khai',
+    summary: 'Đặt / thay thế design tại MỘT vị trí in từ URL công khai (tải về ⇒ lưu kho R2)',
     description:
-      'Không tải file về, không upload lại: nhà cung cấp tải thẳng từ URL khi sản xuất. ' +
-      'Chỉ nhận HTTPS và host công khai (không localhost / IP nội bộ). Thay một design đang là ' +
-      'file upload ⇒ file cũ bị xoá khỏi kho. Cùng quyền và cùng kiểm phạm vi shop như upload.',
+      'Server tải file từ URL (http/https, host công khai; link chia sẻ Google Drive được đổi sang ' +
+      'link tải của cùng file), kiểm là ảnh PNG/JPEG/WEBP theo chữ ký file, rồi lưu lên kho lưu ' +
+      'trữ như upload thường. Design trả về trỏ tới file trên kho — URL gốc KHÔNG được dùng làm ' +
+      'URL hiển thị. Chống SSRF: chặn localhost / IP nội bộ / metadata endpoint ở mọi bước chuyển ' +
+      'hướng (tối đa 5), giới hạn thời gian tải và dung lượng (STORAGE_MAX_FILE_BYTES). Lỗi ⇒ ' +
+      'design cũ giữ nguyên. Cùng quyền và cùng kiểm phạm vi shop như upload.',
   })
   @ApiOkResponse({ type: PodDesignDto })
   @ApiBadRequestResponse({
-    description: 'POD_DESIGN_KEY_INVALID / FULFILLMENT_DESIGN_URL_INVALID (details.reason)',
+    description: 'POD_DESIGN_KEY_INVALID / FULFILLMENT_DESIGN_URL_INVALID (URL sai / địa chỉ nội bộ)',
+  })
+  @ApiUnprocessableEntityResponse({
+    description:
+      'FULFILLMENT_DESIGN_URL_FETCH_FAILED — link hết hạn / không công khai / trả về HTML / ' +
+      'không phải PNG-JPEG-WEBP / quá lớn / hết thời gian',
   })
   setProductDesignUrl(
     @CurrentUser() user: AuthenticatedUser,
@@ -805,6 +814,31 @@ export class FulfillmentController {
       podOrderId,
     );
     return this.service.toOrderDto(record);
+  }
+
+  @Patch('orders/:podOrderId/base-cost')
+  @HttpCode(HttpStatus.OK)
+  // 🔴 Quyền RIÊNG cho thao tác tài chính: `fulfillment.create` (Seller có) KHÔNG đủ. Mặc định chỉ Admin
+  // (seed cấp toàn bộ catalog cho ADMIN); role khác chỉ có khi Admin cấp tường minh.
+  @RequirePermissions('fulfillment.basecost.update')
+  @ApiOperation({
+    summary: 'Cập nhật Base Cost thủ công cho đơn ĐÃ fulfill',
+    description:
+      'Cho đơn đã được nhà cung cấp nhận mà hệ thống chưa có giá vốn (đơn cũ / nhà cung cấp không trả giá). ' +
+      'Ghi giá vốn MỌI dòng của lần fulfill đang hiệu lực ⇒ Lợi nhuận / Margin tự tính lại. Lưu nhật ký ' +
+      'BASE_COST_MANUAL_UPDATED (giá cũ/mới, lý do, người làm). Đồng bộ sau mà nhà cung cấp báo giá thật ⇒ ' +
+      'giá thật thay thế.',
+  })
+  @ApiOkResponse({ type: FulfillmentOrderDto })
+  @ApiBadRequestResponse({ description: 'FULFILLMENT_BASE_COST_INVALID (details.reason) / lỗi validate' })
+  @ApiNotFoundResponse({ description: 'FULFILLMENT_ORDER_NOT_FOUND' })
+  updateBaseCost(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('podOrderId', ParseUUIDPipe) podOrderId: string,
+    @Body() dto: UpdateManualBaseCostDto,
+  ): Promise<FulfillmentOrderDto> {
+    return this.service.updateBaseCostManually(user.organizationId, user.userId, podOrderId, dto, scope);
   }
 
   @Post('orders/:podOrderId/cancel')

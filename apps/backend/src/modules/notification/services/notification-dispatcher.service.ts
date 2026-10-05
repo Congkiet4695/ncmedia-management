@@ -70,11 +70,19 @@ interface OrgChannel {
  *               └─ tổ chức tắt / chưa cấu hình              ──▶ SKIPPED
  * ```
  *
- * 🔴 Giao hàng là **at-least-once**: worker chết SAU khi Telegram đã nhận tin nhưng TRƯỚC khi ghi
- * SENT ⇒ lease hết hạn ⇒ sự kiện được claim lại và gửi thêm lần nữa. Telegram Bot API không có khoá
- * idempotency cho sendMessage nên không thể loại bỏ hoàn toàn cửa sổ này — chỉ thu hẹp nó: ghi SENT
- * ngay sau khi có response, lease đủ dài so với timeout HTTP, mỗi sự kiện gia hạn lease trước khi gửi.
- * Trùng ở tầng SỰ KIỆN (một đơn → hai sự kiện) thì KHÔNG thể xảy ra — UNIQUE ở outbox chặn.
+ * 🔴 Giao hàng là **at-most-once khi KHÔNG BIẾT kết quả** (sửa lỗi tin NEW ORDER bị gửi trùng):
+ *   - Telegram đã TRẢ LỜI là không gửi (4xx / 429 / 5xx) hoặc request chắc chắn chưa rời máy (DNS,
+ *     từ chối kết nối) ⇒ gửi lại an toàn ⇒ retry như cũ.
+ *   - Không biết Telegram đã nhận chưa (timeout / đứt kết nối sau khi gửi) ⇒ FAILED
+ *     `TELEGRAM_DELIVERY_UNKNOWN`, KHÔNG tự gửi lại — trước đây tự retry sau 30 giây và sinh tin trùng
+ *     khi Telegram thực ra đã nhận. Người vận hành bấm "Gửi lại" nếu chưa nhận.
+ *   - Worker chết giữa lúc gửi: dấu `IN_FLIGHT` (ghi trước lời gọi) còn trên sự kiện được claim lại ⇒
+ *     DELIVERY_UNKNOWN, không gửi lại.
+ *   - Telegram đã nhận (có message_id) mà ghi SENT hỏng ⇒ KHÔNG BAO GIỜ bị coi là "gửi lỗi" (trước đây
+ *     cùng một khối try ⇒ PENDING ⇒ gửi lại).
+ * Telegram Bot API không có khoá idempotency cho sendMessage nên đây là cách duy nhất bảo đảm "một
+ * sự kiện — tối đa một tin". Trùng ở tầng SỰ KIỆN (một đơn → hai sự kiện) thì KHÔNG thể xảy ra —
+ * UNIQUE ở outbox chặn, và NEW ORDER chỉ được ghi trong transaction INSERT đơn lần đầu.
  *
  * Không bao giờ ném lỗi ra ngoài — scheduler và các lời gọi `kick()` đều fail-soft.
  */
@@ -208,6 +216,19 @@ export class NotificationDispatcherService {
   ): Promise<void> {
     const maxAttempts = this.config.get<number>('notification.dispatch.maxAttempts', 5);
 
+    // 🔴 Lượt trước đã GỌI Telegram rồi chết trước khi ghi kết quả (lease hết hạn) ⇒ không biết tin đã
+    // tới chưa ⇒ KHÔNG gửi lại (chống tin trùng). Kiểm TRƯỚC mọi nhánh khác.
+    if (event.lastErrorCode === NOTIFICATION_ERROR_CODES.IN_FLIGHT) {
+      await this.complete(event, lockToken, channel, {
+        status: NotificationEventStatus.FAILED,
+        lastErrorCode: NOTIFICATION_ERROR_CODES.DELIVERY_UNKNOWN,
+        errorMessage:
+          'Lượt gửi trước bị gián đoạn giữa chừng — tin CÓ THỂ đã tới Telegram. Không tự gửi lại để tránh ' +
+          'trùng; kiểm tra nhóm Telegram và bấm "Gửi lại" nếu chưa nhận.',
+      }, summary, event.attemptCount);
+      return;
+    }
+
     if (channel.blocked) {
       await this.complete(event, lockToken, channel, {
         status: channel.blocked.status,
@@ -268,16 +289,9 @@ export class NotificationDispatcherService {
     const attempt = event.attemptCount + 1;
     const config = channel.config as OrganizationTelegramConfig;
 
+    let messageId: string;
     try {
-      const { messageId } = await this.telegram.sendMessage(channel.botToken as string, config.chatId, text);
-      await this.complete(event, lockToken, channel, {
-        status: NotificationEventStatus.SENT,
-        sentAt: new Date(),
-        providerMessageId: messageId,
-        lastErrorCode: null,
-        errorMessage: null,
-      }, summary, attempt);
-      await this.configs.recordDelivery(event.organizationId, config, { ok: true });
+      ({ messageId } = await this.telegram.sendMessage(channel.botToken as string, config.chatId, text));
     } catch (error) {
       const result = this.resultForError(error, attempt, maxAttempts);
       if (error instanceof TelegramApiError && error.code === NOTIFICATION_ERROR_CODES.RATE_LIMITED) {
@@ -300,6 +314,60 @@ export class NotificationDispatcherService {
           errorMessage: error.message,
         });
       }
+      return;
+    }
+
+    // 🔴 Telegram ĐÃ nhận tin (có message_id). Từ đây mọi lỗi là lỗi GHI LOCAL — tuyệt đối không được
+    // quay lại nhánh "gửi lỗi ⇒ PENDING ⇒ gửi lại". Ghi SENT có thử lại ngắn; vẫn hỏng thì sự kiện còn
+    // dấu IN_FLIGHT ⇒ lượt claim sau đánh DELIVERY_UNKNOWN chứ không gửi lần hai.
+    await this.markSent(event, lockToken, channel, messageId, summary, attempt);
+    try {
+      await this.configs.recordDelivery(event.organizationId, config, { ok: true });
+    } catch (error) {
+      this.logger.warn({
+        module: 'notification',
+        operation: 'dispatch.record-delivery',
+        organizationId: event.organizationId,
+        eventId: event.id,
+        msg: `Không ghi được mốc gửi thành công của cấu hình Telegram: ${(error as Error).message}`,
+      });
+    }
+  }
+
+  /** Ghi SENT sau khi Telegram đã nhận — thử lại vài lần vì gửi lại tin là KHÔNG được phép. */
+  private async markSent(
+    event: NotificationEvent,
+    lockToken: string,
+    channel: OrgChannel,
+    messageId: string,
+    summary: DispatchSummary,
+    attempt: number,
+  ): Promise<void> {
+    const sent: EventResult = {
+      status: NotificationEventStatus.SENT,
+      sentAt: new Date(),
+      providerMessageId: messageId,
+      lastErrorCode: null,
+      errorMessage: null,
+    };
+    for (let tryNo = 1; tryNo <= MARK_SENT_ATTEMPTS; tryNo += 1) {
+      try {
+        await this.complete(event, lockToken, channel, sent, summary, attempt);
+        return;
+      } catch (error) {
+        this.logger.error({
+          module: 'notification',
+          operation: NOTIFICATION_LOG_OPERATION[event.eventType],
+          organizationId: event.organizationId,
+          eventId: event.id,
+          entityId: event.entityId,
+          eventType: event.eventType,
+          attempt,
+          providerMessageId: messageId,
+          tryNo,
+          msg: `Telegram ĐÃ nhận tin nhưng ghi SENT hỏng (${(error as Error).message}) — KHÔNG gửi lại`,
+        });
+      }
     }
   }
 
@@ -319,6 +387,16 @@ export class NotificationDispatcherService {
             lastErrorCode: 'NOTIFICATION_INTERNAL_ERROR',
             errorMessage: (error as Error)?.message ?? 'Lỗi không xác định',
           };
+    }
+    // 🔴 Không biết Telegram đã nhận chưa ⇒ KHÔNG tự gửi lại (gửi lại = có thể trùng tin).
+    if (error.delivery === 'UNKNOWN') {
+      return {
+        status: NotificationEventStatus.FAILED,
+        lastErrorCode: NOTIFICATION_ERROR_CODES.DELIVERY_UNKNOWN,
+        errorMessage:
+          `${error.message} — tin CÓ THỂ đã tới Telegram. Không tự gửi lại để tránh trùng; kiểm tra nhóm ` +
+          'Telegram và bấm "Gửi lại" nếu chưa nhận.',
+      };
     }
     if (error.retryable && attempt < maxAttempts) {
       const waitMs = error.retryAfterSeconds
@@ -382,6 +460,9 @@ export class NotificationDispatcherService {
     }
   }
 }
+
+/** Số lần thử ghi SENT sau khi Telegram đã nhận tin (lỗi DB tạm thời). */
+const MARK_SENT_ATTEMPTS = 3;
 
 /** 30s, 60s, 120s… chặn trên 30 phút. */
 export function backoffMs(attempt: number): number {

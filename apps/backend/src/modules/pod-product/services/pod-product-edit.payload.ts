@@ -349,3 +349,44 @@ function buildSkus(
 
   return result;
 }
+
+/** Một Seller SKU vừa được ĐỔI sang mã đang thuộc biến thể khác của cùng sản phẩm. */
+export interface IntroducedSkuConflict {
+  sellerSku: string;
+  /** Biến thể vừa đổi mã. */
+  tiktokSkuId: string;
+  /** Biến thể KHÁC (cùng sản phẩm) đang / sẽ mang mã đó. */
+  conflictsWith: string[];
+}
+
+/**
+ * Seller SKU trùng DO LẦN SỬA NÀY — kiểm trên các SKU ĐÃ ĐỔI của `plan` so với ảnh chụp ĐÃ ĐỒNG BỘ.
+ *
+ * 🔴 Phạm vi uniqueness = các biến thể của CÙNG MỘT sản phẩm (luật hiện có của màn Sửa sản phẩm).
+ * Trùng CÓ SẴN trên sàn (TikTok cho phép, POD hay dùng một mã cho mọi size/màu) KHÔNG phải lỗi: chỉ
+ * chặn khi người dùng ĐỔI một biến thể sang mã của biến thể khác (hoặc đổi hai biến thể sang cùng mã).
+ * Trùng giữa HAI sản phẩm không bị luật nào trong hệ thống cấm ⇒ không chặn ở đây.
+ */
+export function findIntroducedSkuConflicts(
+  changedSkus: TiktokPartialEditSku[],
+  snapshot: ProductSnapshot,
+): IntroducedSkuConflict[] {
+  const changed = new Map(
+    changedSkus
+      .filter((sku) => sku.sellerSku !== undefined && sku.sellerSku.trim() !== '')
+      .map((sku) => [sku.id, (sku.sellerSku as string).trim()]),
+  );
+  if (changed.size === 0) return [];
+  const finalOf = new Map(
+    snapshot.variants.map((variant) => [
+      variant.tiktokSkuId,
+      changed.get(variant.tiktokSkuId) ?? (variant.sellerSku ?? '').trim(),
+    ]),
+  );
+  const conflicts: IntroducedSkuConflict[] = [];
+  for (const [tiktokSkuId, code] of changed) {
+    const others = [...finalOf].filter(([id, value]) => id !== tiktokSkuId && value === code).map(([id]) => id);
+    if (others.length > 0) conflicts.push({ sellerSku: code, tiktokSkuId, conflictsWith: others });
+  }
+  return conflicts;
+}

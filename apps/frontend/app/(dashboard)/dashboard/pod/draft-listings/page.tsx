@@ -23,6 +23,7 @@ import { ListingStatusBadge } from '@/features/pod-listing/components/listing-st
 import { PublishProgressCard } from '@/features/pod-listing/components/publish-progress-card';
 import { TemplatePageShell } from '@/features/pod-listing/components/template-page-shell';
 import {
+  useBulkDeleteDrafts,
   useCancelListingJob,
   useDeleteDraft,
   useDraftListing,
@@ -114,12 +115,57 @@ function DraftListingsView() {
   const retryJob = useRetryListingJob();
   const syncReview = useSyncReviewStatus();
   const removeDraft = useDeleteDraft();
+  const bulkDelete = useBulkDeleteDrafts();
 
   const items = drafts.data?.items ?? [];
-  // Chỉ cho chọn cái publish được: tick vào một Draft đã publish rồi bấm nút chỉ để nhận về
-  // "đã bỏ qua" là một vòng lặp vô ích.
-  const publishable = items.filter(isPublishable);
-  const allSelected = publishable.length > 0 && selected.length === publishable.length;
+  // Chọn được dòng nào ít nhất MỘT hành động áp dụng được (Publish hoặc Xoá) — tick vào một dòng
+  // không làm gì được chỉ để nhận về "đã bỏ qua" là vòng lặp vô ích.
+  const canSelect = (draft: PodDraftListing) =>
+    (canPublish && isPublishable(draft)) || (canDelete && isDeletable(draft));
+  const selectableIds = items.filter(canSelect).map((draft) => draft.id);
+  // Chỉ tính những dòng ĐANG hiện (đổi trang / bộ lọc ⇒ lựa chọn cũ không còn trên màn hình).
+  const selectedVisible = selected.filter((id) => selectableIds.includes(id));
+  const allSelected = selectableIds.length > 0 && selectedVisible.length === selectableIds.length;
+  const selectedPublishable = items
+    .filter((draft) => selectedVisible.includes(draft.id) && isPublishable(draft))
+    .map((draft) => draft.id);
+  const selectedDeletable = items.filter(
+    (draft) => selectedVisible.includes(draft.id) && isDeletable(draft),
+  );
+
+  const deleteSelected = (): void => {
+    if (selectedDeletable.length === 0) return;
+    const remote = selectedDeletable.some((draft) => Boolean(draft.tiktokDraftId));
+    const message = remote
+      ? t('listing.drafts.bulkDeleteRemoteConfirm', { count: selectedDeletable.length })
+      : t('listing.drafts.bulkDeleteConfirm', { count: selectedDeletable.length });
+    if (!window.confirm(message)) return;
+
+    void bulkDelete
+      .mutateAsync({ ids: selectedDeletable.map((draft) => draft.id), remote })
+      .then((result) => {
+        setSelected((prev) => prev.filter((id) => !result.deleted.includes(id)));
+        if (result.failed.length === 0) {
+          toast.success(t('listing.drafts.bulkDeleted', { count: result.deleted.length }));
+          return;
+        }
+        // Xoá một phần ⇒ nói rõ bao nhiêu thành công, dòng nào hỏng và vì sao — không báo "xong" chung.
+        const titleOf = (id: string) => items.find((draft) => draft.id === id)?.title ?? id;
+        toast.warning(
+          t('listing.drafts.bulkDeletePartial', {
+            deleted: result.deleted.length,
+            failed: result.failed.length,
+          }),
+          {
+            description: result.failed
+              .slice(0, 5)
+              .map((failure) => `${titleOf(failure.id)}: ${failure.message}`)
+              .join('\n'),
+          },
+        );
+      })
+      .catch((error: unknown) => toast.error(translateApiError(error)));
+  };
 
   /** `draftIds` có giá trị = Publish Selected; bỏ trống = Publish All theo bộ lọc hiện tại. */
   const startPublish = (draftIds?: string[]): void => {
@@ -186,10 +232,14 @@ function DraftListingsView() {
         empty={items.length === 0}
         emptyMessage={t('listing.drafts.empty')}
         meta={drafts.data?.meta ?? null}
-        onPageChange={setPage}
+        onPageChange={(next) => {
+          setPage(next);
+          setSelected([]);
+        }}
         onPageSizeChange={(next) => {
           setLimit(next);
           setPage(1);
+          setSelected([]);
         }}
         searchPlaceholder={t('listing.products.searchPlaceholder')}
         onSearchChange={(value) => {
@@ -272,6 +322,28 @@ function DraftListingsView() {
               {t('listing.drafts.syncReview')}
             </Button>
 
+            {selectedVisible.length > 0 && (
+              <span className="self-center text-sm text-muted-foreground">
+                {t('listing.drafts.selectedCount', { count: selectedVisible.length })}
+              </span>
+            )}
+
+            {canDelete && (
+              <Button
+                variant="outline"
+                className="text-destructive"
+                disabled={selectedDeletable.length === 0 || bulkDelete.isPending}
+                onClick={deleteSelected}
+              >
+                {bulkDelete.isPending ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Trash2 className="size-4" />
+                )}
+                {t('listing.drafts.deleteSelected', { count: selectedDeletable.length })}
+              </Button>
+            )}
+
             {canPublish && (
               <>
                 <Button
@@ -282,15 +354,15 @@ function DraftListingsView() {
                   {t('listing.publish.all')}
                 </Button>
                 <Button
-                  disabled={selected.length === 0 || publish.isPending || running}
-                  onClick={() => startPublish(selected)}
+                  disabled={selectedPublishable.length === 0 || publish.isPending || running}
+                  onClick={() => startPublish(selectedPublishable)}
                 >
                   {publish.isPending ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
                     <Rocket className="size-4" />
                   )}
-                  {t('listing.publish.selected', { count: selected.length })}
+                  {t('listing.publish.selected', { count: selectedPublishable.length })}
                 </Button>
               </>
             )}
@@ -305,10 +377,8 @@ function DraftListingsView() {
                   type="checkbox"
                   aria-label={t('listing.publish.selectAll')}
                   checked={allSelected}
-                  disabled={publishable.length === 0}
-                  onChange={() =>
-                    setSelected(allSelected ? [] : publishable.map((draft) => draft.id))
-                  }
+                  disabled={selectableIds.length === 0}
+                  onChange={() => setSelected(allSelected ? [] : selectableIds)}
                 />
               </TableHead>
               <TableHead className="w-[64px]">{t('listing.products.thumbnail')}</TableHead>
@@ -324,15 +394,17 @@ function DraftListingsView() {
           </TableHeader>
           <TableBody>
             {items.map((draft) => {
-              const selectable = isPublishable(draft);
+              const selectable = canSelect(draft);
+              const publishableRow = isPublishable(draft);
               const thumbnail = draft.sessionProduct?.images?.[0]?.imageUrl;
               return (
                 <TableRow key={draft.id}>
                   <TableCell>
                     <input
                       type="checkbox"
+                      aria-label={t('listing.drafts.selectRow')}
                       disabled={!selectable}
-                      checked={selected.includes(draft.id)}
+                      checked={selectedVisible.includes(draft.id)}
                       onChange={() =>
                         setSelected((prev) =>
                           prev.includes(draft.id)
@@ -394,7 +466,7 @@ function DraftListingsView() {
                         <Eye className="size-4" />
                       </Button>
 
-                      {canPublish && selectable && (
+                      {canPublish && publishableRow && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -414,7 +486,7 @@ function DraftListingsView() {
                         </Button>
                       )}
 
-                      {canDelete && selectable && (
+                      {canDelete && isDeletable(draft) && (
                         <Button
                           variant="ghost"
                           size="sm"
@@ -457,6 +529,14 @@ function DraftListingsView() {
       />
     </>
   );
+}
+
+/**
+ * Draft nào được phép XOÁ — **cùng điều kiện với server** (`PodListingPayloadService.remove`): không xoá
+ * draft đang trong một lượt publish (PUBLISHING) hay đã gửi lên sàn (PUBLISHED — bản ghi lịch sử).
+ */
+function isDeletable(draft: PodDraftListing): boolean {
+  return draft.status !== 'PUBLISHED' && draft.status !== 'PUBLISHING';
 }
 
 /**

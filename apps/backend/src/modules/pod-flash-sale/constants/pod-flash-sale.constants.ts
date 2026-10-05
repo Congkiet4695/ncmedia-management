@@ -1,4 +1,8 @@
-import { PodFlashSaleStatus } from '@prisma/client';
+import {
+  PodFlashSaleAutoDuration,
+  PodFlashSaleAutoDurationMode,
+  PodFlashSaleStatus,
+} from '@prisma/client';
 import {
   TIKTOK_ACTIVITY_MAX_QUANTITY,
   TIKTOK_ACTIVITY_MIN_QUANTITY,
@@ -164,6 +168,33 @@ export const FLASH_SALE_BATCH_UPDATE_CHUNK = 500;
 /** Transaction của Batch Update: trần thời gian và thời gian chờ mở transaction (ms). */
 export const FLASH_SALE_BATCH_TX_TIMEOUT_MS = 60_000;
 export const FLASH_SALE_BATCH_TX_MAX_WAIT_MS = 10_000;
+
+/**
+ * Số dòng tối đa của MỘT câu `INSERT` (`createMany`) dòng Flash Sale.
+ *
+ * 🔴 Bài học Auto Flash Sale (2026-10-06): đợt kế tiếp chép ĐỦ mọi dòng của đợt cũ (tới 10.000) bằng
+ * MỘT `createMany` trong transaction mặc định 5 giây ⇒ "Transaction already closed … 5093 ms". Đo trên
+ * DB local: 10.000 dòng ≈ 1,0–1,3 s (production thêm độ trễ mạng + chờ khoá). Chia lô giữ mỗi câu
+ * nhỏ (~25 cột × 1.000 = 25k tham số < trần 32.767 của PostgreSQL) và nhanh hơn ~20% so với một câu.
+ */
+export const FLASH_SALE_ITEM_INSERT_CHUNK = 1_000;
+
+/**
+ * Options cho transaction GHI dòng Flash Sale hàng loạt (tạo / nhân bản / Auto / template / import /
+ * Batch Update). 🔴 Chỉ dành cho transaction CHỈ CÓ thao tác DB — gọi TikTok luôn nằm NGOÀI transaction.
+ * Ngân sách 60 s = trần 10.000 dòng có dư nhiều lần cho DB chậm; không phải "tăng cho hết lỗi".
+ */
+export const FLASH_SALE_WRITE_TX_OPTIONS = {
+  timeout: FLASH_SALE_BATCH_TX_TIMEOUT_MS,
+  maxWait: FLASH_SALE_BATCH_TX_MAX_WAIT_MS,
+} as const;
+
+/**
+ * Chờ khoá hàng tối đa (PostgreSQL `lock_timeout`) khi Auto khoá đợt hiện tại (`FOR UPDATE`). Dòng đang bị
+ * tiến trình khác giữ lâu hơn ⇒ bỏ qua đợt đó ở lượt này (lượt sau thử lại) — không ngồi chờ hết ngân sách
+ * của transaction rồi mới hỏng ở câu INSERT.
+ */
+export const FLASH_SALE_AUTO_LOCK_WAIT_MS = 5_000;
 
 /**
  * Cỡ trang tối đa khi ĐỌC danh sách (dòng sản phẩm, nhật ký).
@@ -371,19 +402,35 @@ export const FLASH_SALE_PERMISSIONS = {
  *
  * ```
  *   điều kiện tạo : A.endAt − now ≤ LEAD_MS                     (còn ≤ 24 giờ)
- *   START(B)      : A.endAt + GAP_MS                            (sau 10 phút)
- *   END(B)        : START(B) + DURATION_DAYS ngày LỊCH − END_TRIM_MS   (3 ngày − 1 phút)
+ *   START(B)      : A.endAt + GAP_MS, làm tròn XUỐNG tới phút       (23:59:59 ⇒ 00:09:00)
+ *   END(B)        : 23:59:59 của ngày LỊCH (START(B) + N − 1)         (N = Khoảng thời gian)
  * ```
  *
- * "Ngày lịch" cộng theo múi giờ của CHÍNH đợt sale (`pod_flash_sales.timezone`) — qua mốc đổi giờ
- * mùa hè vẫn giữ đúng giờ treo tường, không phải cộng cứng 72 giờ.
+ * "Ngày lịch" tính theo múi giờ của CHÍNH đợt sale (`pod_flash_sales.timezone`) — không phải múi
+ * giờ trình duyệt hay server — nên 1 ngày = "hết ngày hôm đó", KHÔNG phải +24 giờ, và qua mốc đổi
+ * giờ mùa hè vẫn đúng giờ treo tường.
  */
 export const FLASH_SALE_AUTO_RULES = {
   LEAD_MS: 24 * 60 * 60_000,
   GAP_MS: 10 * 60_000,
-  DURATION_DAYS: 3,
-  END_TRIM_MS: 60_000,
 } as const;
+
+/** Giờ treo tường kết thúc đợt Auto: 23:59:59 của ngày cuối. */
+export const FLASH_SALE_AUTO_END_OF_DAY = { hour: 23, minute: 59, second: 59 } as const;
+
+/**
+ * "Khoảng thời gian" của đợt Auto ⇒ số ngày LỊCH. Nguồn DUY NHẤT của con số — enum ở DB
+ * (`pod_flash_sale_auto_duration`), ánh xạ ở đây; không rải 1/2/3 trong code.
+ */
+export const FLASH_SALE_AUTO_DURATION_DAYS: Readonly<Record<PodFlashSaleAutoDuration, number>> = {
+  [PodFlashSaleAutoDuration.ONE_DAY]: 1,
+  [PodFlashSaleAutoDuration.TWO_DAYS]: 2,
+  [PodFlashSaleAutoDuration.THREE_DAYS]: 3,
+};
+
+/** Cấu hình cũ / thiếu ⇒ dùng đúng mặc định của cột DB (3 ngày lịch). */
+export const FLASH_SALE_AUTO_DEFAULT_DURATION = PodFlashSaleAutoDuration.THREE_DAYS;
+export const FLASH_SALE_AUTO_DEFAULT_DURATION_MODE = PodFlashSaleAutoDurationMode.CALENDAR_DAYS;
 
 /** Khoá phân tán cho MỘT lượt chạy Auto của một tổ chức (cron và Run Now dùng chung). */
 export const FLASH_SALE_AUTO_LOCK_PREFIX = 'pod:flash-sale:auto:lock:';

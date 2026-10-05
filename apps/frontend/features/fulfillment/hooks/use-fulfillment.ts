@@ -10,6 +10,7 @@ import {
 } from '../services/fulfillment.service';
 import type { PodDesignPlacement } from '@/features/pod-tiktok/order-types';
 import type {
+  UpdateBaseCostPayload,
   CatalogProductQuery,
   CreateFulfillmentProviderInput,
   FulfillPayload,
@@ -123,6 +124,22 @@ export function useFulfillmentErrors(podOrderId?: string, enabled = false) {
  * Gom vào MỘT hook để mọi thao tác đều làm mới cùng bộ query — không nơi nào quên
  * invalidate rồi hiển thị trạng thái cũ.
  */
+/**
+ * Admin nhập tay Base Cost. Thành công ⇒ làm mới trạng thái fulfillment, danh sách đơn (cột Giá: Lợi
+ * nhuận / Margin) và Dashboard — số mới hiện ngay, không tải lại trang.
+ */
+export function useUpdateBaseCost(podOrderId: string) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: UpdateBaseCostPayload) => fulfillmentService.updateBaseCost(podOrderId, payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [KEY] });
+      void queryClient.invalidateQueries({ queryKey: ['pod-tiktok-orders'] });
+      void queryClient.invalidateQueries({ queryKey: ['pod-dashboard'] });
+    },
+  });
+}
+
 export function useFulfillmentActions(podOrderId: string) {
   const queryClient = useQueryClient();
   const refresh = () => {

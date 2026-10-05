@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { randomUUID } from 'node:crypto';
 import {
   PodFlashSaleItemStatus,
   PodFlashSaleLogAction,
@@ -21,9 +22,16 @@ import {
   FLASH_SALE_AUTO_LOCK_TTL_MS,
   FLASH_SALE_AUTO_NAME_SUFFIX,
   FLASH_SALE_AUTO_PAGE_SIZE,
+  FLASH_SALE_AUTO_DEFAULT_DURATION,
+  FLASH_SALE_AUTO_DEFAULT_DURATION_MODE,
+  FLASH_SALE_AUTO_DURATION_DAYS,
+  FLASH_SALE_AUTO_END_OF_DAY,
   FLASH_SALE_AUTO_RULES,
   FLASH_SALE_AUTO_RUN_STATUS,
   FLASH_SALE_AUTO_TRIGGER,
+  FLASH_SALE_AUTO_LOCK_WAIT_MS,
+  FLASH_SALE_ITEM_INSERT_CHUNK,
+  FLASH_SALE_WRITE_TX_OPTIONS,
   FLASH_SALE_MIN_LEAD_SECONDS,
   type FlashSaleAutoAction,
   type FlashSaleAutoTrigger,
@@ -57,6 +65,7 @@ import {
   validateQuantityLimit,
   type FlashSalePricing,
 } from './pod-flash-sale-pricing';
+import { insertFlashSaleItems } from './pod-flash-sale-batching';
 import { PodFlashSalePublisherService } from './pod-flash-sale-publisher.service';
 import { PodFlashSaleService } from './pod-flash-sale.service';
 
@@ -131,6 +140,8 @@ export class PodFlashSaleAutoService {
       enabled: row?.enabled ?? false,
       runTime: row?.runTime ?? null,
       timezone: row?.timezone ?? null,
+      durationMode: row?.durationMode ?? FLASH_SALE_AUTO_DEFAULT_DURATION_MODE,
+      duration: row?.duration ?? FLASH_SALE_AUTO_DEFAULT_DURATION,
       lastRunAt: row?.lastRunAt?.toISOString() ?? null,
       lastRunTrigger: row?.lastRunTrigger ?? null,
       lastRunStatus: row?.lastRunStatus ?? null,
@@ -142,8 +153,14 @@ export class PodFlashSaleAutoService {
       rules: {
         leadHours: FLASH_SALE_AUTO_RULES.LEAD_MS / 3_600_000,
         gapMinutes: FLASH_SALE_AUTO_RULES.GAP_MS / 60_000,
-        durationDays: FLASH_SALE_AUTO_RULES.DURATION_DAYS,
-        endTrimMinutes: FLASH_SALE_AUTO_RULES.END_TRIM_MS / 60_000,
+        durationDays: FLASH_SALE_AUTO_DURATION_DAYS[row?.duration ?? FLASH_SALE_AUTO_DEFAULT_DURATION],
+        endOfDay: [
+          FLASH_SALE_AUTO_END_OF_DAY.hour,
+          FLASH_SALE_AUTO_END_OF_DAY.minute,
+          FLASH_SALE_AUTO_END_OF_DAY.second,
+        ]
+          .map((part) => String(part).padStart(2, '0'))
+          .join(':'),
       },
     };
   }
@@ -178,6 +195,8 @@ export class PodFlashSaleAutoService {
         enabled: dto.enabled,
         runTime: dto.runTime,
         timezone: dto.timezone,
+        ...(dto.durationMode ? { durationMode: dto.durationMode } : {}),
+        ...(dto.duration ? { duration: dto.duration } : {}),
         createdBy: userId,
         updatedBy: userId,
         ...baseline,
@@ -186,12 +205,26 @@ export class PodFlashSaleAutoService {
         enabled: dto.enabled,
         runTime: dto.runTime,
         timezone: dto.timezone,
+        ...(dto.durationMode ? { durationMode: dto.durationMode } : {}),
+        ...(dto.duration ? { duration: dto.duration } : {}),
         deletedAt: null,
         updatedBy: userId,
         ...baseline,
       },
     });
     return this.getConfig(organizationId, now);
+  }
+
+  /**
+   * Khoảng thời gian (ngày lịch) của tổ chức — cấu hình cũ / chưa cấu hình ⇒ mặc định của cột DB.
+   * Đọc MỘT lần mỗi lượt chạy: mọi đợt trong lượt dùng cùng một giá trị.
+   */
+  private async durationDaysOf(organizationId: string): Promise<number> {
+    const row = await this.prisma.podFlashSaleAutoConfig.findFirst({
+      where: { organizationId, deletedAt: null },
+      select: { duration: true },
+    });
+    return FLASH_SALE_AUTO_DURATION_DAYS[row?.duration ?? FLASH_SALE_AUTO_DEFAULT_DURATION];
   }
 
   /** Run Now — CÙNG đường với cron, không có lối tắt nào. */
@@ -272,6 +305,8 @@ export class PodFlashSaleAutoService {
     if (typeof watchdog.unref === 'function') watchdog.unref();
 
     const startedAt = new Date();
+    // ID của MỘT lượt chạy (cron / Run Now) — gắn vào mọi log của lượt để truy vết.
+    const runId = randomUUID();
     const result: PodFlashSaleAutoRunResultDto = {
       trigger,
       status: FLASH_SALE_AUTO_RUN_STATUS.SUCCESS,
@@ -291,10 +326,12 @@ export class PodFlashSaleAutoService {
       operation: 'flashSale.auto.run',
       organizationId,
       trigger,
+      runId,
       msg: 'AUTO_FLASH_SALE_JOB_STARTED',
     });
 
     try {
+      const durationDays = await this.durationDaysOf(organizationId);
       const dueBefore = new Date(now.getTime() + FLASH_SALE_AUTO_RULES.LEAD_MS);
       let cursor: { endAt: Date; id: string } | null = null;
       for (;;) {
@@ -317,7 +354,7 @@ export class PodFlashSaleAutoService {
 
         for (const node of page) {
           result.checked += 1;
-          const outcome = await this.processNodeSafely(node, now);
+          const outcome = await this.processNodeSafely(node, now, durationDays, runId);
           this.count(result, outcome.action);
           result.nodes.push({
             flashSaleId: node.id,
@@ -372,6 +409,7 @@ export class PodFlashSaleAutoService {
       skipped: result.skipped,
       failed: result.failed,
       durationMs: Date.now() - startedAt.getTime(),
+      runId,
       msg: 'AUTO_FLASH_SALE_JOB_COMPLETED',
     });
     return result;
@@ -381,9 +419,14 @@ export class PodFlashSaleAutoService {
   // Một nút của chuỗi
   // ---------------------------------------------------------------------------
 
-  private async processNodeSafely(node: AutoNode, now: Date): Promise<NodeOutcome> {
+  private async processNodeSafely(
+    node: AutoNode,
+    now: Date,
+    durationDays: number,
+    runId: string,
+  ): Promise<NodeOutcome> {
     try {
-      return await this.processNode(node, now);
+      return await this.processNode(node, now, durationDays, runId);
     } catch (error) {
       const failure = this.publisher.describeFailure(error);
       return this.fail(node, null, `Lỗi không mong đợi: ${failure.message}`, now);
@@ -391,7 +434,12 @@ export class PodFlashSaleAutoService {
   }
 
   /** Quyết định cho MỘT đợt đang bật Auto. Public để kiểm thử từng nhánh. */
-  async processNode(node: AutoNode, now: Date = new Date()): Promise<NodeOutcome> {
+  async processNode(
+    node: AutoNode,
+    now: Date = new Date(),
+    durationDays: number = FLASH_SALE_AUTO_DURATION_DAYS[FLASH_SALE_AUTO_DEFAULT_DURATION],
+    runId: string = randomUUID(),
+  ): Promise<NodeOutcome> {
     const remainingMs = node.endAt.getTime() - now.getTime();
     this.logger.log({
       module: 'pod-flash-sale',
@@ -419,7 +467,7 @@ export class PodFlashSaleAutoService {
       select: { id: true, name: true, status: true },
     });
     if (child) return this.continueChild(node, child, now);
-    return this.createNext(node, now);
+    return this.createNext(node, now, durationDays, runId);
   }
 
   /**
@@ -451,8 +499,14 @@ export class PodFlashSaleAutoService {
   }
 
   /** Tạo đợt kế tiếp LOCAL (chép đủ cấu hình + mọi dòng), rồi đưa lên TikTok. */
-  private async createNext(node: AutoNode, now: Date): Promise<NodeOutcome> {
-    const window = computeNextWindow(node.endAt, node.timezone);
+  private async createNext(
+    node: AutoNode,
+    now: Date,
+    durationDays: number,
+    runId: string,
+  ): Promise<NodeOutcome> {
+    // Múi giờ của CHÍNH đợt sale (`pod_flash_sales.timezone`) — cùng múi giờ TikTok hiển thị đợt đó.
+    const window = computeNextWindow(node.endAt, node.timezone, durationDays);
     // TikTok đòi begin_time ở TƯƠNG LAI (cùng đệm với validator). Quá hạn ⇒ không tự dời lịch.
     if (window.startAt.getTime() < now.getTime() + FLASH_SALE_MIN_LEAD_SECONDS * 1_000) {
       return this.fail(
@@ -472,9 +526,22 @@ export class PodFlashSaleAutoService {
     const name = await this.nextName(node.organizationId, node.shopId, source.name, sequence);
     const rows = await this.buildItems(source);
 
+    /**
+     * 🔴 Transaction này CHỈ có thao tác DB (khoá A, tạo B + mọi dòng). Gọi TikTok (publishChild) và
+     * chuyển Auto (transfer) chạy SAU khi commit, mỗi bước một transaction ngắn riêng — không bao giờ
+     * giữ transaction trong lúc chờ TikTok.
+     *
+     * Trước đây: MỘT `createMany` cho toàn bộ dòng (tới 10.000) trong ngân sách MẶC ĐỊNH 5 giây, cộng
+     * thời gian chờ khoá hàng A ⇒ "Transaction already closed … 5093 ms" ngay ở câu INSERT. Nay: chờ
+     * khoá có trần (`lock_timeout`), INSERT chia lô, ngân sách tường minh của module.
+     */
+    const txStartedAt = Date.now();
     let createdId: string;
+    let insertedItems = 0;
     try {
       createdId = await this.prisma.$transaction(async (tx) => {
+        // Chờ khoá có trần: A đang bị tiến trình khác giữ lâu ⇒ hỏng NHANH (55P03) và bỏ qua ở lượt này.
+        await tx.$executeRawUnsafe(`SET LOCAL lock_timeout = '${FLASH_SALE_AUTO_LOCK_WAIT_MS}ms'`);
         // Khoá hàng A rồi đọc lại: Admin vừa tắt Auto, hoặc tiến trình khác vừa tạo B ⇒ dừng.
         const [locked] = await tx.$queryRaw<Array<{ auto_mode: boolean; deleted_at: Date | null }>>`
           SELECT auto_mode, deleted_at FROM pod_flash_sales WHERE id = ${node.id}::uuid FOR UPDATE
@@ -506,23 +573,42 @@ export class PodFlashSaleAutoService {
           },
           select: { id: true },
         });
-        await tx.podFlashSaleItem.createMany({
-          data: rows.map((row) => ({ ...row, organizationId: node.organizationId, flashSaleId: created.id })),
-        });
+        insertedItems = await insertFlashSaleItems(
+          tx,
+          rows.map((row) => ({ ...row, organizationId: node.organizationId, flashSaleId: created.id })),
+        );
         return created.id;
-      });
+      }, FLASH_SALE_WRITE_TX_OPTIONS);
     } catch (error) {
       if (this.isUniqueViolation(error, 'auto_parent')) {
         return this.skip(node, null, 'Đợt kế tiếp vừa được một tiến trình khác tạo — bỏ qua.');
       }
+      if (isLockNotAvailable(error)) {
+        return this.skip(
+          node,
+          null,
+          `Đợt đang được tiến trình khác cập nhật (chờ khoá quá ${FLASH_SALE_AUTO_LOCK_WAIT_MS} ms) — thử lại ở lượt sau.`,
+        );
+      }
+      this.logger.error({
+        module: 'pod-flash-sale',
+        operation: 'flashSale.auto.create.tx',
+        runId,
+        organizationId: node.organizationId,
+        flashSaleId: node.id,
+        itemCount: rows.length,
+        transactionMs: Date.now() - txStartedAt,
+        msg: `Transaction tạo đợt kế tiếp thất bại (đã rollback, không có B nửa vời): ${(error as Error).message}`,
+      });
       throw error;
     }
+    const transactionMs = Date.now() - txStartedAt;
     if (!createdId) return this.skip(node, null, 'Đợt đã tắt Auto hoặc đã có đợt kế tiếp — bỏ qua.');
 
     const ready = rows.filter((row) => row.status === PodFlashSaleItemStatus.READY).length;
     const message =
       `Tạo đợt kế tiếp "${name}" (#${sequence}): ${rows.length} dòng (${ready} sẵn sàng), ` +
-      `${window.startAt.toISOString()} → ${window.endAt.toISOString()}.`;
+      `${window.startAt.toISOString()} → ${window.endAt.toISOString()} (khoảng thời gian ${durationDays} ngày, ${node.timezone}).`;
     await this.writeChainLog(node.organizationId, node.id, message, PodFlashSaleLogLevel.INFO);
     await this.writeChainLog(
       node.organizationId,
@@ -538,10 +624,17 @@ export class PodFlashSaleAutoService {
       flashSaleId: node.id,
       chainId,
       nextFlashSaleId: createdId,
+      sourceFlashSaleId: node.id,
+      runId,
       totalItems: rows.length,
+      insertedItems,
+      insertChunks: Math.ceil(rows.length / FLASH_SALE_ITEM_INSERT_CHUNK),
+      transactionMs,
       readyItems: ready,
       startAt: window.startAt.toISOString(),
       endAt: window.endAt.toISOString(),
+      durationDays,
+      timezone: node.timezone,
       msg: 'AUTO_FLASH_SALE_CREATED (local) — đang đưa lên TikTok',
     });
 
@@ -891,4 +984,14 @@ export class PodFlashSaleAutoService {
     const target = JSON.stringify(error.meta ?? {});
     return target.includes(hint);
   }
+}
+
+/** PostgreSQL 55P03 `lock_not_available` — hết `lock_timeout` khi chờ khoá hàng. */
+function isLockNotAvailable(error: unknown): boolean {
+  const record = error as { code?: string; meta?: { code?: string }; message?: string } | null;
+  return (
+    record?.code === '55P03' ||
+    record?.meta?.code === '55P03' ||
+    /lock timeout|could not obtain lock|55P03/i.test(record?.message ?? '')
+  );
 }

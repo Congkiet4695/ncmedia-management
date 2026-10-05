@@ -1,4 +1,4 @@
-import { FLASH_SALE_AUTO_RULES } from '../constants/pod-flash-sale.constants';
+import { FLASH_SALE_AUTO_END_OF_DAY, FLASH_SALE_AUTO_RULES } from '../constants/pod-flash-sale.constants';
 
 /**
  * Phép tính thời gian của Auto Flash Sale — hàm THUẦN, không đọc đồng hồ của server, không đọc
@@ -97,22 +97,43 @@ export function addCalendarDays(instant: Date, days: number, timeZone: string): 
 }
 
 /**
- * Khung giờ của đợt KẾ TIẾP trong chuỗi — tính từ \`endAt\` của đợt hiện tại, KHÔNG từ ngày chạy
+ * Giờ KẾT THÚC theo "Khoảng thời gian": 23:59:59 của ngày lịch (ngày chứa `startAt` + `durationDays` − 1)
+ * ở `timeZone`. 1 ngày = hết CHÍNH ngày bắt đầu — KHÔNG phải `startAt` + 24 giờ.
+ *
+ * ```
+ *   start 20/10 00:00 · 1 ngày ⇒ 20/10 23:59:59 · 2 ngày ⇒ 21/10 23:59:59 · 3 ngày ⇒ 22/10 23:59:59
+ * ```
+ */
+export function computeEndOfDuration(startAt: Date, durationDays: number, timeZone: string): Date {
+  if (!Number.isInteger(durationDays) || durationDays < 1) {
+    throw new Error(`Khoảng thời gian không hợp lệ: ${durationDays}`);
+  }
+  const lastDay = toZonedParts(addCalendarDays(startAt, durationDays - 1, timeZone), timeZone);
+  return fromZonedParts({ ...lastDay, ...FLASH_SALE_AUTO_END_OF_DAY }, timeZone);
+}
+
+/**
+ * Khung giờ của đợt KẾ TIẾP trong chuỗi — tính từ `endAt` của đợt hiện tại, KHÔNG từ ngày chạy
  * cron, không từ ngày hôm nay.
  *
  * ```
- *   A.end   = 15/01 23:59
- *   B.start = A.end + 10 phút                    = 16/01 00:09
- *   B.end   = B.start + 3 ngày lịch − 1 phút     = 19/01 00:08
+ *   A.end   = 20/10 23:59:59
+ *   B.start = A.end + 10 phút, làm tròn xuống tới phút = 21/10 00:09:00
+ *   B.end   = 23:59:59 của (21/10 + N − 1)              = 23/10 23:59:59 khi N = 3
  * ```
+ *
+ * Làm tròn xuống tới phút để giờ bắt đầu là giờ "chẵn phút" (A kết thúc 23:59:59 ⇒ B bắt đầu
+ * 00:09:00, không phải 00:09:59). Múi giờ IANA lệch nguyên phút, nên tròn phút theo UTC cũng là
+ * tròn phút theo giờ treo tường.
  */
-export function computeNextWindow(currentEndAt: Date, timeZone: string): { startAt: Date; endAt: Date } {
-  const startAt = new Date(currentEndAt.getTime() + FLASH_SALE_AUTO_RULES.GAP_MS);
-  const endAt = new Date(
-    addCalendarDays(startAt, FLASH_SALE_AUTO_RULES.DURATION_DAYS, timeZone).getTime() -
-      FLASH_SALE_AUTO_RULES.END_TRIM_MS,
-  );
-  return { startAt, endAt };
+export function computeNextWindow(
+  currentEndAt: Date,
+  timeZone: string,
+  durationDays: number,
+): { startAt: Date; endAt: Date } {
+  const rawStart = currentEndAt.getTime() + FLASH_SALE_AUTO_RULES.GAP_MS;
+  const startAt = new Date(rawStart - (rawStart % 60_000));
+  return { startAt, endAt: computeEndOfDuration(startAt, durationDays, timeZone) };
 }
 
 /** Đợt có tới hạn tạo đợt kế tiếp chưa: còn ≤ LEAD (kể cả đã hết hạn). */

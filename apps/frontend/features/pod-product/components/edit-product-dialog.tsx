@@ -20,6 +20,7 @@ import {
 import {
   applySkuTemplateToProduct,
   buildUpdatePayload,
+  introducedDuplicateSkus,
   splitList,
   toFormState,
   type EditProductForm,
@@ -128,13 +129,13 @@ export function EditProductDialog({
     ).length;
     if (badQty > 0) issues.push(t('pod:products.edit.badQuantity', { count: badQty }));
 
-    const codes = drafts.map((draft) => draft.sellerSku.trim()).filter(Boolean);
-    const duplicated = codes.filter((code, index) => codes.indexOf(code) !== index);
+    // Chỉ chặn trùng DO NGƯỜI DÙNG VỪA ĐỔI — trùng có sẵn trên sàn không chặn việc sửa tiêu đề / giá.
+    const duplicated = product ? introducedDuplicateSkus(product, form) : [];
     if (duplicated.length > 0) {
-      issues.push(t('pod:products.edit.duplicateSku', { count: new Set(duplicated).size }));
+      issues.push(t('pod:products.edit.duplicateSku', { count: duplicated.length, codes: duplicated.slice(0, 3).join(', ') }));
     }
     return issues;
-  }, [form, t]);
+  }, [form, product, t]);
 
   const handleClose = () => {
     if (dirty && !window.confirm(t('pod:products.edit.discardConfirm'))) return;

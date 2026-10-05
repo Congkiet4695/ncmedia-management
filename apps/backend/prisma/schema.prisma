@@ -2122,6 +2122,7 @@ enum FulfillmentStatus {
 /// Loại sự kiện ghi vào nhật ký fulfillment (append-only).
 enum FulfillmentEventType {
   CREATE_REQUEST
+  /// Nhà cung cấp ĐÃ nhận đơn (có mã đơn phía họ) — kể cả khi bước ghi local sau đó hỏng.
   CREATE_SUCCESS
   CREATE_FAILED
   STATUS_CHANGED
@@ -2135,6 +2136,17 @@ enum FulfillmentEventType {
   VALIDATION_FAILED
   /// Bản ghi đã huỷ được lưu trữ để nhường chỗ cho một lần fulfill MỚI.
   SUPERSEDED
+  /// Giá vốn được nhà cung cấp xác nhận (mọi dòng đã có giá).
+  BASE_COST_UPDATED
+  /// Hỏi giá vốn từ nhà cung cấp hỏng — đơn VẪN ở nhà cung cấp, giá thử lại ở lượt đồng bộ sau.
+  BASE_COST_FETCH_FAILED
+  /// Admin nhập tay giá vốn (payload: giá cũ / mới / lý do).
+  BASE_COST_MANUAL_UPDATED
+  /// Nhà cung cấp đã nhận đơn nhưng ghi kết quả vào DB local hỏng.
+  LOCAL_UPDATE_FAILED
+  /// Không chắc nhà cung cấp đã nhận đơn chưa (timeout / 5xx) ⇒ chờ đối soát theo mã tham chiếu,
+  /// KHÔNG gửi lại mù.
+  RECONCILIATION_REQUIRED
 
   @@map("fulfillment_event_type")
 }
@@ -4966,6 +4978,11 @@ model PodListingPayload {
   /// Lý do bị từ chối, gộp từ `audit_failed_reasons[]`.
   reviewReason    String?                 @map("review_reason") @db.VarChar(2000)
   reviewCheckedAt DateTime?               @map("review_checked_at") @db.Timestamptz(6)
+  /// 🔴 Lần ĐẦU TikTok báo sản phẩm đang bán (`review_status = ACTIVE`) — bộ đồng bộ trạng thái duyệt
+  /// ghi. Có giá trị ⇒ draft đã "lên sàn thật" và KHÔNG còn hiện ở màn Draft Listings.
+  /// Không xoá mềm bản ghi: chính bản ghi PUBLISHED là chốt chống publish trùng (Publish Live đọc
+  /// `deleted_at IS NULL AND status = PUBLISHED`) và là dữ liệu của Publish History.
+  wentLiveAt      DateTime?               @map("went_live_at") @db.Timestamptz(6)
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -5276,6 +5293,10 @@ model PodListingJobItem {
   @@index([organizationId, status])
   @@index([jobId, status])
   @@index([status, nextAttemptAt])
+  /// Thống kê công việc nhân viên: listing hoàn tất trong khoảng ngày của MỘT tổ chức.
+  @@index([organizationId, finishedAt])
+  /// Thống kê công việc nhân viên: "lần listing THÀNH CÔNG ĐẦU TIÊN" của (shop, sản phẩm TikTok) — chống đếm trùng.
+  @@index([shopId, remoteProductId])
   @@map("pod_listing_job_items")
 }
 
@@ -5335,6 +5356,23 @@ model PodListingLog {
 /// DEACTIVATED / NOT_EFFECTIVE): người vận hành cần biết "đã đẩy lên sàn chưa, có lỗi
 /// không", còn TikTok chỉ nói "đang chạy hay chưa". Ánh xạ hai chiều nằm ở
 /// `pod-flash-sale.constants.ts` — một nơi duy nhất.
+/// Cách tính giờ kết thúc của đợt Auto Flash Sale sinh tự động.
+enum PodFlashSaleAutoDurationMode {
+  /// "Khoảng thời gian": kết thúc lúc 23:59:59 của ngày (bắt đầu + N − 1) theo múi giờ đợt sale.
+  CALENDAR_DAYS
+
+  @@map("pod_flash_sale_auto_duration_mode")
+}
+
+/// Khoảng thời gian (ngày lịch) của đợt Auto Flash Sale.
+enum PodFlashSaleAutoDuration {
+  ONE_DAY
+  TWO_DAYS
+  THREE_DAYS
+
+  @@map("pod_flash_sale_auto_duration")
+}
+
 enum PodFlashSaleStatus {
   /// Đang soạn — chưa đủ điều kiện đẩy lên sàn.
   DRAFT
@@ -5564,6 +5602,12 @@ model PodFlashSaleAutoConfig {
   runTime  String  @map("run_time") @db.VarChar(5)
   /// Múi giờ IANA của giờ chạy (vd `America/Los_Angeles`). KHÔNG dùng múi giờ của server.
   timezone String  @db.VarChar(64)
+
+  /// Cách tính giờ KẾT THÚC của đợt sinh tự động. Mặc định cho cấu hình cũ: CALENDAR_DAYS.
+  durationMode PodFlashSaleAutoDurationMode @default(CALENDAR_DAYS) @map("duration_mode")
+  /// Khoảng thời gian (ngày LỊCH) của đợt sinh tự động — xem `FLASH_SALE_AUTO_DURATION_DAYS`.
+  /// Mặc định THREE_DAYS: gần nhất với luật cố định trước đây (3 ngày).
+  duration     PodFlashSaleAutoDuration     @default(THREE_DAYS)
 
   /// Mốc lịch (`runTime` của một ngày, quy ra UTC) đã được một lượt chạy GIÀNH. Lượt quét so
   /// sánh-và-đổi cột này ⇒ mỗi mốc chạy đúng một lần dù có nhiều instance, và mốc bị lỡ

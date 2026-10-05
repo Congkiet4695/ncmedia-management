@@ -2,12 +2,24 @@ import 'reflect-metadata';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PERMISSIONS_KEY } from '../../auth/decorators/require-permissions.decorator';
+import { Reflector } from '@nestjs/core';
+import { ForbiddenException, type ExecutionContext } from '@nestjs/common';
+import {
+  ANY_PERMISSIONS_KEY,
+  PERMISSIONS_KEY,
+} from '../../auth/decorators/require-permissions.decorator';
+import {
+  EMPLOYEE_DEFAULT_PERMISSIONS,
+  FULFILLMENT_DEFAULT_PERMISSIONS,
+} from '../../auth/constants/default-roles';
 import { JwtAuthGuard } from '../../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../../auth/guards/permissions.guard';
 import { PodScopeGuard } from '../guards/pod-scope.guard';
 import { PodDashboardController } from '../pod-dashboard.controller';
-import type { DashboardFilter, PodDashboardRepository } from '../repositories/pod-dashboard.repository';
+import type {
+  DashboardFilter,
+  PodDashboardRepository,
+} from '../repositories/pod-dashboard.repository';
 import { PodDashboardService } from './pod-dashboard.service';
 import type { PodAccessScope } from './pod-access-scope.service';
 
@@ -22,7 +34,11 @@ function build(overrides: Partial<Record<keyof PodDashboardRepository, jest.Mock
       { currency: 'USD', amount: '12305.25', shopCount: 43 },
       { currency: 'GBP', amount: '10', shopCount: 1 },
     ]),
-    holdBySeller: jest.fn().mockResolvedValue([{ sellerId: 's1', sellerName: 'Trang', shopCount: 8, amount: '5419.789' }]),
+    holdBySeller: jest
+      .fn()
+      .mockResolvedValue([
+        { sellerId: 's1', sellerName: 'Trang', shopCount: 8, amount: '5419.789' },
+      ]),
     shopStatuses: jest.fn().mockResolvedValue([
       { status: 'ACTIVE', count: 46 },
       { status: 'INACTIVE', count: 2 },
@@ -46,10 +62,14 @@ function build(overrides: Partial<Record<keyof PodDashboardRepository, jest.Mock
     ...overrides,
   };
   const config = { get: (_key: string, fallback: unknown) => fallback } as unknown as ConfigService;
-  return { service: new PodDashboardService(repo as unknown as PodDashboardRepository, config), repo };
+  return {
+    service: new PodDashboardService(repo as unknown as PodDashboardRepository, config),
+    repo,
+  };
 }
 
-const filterOf = (mock: jest.Mock): DashboardFilter => (mock.mock.calls as DashboardFilter[][])[0][0];
+const filterOf = (mock: jest.Mock): DashboardFilter =>
+  (mock.mock.calls as DashboardFilter[][])[0][0];
 
 describe('PodDashboardService.overview', () => {
   it('Hold theo đơn vị tiền đang chọn; đơn vị khác tách riêng, KHÔNG cộng dồn / quy đổi', async () => {
@@ -62,7 +82,11 @@ describe('PodDashboardService.overview', () => {
       shopCount: 43,
       otherCurrencies: [{ currency: 'GBP', amount: 10, shopCount: 1 }],
     });
-    expect(result.holdBySeller[0]).toMatchObject({ sellerName: 'Trang', shopCount: 8, amount: 5419.79 });
+    expect(result.holdBySeller[0]).toMatchObject({
+      sellerName: 'Trang',
+      shopCount: 8,
+      amount: 5419.79,
+    });
   });
 
   it('trạng thái shop: Live / Inactive / Deauthorized tách riêng, không gộp mọi thứ vào "Die"', async () => {
@@ -87,16 +111,25 @@ describe('PodDashboardService.overview', () => {
   it('Admin ⇒ toàn tổ chức (accountIds = null); Seller ⇒ CHỈ account được gán', async () => {
     const admin = build();
     await admin.service.overview(ORG, ADMIN, {});
-    expect(filterOf(admin.repo.holdTotals)).toMatchObject({ organizationId: ORG, accountIds: null });
+    expect(filterOf(admin.repo.holdTotals)).toMatchObject({
+      organizationId: ORG,
+      accountIds: null,
+    });
 
     const seller = build();
     await seller.service.overview(ORG, SELLER, { sellerId: 'someone-else' });
     // Seller truyền sellerId của người khác vẫn bị giới hạn ở account của chính mình.
-    expect(filterOf(seller.repo.holdTotals)).toMatchObject({ accountIds: ['acc-1'], sellerId: 'someone-else' });
+    expect(filterOf(seller.repo.holdTotals)).toMatchObject({
+      accountIds: ['acc-1'],
+      sellerId: 'someone-else',
+    });
   });
 
   it('chưa có dữ liệu nào ⇒ không đoán đơn vị tiền', async () => {
-    const { service } = build({ currencies: jest.fn().mockResolvedValue([]), holdTotals: jest.fn().mockResolvedValue([]) });
+    const { service } = build({
+      currencies: jest.fn().mockResolvedValue([]),
+      holdTotals: jest.fn().mockResolvedValue([]),
+    });
     const result = await service.overview(ORG, ADMIN, {});
     expect(result.currency).toBeNull();
     expect(result.hold.amount).toBe(0);
@@ -142,9 +175,9 @@ describe('PodDashboardService.summary', () => {
 
   it('khoảng ngày sai ⇒ 400 DASHBOARD_RANGE_INVALID', async () => {
     const { service } = build();
-    await expect(service.summary(ORG, ADMIN, { from: '2026-09-30', to: '2026-09-01' })).rejects.toBeInstanceOf(
-      BadRequestException,
-    );
+    await expect(
+      service.summary(ORG, ADMIN, { from: '2026-09-30', to: '2026-09-01' }),
+    ).rejects.toBeInstanceOf(BadRequestException);
   });
 });
 
@@ -164,7 +197,9 @@ describe('PodDashboardService.sellers', () => {
       processing: '0',
       hold: '5419.79',
     };
-    const { service, repo } = build({ sellerStats: jest.fn().mockResolvedValue({ items: [row], total: 41 }) });
+    const { service, repo } = build({
+      sellerStats: jest.fn().mockResolvedValue({ items: [row], total: 41 }),
+    });
     const result = await service.sellers(ORG, ADMIN, {
       from: '2026-08-18',
       to: '2026-09-18',
@@ -181,18 +216,129 @@ describe('PodDashboardService.sellers', () => {
       page: 2,
       limit: 20,
     });
-    expect(result.items[0]).toMatchObject({ orders: 95, returns: null, profit: 6615.22, hold: 5419.79 });
+    expect(result.items[0]).toMatchObject({
+      orders: 95,
+      returns: null,
+      profit: 6615.22,
+      hold: 5419.79,
+    });
     expect(result.meta).toEqual({ total: 41, page: 2, limit: 20, totalPages: 3 });
   });
 });
 
-describe('PodDashboardController — phân quyền', () => {
-  it('giữ quyền Dashboard hiện tại (report.read) + JwtAuthGuard + PermissionsGuard + PodScopeGuard', () => {
-    expect(Reflect.getMetadata(PERMISSIONS_KEY, PodDashboardController)).toEqual(['report.read']);
+describe('PodDashboardController — phân quyền (Admin Dashboard + Seller Dashboard)', () => {
+  /** Chạy PermissionsGuard THẬT với danh sách quyền của một role. */
+  const canOpen = async (permissions: readonly string[]) => {
+    const prisma = {
+      rolePermission: {
+        findMany: jest
+          .fn()
+          .mockResolvedValue(permissions.map((code) => ({ permission: { code } }))),
+      },
+    };
+    const guard = new PermissionsGuard(new Reflector(), prisma as never);
+    const context = {
+      // eslint-disable-next-line @typescript-eslint/unbound-method -- chỉ đọc metadata, không gọi
+      getHandler: () => PodDashboardController.prototype.overview,
+      getClass: () => PodDashboardController,
+      switchToHttp: () => ({
+        getRequest: () => ({ user: { organizationId: ORG, role: 'ANY', userId: 'u-1' } }),
+      }),
+    } as unknown as ExecutionContext;
+    return guard.canActivate(context).catch((error: unknown) => {
+      if (error instanceof ForbiddenException) return false;
+      throw error;
+    });
+  };
+
+  it('report.read (Admin) HOẶC pod.dashboard.read (Seller) + JwtAuthGuard + PermissionsGuard + PodScopeGuard', () => {
+    expect(Reflect.getMetadata(ANY_PERMISSIONS_KEY, PodDashboardController)).toEqual([
+      'report.read',
+      'pod.dashboard.read',
+    ]);
+    expect(Reflect.getMetadata(PERMISSIONS_KEY, PodDashboardController)).toBeUndefined();
     expect(Reflect.getMetadata(GUARDS_METADATA, PodDashboardController)).toEqual([
       JwtAuthGuard,
       PermissionsGuard,
       PodScopeGuard,
     ]);
+  });
+
+  it('🔴 Seller (EMPLOYEE mặc định) mở được Dashboard nhưng KHÔNG có report.read (/reports/* là báo cáo cấp tổ chức) và KHÔNG có pod.shop.all', async () => {
+    const permissions: readonly string[] = EMPLOYEE_DEFAULT_PERMISSIONS;
+    expect(permissions).toContain('pod.dashboard.read');
+    expect(permissions).not.toContain('report.read');
+    expect(permissions).not.toContain('pod.shop.all');
+    expect(await canOpen(EMPLOYEE_DEFAULT_PERMISSIONS)).toBe(true);
+  });
+
+  it('Admin (report.read) vẫn mở được; role không có quyền nào trong hai (FULFILLMENT) ⇒ 403', async () => {
+    expect(await canOpen(['report.read'])).toBe(true);
+    expect(await canOpen(FULFILLMENT_DEFAULT_PERMISSIONS)).toBe(false);
+  });
+});
+
+describe('Seller Dashboard — phạm vi dữ liệu ở BACKEND', () => {
+  const SELLER_A: PodAccessScope = { allShops: false, accountIds: ['acc-a'], shopIds: ['shop-a'] };
+  const SELLER_B: PodAccessScope = { allShops: false, accountIds: ['acc-b'], shopIds: ['shop-b'] };
+  const RANGE = { from: '2026-10-01', to: '2026-10-05' };
+
+  it.each([
+    [
+      'overview',
+      (s: PodDashboardService, scope: PodAccessScope) => s.overview(ORG, scope, {}),
+      'holdTotals',
+    ],
+    [
+      'summary',
+      (s: PodDashboardService, scope: PodAccessScope) => s.summary(ORG, scope, RANGE),
+      'finance',
+    ],
+    [
+      'sellers',
+      (s: PodDashboardService, scope: PodAccessScope) => s.sellers(ORG, scope, RANGE),
+      'sellerStats',
+    ],
+    [
+      'trends',
+      (s: PodDashboardService, scope: PodAccessScope) => s.trends(ORG, scope, RANGE),
+      'financeTrend',
+    ],
+  ] as const)(
+    '%s: Seller A chỉ account của A, Seller B chỉ của B, Admin toàn tổ chức',
+    async (_name, call, query) => {
+      for (const [scope, expected] of [
+        [SELLER_A, ['acc-a']],
+        [SELLER_B, ['acc-b']],
+        [ADMIN, null],
+      ] as const) {
+        const { service, repo } = build();
+        await call(service, scope);
+        expect(filterOf(repo[query])).toMatchObject({ organizationId: ORG, accountIds: expected });
+      }
+    },
+  );
+
+  it('🔴 Seller A gửi sellerId / shopId của Seller B ⇒ vẫn bị giới hạn ở account của A (phép GIAO ở DB)', async () => {
+    const { service, repo } = build();
+    await service.summary(ORG, SELLER_A, { ...RANGE, sellerId: 'seller-b', shopId: 'shop-b' });
+    expect(filterOf(repo.finance)).toMatchObject({
+      accountIds: ['acc-a'],
+      sellerId: 'seller-b',
+      shopId: 'shop-b',
+    });
+  });
+
+  it('🔴 Seller chưa được gán account nào ⇒ accountIds RỖNG (trả 0), không phải "toàn tổ chức"', async () => {
+    const { service, repo } = build();
+    await service.overview(ORG, { allShops: false, accountIds: [], shopIds: [] }, {});
+    expect(filterOf(repo.holdTotals).accountIds).toEqual([]);
+  });
+
+  it('bộ lọc shop / seller chỉ liệt kê trong phạm vi người xem', async () => {
+    const filterOptions = jest.fn().mockResolvedValue({ shops: [], sellers: [] });
+    const { service } = build({ filterOptions });
+    await service.filterOptions(ORG, SELLER_A);
+    expect(filterOptions).toHaveBeenCalledWith(ORG, ['acc-a']);
   });
 });

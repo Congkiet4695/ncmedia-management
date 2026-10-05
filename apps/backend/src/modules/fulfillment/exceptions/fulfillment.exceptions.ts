@@ -356,3 +356,33 @@ export class FulfillmentMappingNotFoundException extends NotFoundException {
     });
   }
 }
+
+/**
+ * Không xác định được nhà cung cấp đã nhận đơn hay chưa (timeout / 5xx khi tạo, và tra lại cũng không
+ * trả lời được), HOẶC nhà cung cấp đã nhận nhưng ghi kết quả local hỏng.
+ *
+ * 🔴 KHÔNG phải "thất bại": bản ghi được giữ ở SUBMITTING (không gửi lại được từ giao diện) và bộ đồng
+ * bộ tự tra theo mã tham chiếu — có đơn ⇒ khôi phục; 404 ⇒ FAILED (lúc đó gửi lại mới an toàn).
+ */
+export class FulfillmentReconciliationPendingException extends HttpException {
+  constructor(providerLabel: string, referenceId: string) {
+    super(
+      {
+        code: 'FULFILLMENT_RECONCILIATION_PENDING',
+        message:
+          `${providerLabel} chưa phản hồi rõ ràng cho đơn ${referenceId}. Hệ thống đang tự đối soát theo mã ` +
+          'tham chiếu (vài phút) — KHÔNG gửi lại đơn này để tránh tạo đơn trùng.',
+      },
+      // 409: yêu cầu chưa hoàn tất được vì trạng thái bên nhà cung cấp CHƯA xác định — không phải lỗi
+      // của người dùng, cũng không phải "thất bại". (2xx sẽ bị giao diện hiểu là thành công.)
+      HttpStatus.CONFLICT,
+    );
+  }
+}
+
+/** Nhập tay giá vốn không hợp lệ (bản ghi chưa gửi, thiếu dòng, sai đơn vị tiền, sai số lẻ…). */
+export class FulfillmentManualBaseCostInvalidException extends BadRequestException {
+  constructor(reason: string, message: string) {
+    super({ code: 'FULFILLMENT_BASE_COST_INVALID', message, details: { reason } });
+  }
+}

@@ -511,25 +511,37 @@ export interface PodFlashSaleAutoRunResult {
   nodes: PodFlashSaleAutoNodeResult[];
 }
 
+/** Cách tính giờ kết thúc của đợt Auto — khớp enum `pod_flash_sale_auto_duration_mode` phía backend. */
+export const FLASH_SALE_AUTO_DURATION_MODES = ['CALENDAR_DAYS'] as const;
+export type FlashSaleAutoDurationMode = (typeof FLASH_SALE_AUTO_DURATION_MODES)[number];
+
+/** "Khoảng thời gian" (ngày LỊCH) — khớp enum `pod_flash_sale_auto_duration` phía backend. */
+export const FLASH_SALE_AUTO_DURATIONS = ['ONE_DAY', 'TWO_DAYS', 'THREE_DAYS'] as const;
+export type FlashSaleAutoDuration = (typeof FLASH_SALE_AUTO_DURATIONS)[number];
+
 export interface PodFlashSaleAutoConfig {
   configured: boolean;
   enabled: boolean;
   /** `HH:mm` */
   runTime: string | null;
   timezone: string | null;
+  durationMode: FlashSaleAutoDurationMode;
+  duration: FlashSaleAutoDuration;
   lastRunAt: string | null;
   lastRunTrigger: string | null;
   lastRunStatus: string | null;
   lastRunSummary: PodFlashSaleAutoRunResult | null;
   nextRunAt: string | null;
   /** Luật của chuỗi — chỉ đọc. */
-  rules: { leadHours: number; gapMinutes: number; durationDays: number; endTrimMinutes: number };
+  rules: { leadHours: number; gapMinutes: number; durationDays: number; endOfDay: string };
 }
 
 export interface UpdateFlashSaleAutoConfigPayload {
   enabled: boolean;
   runTime: string;
   timezone: string;
+  durationMode: FlashSaleAutoDurationMode;
+  duration: FlashSaleAutoDuration;
 }
 
 export interface PodFlashSaleAutoChainNode {

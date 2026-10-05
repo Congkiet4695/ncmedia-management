@@ -9,6 +9,7 @@ import {
   FulfillmentNotReadyException,
   FulfillmentProviderNotAssignedException,
   FulfillmentProviderTimeoutException,
+  FulfillmentReconciliationPendingException,
   FulfillmentValidationException,
 } from '../../exceptions/fulfillment.exceptions';
 import { FulfillmentRepository } from '../../repositories/fulfillment.repository';
@@ -447,9 +448,12 @@ describe('MangoFulfillmentService.fulfill — CASE 3..6: validate & lỗi nhà c
     expect(harness.updates.some((update) => update.status === FulfillmentStatus.SUBMITTED)).toBe(false);
   });
 
-  it('CASE 6: timeout ⇒ 504 và lỗi được đánh dấu THỬ LẠI ĐƯỢC (bấm lại = retry, cùng order_id)', async () => {
+  it('CASE 6: timeout và tra lại theo order_id ra 404 (chưa tới Mango) ⇒ 504, FAILED, THỬ LẠI ĐƯỢC', async () => {
     const timeout = new FulfillmentClientError(FulfillmentErrorClass.NETWORK, 'Hết thời gian chờ sau 30000ms');
-    const harness = buildService({ createData: timeout });
+    const harness = buildService({
+      createData: timeout,
+      getError: new FulfillmentClientError(FulfillmentErrorClass.NOT_FOUND, 'order not found', 404),
+    });
 
     await expect(harness.service.fulfill(ORG, USER, POD_ORDER)).rejects.toBeInstanceOf(
       FulfillmentProviderTimeoutException,
@@ -674,5 +678,141 @@ describe('MangoFulfillmentService.cancel — hỏi trạng thái THẬT trước
     expect(harness.record.status).toBe(FulfillmentStatus.SUBMITTED);
     const cancelEntry = harness.histories.find((entry) => entry.eventType === 'CANCEL_SUCCESS');
     expect(cancelEntry?.success).toBe(false);
+  });
+});
+
+/**
+ * 🔴 Lỗi thật (docs/fulfillment/err2.png): đơn Mango đã CREATE_SUCCESS → SUBMITTED, có tracking; một
+ * lượt ĐỒNG BỘ nhận HTTP 502 bị ghi "CREATE_FAILED" và hạ đơn về FAILED ("Submission failed" + nút
+ * Retry fulfill). Nguyên nhân: `syncOne` gọi `recordFailure` không truyền loại sự kiện ⇒ mặc định
+ * CREATE_FAILED ⇒ status = FAILED.
+ */
+describe('MangoFulfillmentService — nhà cung cấp ĐÃ nhận đơn ≠ request local thành công', () => {
+  const server502 = () => new FulfillmentClientError(FulfillmentErrorClass.SERVER, 'Nhà cung cấp trả về HTTP 502', 502);
+  const timeout = () => new FulfillmentClientError(FulfillmentErrorClass.NETWORK, 'Hết thời gian chờ sau 30000ms');
+  const notFound = () => new FulfillmentClientError(FulfillmentErrorClass.NOT_FOUND, 'order not found', 404);
+
+  it('🔴 err2 — đồng bộ nhận 502 ⇒ SYNC (không phải CREATE_FAILED), trạng thái GIỮ NGUYÊN, không FAILED', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.IN_PRODUCTION, providerStatus: 'processing' },
+      getError: server502(),
+    });
+    const record = await harness.repo.findById(ORG, 'ful-1');
+
+    await harness.service.syncOne(record as never, ACCOUNT as never, FulfillmentTrigger.CRON);
+
+    expect(harness.updates.some((update) => update.status === FulfillmentStatus.FAILED)).toBe(false);
+    expect(harness.histories.map((entry) => entry.eventType)).toEqual(['SYNC']);
+  });
+
+  it('🔴 bản ghi đã bị hạ sai về FAILED nhưng Mango có đơn ⇒ đồng bộ KHÔI PHỤC trạng thái thật, xoá lỗi cũ', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.FAILED, providerStatus: 'processing' },
+      getData: { id: 'mango-1', status: 'processing', tracking_number: 'TRK-1' },
+    });
+    const record = await harness.repo.findById(ORG, 'ful-1');
+
+    await harness.service.syncOne(record as never, ACCOUNT as never, FulfillmentTrigger.CRON);
+
+    expect(harness.updates[0]).toMatchObject({
+      status: FulfillmentStatus.IN_PRODUCTION,
+      providerOrderId: 'mango-1',
+      lastErrorCode: null,
+      lastErrorMessage: null,
+    });
+    expect(harness.histories.some((entry) => (entry.payload as { reconciled?: boolean })?.reconciled)).toBe(true);
+  });
+
+  it('đối soát bản ghi FAILED mà Mango vẫn lỗi ⇒ GIỮ FAILED, KHÔNG ghi timeline (không spam mỗi 5 phút)', async () => {
+    const harness = buildService({ existing: { status: FulfillmentStatus.FAILED }, getError: server502() });
+    const record = await harness.repo.findById(ORG, 'ful-1');
+
+    await harness.service.syncOne(record as never, ACCOUNT as never, FulfillmentTrigger.CRON);
+
+    expect(harness.histories).toEqual([]);
+    expect(harness.record.status).toBe(FulfillmentStatus.FAILED);
+  });
+
+  it('`processing` (API thật trả, tài liệu không liệt kê) ⇒ IN_PRODUCTION, không UNKNOWN', () => {
+    expect(new MangoOrderMapper().toFulfillmentStatus('processing')).toBe(FulfillmentStatus.IN_PRODUCTION);
+  });
+
+  it('CASE C — tạo đơn timeout nhưng Mango ĐÃ có đơn ⇒ liên kết (SUBMITTED), KHÔNG tạo đơn thứ hai', async () => {
+    const harness = buildService({
+      createData: timeout(),
+      getData: { id: 'mango-1', status: 'new_order' },
+    });
+
+    const result = await harness.service.fulfill(ORG, USER, POD_ORDER);
+
+    expect(harness.createOrder).toHaveBeenCalledTimes(1);
+    expect(harness.getOrder).toHaveBeenCalledWith(expect.anything(), 'NC-TT-1');
+    expect(result).toMatchObject({ status: FulfillmentStatus.SUBMITTED, providerOrderId: 'mango-1' });
+    expect(harness.updates.some((update) => update.status === FulfillmentStatus.FAILED)).toBe(false);
+  });
+
+  it('CASE D — tạo đơn 502 và tra lại 404 ⇒ request chưa tới nơi ⇒ FAILED (gửi lại an toàn)', async () => {
+    const harness = buildService({ createData: server502(), getError: notFound() });
+
+    await expect(harness.service.fulfill(ORG, USER, POD_ORDER)).rejects.toBeTruthy();
+    expect(harness.updates.some((update) => update.status === FulfillmentStatus.FAILED)).toBe(true);
+  });
+
+  it('🔴 CASE E — tạo đơn 502 và tra lại CŨNG hỏng ⇒ GIỮ SUBMITTING + RECONCILIATION_REQUIRED, 409 (không FAILED)', async () => {
+    const harness = buildService({ createData: server502(), getError: server502() });
+
+    await expect(harness.service.fulfill(ORG, USER, POD_ORDER)).rejects.toBeInstanceOf(
+      FulfillmentReconciliationPendingException,
+    );
+    expect(harness.record.status).toBe(FulfillmentStatus.SUBMITTING);
+    expect(harness.updates.some((update) => update.status === FulfillmentStatus.FAILED)).toBe(false);
+    expect(harness.histories.some((entry) => entry.eventType === 'RECONCILIATION_REQUIRED')).toBe(true);
+  });
+
+  it('🔴 CASE B — Mango nhận đơn nhưng ghi DB local hỏng ⇒ KHÔNG FAILED, 409 chờ đối soát', async () => {
+    const harness = buildService({ createData: { id: 'mango-1', status: 'new_order' } as MangoOrderResponse });
+    harness.repoMocks.updateOrder.mockImplementation((_id: string, data: Record<string, unknown>) => {
+      if (data.status === FulfillmentStatus.SUBMITTED) return Promise.reject(new Error('db down'));
+      harness.updates.push(data);
+      Object.assign(harness.record, data);
+      return Promise.resolve(harness.record);
+    });
+
+    await expect(harness.service.fulfill(ORG, USER, POD_ORDER)).rejects.toBeInstanceOf(
+      FulfillmentReconciliationPendingException,
+    );
+    expect(harness.updates.some((update) => update.status === FulfillmentStatus.FAILED)).toBe(false);
+    expect(harness.histories.some((entry) => entry.eventType === 'LOCAL_UPDATE_FAILED')).toBe(true);
+  });
+
+  it('lấy giá vốn sau khi tạo đơn hỏng ⇒ đơn VẪN SUBMITTED + BASE_COST_FETCH_FAILED', async () => {
+    const harness = buildService({ createData: { id: 'mango-1', status: 'new_order' } as MangoOrderResponse });
+    harness.repoMocks.applyProviderItemCosts.mockRejectedValueOnce(new Error('cost write failed'));
+
+    const result = await harness.service.fulfill(ORG, USER, POD_ORDER);
+
+    expect(result.status).toBe(FulfillmentStatus.SUBMITTED);
+    expect(harness.histories.some((entry) => entry.eventType === 'BASE_COST_FETCH_FAILED')).toBe(true);
+  });
+
+  it('đối soát SUBMITTING (chưa có mã Mango) mà Mango trả 404 ⇒ FAILED (chưa từng tới nơi)', async () => {
+    const harness = buildService({ existing: { status: FulfillmentStatus.SUBMITTING }, getError: notFound() });
+    const record = await harness.repo.findById(ORG, 'ful-1');
+
+    await harness.service.syncOne(record as never, ACCOUNT as never, FulfillmentTrigger.CRON);
+
+    expect(harness.updates.some((update) => update.status === FulfillmentStatus.FAILED)).toBe(true);
+  });
+
+  it('đồng bộ bị 429 ⇒ báo rateLimited để bộ đồng bộ tạm dừng tài khoản', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.SUBMITTED },
+      getError: new FulfillmentClientError(FulfillmentErrorClass.RATE_LIMIT, 'Too many requests', 429),
+    });
+    const record = await harness.repo.findById(ORG, 'ful-1');
+
+    expect(await harness.service.syncOne(record as never, ACCOUNT as never, FulfillmentTrigger.CRON)).toMatchObject({
+      rateLimited: true,
+    });
   });
 });

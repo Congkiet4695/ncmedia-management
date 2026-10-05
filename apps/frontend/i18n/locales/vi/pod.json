@@ -137,17 +137,17 @@
       "URL": "Public URL"
     },
     "url": {
-      "placeholder": "https://… (URL ảnh công khai)",
+      "placeholder": "https://… (URL ảnh công khai hoặc link Google Drive)",
       "use": "Dùng URL",
       "replace": "Thay",
-      "saved": "Đã đặt design {{placement}} từ URL",
+      "saved": "Đã tải và lưu design {{placement}}",
       "failed": "Không dùng được URL này",
       "sourceLabel": "URL công khai",
-      "hint": "Chỉ HTTPS. Nhà cung cấp tải file trực tiếp từ URL này — URL phải truy cập công khai được.",
+      "hint": "Hệ thống tải file từ URL này và lưu vào kho lưu trữ — preview và nhà cung cấp dùng bản đã lưu. PNG, JPEG hoặc WEBP; link phải truy cập công khai được (Google Drive: “Bất kỳ ai có đường liên kết”).",
       "error": {
         "EMPTY": "Nhập URL.",
         "MALFORMED": "URL không hợp lệ.",
-        "NOT_HTTPS": "URL phải bắt đầu bằng https://"
+        "UNSUPPORTED_PROTOCOL": "URL phải bắt đầu bằng http:// hoặc https://"
       }
     }
   },
@@ -459,9 +459,20 @@
         "runNowConfirm": "Chạy Auto Flash Sale ngay bây giờ? Các đợt đang bật Auto đã tới hạn sẽ được tạo đợt kế tiếp THẬT trên TikTok.",
         "runDone": "Xong: {{created}} tạo mới · {{transferred}} chuyển Auto · {{failed}} lỗi",
         "rulesTitle": "Luật của chuỗi",
-        "rules": "Tạo đợt kế tiếp khi đợt đang bật Auto còn ≤ {{leadHours}} giờ · đợt mới bắt đầu {{gapMinutes}} phút sau khi đợt cũ kết thúc · kéo dài {{durationDays}} ngày − {{endTrimMinutes}} phút.",
+        "rules": "Tạo đợt kế tiếp khi đợt đang bật Auto còn ≤ {{leadHours}} giờ · đợt mới bắt đầu {{gapMinutes}} phút sau khi đợt cũ kết thúc (tròn phút) · kéo dài {{durationDays}} ngày lịch, kết thúc {{endOfDay}} của ngày cuối theo múi giờ của đợt sale.",
         "summary": "Kiểm {{checked}} · tạo {{created}} · chuyển {{transferred}} · đang gửi {{inProgress}} · bỏ qua {{skipped}} · lỗi {{failed}}",
-        "invalidTime": "Giờ chạy phải có dạng HH:mm."
+        "invalidTime": "Giờ chạy phải có dạng HH:mm.",
+        "durationMode": "Mode",
+        "durationModes": {
+          "CALENDAR_DAYS": "Khoảng thời gian"
+        },
+        "duration": "Khoảng thời gian",
+        "durations": {
+          "ONE_DAY": "1 ngày",
+          "TWO_DAYS": "2 ngày",
+          "THREE_DAYS": "3 ngày"
+        },
+        "durationHint": "Tính theo ngày LỊCH: 1 ngày = kết thúc 23:59:59 của chính ngày bắt đầu (không phải +24 giờ). Ví dụ bắt đầu 20/10 00:00 · 3 ngày ⇒ kết thúc 22/10 23:59:59."
       }
     }
   },
@@ -1075,7 +1086,14 @@
         "ACTIVE": "Đang bán",
         "OFFLINE": "Đã tắt",
         "DELETED": "Đã xoá"
-      }
+      },
+      "selectedCount": "Đã chọn {{count}}",
+      "selectRow": "Chọn dòng này",
+      "deleteSelected": "Xoá đã chọn ({{count}})",
+      "bulkDeleteConfirm": "Xoá {{count}} Draft Listing đã chọn khỏi hệ thống?",
+      "bulkDeleteRemoteConfirm": "Xoá {{count}} Draft Listing đã chọn? Draft nào đã có trên TikTok sẽ bị xoá LUÔN bên TikTok (Seller Center).",
+      "bulkDeleted": "Đã xoá {{count}} Draft Listing",
+      "bulkDeletePartial": "Đã xoá {{deleted}} · {{failed}} draft KHÔNG xoá được"
     },
     "publish": {
       "all": "Publish All",
@@ -1468,7 +1486,13 @@
       "refulfill": "Fulfill lại",
       "retry": "Gửi lại",
       "cancelledBy": "Huỷ bởi {{who}} · {{at}}",
-      "cancelReason": "Lý do: {{reason}}"
+      "cancelReason": "Lý do: {{reason}}",
+      "retryBaseCost": "Lấy lại giá",
+      "retryBaseCostHint": "Hỏi lại nhà cung cấp giá vốn thật của đơn này",
+      "retryBaseCostDone": "Đã lấy được giá vốn từ nhà cung cấp",
+      "retryBaseCostStillPending": "Nhà cung cấp vẫn chưa báo giá vốn — có thể nhập tay",
+      "updateBaseCost": "Nhập giá",
+      "reconciling": "Đang đối soát với nhà cung cấp — KHÔNG gửi lại đơn này."
     },
     "actions": {
       "syncFulfillment": "Đồng bộ xưởng in",
@@ -1816,7 +1840,7 @@
       "tooManyTerms": "Tối đa {{max}} từ khoá tìm kiếm.",
       "badPrice": "{{count}} SKU có giá bán không hợp lệ (phải lớn hơn 0).",
       "badQuantity": "{{count}} SKU có tồn kho không hợp lệ (phải từ 0 trở lên).",
-      "duplicateSku": "{{count}} mã Seller SKU bị trùng giữa các biến thể.",
+      "duplicateSku": "Seller SKU {{codes}} đang được biến thể khác của sản phẩm này dùng ({{count}} mã) — đổi sang mã khác.",
       "imageRequired": "Sản phẩm phải có ít nhất một ảnh.",
       "categoryTemplate": "Mẫu Category",
       "categoryTemplateHint": "Áp mẫu này sẽ điền Thương hiệu · Bảng size · Video. Danh mục KHÔNG đổi — TikTok không cho đổi danh mục của sản phẩm đã tạo.",

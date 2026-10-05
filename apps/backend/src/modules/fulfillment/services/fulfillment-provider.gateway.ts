@@ -250,7 +250,7 @@ export class FulfillmentProviderGateway {
     account: FulfillmentAccount,
     trigger: FulfillmentTrigger,
     actorUserId?: string,
-  ): Promise<{ changed: boolean; apiCalls: number }> {
+  ): Promise<{ changed: boolean; apiCalls: number; rateLimited?: boolean }> {
     return this.adapterFor(record.provider).syncOne(record, account, trigger, actorUserId);
   }
 

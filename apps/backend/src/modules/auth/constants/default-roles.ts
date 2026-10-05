@@ -166,6 +166,10 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   'pod.flashsale.publish',
   // Payout: chỉ xem báo cáo của shop mình.
   'pod.tiktok.payout.read',
+  // Seller Dashboard: cùng API Dashboard quản trị; `PodScopeGuard` chỉ cho thấy số liệu của
+  // TikTok Account được gán (`sellerId` / `shopId` của người khác không vượt được phạm vi).
+  // 🔴 KHÔNG cấp `report.read` thay thế: quyền đó mở `/reports/*` — báo cáo cấp TỔ CHỨC.
+  'pod.dashboard.read',
   // Ánh xạ sản phẩm (API nằm ở module Fulfillment).
   // 🔴 `fulfillment.mapping` chứ KHÔNG phải `fulfillment.config`: quyền config còn cho
   // thêm/xoá Fulfillment Provider và đổi API key của cả tổ chức.
@@ -181,6 +185,8 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   // `fulfillment.create` và cùng hàng rào: `FulfillmentProviderGateway.cancel` kiểm shop của đơn
   // (`PodAccessScopeService`) ngay trước khi gọi nhà cung cấp — đơn shop khác ⇒ 403, tổ chức khác ⇒ 404.
   'fulfillment.cancel',
+  // 🔴 KHÔNG có `fulfillment.basecost.update`: nhập tay giá vốn đổi thẳng Lợi nhuận — thao tác tài
+  // chính của Admin. Seller chỉ xem giá vốn nhà cung cấp báo.
   // Design nằm trên Storage Module.
   'storage.read',
   'storage.upload',

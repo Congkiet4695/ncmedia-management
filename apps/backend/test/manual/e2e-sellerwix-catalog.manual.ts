@@ -103,7 +103,7 @@ async function main(): Promise<void> {
   const catalogRepo = new FulfillmentCatalogRepository(prisma as never);
   const locks = new MemoryLocks();
   const sync = new FulfillmentCatalogSyncService(
-    prisma as never, repo, catalogRepo, {} as never, new SellerwixCatalogService(client, credentials), locks as never,
+    prisma as never, repo, catalogRepo, {} as never, new SellerwixCatalogService(client, credentials, config), locks as never,
   );
   const query = new FulfillmentCatalogQueryService(repo, catalogRepo);
   const count = async () => ({

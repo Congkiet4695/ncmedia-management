@@ -206,6 +206,15 @@ export default () => ({
       /** Base URL mặc định khi tài khoản không ghi đè (biến `baseUrl` của collection Postman). */
       baseUrl: process.env.SELLERWIX_API_BASE_URL ?? 'https://api.sellerwix.com/public-api',
       timeoutMs: parseInt(process.env.SELLERWIX_HTTP_TIMEOUT_MS ?? '30000', 10),
+      /**
+       * Đơn vị tiền của giá vốn Sellerwix (`variant.cost`, `line_items[].item_cost`).
+       *
+       * 🔴 API Sellerwix KHÔNG trả đơn vị tiền ở bất kỳ endpoint nào (docs/fulfillment/sellerwix.md
+       * §10.9). Thiếu nó thì giá vốn không trừ được vào doanh thu: cột Lợi nhuận báo
+       * COST_CURRENCY_UNKNOWN và Dashboard bỏ Basecost (lọc theo đơn vị tiền). Quyết định PO
+       * 2026-10-05: khai báo bằng cấu hình, mặc định USD — không suy đoán trong code.
+       */
+      costCurrency: (process.env.SELLERWIX_COST_CURRENCY ?? 'USD').trim().toUpperCase(),
     },
 
     sync: {

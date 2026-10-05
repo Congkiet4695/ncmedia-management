@@ -443,5 +443,24 @@
     "lastError": "Lần đồng bộ trước lỗi: {{error}}",
     "askAdmin": "Nhờ Admin đồng bộ danh mục ở màn hình Product Mapping.",
     "start": "Đồng bộ danh mục"
+  },
+  "baseCost": {
+    "title": "Cập nhật Base Cost",
+    "description": "Nhập giá vốn nhà cung cấp tính cho đơn đã fulfill. Lợi nhuận và Margin tính lại ngay; thao tác được ghi vào nhật ký. Nếu sau này nhà cung cấp báo giá thật, giá thật sẽ thay thế.",
+    "field": "Base Cost",
+    "fieldForSku": "Base Cost · {{sku}} × {{quantity}}",
+    "currency": "Đơn vị tiền",
+    "reason": "Lý do / nguồn số liệu (tuỳ chọn)",
+    "reasonPlaceholder": "VD: Hoá đơn nhà cung cấp #12345",
+    "total": "Tổng giá vốn: {{total}} {{currency}}",
+    "saved": "Đã cập nhật Base Cost",
+    "error": {
+      "REQUIRED": "Nhập giá vốn.",
+      "NOT_NUMBER": "Giá vốn phải là số.",
+      "NEGATIVE": "Giá vốn không được âm.",
+      "DECIMALS": "Tối đa {{digits}} chữ số thập phân.",
+      "CURRENCY_REQUIRED": "Chọn đơn vị tiền.",
+      "CURRENCY_INVALID": "Mã tiền tệ không hợp lệ (VD: USD)."
+    }
   }
 }

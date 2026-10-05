@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   FulfillmentAccount,
+  FulfillmentEventType,
   FulfillmentOrder,
   FulfillmentProvider,
   FulfillmentTrigger,
@@ -33,6 +34,7 @@ import {
   ProductMappingQueryDto,
   TiktokProductOptionDto,
   UpdateFulfillmentAccountDto,
+  UpdateManualBaseCostDto,
   UpsertProductMappingDto,
 } from '../dto/fulfillment.dto';
 import {
@@ -43,6 +45,7 @@ import {
   FulfillmentAccountNotFoundException,
   FulfillmentMappingConflictException,
   FulfillmentMappingNotFoundException,
+  FulfillmentManualBaseCostInvalidException,
   FulfillmentOrderNotFoundException,
   FulfillmentValidationException,
 } from '../exceptions/fulfillment.exceptions';
@@ -69,6 +72,7 @@ import {
   NON_BLOCKING_FULFILLMENT_STATUSES,
   SUBMITTABLE_FULFILLMENT_STATUSES,
 } from '../shared/fulfillment-lifecycle';
+import { currencyFractionDigits, exceedsFractionDigits } from '../shared/manual-base-cost';
 import { productCostOf } from '../shared/product-cost';
 
 
@@ -685,6 +689,144 @@ export class FulfillmentService {
    * `MangoFulfillmentService`. Thà để controller gọi một phép kiểm CÓ TÊN còn hơn để nó tự
    * viết lại phép so sánh `shopId` — bản sao thứ hai là bản sẽ quên cập nhật.
    */
+  /**
+   * **Cập nhật Base Cost thủ công** — cho đơn ĐÃ fulfill mà hệ thống chưa lấy được giá vốn (đơn cũ, nhà
+   * cung cấp không trả giá). Chỉ quyền `fulfillment.basecost.update` (mặc định chỉ Admin).
+   *
+   * 🔴 Không có cột "base cost của Order": giá vốn của đơn = Σ giá vốn các dòng của lần fulfill ĐANG
+   * hiệu lực (`findCurrentByPodOrder` — cùng bản ghi mà cột Lợi nhuận và Dashboard đọc). Ghi vào đó
+   * là Lợi nhuận / Margin tự tính lại ở lần đọc kế (ADR-014: lợi nhuận tính runtime, không lưu).
+   *
+   * Luật:
+   *  - Tổ chức lấy từ JWT; Seller (không `pod.shop.all`) còn bị giới hạn theo shop — dù thường không
+   *    có quyền này.
+   *  - Chỉ bản ghi ĐÃ được nhà cung cấp nhận (có mốc gửi, không DRAFT/FAILED/CANCELLED/REJECTED).
+   *  - Phải gửi ĐỦ mọi dòng (không có đơn "nửa giá vốn"); id dòng lạ ⇒ 400.
+   *  - Đơn vị tiền: theo bản ghi; bản ghi chưa có thì phải gửi kèm; không đổi được đơn vị tiền đã có.
+   *  - Số lẻ không vượt đơn vị tiền (USD 2 chữ số).
+   *  - Nhật ký `BASE_COST_MANUAL_UPDATED`: giá cũ / mới, đơn vị tiền, lý do, người làm — cùng
+   *    transaction với lần ghi giá.
+   */
+  async updateBaseCostManually(
+    organizationId: string,
+    actorUserId: string,
+    podOrderId: string,
+    dto: UpdateManualBaseCostDto,
+    scope: PodAccessScope,
+  ): Promise<FulfillmentOrderDto> {
+    await this.assertPodOrderInScope(organizationId, podOrderId, scope);
+    const record = await this.repo.findCurrentByPodOrder(organizationId, podOrderId);
+    if (!record) throw new FulfillmentOrderNotFoundException();
+    if (NON_BLOCKING_FULFILLMENT_STATUSES.includes(record.status) || !record.submittedAt) {
+      throw new FulfillmentManualBaseCostInvalidException(
+        'NOT_SUBMITTED',
+        `Đơn chưa được nhà cung cấp nhận (trạng thái ${record.status}) — chỉ nhập giá vốn cho đơn đã fulfill.`,
+      );
+    }
+
+    const items = record.items ?? [];
+    const byId = new Map(dto.items.map((item) => [item.itemId, item.baseCost]));
+    if (byId.size !== dto.items.length) {
+      throw new FulfillmentManualBaseCostInvalidException('DUPLICATE_ITEM', 'Một dòng hàng xuất hiện hai lần.');
+    }
+    const unknown = dto.items.filter((item) => !items.some((row) => row.id === item.itemId));
+    if (unknown.length > 0) {
+      throw new FulfillmentManualBaseCostInvalidException('UNKNOWN_ITEM', 'Dòng hàng không thuộc lần fulfill này.');
+    }
+    if (items.some((row) => !byId.has(row.id))) {
+      throw new FulfillmentManualBaseCostInvalidException(
+        'MISSING_ITEM',
+        `Phải nhập giá vốn cho đủ ${items.length} dòng hàng của đơn.`,
+      );
+    }
+
+    if (record.currency && dto.currency && dto.currency !== record.currency.toUpperCase()) {
+      throw new FulfillmentManualBaseCostInvalidException(
+        'CURRENCY_MISMATCH',
+        `Giá vốn của đơn này tính bằng ${record.currency} — không đổi được sang ${dto.currency}.`,
+      );
+    }
+    const currency = record.currency?.toUpperCase() ?? dto.currency ?? null;
+    if (!currency) {
+      throw new FulfillmentManualBaseCostInvalidException(
+        'CURRENCY_REQUIRED',
+        'Đơn chưa có đơn vị tiền của giá vốn — chọn đơn vị tiền khi nhập.',
+      );
+    }
+    let digits: number;
+    try {
+      digits = currencyFractionDigits(currency);
+    } catch {
+      throw new FulfillmentManualBaseCostInvalidException('CURRENCY_INVALID', `Mã tiền tệ ${currency} không hợp lệ.`);
+    }
+    const tooPrecise = dto.items.find((item) => exceedsFractionDigits(item.baseCost, digits));
+    if (tooPrecise) {
+      throw new FulfillmentManualBaseCostInvalidException(
+        'TOO_MANY_DECIMALS',
+        `${currency} chỉ có ${digits} chữ số thập phân (nhận được ${tooPrecise.baseCost}).`,
+      );
+    }
+
+    const before = items.map((row) => ({
+      itemId: row.id,
+      providerSku: row.providerSku,
+      quantity: row.quantity,
+      baseCost: row.baseCost === null ? null : Number(row.baseCost),
+      confirmed: row.baseCostConfirmedAt !== null,
+    }));
+    const after = items.map((row) => ({ itemId: row.id, providerSku: row.providerSku, baseCost: byId.get(row.id) as number }));
+    const quantities = new Map(items.map((row) => [row.id, row.quantity || 1]));
+    /** Σ giá vốn × số lượng — `null` khi còn dòng chưa có giá (giống `productCostOf`). */
+    const totalOf = (rows: Array<{ itemId: string; baseCost: number | null }>): number | null =>
+      rows.some((row) => row.baseCost === null)
+        ? null
+        : Math.round(
+            rows.reduce((sum, row) => sum + (row.baseCost as number) * (quantities.get(row.itemId) ?? 1), 0) *
+              10_000,
+          ) / 10_000;
+
+    await this.repo.applyManualItemCosts({
+      fulfillmentOrderId: record.id,
+      costs: after.map((row) => ({ id: row.itemId, baseCost: row.baseCost })),
+      currency: record.currency ? null : currency,
+      history: {
+        organizationId,
+        fulfillmentOrderId: record.id,
+        eventType: FulfillmentEventType.BASE_COST_MANUAL_UPDATED,
+        trigger: FulfillmentTrigger.MANUAL,
+        message:
+          `Cập nhật Base Cost thủ công: ${totalOf(before) ?? '—'} → ${totalOf(after)} ${currency}` +
+          (dto.reason ? ` · Lý do: ${dto.reason}` : ''),
+        payload: {
+          before,
+          after,
+          currencyBefore: record.currency ?? null,
+          currencyAfter: currency,
+          reason: dto.reason ?? null,
+        },
+        performedBy: actorUserId,
+      },
+    });
+
+    this.logger.log({
+      module: 'fulfillment',
+      operation: 'base-cost.manual-update',
+      organizationId,
+      podOrderId,
+      fulfillmentOrderId: record.id,
+      provider: record.provider,
+      providerOrderId: record.providerOrderId,
+      currency,
+      baseCostBefore: totalOf(before),
+      baseCostAfter: totalOf(after),
+      performedBy: actorUserId,
+      msg: 'Admin cập nhật Base Cost thủ công',
+    });
+
+    const fresh = await this.repo.findCurrentByPodOrder(organizationId, podOrderId);
+    return this.toOrderDto(fresh ?? record);
+  }
+
   async assertPodOrderInScope(
     organizationId: string,
     podOrderId: string,

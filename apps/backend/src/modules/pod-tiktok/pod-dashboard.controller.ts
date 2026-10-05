@@ -1,7 +1,7 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { ApiBadRequestResponse, ApiBearerAuth, ApiOkResponse, ApiOperation, ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
-import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
+import { RequireAnyPermission } from '../auth/decorators/require-permissions.decorator';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
@@ -21,17 +21,18 @@ import type { PodAccessScope } from './services/pod-access-scope.service';
 import { PodDashboardService } from './services/pod-dashboard.service';
 
 /**
- * Dashboard quản trị (POD / TikTok Shop).
+ * Dashboard POD / TikTok Shop — MỘT API cho cả Admin lẫn Seller.
  *
- * 🔴 Quyền giữ NGUYÊN như Dashboard hiện tại: `report.read` (mặc định chỉ Admin). Phạm vi dữ liệu
- * còn được `PodScopeGuard` giới hạn ở backend: người không có `pod.shop.all` (vd role tuỳ biến được
- * cấp `report.read`) chỉ thấy số liệu của TikTok Account được gán cho chính họ — không lộ Hold,
- * doanh thu, payout, đơn của seller khác. Tổ chức luôn lấy từ JWT.
+ * Quyền: `report.read` (Dashboard quản trị như cũ) HOẶC `pod.dashboard.read` (Seller Dashboard).
+ * Phạm vi dữ liệu do `PodScopeGuard` giới hạn ở backend: người không có `pod.shop.all` chỉ thấy số
+ * liệu của TikTok Account được gán cho chính họ — không lộ Hold, doanh thu, payout, đơn của seller
+ * khác; `sellerId` / `shopId` gửi lên chỉ thu hẹp thêm (phép GIAO), không vượt được phạm vi. Tổ
+ * chức luôn lấy từ JWT.
  */
 @ApiTags('POD Dashboard')
 @ApiBearerAuth()
 @UseGuards(JwtAuthGuard, PermissionsGuard, PodScopeGuard)
-@RequirePermissions('report.read')
+@RequireAnyPermission('report.read', 'pod.dashboard.read')
 @Controller('pod/dashboard')
 export class PodDashboardController {
   constructor(private readonly service: PodDashboardService) {}

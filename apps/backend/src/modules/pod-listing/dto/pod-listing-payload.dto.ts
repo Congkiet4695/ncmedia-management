@@ -184,3 +184,40 @@ export class PodListingPayloadQueryDto {
   @IsIn(['asc', 'desc'])
   sortOrder?: 'asc' | 'desc';
 }
+
+/** Giới hạn mỗi lần xoá hàng loạt — đủ cho một trang lớn nhất, đủ nhỏ để request không treo. */
+export const POD_DRAFT_BULK_DELETE_MAX = 100;
+
+/** Xoá NHIỀU Draft Listing đã chọn. */
+export class BulkDeleteDraftListingsDto {
+  @ApiProperty({ type: [String], description: `Id Draft Listing (1–${POD_DRAFT_BULK_DELETE_MAX}, không trùng)` })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(POD_DRAFT_BULK_DELETE_MAX)
+  @IsUUID('4', { each: true })
+  @Transform(({ value }: { value: unknown }) => (Array.isArray(value) ? [...new Set(value)] : value))
+  ids!: string[];
+
+  @ApiPropertyOptional({
+    description:
+      'true ⇒ draft nào đã có Draft Product trên TikTok thì xoá luôn bên TikTok (giống xoá từng cái) — ' +
+      'không để lại bản mồ côi trong Seller Center.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  remote?: boolean;
+}
+
+export class BulkDeleteDraftFailureDto {
+  @ApiProperty() id!: string;
+  @ApiProperty({ example: 'POD_PAYLOAD_ALREADY_PUBLISHED' }) code!: string;
+  @ApiProperty() message!: string;
+}
+
+/** Kết quả TỪNG dòng — không bao giờ báo "thành công" chung khi có dòng hỏng. */
+export class BulkDeleteDraftListingsResultDto {
+  @ApiProperty() requested!: number;
+  @ApiProperty({ type: [String] }) deleted!: string[];
+  @ApiProperty({ type: [String], description: 'Đã xoá kèm Draft Product trên TikTok' }) removedRemote!: string[];
+  @ApiProperty({ type: [BulkDeleteDraftFailureDto] }) failed!: BulkDeleteDraftFailureDto[];
+}

@@ -689,6 +689,14 @@ export const POD_REVIEW_STATUSES = [
 ] as const;
 export type PodReviewStatus = (typeof POD_REVIEW_STATUSES)[number];
 
+/** Kết quả xoá hàng loạt — THEO TỪNG DÒNG (dòng hỏng có mã lỗi + lý do). */
+export interface BulkDeleteDraftsResult {
+  requested: number;
+  deleted: string[];
+  removedRemote: string[];
+  failed: Array<{ id: string; code: string; message: string }>;
+}
+
 export interface PodDraftListing {
   id: string;
   title: string | null;

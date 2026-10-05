@@ -94,5 +94,54 @@
     "completed": "Hoàn tất",
     "notProcessed": "Chưa xử lí",
     "processing": "Đang xử lí"
+  },
+  "employeeWork": {
+    "title": "Thống kê công việc nhân viên",
+    "subtitle": "Mỗi nhân viên: listing trên những shop nào, mỗi shop list bao nhiêu sản phẩm, có bao nhiêu đơn và lợi nhuận bao nhiêu.",
+    "noPermission": "Chỉ Admin của tổ chức được xem thống kê công việc nhân viên.",
+    "note": "Listing = sản phẩm đưa lên sàn thành công do chính người đó thực hiện (mỗi sản phẩm trên một shop chỉ tính một lần). Đơn và lợi nhuận là của shop trong khoảng ngày, theo giờ vận hành; lợi nhuận cùng công thức màn Order — đơn chưa đủ giá vốn không được tính (hiện \"—\", không phải 0). Tổng đơn / lợi nhuận ở thẻ tóm tắt tính mỗi shop một lần.",
+    "empty": "Không có dữ liệu trong khoảng ngày đã chọn.",
+    "exportFailed": "Xuất Excel thất bại",
+    "filter": {
+      "from": "Từ ngày",
+      "to": "Đến ngày",
+      "today": "Hôm nay",
+      "employee": "Nhân viên",
+      "allEmployees": "Tất cả nhân viên",
+      "shop": "Shop",
+      "allShops": "Tất cả shop",
+      "currency": "Đơn vị tiền"
+    },
+    "summary": {
+      "activeEmployees": "Nhân viên có listing",
+      "accountsListed": "Shop được listing",
+      "productsListed": "Sản phẩm đã listing",
+      "orders": "Đơn hàng",
+      "profit": "Lợi nhuận",
+      "profitPerOrder": "Lợi nhuận TB / đơn"
+    },
+    "table": {
+      "title": "Theo nhân viên",
+      "description": "Bấm vào một dòng để xem chi tiết từng shop.",
+      "employee": "Nhân viên",
+      "accounts": "Số shop",
+      "listings": "Listing",
+      "orders": "Đơn hàng",
+      "profit": "Lợi nhuận",
+      "profitPerOrder": "Lợi nhuận / đơn",
+      "expand": "Mở chi tiết shop",
+      "collapse": "Thu gọn chi tiết shop"
+    },
+    "detail": {
+      "shop": "Shop (TikTok Account)",
+      "listings": "Listing",
+      "orders": "Đơn của shop",
+      "profit": "Lợi nhuận"
+    },
+    "badge": {
+      "inactive": "Ngừng hoạt động",
+      "notEmployee": "Không có hồ sơ nhân viên",
+      "assigned": "Phụ trách"
+    }
   }
 }

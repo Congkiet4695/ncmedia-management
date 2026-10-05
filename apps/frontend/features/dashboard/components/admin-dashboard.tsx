@@ -24,12 +24,13 @@ import { TrendChartCard } from './trend-chart-card';
  *   Thống kê seller
  *   Biểu đồ xu hướng (Tài chính / Đơn hàng)
  *
- * Quyền giữ NGUYÊN như Dashboard hiện tại (`report.read`); phạm vi dữ liệu do backend giới hạn.
+ * Admin (`report.read`) và Seller (`pod.dashboard.read`) dùng CHUNG màn hình + API này; phạm vi
+ * dữ liệu do backend giới hạn (Seller chỉ thấy TikTok Account được gán) — không lọc ở frontend.
  * Mỗi widget có query riêng ⇒ một widget lỗi không làm trắng cả màn hình.
  */
 export function AdminDashboard() {
   const { hasPermission } = useAuth();
-  const canView = hasPermission('report.read');
+  const canView = hasPermission('report.read') || hasPermission('pod.dashboard.read');
 
   const options = useDashboardFilterOptions(canView);
   const [filters, setFilters] = useState<Omit<DashboardRange, 'from' | 'to'>>({});

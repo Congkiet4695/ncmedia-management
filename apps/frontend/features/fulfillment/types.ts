@@ -175,6 +175,14 @@ export interface UpdateFulfillmentPayload {
   shippingMethod?: FulfillShippingMethod;
 }
 
+/** Nhập tay giá vốn — một giá cho MỖI dòng hàng của lần fulfill đang hiệu lực. */
+export interface UpdateBaseCostPayload {
+  items: Array<{ itemId: string; baseCost: number }>;
+  /** Chỉ khi bản ghi chưa có đơn vị tiền (ISO 4217). */
+  currency?: string;
+  reason?: string;
+}
+
 export interface FulfillmentOrder {
   id: string;
   podOrderId: string;

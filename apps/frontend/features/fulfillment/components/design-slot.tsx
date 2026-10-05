@@ -31,10 +31,11 @@ interface DesignSlotProps {
 type DesignSourceMode = 'UPLOAD' | 'URL';
 
 /**
- * Kiểm URL design NGAY tại trình duyệt: HTTPS + hostname có tên miền. Chỉ là lớp trải nghiệm —
- * backend kiểm lại (kể cả chặn localhost / IP nội bộ) và là nơi quyết định cuối cùng.
+ * Kiểm URL design NGAY tại trình duyệt: http/https + hostname có tên miền. Chỉ là lớp trải nghiệm —
+ * backend kiểm lại (chặn localhost / IP nội bộ ở mọi bước chuyển hướng, kiểm file thật là ảnh) và là
+ * nơi quyết định cuối cùng.
  */
-function designUrlProblem(raw: string): 'EMPTY' | 'MALFORMED' | 'NOT_HTTPS' | null {
+function designUrlProblem(raw: string): 'EMPTY' | 'MALFORMED' | 'UNSUPPORTED_PROTOCOL' | null {
   const value = raw.trim();
   if (!value) return 'EMPTY';
   let parsed: URL;
@@ -43,7 +44,7 @@ function designUrlProblem(raw: string): 'EMPTY' | 'MALFORMED' | 'NOT_HTTPS' | nu
   } catch {
     return 'MALFORMED';
   }
-  if (parsed.protocol !== 'https:') return 'NOT_HTTPS';
+  if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') return 'UNSUPPORTED_PROTOCOL';
   if (!parsed.hostname.includes('.')) return 'MALFORMED';
   return null;
 }
@@ -51,9 +52,10 @@ function designUrlProblem(raw: string): 'EMPTY' | 'MALFORMED' | 'NOT_HTTPS' | nu
 /**
  * Một vị trí in của MỘT Product Mapping: preview · upload · dán URL công khai · thay thế · xoá.
  *
- * 🔴 Hai nguồn, chọn rõ ràng: **Upload file** (lên kho lưu trữ, lấy URL công khai sau khi xong)
- * hoặc **Public URL** (file đã có sẵn ở kho công khai — KHÔNG tải về, KHÔNG upload lại). Nhà cung
- * cấp nhận đúng URL cuối cùng của nguồn đang hiệu lực.
+ * 🔴 Hai cách đưa file vào, MỘT nơi lưu: **Upload file** (từ máy) hoặc **Public URL** (server tải file
+ * về rồi lưu lên kho — Drive / CDN chỉ là nguồn, không phải URL chính thức). Cả hai đều kết thúc bằng
+ * một file trên kho lưu trữ (R2); preview, Order List và nhà cung cấp chỉ thấy URL đó. Tải / lưu hỏng
+ * ⇒ design cũ giữ nguyên, lỗi hiện ngay dưới ô nhập.
  *
  * 🔴 Dùng chung giữa màn hình **Product Mapping** (nơi quản trị sản phẩm) và dialog trên màn
  * hình **Orders** (nơi phát hiện thiếu design). Hai bản sao của khối này sẽ lệch nhau ở đúng
@@ -106,7 +108,8 @@ export function DesignSlot({ productKey, placement, design, onPreview }: DesignS
       setUrlInput('');
       toast.success(t('pod:design.url.saved', { placement: placementLabel }));
     } catch (error) {
-      // Lỗi nằm ở URL (backend: HTTPS / host công khai) — hiện ngay dưới ô nhập, không chỉ toast.
+      // Lỗi nằm ở URL (sai hình thức / mạng nội bộ / link hết hạn / không phải ảnh / quá lớn) hoặc ở
+      // bước lưu lên kho — hiện ngay dưới ô nhập, không chỉ toast. Design cũ không bị thay.
       const message = translateApiError(error);
       setUrlError(message);
       toast.error(t('pod:design.url.failed'), { description: message });

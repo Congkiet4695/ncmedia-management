@@ -164,12 +164,14 @@ export interface SellerwixTracking {
 }
 
 export interface SellerwixOrderLineItem {
-  id?: string;
+  /** Ví dụ tài liệu là chuỗi (`"10676"`); chấp nhận số (không ép kiểu sai). */
+  id?: string | number;
   reference_id?: string;
   sku?: string;
   quantity?: number;
   shipping_method?: string;
-  item_cost?: number;
+  /** Tài liệu: float. Chấp nhận chuỗi số — `toNumber` đọc cả hai, chuỗi lạ ⇒ NULL (không phải 0). */
+  item_cost?: number | string;
   shipping_cost?: number;
   label_url?: string;
   name?: string;

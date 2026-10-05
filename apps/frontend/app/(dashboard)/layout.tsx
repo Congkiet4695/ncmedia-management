@@ -59,7 +59,9 @@ function NavLink({
 function NavGroup({ item, onNavigate }: { item: NavItemConfig; onNavigate?: () => void }) {
   const pathname = usePathname();
   const { t } = useTranslation(MENU_NAMESPACE);
-  const groupActive = isActive(pathname, item.href);
+  // Nhóm sáng khi MỘT MENU CON đang mở — không theo tiền tố URL của nhóm: TikTok Payout là menu chính
+  // nhưng route vẫn nằm dưới `/dashboard/pod`, và không được làm nhóm POD sáng theo.
+  const groupActive = (item.children ?? []).some((child) => isActive(pathname, child.href));
   const [open, setOpen] = useState(groupActive);
   const Icon = item.icon;
 

@@ -1,4 +1,5 @@
 import {
+  PodFlashSaleAutoDuration,
   PodFlashSaleItemStatus,
   PodFlashSaleProductLevel,
   PodFlashSaleStatus,
@@ -81,17 +82,29 @@ function products(count: number) {
   }));
 }
 
-function build(opts: { child?: unknown; items?: number; level?: PodFlashSaleProductLevel; childStatusAfter?: PodFlashSaleStatus } = {}) {
+function build(
+  opts: {
+    child?: unknown;
+    items?: number;
+    level?: PodFlashSaleProductLevel;
+    childStatusAfter?: PodFlashSaleStatus;
+    /** Cấu hình Auto của tổ chức — `null` = chưa từng lưu (cấu hình cũ / thiếu). */
+    config?: { duration: PodFlashSaleAutoDuration } | null;
+  } = {},
+) {
   const count = opts.items ?? 45;
   const tx = {
     $queryRaw: jest.fn().mockResolvedValue([{ auto_mode: true, deleted_at: null }]),
+    $executeRawUnsafe: jest.fn().mockResolvedValue(0),
     podFlashSale: {
       findFirst: jest.fn().mockResolvedValue(null),
       create: jest.fn().mockResolvedValue({ id: 'fs-B' }),
       updateMany: jest.fn().mockResolvedValue({ count: 1 }),
       update: jest.fn(),
     },
-    podFlashSaleItem: { createMany: jest.fn() },
+    podFlashSaleItem: {
+      createMany: jest.fn(({ data }: { data: unknown[] }) => Promise.resolve({ count: data.length })),
+    },
   };
   const prisma = {
     podFlashSale: {
@@ -104,7 +117,10 @@ function build(opts: { child?: unknown; items?: number; level?: PodFlashSaleProd
       update: jest.fn(),
     },
     podProduct: { findMany: jest.fn().mockResolvedValue(products(count)) },
-    podFlashSaleAutoConfig: { updateMany: jest.fn() },
+    podFlashSaleAutoConfig: {
+      updateMany: jest.fn(),
+      findFirst: jest.fn().mockResolvedValue(opts.config === undefined ? { duration: PodFlashSaleAutoDuration.THREE_DAYS } : opts.config),
+    },
     $transaction: jest.fn(async (cb: (client: unknown) => Promise<unknown>) => cb(tx)),
   };
   const flashSales = {
@@ -123,8 +139,11 @@ function build(opts: { child?: unknown; items?: number; level?: PodFlashSaleProd
     release: jest.fn(),
   };
   const service = new PodFlashSaleAutoService(prisma as never, flashSales as never, publisher as never, locks as never);
+  // Mọi lô INSERT gộp lại (đợt lớn được ghi theo lô FLASH_SALE_ITEM_INSERT_CHUNK).
   const createdItems = () =>
-    (tx.podFlashSaleItem.createMany.mock.calls as unknown as Array<[{ data: Array<Record<string, unknown>> }]>)[0]?.[0].data ?? [];
+    (tx.podFlashSaleItem.createMany.mock.calls as unknown as Array<[{ data: Array<Record<string, unknown>> }]>).flatMap(
+      (call) => call[0].data,
+    );
   const createdSale = () => (tx.podFlashSale.create.mock.calls as unknown as Array<[{ data: Record<string, unknown> }]>)[0]?.[0];
   const transferred = () =>
     (tx.podFlashSale.updateMany.mock.calls as unknown as Array<[{ data: { autoMode?: boolean } }]>).some((c) => c[0].data.autoMode === false);
@@ -190,6 +209,51 @@ describe('PodFlashSaleAutoService.processNode', () => {
       }),
     );
     expect((await h.service.processNode(node(), NOW)).action).toBe('SKIPPED');
+    expect(h.publisher.publish).not.toHaveBeenCalled();
+  });
+
+  it('🔴 đợt LỚN (10.000 dòng) ⇒ INSERT theo lô 1.000, đủ dòng, không trùng, trong ngân sách transaction tường minh', async () => {
+    const h = build({ items: 10_000 });
+
+    await h.service.processNode(node(), NOW);
+
+    const calls = h.tx.podFlashSaleItem.createMany.mock.calls as unknown as Array<[{ data: unknown[] }]>;
+    expect(calls).toHaveLength(10);
+    expect(calls.every((call) => call[0].data.length === 1_000)).toBe(true);
+    const rows = h.createdItems();
+    expect(rows).toHaveLength(10_000);
+    expect(new Set(rows.map((r) => r.variantId)).size).toBe(10_000);
+    // Transaction CHỈ có thao tác DB, ngân sách tường minh (không phải mặc định 5 giây).
+    expect(h.prisma.$transaction).toHaveBeenCalledWith(expect.any(Function), { timeout: 60_000, maxWait: 10_000 });
+  });
+
+  it('🔴 chờ khoá có trần: SET LOCAL lock_timeout TRƯỚC khi khoá hàng A', async () => {
+    const h = build();
+    await h.service.processNode(node(), NOW);
+    expect(h.tx.$executeRawUnsafe).toHaveBeenCalledWith("SET LOCAL lock_timeout = '5000ms'");
+    const order = [
+      h.tx.$executeRawUnsafe.mock.invocationCallOrder[0],
+      (h.tx.$queryRaw).mock.invocationCallOrder[0],
+    ];
+    expect(order[0]).toBeLessThan(order[1]);
+  });
+
+  it('🔴 A đang bị tiến trình khác giữ khoá (55P03) ⇒ SKIPPED, không tạo, KHÔNG gọi TikTok, A vẫn ON', async () => {
+    const h = build();
+    h.prisma.$transaction.mockRejectedValueOnce(
+      Object.assign(new Error('canceling statement due to lock timeout'), { code: '55P03' }),
+    );
+    const result = await h.service.processNode(node(), NOW);
+    expect(result.action).toBe('SKIPPED');
+    expect(h.publisher.publish).not.toHaveBeenCalled();
+    expect(h.transferred()).toBe(false);
+  });
+
+  it('🔴 transaction hỏng (vd hết ngân sách) ⇒ lỗi trả ra lượt chạy (FAILED), KHÔNG gọi TikTok cho đợt nửa vời', async () => {
+    const h = build();
+    h.prisma.$transaction.mockRejectedValueOnce(new Error('Transaction already closed'));
+    const result = await h.service.processNode(node(), NOW).catch((error: Error) => ({ action: 'THROWN', message: error.message }));
+    expect(result).toMatchObject({ action: 'THROWN' });
     expect(h.publisher.publish).not.toHaveBeenCalled();
   });
 
@@ -298,8 +362,9 @@ describe('PodFlashSaleAutoService.processNode', () => {
     const data = h.createdSale().data as { startAt: Date; endAt: Date };
     const s = toZonedParts(data.startAt, LA);
     const e = toZonedParts(data.endAt, LA);
-    expect([s.day, s.hour, s.minute]).toEqual([16, 0, 9]);
-    expect([e.day, e.hour, e.minute]).toEqual([19, 0, 8]);
+    expect([s.day, s.hour, s.minute, s.second]).toEqual([16, 0, 9, 0]);
+    // Mặc định 3 ngày lịch: 16, 17, 18 ⇒ kết thúc 18/01 23:59:59 (giờ của đợt sale).
+    expect([e.day, e.hour, e.minute, e.second]).toEqual([18, 23, 59, 59]);
   });
 });
 
@@ -330,6 +395,38 @@ describe('PodFlashSaleAutoService.runOrganization', () => {
     h.locks.acquire.mockResolvedValue(null);
     expect(await h.service.runOrganization('org-1', 'CRON', NOW)).toBeNull();
     expect(h.prisma.podFlashSale.findMany).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [PodFlashSaleAutoDuration.ONE_DAY, 16],
+    [PodFlashSaleAutoDuration.TWO_DAYS, 17],
+    [PodFlashSaleAutoDuration.THREE_DAYS, 18],
+  ])('Khoảng thời gian %s ⇒ đợt sinh tự động kết thúc %i/01 23:59:59 (cron dùng ĐÚNG cấu hình)', async (duration, endDay) => {
+    const h = build({ config: { duration } });
+    h.prisma.podFlashSale.findMany.mockResolvedValueOnce([node()]);
+    const result = await h.service.runOrganization('org-1', 'CRON', NOW);
+    expect(result).toMatchObject({ created: 1 });
+    const e = toZonedParts((h.createdSale().data as { endAt: Date }).endAt, LA);
+    expect([e.day, e.hour, e.minute, e.second]).toEqual([endDay, 23, 59, 59]);
+    // Cấu hình đọc MỘT lần cho cả lượt, đúng tổ chức.
+    expect(h.prisma.podFlashSaleAutoConfig.findFirst).toHaveBeenCalledTimes(1);
+    expect(h.prisma.podFlashSaleAutoConfig.findFirst).toHaveBeenCalledWith(
+      expect.objectContaining({ where: { organizationId: 'org-1', deletedAt: null } }),
+    );
+  });
+
+  it('🔴 cấu hình cũ / chưa có ⇒ mặc định 3 ngày, scheduler KHÔNG lỗi', async () => {
+    const h = build({ config: null });
+    h.prisma.podFlashSale.findMany.mockResolvedValueOnce([node()]);
+    expect(await h.service.runOrganization('org-1', 'CRON', NOW)).toMatchObject({ created: 1, failed: 0 });
+    expect(toZonedParts((h.createdSale().data as { endAt: Date }).endAt, LA).day).toBe(18);
+  });
+
+  it('🔴 đã có đợt kế tiếp ⇒ không tạo thêm (không trùng khi chạy lại)', async () => {
+    const h = build({ child: { id: 'fs-B', name: 'B', status: PodFlashSaleStatus.RUNNING } });
+    h.prisma.podFlashSale.findMany.mockResolvedValueOnce([node()]);
+    await h.service.runOrganization('org-1', 'CRON', NOW);
+    expect(h.tx.podFlashSale.create).not.toHaveBeenCalled();
   });
 
   it('Run Now khi đang bận ⇒ 409 POD_FLASH_SALE_AUTO_BUSY', async () => {

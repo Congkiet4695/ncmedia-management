@@ -98,8 +98,11 @@ export class NotificationEventRepository {
   }
 
   /**
-   * Bắt đầu MỘT lần gọi Telegram: tăng `attempt_count` và gia hạn lease — chỉ khi còn giữ sự kiện.
-   * `false` ⇒ lease đã mất (worker khác đã nhận lại) ⇒ KHÔNG được gửi.
+   * Bắt đầu MỘT lần gọi Telegram: tăng `attempt_count`, gia hạn lease và đánh dấu `IN_FLIGHT` — chỉ
+   * khi còn giữ sự kiện. `false` ⇒ lease đã mất (worker khác đã nhận lại) ⇒ KHÔNG được gửi.
+   *
+   * 🔴 Dấu `IN_FLIGHT` được ghi ĐÃ COMMIT trước khi gọi Telegram: worker chết sau lời gọi mà chưa kịp ghi
+   * kết quả ⇒ lượt claim sau thấy dấu này và KHÔNG gửi lại (xem dispatcher).
    */
   async beginAttempt(id: string, lockToken: string, leaseMs: number): Promise<boolean> {
     const result = await this.prisma.notificationEvent.updateMany({
@@ -107,6 +110,7 @@ export class NotificationEventRepository {
       data: {
         attemptCount: { increment: 1 },
         lockedUntil: new Date(Date.now() + leaseMs),
+        lastErrorCode: NOTIFICATION_ERROR_CODES.IN_FLIGHT,
       },
     });
     return result.count === 1;

@@ -45,8 +45,20 @@ export const NOTIFICATION_ERROR_CODES = {
   SERVER_ERROR: 'TELEGRAM_SERVER_ERROR',
   /** Không kết nối được (DNS / từ chối kết nối) — request CHẮC CHẮN chưa tới Telegram. */
   NETWORK: 'TELEGRAM_NETWORK_ERROR',
-  /** Hết thời gian chờ / mất kết nối giữa chừng — không biết Telegram đã nhận hay chưa (vẫn retry). */
+  /** Hết thời gian chờ / mất kết nối giữa chừng — không biết Telegram đã nhận hay chưa. */
   TIMEOUT: 'TELEGRAM_TIMEOUT',
+  /**
+   * 🔴 Không biết Telegram đã nhận tin hay chưa (timeout / đứt kết nối SAU khi gửi, hoặc worker chết
+   * giữa lúc gửi) ⇒ KHÔNG tự gửi lại: Telegram Bot API không có khoá idempotency cho sendMessage nên
+   * gửi lại là có thể sinh tin TRÙNG. Sự kiện FAILED với mã này; người vận hành kiểm tra nhóm và bấm
+   * "Gửi lại" nếu thật sự chưa nhận.
+   */
+  DELIVERY_UNKNOWN: 'TELEGRAM_DELIVERY_UNKNOWN',
+  /**
+   * Đánh dấu "đang gọi Telegram" — ghi ngay TRƯỚC lời gọi (beginAttempt), ghi đè bởi kết quả. Sự kiện
+   * được claim lại mà còn mang mã này ⇒ lượt trước chết giữa lúc gửi ⇒ DELIVERY_UNKNOWN, không gửi lại.
+   */
+  IN_FLIGHT: 'TELEGRAM_SEND_IN_FLIGHT',
   /** Tổ chức chưa cấu hình hoặc đã tắt Telegram. */
   DISABLED: 'NOTIFICATION_CHANNEL_DISABLED',
   /** Tổ chức đã tắt LOẠI thông báo này (New Order / Fulfill) trong Cài đặt thông báo. */

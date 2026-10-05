@@ -24,6 +24,7 @@ import {
   FulfillmentNotReadyException,
   FulfillmentOrderNotFoundException,
   FulfillmentProviderInactiveException,
+  FulfillmentReconciliationPendingException,
   FulfillmentSubmittedToOtherProviderException,
   FulfillmentValidationException,
   toProviderHttpException,
@@ -53,6 +54,14 @@ import {CANCELLABLE_FULFILLMENT_STATUSES,
 } from '../../shared/fulfillment-lifecycle';
 import { SellerwixApiClient } from '../clients/sellerwix-api.client';
 import {
+  CREATE_AMBIGUOUS_ERROR_CLASSES,
+  RECONCILABLE_STATUSES,
+  isNeverArrived,
+  isQuietReconcileFailure,
+  isRateLimited,
+} from '../../shared/fulfillment-reconcile';
+import {
+  SELLERWIX_COST_CURRENCY_CONFIG_KEY,
   SELLERWIX_SHIPPING_METHOD_CACHE_MS,
   SELLERWIX_STATUS_MESSAGE_CODE,
 } from '../constants/sellerwix.constants';
@@ -84,11 +93,6 @@ const CANCEL_PENDING_PROVIDER_STATUS = 'cancel processing';
 /** Dùng CHUNG khoá với Mango: hai nhà cung cấp không thể nhận cùng một đơn song song. */
 const FULFILL_LOCK_MS = 60_000;
 
-/** Lỗi có thể đã tới nơi dù client báo hỏng ⇒ phải tra `reference_id` trước khi coi là thất bại. */
-const AMBIGUOUS_ERROR_CLASSES: readonly FulfillmentErrorClass[] = [
-  FulfillmentErrorClass.NETWORK,
-  FulfillmentErrorClass.SERVER,
-];
 
 /** Thông tin biến thể đã đồng bộ, đọc từ `fulfillment_variants.raw_data`. */
 interface CatalogVariant {
@@ -308,6 +312,7 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
         trigger,
         actorUserId,
         error,
+        FulfillmentEventType.CREATE_FAILED,
       );
       throw toProviderHttpException(LABEL, error);
     }
@@ -330,11 +335,14 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     await this.repo.updateOrder(record.id, {
       status: FulfillmentStatus.SUBMITTING,
       attemptCount: { increment: 1 },
-      // Đơn vị tiền của giá vốn theo catalog (tài liệu Sellerwix không nêu ⇒ thường NULL — không đoán).
-      currency: await this.catalogRepo.findCostCurrency(
-        account.id,
-        check.items.map((item) => item.providerSku),
-      ),
+      // Đơn vị tiền của giá vốn: theo catalog (đồng bộ từ cấu hình SELLERWIX_COST_CURRENCY); catalog
+      // cũ chưa đồng bộ lại ⇒ chính cấu hình đó. API Sellerwix không trả đơn vị tiền — xem
+      // `costCurrency()`.
+      currency:
+        (await this.catalogRepo.findCostCurrency(
+          account.id,
+          check.items.map((item) => item.providerSku),
+        )) ?? this.costCurrency(),
       shippingMethod,
       productionLine: null,
       facility: null,
@@ -355,10 +363,42 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
       performedBy: actorUserId,
     });
 
+    // 🔴 Chỉ LỜI GỌI tạo đơn quyết định "Sellerwix có nhận hay không". Bước SAU khi Sellerwix đã nhận
+    // (ghi DB, nhật ký, lấy giá vốn) hỏng KHÔNG được đánh FAILED — FAILED mở nút gửi lại.
+    let result: Awaited<ReturnType<SellerwixApiClient['createOrder']>>;
     try {
-      const result = await this.client.createOrder(ctx, request);
-      const providerOrderId = result.data?.id ? String(result.data.id) : null;
+      result = await this.client.createOrder(ctx, request);
+    } catch (error) {
+      if (
+        error instanceof FulfillmentClientError &&
+        CREATE_AMBIGUOUS_ERROR_CLASSES.includes(error.errorClass)
+      ) {
+        // Request có thể ĐÃ tới nơi. Tra lại NGAY theo reference_id trước khi kết luận thất bại.
+        const outcome = await this.tryAdoptAfterAmbiguousError(
+          ctx,
+          record,
+          referenceId,
+          trigger,
+          actorUserId,
+          error,
+        );
+        if (outcome === 'ADOPTED') return this.requireRecord(organizationId, record.id);
+        if (outcome === 'UNKNOWN') throw new FulfillmentReconciliationPendingException(LABEL, referenceId);
+      }
+      await this.recordFailure(
+        organizationId,
+        record.id,
+        'create',
+        trigger,
+        actorUserId,
+        error,
+        FulfillmentEventType.CREATE_FAILED,
+      );
+      throw toProviderHttpException(LABEL, error);
+    }
+    const providerOrderId = result.data?.id ? String(result.data.id) : null;
 
+    try {
       await this.repo.updateOrder(record.id, {
         status: FulfillmentStatus.SUBMITTED,
         providerOrderId,
@@ -370,6 +410,36 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
         lastSyncedAt: new Date(),
         updatedBy: actorUserId,
       });
+    } catch (error) {
+      // Sellerwix ĐÃ nhận đơn nhưng ghi DB hỏng. Bản ghi còn SUBMITTING ⇒ bộ đồng bộ tra theo
+      // reference_id và khôi phục (findOrdersToSync). KHÔNG đánh FAILED.
+      this.logger.error({
+        module: 'fulfillment',
+        provider: PROVIDER,
+        operation: 'create.local-save',
+        code: 'RECONCILIATION_REQUIRED',
+        organizationId,
+        podOrderId,
+        fulfillmentOrderId: record.id,
+        referenceId,
+        providerOrderId,
+        msg: `Sellerwix đã nhận đơn nhưng ghi DB local hỏng: ${(error as Error).message}`,
+      });
+      await this.safeHistory({
+        organizationId,
+        fulfillmentOrderId: record.id,
+        eventType: FulfillmentEventType.LOCAL_UPDATE_FAILED,
+        trigger,
+        success: false,
+        message: `${LABEL} ĐÃ nhận đơn (mã ${providerOrderId ?? referenceId}) nhưng lưu kết quả hỏng — chờ đối soát tự động.`,
+        payload: { providerOrderId, referenceId },
+        performedBy: actorUserId,
+      });
+      throw new FulfillmentReconciliationPendingException(LABEL, referenceId);
+    }
+
+    // Từ đây đơn ĐÃ ở Sellerwix và đã ghi SUBMITTED. Bước phụ hỏng ⇒ ghi nhận, không hạ trạng thái.
+    try {
       await this.repo.addHistory({
         organizationId,
         fulfillmentOrderId: record.id,
@@ -384,50 +454,42 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
         performedBy: actorUserId,
       });
       await this.repo.touchAccountUsed(account.id);
-
-      this.logger.log({
+    } catch (error) {
+      this.logger.error({
         module: 'fulfillment',
         provider: PROVIDER,
-        operation: 'create',
+        operation: 'create.post',
         organizationId,
-        podOrderId,
         fulfillmentOrderId: record.id,
-        referenceId,
-        providerOrderId,
-        requestId: result.requestId,
-        durationMs: result.durationMs,
-        msg: 'Tạo đơn Sellerwix thành công',
+        msg: `Đơn đã tạo ở Sellerwix, ghi nhật ký sau đó hỏng: ${(error as Error).message}`,
       });
-
-      // Response tạo đơn chỉ có { id, reference_id } ⇒ hỏi chi tiết MỘT lần để có trạng thái + chi
-      // phí. Hỏng thì để bộ đồng bộ định kỳ lo — đơn ĐÃ được nhận.
-      await this.refreshAfterCreate(
-        organizationId,
-        record.id,
-        ctx,
-        providerOrderId,
-        referenceId,
-        trigger,
-        actorUserId,
-      );
-    } catch (error) {
-      if (
-        error instanceof FulfillmentClientError &&
-        AMBIGUOUS_ERROR_CLASSES.includes(error.errorClass)
-      ) {
-        // Request có thể ĐÃ tới nơi. Tra lại NGAY theo reference_id trước khi kết luận thất bại.
-        const adopted = await this.tryAdoptAfterAmbiguousError(
-          ctx,
-          record,
-          referenceId,
-          trigger,
-          actorUserId,
-        );
-        if (adopted) return this.requireRecord(organizationId, record.id);
-      }
-      await this.recordFailure(organizationId, record.id, 'create', trigger, actorUserId, error);
-      throw toProviderHttpException(LABEL, error);
     }
+
+    this.logger.log({
+      module: 'fulfillment',
+      provider: PROVIDER,
+      operation: 'create',
+      organizationId,
+      podOrderId,
+      fulfillmentOrderId: record.id,
+      referenceId,
+      providerOrderId,
+      requestId: result.requestId,
+      durationMs: result.durationMs,
+      msg: 'Tạo đơn Sellerwix thành công',
+    });
+
+    // Response tạo đơn chỉ có { id, reference_id } ⇒ hỏi chi tiết MỘT lần để có trạng thái + chi
+    // phí. Hỏng thì để bộ đồng bộ định kỳ lo — đơn ĐÃ được nhận (refreshAfterCreate tự bắt lỗi).
+    await this.refreshAfterCreate(
+      organizationId,
+      record.id,
+      ctx,
+      providerOrderId,
+      referenceId,
+      trigger,
+      actorUserId,
+    );
 
     return this.requireRecord(organizationId, record.id);
   }
@@ -441,7 +503,7 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     account: FulfillmentAccount,
     trigger: FulfillmentTrigger,
     actorUserId?: string,
-  ): Promise<{ changed: boolean; apiCalls: number }> {
+  ): Promise<{ changed: boolean; apiCalls: number; rateLimited?: boolean }> {
     try {
       const ctx = this.credentials.buildContext(account);
       const result = record.providerOrderId
@@ -458,6 +520,34 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
       });
       return { changed, apiCalls: 1 };
     } catch (error) {
+      // Đang chờ đối soát (SUBMITTING, chưa có mã Sellerwix) mà tra reference_id ra 404 ⇒ lần gửi đó
+      // CHƯA từng tới nơi ⇒ FAILED (gửi lại an toàn: lần gửi lại vẫn tra trước khi tạo).
+      if (isNeverArrived(record, error)) {
+        await this.recordFailure(
+          record.organizationId,
+          record.id,
+          'sync.reconcile',
+          trigger,
+          actorUserId,
+          error,
+          FulfillmentEventType.CREATE_FAILED,
+        );
+        return { changed: true, apiCalls: 1 };
+      }
+      // Đối soát một bản ghi FAILED mà vẫn không hỏi được ⇒ chỉ log (không phủ timeline mỗi 5 phút).
+      if (isQuietReconcileFailure(record)) {
+        this.logger.warn({
+          module: 'fulfillment',
+          provider: PROVIDER,
+          operation: 'sync.reconcile',
+          organizationId: record.organizationId,
+          fulfillmentOrderId: record.id,
+          errorClass: error instanceof FulfillmentClientError ? error.errorClass : 'UNKNOWN',
+          msg: 'Đối soát bản ghi FAILED: nhà cung cấp chưa trả được đơn — giữ FAILED, thử lại lượt sau',
+        });
+        await this.repo.updateOrder(record.id, { lastSyncedAt: new Date() });
+        return { changed: false, apiCalls: 1, rateLimited: isRateLimited(error) };
+      }
       await this.recordFailure(
         record.organizationId,
         record.id,
@@ -468,7 +558,7 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
         FulfillmentEventType.SYNC,
       );
       await this.repo.updateOrder(record.id, { lastSyncedAt: new Date() });
-      return { changed: false, apiCalls: 1 };
+      return { changed: false, apiCalls: 1, rateLimited: isRateLimited(error) };
     }
   }
 
@@ -513,10 +603,16 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     const summary = this.mapper.summarizeStatus(detail);
     const tracking = this.mapper.latestTracking(detail);
     const costs = this.mapper.orderCosts(detail);
+    // Bản ghi gửi trước khi có cấu hình đơn vị tiền ⇒ điền khi đồng bộ (giá vốn Sellerwix luôn tính
+    // bằng MỘT đơn vị tiền). Đã có thì giữ nguyên — không ghi đè.
+    const missingCurrency = record.currency ? null : this.costCurrency();
 
     const statusChanged =
       summary.status !== record.status || summary.providerStatus !== record.providerStatus;
     const trackingChanged = (tracking?.trackingNumber ?? null) !== record.trackingNumber;
+    // Sellerwix TRẢ ĐƯỢC đơn này ⇒ đơn đang ở nhà cung cấp. Bản ghi FAILED / SUBMITTING (lỗi local,
+    // timeout, hoặc bị hạ sai) ⇒ khôi phục mốc gửi + xoá lỗi cũ.
+    const reconciled = RECONCILABLE_STATUSES.includes(record.status);
 
     await this.repo.updateOrder(record.id, {
       status: summary.status,
@@ -531,11 +627,13 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
       subtotal: this.toDecimal(costs.subtotal) ?? record.subtotal,
       shippingFee: this.toDecimal(costs.shippingFee) ?? record.shippingFee,
       total: this.toDecimal(costs.total) ?? record.total,
+      ...(missingCurrency ? { currency: missingCurrency } : {}),
+      ...(reconciled ? { submittedAt: record.submittedAt ?? new Date() } : {}),
       rawResponse: this.mapper.maskOrderForStorage(detail) as Prisma.InputJsonValue,
       lastSyncedAt: new Date(),
       ...(summary.message
         ? { lastErrorCode: SELLERWIX_STATUS_MESSAGE_CODE, lastErrorMessage: summary.message }
-        : record.lastErrorCode === SELLERWIX_STATUS_MESSAGE_CODE
+        : record.lastErrorCode === SELLERWIX_STATUS_MESSAGE_CODE || reconciled
           ? { lastErrorCode: null, lastErrorMessage: null }
           : {}),
       ...(summary.status === FulfillmentStatus.CANCELLED && !record.cancelledAt
@@ -543,7 +641,26 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
         : {}),
     });
 
-    await this.applyLineCosts(record.id, detail);
+    await this.applyLineCosts(record, detail);
+
+    if (reconciled) {
+      await this.repo.addHistory({
+        organizationId: record.organizationId,
+        fulfillmentOrderId: record.id,
+        eventType: FulfillmentEventType.CREATE_SUCCESS,
+        trigger,
+        fromStatus: record.status,
+        toStatus: summary.status,
+        providerStatus: summary.providerStatus,
+        message:
+          `Đối soát: đơn ${record.externalOrderId} ĐANG ở ${LABEL} (${summary.providerStatus ?? '—'}) — khôi phục ` +
+          `trạng thái thật thay cho ${record.status}, không tạo đơn mới`,
+        payload: { providerOrderId: record.providerOrderId ?? detailId, reconciled: true },
+        durationMs: meta.durationMs,
+        requestId: meta.requestId,
+        performedBy: meta.performedBy,
+      });
+    }
 
     if (statusChanged) {
       await this.repo.addHistory({
@@ -962,10 +1079,11 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     referenceId: string,
     trigger: FulfillmentTrigger,
     actorUserId: string,
-  ): Promise<boolean> {
+    createError: FulfillmentClientError,
+  ): Promise<'ADOPTED' | 'NOT_FOUND' | 'UNKNOWN'> {
     try {
       const found = await this.findByReference(ctx, referenceId);
-      if (!found) return false;
+      if (!found) return 'NOT_FOUND';
       await this.adoptExisting(
         record,
         found,
@@ -973,10 +1091,42 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
         actorUserId,
         'Lời gọi tạo đơn không nhận được phản hồi, nhưng Sellerwix ĐÃ có đơn',
       );
-      return true;
+      return 'ADOPTED';
+    } catch (error) {
+      // Tra cũng hỏng ⇒ KHÔNG biết đơn đã tới chưa. Giữ SUBMITTING (giao diện không cho gửi lại) và
+      // để bộ đồng bộ tra lại theo reference_id — có ⇒ khôi phục, 404 ⇒ FAILED.
+      await this.safeHistory({
+        organizationId: record.organizationId,
+        fulfillmentOrderId: record.id,
+        eventType: FulfillmentEventType.RECONCILIATION_REQUIRED,
+        trigger,
+        success: false,
+        message:
+          `${LABEL} không phản hồi rõ khi tạo đơn (${createError.errorClass}: ${createError.message}) và tra ` +
+          `lại reference_id=${referenceId} cũng hỏng — chờ đối soát tự động, KHÔNG gửi lại.`,
+        payload: { createErrorClass: createError.errorClass, lookupError: (error as Error).message },
+        performedBy: actorUserId,
+      });
+      this.logger.error({
+        module: 'fulfillment',
+        provider: PROVIDER,
+        operation: 'create.reconcile',
+        code: 'RECONCILIATION_REQUIRED',
+        organizationId: record.organizationId,
+        fulfillmentOrderId: record.id,
+        referenceId,
+        msg: 'Không xác định được Sellerwix đã nhận đơn hay chưa — giữ SUBMITTING chờ đối soát',
+      });
+      return 'UNKNOWN';
+    }
+  }
+
+  /** Ghi nhật ký mà KHÔNG để lỗi ghi nhật ký che mất lỗi gốc. */
+  private async safeHistory(entry: Parameters<FulfillmentRepository['addHistory']>[0]): Promise<void> {
+    try {
+      await this.repo.addHistory(entry);
     } catch {
-      // Tra cũng hỏng ⇒ để FAILED; lần Retry sau sẽ tra lại trước khi tạo.
-      return false;
+      // DB đang hỏng — log có cấu trúc ở nơi gọi đã đủ để đối soát.
     }
   }
 
@@ -1047,17 +1197,28 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
   }
 
   /**
-   * Chi phí từng dòng: ghép theo `line_items[].reference_id` (= id line item TikTok đã gửi), lùi về
-   * SKU CHỈ khi SKU đó xuất hiện đúng một lần ở cả hai phía — nhập nhằng thì không ghi.
+   * Chi phí từng dòng: ghép theo `line_items[].reference_id` (= id line item TikTok đã gửi), rồi theo
+   * `id` dòng Sellerwix đã liên kết ở lần trước (`provider_item_id`), lùi về SKU CHỈ khi SKU đó xuất
+   * hiện đúng một lần ở cả hai phía — nhập nhằng thì không ghi.
+   *
+   * Giá vốn = `item_cost` của ĐÚNG dòng biến thể đã gửi (`line_items[].sku` = SKU biến thể của
+   * Product Mapping), không phải giá chung của sản phẩm. Ghi xong ⇒ `base_cost_confirmed_at` được
+   * đặt (xem `applyProviderItemCosts`) — chính là điều kiện để cột Lợi nhuận và Dashboard tính.
+   *
+   * Dòng nào KHÔNG ghép được / Sellerwix chưa báo giá ⇒ cảnh báo có cấu trúc (kèm lý do) để đối
+   * soát; lượt đồng bộ sau (scheduler, webhook, `scripts/reconcile-base-cost.ts`) ghép lại.
    */
-  private async applyLineCosts(fulfillmentOrderId: string, detail: SellerwixOrder): Promise<void> {
+  private async applyLineCosts(record: FulfillmentOrder, detail: SellerwixOrder): Promise<void> {
     const providerLines = this.mapper.lineCosts(detail);
     if (providerLines.length === 0) return;
-    const rows = await this.repo.listItemsWithLineRef(fulfillmentOrderId);
+    const rows = await this.repo.listItemsWithLineRef(record.id);
     if (rows.length === 0) return;
 
     const byReference = new Map(
       providerLines.filter((line) => line.referenceId).map((line) => [line.referenceId, line]),
+    );
+    const byProviderItemId = new Map(
+      providerLines.filter((line) => line.providerItemId).map((line) => [line.providerItemId, line]),
     );
     const count = <T>(values: T[]) =>
       values.reduce(
@@ -1067,22 +1228,89 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     const providerSkuCount = count(providerLines.map((line) => line.sku));
     const localSkuCount = count(rows.map((row) => row.providerSku));
 
-    const costs = rows.map((row) => {
+    const matches = rows.map((row) => {
       const reference = row.podOrderItem?.tiktokLineItemId ?? row.podOrderItemId ?? null;
       const matched =
         (reference ? byReference.get(reference) : undefined) ??
+        (row.providerItemId ? byProviderItemId.get(row.providerItemId) : undefined) ??
         (localSkuCount.get(row.providerSku) === 1 && providerSkuCount.get(row.providerSku) === 1
           ? providerLines.find((line) => line.sku === row.providerSku)
           : undefined);
-      return {
+      return { row, matched };
+    });
+    await this.repo.applyProviderItemCosts(
+      record.id,
+      matches.map(({ row, matched }) => ({
         id: row.id,
         baseCost: matched?.itemCost ?? null,
         color: null,
         size: null,
         providerItemId: matched?.providerItemId ?? null,
+      })),
+    );
+
+    const allConfirmedNow = matches.every(
+      ({ row, matched }) => (matched?.itemCost ?? null) !== null || row.baseCostConfirmedAt !== null,
+    );
+    if (allConfirmedNow && rows.some((row) => row.baseCostConfirmedAt === null)) {
+      const total = matches.reduce(
+        (sum, { row, matched }) => sum + Number(matched?.itemCost ?? row.baseCost ?? 0) * (row.quantity || 1),
+        0,
+      );
+      await this.repo.addHistory({
+        organizationId: record.organizationId,
+        fulfillmentOrderId: record.id,
+        eventType: FulfillmentEventType.BASE_COST_UPDATED,
+        trigger: FulfillmentTrigger.CRON,
+        message: `Giá vốn ${LABEL} đã xác nhận: ${Math.round(total * 10_000) / 10_000} (${rows.length} dòng)`,
+        payload: { productCost: Math.round(total * 10_000) / 10_000, items: rows.length },
+      });
+    }
+
+    // Chẩn đoán có cấu trúc — KHÔNG ghi API key, địa chỉ, tên/SĐT người mua.
+    for (const { row, matched } of matches) {
+      const baseCostAfter = matched?.itemCost ?? null;
+      const before = row.baseCost === null ? null : Number(row.baseCost);
+      const entry = {
+        module: 'fulfillment',
+        provider: PROVIDER,
+        operation: 'base-cost.apply',
+        organizationId: record.organizationId,
+        shopId: row.podOrderItem?.order?.shopId ?? null,
+        podOrderId: record.podOrderId,
+        fulfillmentOrderId: record.id,
+        fulfillmentOrderItemId: row.id,
+        providerOrderId: record.providerOrderId ?? (detail.id ? String(detail.id) : null),
+        providerItemId: matched?.providerItemId ?? row.providerItemId ?? null,
+        // Sellerwix định danh biến thể bằng chính SKU biến thể (`external_variant_id = sku`).
+        providerVariantId: row.providerSku,
+        providerSku: row.providerSku,
+        providerPrice: baseCostAfter,
+        baseCostBefore: before,
+        baseCostConfirmedBefore: row.baseCostConfirmedAt !== null,
+        baseCostAfter: baseCostAfter ?? before,
       };
-    });
-    await this.repo.applyProviderItemCosts(fulfillmentOrderId, costs);
+      if (baseCostAfter !== null) {
+        this.logger.log({ ...entry, msg: 'Cập nhật giá vốn theo dữ liệu Sellerwix' });
+      } else {
+        this.logger.warn({
+          ...entry,
+          reason: matched ? 'PROVIDER_COST_MISSING' : 'LINE_NOT_MATCHED',
+          providerLines: providerLines.length,
+          msg: matched
+            ? 'Sellerwix chưa báo item_cost cho dòng hàng — chờ lượt đồng bộ sau'
+            : 'Không ghép được dòng Sellerwix (reference_id / id / SKU) — giá vốn chưa được xác nhận',
+        });
+      }
+    }
+  }
+
+  /**
+   * Đơn vị tiền của giá vốn Sellerwix — cấu hình `SELLERWIX_COST_CURRENCY` (API không trả đơn vị
+   * tiền). Thiếu cấu hình ⇒ NULL: lợi nhuận báo COST_CURRENCY_UNKNOWN thay vì đoán.
+   */
+  private costCurrency(): string | null {
+    return this.config.get<string>(SELLERWIX_COST_CURRENCY_CONFIG_KEY) || null;
   }
 
   private async shippingMethodsOf(
@@ -1206,7 +1434,8 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     trigger: FulfillmentTrigger,
     actorUserId: string | undefined,
     error: unknown,
-    eventType: FulfillmentEventType = FulfillmentEventType.CREATE_FAILED,
+    // 🔴 BẮT BUỘC truyền: mặc định CREATE_FAILED khiến lỗi KHÔNG phải tạo đơn hạ đơn đã gửi về FAILED.
+    eventType: FulfillmentEventType,
   ): Promise<void> {
     const clientError =
       error instanceof FulfillmentClientError

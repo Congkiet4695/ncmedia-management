@@ -1,3 +1,4 @@
+import { insertFlashSaleItems } from './pod-flash-sale-batching';
 import { Injectable, Logger } from '@nestjs/common';
 import {
   PodFlashSaleItemStatus,
@@ -30,6 +31,7 @@ import {
   FLASH_SALE_IMPORT_MAX_REPORTED_ISSUES,
   FLASH_SALE_SOURCE,
   FLASH_SALE_UNLIMITED,
+  FLASH_SALE_WRITE_TX_OPTIONS,
 } from '../constants/pod-flash-sale.constants';
 import type { SyncFlashSalesFromTiktokDto } from '../dto/pod-flash-sale.dto';
 import type {
@@ -434,7 +436,7 @@ export class PodFlashSaleImportService {
       const itemsRemoved = await this.publisher.reconcileItemsWithActivity(flashSaleId, detail, tx);
       await this.flashSales.refreshItemCount(flashSaleId, tx);
       return { flashSaleId, kind, ...written, itemsRemoved };
-    });
+    }, FLASH_SALE_WRITE_TX_OPTIONS);
 
     if (!outcome) return { kind: 'skipped' };
     // Đợt đã có mà không dòng nào đổi, trạng thái cũng như cũ ⇒ "không đổi" (lần đồng bộ thứ hai).
@@ -735,7 +737,7 @@ export class PodFlashSaleImportService {
       itemsUpdated += 1;
     }
 
-    if (toCreate.length > 0) await tx.podFlashSaleItem.createMany({ data: toCreate });
+    if (toCreate.length > 0) await insertFlashSaleItems(tx, toCreate);
     return { itemsCreated: toCreate.length, itemsUpdated };
   }
 

@@ -89,6 +89,9 @@ export class FulfillmentSyncService {
       // Nạp tài khoản MỘT lần cho mỗi accountId — nhiều đơn dùng chung một tài khoản
       // nên nếu đọc trong vòng lặp sẽ thành N+1.
       const accountCache = new Map<string, Awaited<ReturnType<typeof this.repo.findAccountById>>>();
+      // Tài khoản vừa bị nhà cung cấp trả 429 ⇒ bỏ các đơn còn lại của tài khoản đó tới lượt sau.
+      // Hỏi tiếp chỉ đốt thêm hạn mức và ghi thêm hàng loạt dòng RATE_LIMIT vô nghĩa lên timeline.
+      const rateLimitedAccounts = new Set<string>();
       const deadlineAt = startedAt + deadlineMs;
       const startedDate = new Date(startedAt);
       // MỘT nhật ký cho MỖI nhà cung cấp có mặt trong lượt — số liệu đối soát không trộn Mango với
@@ -133,10 +136,22 @@ export class FulfillmentSyncService {
           continue;
         }
 
+        if (rateLimitedAccounts.has(cacheKey)) continue;
+
         result.ordersChecked += 1;
         // syncOne KHÔNG ném lỗi (fail-soft) — một đơn hỏng không được dừng cả lượt. Adapter chọn
         // theo nhà cung cấp CỦA BẢN GHI: đơn Sellerwix không bao giờ được hỏi bằng client Mango.
         const outcome = await this.gateway.syncOne(order, account, trigger);
+        if (outcome.rateLimited) {
+          rateLimitedAccounts.add(cacheKey);
+          this.logger.warn({
+            module: 'fulfillment',
+            operation: 'sync.run-all',
+            provider: order.provider,
+            accountId: order.accountId,
+            msg: 'Nhà cung cấp trả RATE_LIMIT — tạm dừng tài khoản này tới lượt đồng bộ sau',
+          });
+        }
         result.apiCalls += outcome.apiCalls;
         if (outcome.changed) result.ordersUpdated += 1;
         if (stats) {

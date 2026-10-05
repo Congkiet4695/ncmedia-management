@@ -6,6 +6,7 @@ import type {
   PodStorageFileRef,
   CreateListingJobPayload,
   GenerateDraftPayload,
+  BulkDeleteDraftsResult,
   GenerateDraftResult,
   PodCategoryAttributeDef,
   PodCategoryTemplate,
@@ -379,6 +380,18 @@ export const podListingService = {
     await apiClient.delete<ApiResponse<null>>(`${POD}/draft-listings/${id}`, {
       params: remote ? { remote: 'true' } : undefined,
     });
+  },
+
+  /**
+   * Xoá NHIỀU Draft Listing đã chọn. Server kiểm phạm vi shop TỪNG dòng và trả kết quả từng dòng —
+   * `remote = true` thì draft đã có trên TikTok bị xoá luôn bên TikTok (giống xoá từng cái).
+   */
+  async bulkDeleteDrafts(ids: string[], remote: boolean): Promise<BulkDeleteDraftsResult> {
+    const res = await apiClient.post<ApiResponse<BulkDeleteDraftsResult>>(
+      `${POD}/draft-listings/bulk-delete`,
+      { ids, remote },
+    );
+    return res.data.data;
   },
 
   // ------------------------- Bulk Listing Engine ------------------------

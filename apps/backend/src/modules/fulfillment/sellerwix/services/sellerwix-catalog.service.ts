@@ -1,4 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { FulfillmentCatalogItemStatus, Prisma } from '@prisma/client';
 import type {
   CatalogueUpsertInput,
@@ -6,7 +7,10 @@ import type {
   VariantUpsertInput,
 } from '../../repositories/fulfillment-catalog.repository';
 import { SellerwixApiClient } from '../clients/sellerwix-api.client';
-import { SELLERWIX_MAX_PAGES_PER_PRODUCT } from '../constants/sellerwix.constants';
+import {
+  SELLERWIX_COST_CURRENCY_CONFIG_KEY,
+  SELLERWIX_MAX_PAGES_PER_PRODUCT,
+} from '../constants/sellerwix.constants';
 import type { SellerwixCategoryProduct, SellerwixVariant } from '../types/sellerwix-api.types';
 import {
   SellerwixCredentialService,
@@ -50,6 +54,7 @@ export class SellerwixCatalogService {
   constructor(
     private readonly client: SellerwixApiClient,
     private readonly credentials: SellerwixCredentialService,
+    private readonly config: ConfigService,
   ) {}
 
   async fetchCatalog(account: SellerwixAccountCredentialRef): Promise<SellerwixCatalogSnapshot> {
@@ -107,7 +112,9 @@ export class SellerwixCatalogService {
       sku,
       image: entry.item.img_src?.trim() || null,
       basePrice: null,
-      currency: null,
+      // Sellerwix không trả đơn vị tiền ⇒ lấy từ cấu hình (SELLERWIX_COST_CURRENCY). Thiếu cấu hình
+      // ⇒ NULL (không đoán) — giá vốn vẫn lưu, chỉ lợi nhuận báo COST_CURRENCY_UNKNOWN.
+      currency: this.config.get<string>(SELLERWIX_COST_CURRENCY_CONFIG_KEY) || null,
       variationsCount: null,
       status:
         entry.item.active === false

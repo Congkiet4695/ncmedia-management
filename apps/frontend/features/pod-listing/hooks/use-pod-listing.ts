@@ -453,6 +453,16 @@ export function useDeleteDraft() {
   });
 }
 
+/** Xoá nhiều Draft Listing — luôn làm mới danh sách, kể cả khi chỉ xoá được một phần. */
+export function useBulkDeleteDrafts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ ids, remote }: { ids: string[]; remote: boolean }) =>
+      podListingService.bulkDeleteDrafts(ids, remote),
+    onSettled: () => queryClient.invalidateQueries({ queryKey: [KEY, 'drafts'] }),
+  });
+}
+
 // ---------------------------------------------------------------------------
 // Publish Engine — đưa Draft vào hàng chờ duyệt của TikTok
 // ---------------------------------------------------------------------------

@@ -1,3 +1,4 @@
+import { insertFlashSaleItems } from './pod-flash-sale-batching';
 import { BadRequestException, Injectable, Logger } from '@nestjs/common';
 import { PodFlashSaleItemStatus, PodFlashSaleProductLevel, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
@@ -9,6 +10,7 @@ import {
   FLASH_SALE_DEFAULT_DISCOUNT_PERCENT,
   FLASH_SALE_MAX_ITEMS,
   FLASH_SALE_UNLIMITED,
+  FLASH_SALE_WRITE_TX_OPTIONS,
 } from '../constants/pod-flash-sale.constants';
 import type {
   AddFlashSaleItemDto,
@@ -208,10 +210,10 @@ export class PodFlashSaleItemService {
 
     if (rows.length > 0) {
       await this.prisma.$transaction(async (tx) => {
-        await tx.podFlashSaleItem.createMany({ data: rows });
+        await insertFlashSaleItems(tx, rows);
         await this.flashSales.refreshItemCount(flashSaleId, tx);
         await tx.podFlashSale.update({ where: { id: flashSaleId }, data: { updatedBy: userId } });
-      });
+      }, FLASH_SALE_WRITE_TX_OPTIONS);
     }
 
     if (problems.length > 0) {

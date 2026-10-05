@@ -18,6 +18,7 @@ import {
   applySkuTemplateToProduct,
   buildUpdatePayload,
   imagesFromTemplate,
+  introducedDuplicateSkus,
   sizeChartFromTemplate,
   toFormState,
   type EditProductForm,
@@ -446,4 +447,68 @@ test('🔴 SKU đang sửa vẫn nguyên sau khi áp Image Template', () => {
   assert.equal(payload.mainImages?.length, 2);
 });
 
-console.log(`\n✓ ${passed}/${passed} đúng`);
+// ---------------------------------------------------------------------------
+// Seller SKU trùng — chỉ chặn trùng DO LẦN SỬA NÀY (lỗi: sản phẩm có sẵn SKU trùng không lưu được gì)
+// ---------------------------------------------------------------------------
+
+/** Sản phẩm thật kiểu POD: mọi biến thể dùng CHUNG một Seller SKU (TikTok cho phép, đã đồng bộ về). */
+function sharedSkuProduct(): PodProductDetail {
+  const base = product();
+  return { ...base, variants: base.variants.map((variant) => ({ ...variant, sellerSku: 'LALAGAGA_SHARED' })) };
+}
+
+test('🔴 A — sản phẩm có SẴN SKU trùng giữa các biến thể, chỉ sửa tiêu đề ⇒ KHÔNG chặn', () => {
+  const base = sharedSkuProduct();
+  const state = { ...toFormState(base), title: 'Tiêu đề mới' };
+  assert.deepEqual(introducedDuplicateSkus(base, state), []);
+  assert.equal(buildUpdatePayload(base, state).title, 'Tiêu đề mới');
+  assert.equal(buildUpdatePayload(base, state).skus, undefined);
+});
+
+test('🔴 B — sản phẩm có SẴN SKU trùng, chỉ sửa giá ⇒ KHÔNG chặn, chỉ gửi giá', () => {
+  const base = sharedSkuProduct();
+  const state = toFormState(base);
+  state.skus.s1 = { ...state.skus.s1, salePrice: '21.00' };
+  assert.deepEqual(introducedDuplicateSkus(base, state), []);
+  assert.deepEqual(buildUpdatePayload(base, state).skus, [{ tiktokSkuId: 's1', salePrice: '21.00' }]);
+});
+
+test('E — đổi SKU ABC → mã mới chưa ai dùng ⇒ hợp lệ', () => {
+  const base = product();
+  const state = toFormState(base);
+  state.skus.s1 = { ...state.skus.s1, sellerSku: 'TEE-BK-S-NEW' };
+  assert.deepEqual(introducedDuplicateSkus(base, state), []);
+  assert.deepEqual(buildUpdatePayload(base, state).skus, [{ tiktokSkuId: 's1', sellerSku: 'TEE-BK-S-NEW' }]);
+});
+
+test('F — "đổi" SKU thành CHÍNH mã của biến thể đó (kể cả thêm khoảng trắng) ⇒ không phải trùng, không gửi', () => {
+  const base = product();
+  const state = toFormState(base);
+  state.skus.s1 = { ...state.skus.s1, sellerSku: '  TEE-BK-S ' };
+  assert.deepEqual(introducedDuplicateSkus(base, state), []);
+  assert.equal(buildUpdatePayload(base, state).skus, undefined);
+});
+
+test('🔴 G — đổi SKU thành mã của biến thể KHÁC cùng sản phẩm ⇒ CHẶN, nêu đúng mã', () => {
+  const base = product();
+  const state = toFormState(base);
+  state.skus.s1 = { ...state.skus.s1, sellerSku: 'TEE-BK-M' };
+  assert.deepEqual(introducedDuplicateSkus(base, state), ['TEE-BK-M']);
+});
+
+test('🔴 hai biến thể cùng được ĐỔI sang một mã mới ⇒ CHẶN', () => {
+  const base = product();
+  const state = toFormState(base);
+  state.skus.s1 = { ...state.skus.s1, sellerSku: 'NEW-1' };
+  state.skus.s2 = { ...state.skus.s2, sellerSku: 'NEW-1' };
+  assert.deepEqual(introducedDuplicateSkus(base, state), ['NEW-1']);
+});
+
+test('sản phẩm có SẴN trùng, người dùng tách một biến thể sang mã riêng ⇒ hợp lệ', () => {
+  const base = sharedSkuProduct();
+  const state = toFormState(base);
+  state.skus.s1 = { ...state.skus.s1, sellerSku: 'UNIQUE-S1' };
+  assert.deepEqual(introducedDuplicateSkus(base, state), []);
+});
+
+console.log(`\n✓ ${passed}/${passed} đúng (gồm Seller SKU trùng)`);

@@ -1,5 +1,9 @@
 import { Injectable } from '@nestjs/common';
 import {
+  RECONCILE_FAILED_WINDOW_MS,
+  RECONCILE_SUBMITTING_AFTER_MS,
+} from '../shared/fulfillment-reconcile';
+import {
   FulfillmentEventType,
   FulfillmentOrder,
   FulfillmentOrderItem,
@@ -674,12 +678,46 @@ export class FulfillmentRepository {
     return this.listItems(fulfillmentOrderId);
   }
 
+  /**
+   * Ghi giá vốn NHẬP TAY cho các dòng của MỘT bản ghi + nhật ký kiểm toán, trong MỘT transaction —
+   * không có trạng thái "đã đổi giá nhưng không có nhật ký".
+   */
+  async applyManualItemCosts(params: {
+    fulfillmentOrderId: string;
+    costs: Array<{ id: string; baseCost: number }>;
+    currency: string | null;
+    history: HistoryEntry;
+  }): Promise<void> {
+    const confirmedAt = new Date();
+    await this.prisma.$transaction([
+      ...params.costs.map((cost) =>
+        this.prisma.fulfillmentOrderItem.update({
+          where: { id: cost.id },
+          // "Đã xác nhận" = có người chịu trách nhiệm cho con số (Admin, có nhật ký) — điều kiện để
+          // Lợi nhuận / Dashboard tính. Lượt đồng bộ sau mà nhà cung cấp báo giá thật ⇒ giá thật thắng.
+          data: { baseCost: new Prisma.Decimal(cost.baseCost), baseCostConfirmedAt: confirmedAt },
+        }),
+      ),
+      ...(params.currency
+        ? [
+            this.prisma.fulfillmentOrder.update({
+              where: { id: params.fulfillmentOrderId },
+              data: { currency: params.currency },
+            }),
+          ]
+        : []),
+      this.prisma.fulfillmentHistory.create({ data: this.historyData(params.history) }),
+    ]);
+  }
+
   /** Dòng hàng kèm id line item TikTok — Sellerwix ghép chi phí theo `line_items[].reference_id`. */
   listItemsWithLineRef(fulfillmentOrderId: string) {
     return this.prisma.fulfillmentOrderItem.findMany({
       where: { fulfillmentOrderId },
       orderBy: { createdAt: 'asc' },
-      include: { podOrderItem: { select: { tiktokLineItemId: true } } },
+      include: {
+        podOrderItem: { select: { tiktokLineItemId: true, order: { select: { shopId: true } } } },
+      },
     });
   }
 
@@ -735,24 +773,46 @@ export class FulfillmentRepository {
    * Các đơn cần đồng bộ trạng thái: đã gửi đi và chưa ở trạng thái kết thúc.
    * Ưu tiên đơn lâu chưa đồng bộ nhất.
    */
-  findOrdersToSync(limit: number, organizationId?: string): Promise<FulfillmentOrder[]> {
+  findOrdersToSync(
+    limit: number,
+    organizationId?: string,
+    now: Date = new Date(),
+  ): Promise<FulfillmentOrder[]> {
     return this.prisma.fulfillmentOrder.findMany({
       where: {
         deletedAt: null,
         ...(organizationId ? { organizationId } : {}),
-        providerOrderId: { not: null },
-        status: {
-          in: [
-            // SUBMITTING = đơn đã có mã bên nhà cung cấp nhưng tiến trình chết giữa chừng
-            // trước khi kịp ghi trạng thái. Không hỏi lại thì bản ghi kẹt vĩnh viễn.
-            FulfillmentStatus.SUBMITTING,
-            FulfillmentStatus.SUBMITTED,
-            FulfillmentStatus.IN_PRODUCTION,
-            FulfillmentStatus.ON_HOLD,
-            FulfillmentStatus.SHIPPED,
-            FulfillmentStatus.UNKNOWN,
-          ],
-        },
+        OR: [
+          {
+            providerOrderId: { not: null },
+            status: {
+              in: [
+                // SUBMITTING = đơn đã có mã bên nhà cung cấp nhưng tiến trình chết giữa chừng
+                // trước khi kịp ghi trạng thái. Không hỏi lại thì bản ghi kẹt vĩnh viễn.
+                FulfillmentStatus.SUBMITTING,
+                FulfillmentStatus.SUBMITTED,
+                FulfillmentStatus.IN_PRODUCTION,
+                FulfillmentStatus.ON_HOLD,
+                FulfillmentStatus.SHIPPED,
+                FulfillmentStatus.UNKNOWN,
+              ],
+            },
+          },
+          // 🔴 ĐỐI SOÁT: đang gửi mà không biết kết quả (timeout / 5xx / ghi local hỏng) — có thể CHƯA
+          // có mã nhà cung cấp. Tra theo mã tham chiếu: có ⇒ khôi phục, 404 ⇒ FAILED. Chờ một nhịp
+          // để không tranh với chính lượt gửi đang chạy.
+          {
+            status: FulfillmentStatus.SUBMITTING,
+            updatedAt: { lt: new Date(now.getTime() - RECONCILE_SUBMITTING_AFTER_MS) },
+          },
+          // 🔴 ĐỐI SOÁT: FAILED nhưng nhà cung cấp ĐÃ nhận (có mã đơn + mốc gửi) — bị hạ sai bởi lỗi
+          // local / lỗi đồng bộ cũ. Trạng thái thật của nhà cung cấp thắng.
+          {
+            status: FulfillmentStatus.FAILED,
+            providerOrderId: { not: null },
+            submittedAt: { gte: new Date(now.getTime() - RECONCILE_FAILED_WINDOW_MS) },
+          },
+        ],
       },
       orderBy: [{ lastSyncedAt: { sort: 'asc', nulls: 'first' } }],
       take: limit,
@@ -764,23 +824,25 @@ export class FulfillmentRepository {
   // ---------------------------------------------------------------------------
 
   async addHistory(entry: HistoryEntry): Promise<void> {
-    await this.prisma.fulfillmentHistory.create({
-      data: {
-        organizationId: entry.organizationId,
-        fulfillmentOrderId: entry.fulfillmentOrderId,
-        eventType: entry.eventType,
-        trigger: entry.trigger,
-        fromStatus: entry.fromStatus ?? null,
-        toStatus: entry.toStatus ?? null,
-        providerStatus: entry.providerStatus ?? null,
-        success: entry.success ?? true,
-        message: entry.message?.slice(0, 2000) ?? null,
-        payload: entry.payload,
-        durationMs: entry.durationMs ?? null,
-        requestId: entry.requestId ?? null,
-        performedBy: entry.performedBy ?? null,
-      },
-    });
+    await this.prisma.fulfillmentHistory.create({ data: this.historyData(entry) });
+  }
+
+  private historyData(entry: HistoryEntry): Prisma.FulfillmentHistoryUncheckedCreateInput {
+    return {
+      organizationId: entry.organizationId,
+      fulfillmentOrderId: entry.fulfillmentOrderId,
+      eventType: entry.eventType,
+      trigger: entry.trigger,
+      fromStatus: entry.fromStatus ?? null,
+      toStatus: entry.toStatus ?? null,
+      providerStatus: entry.providerStatus ?? null,
+      success: entry.success ?? true,
+      message: entry.message?.slice(0, 2000) ?? null,
+      payload: entry.payload,
+      durationMs: entry.durationMs ?? null,
+      requestId: entry.requestId ?? null,
+      performedBy: entry.performedBy ?? null,
+    };
   }
 
   listHistory(organizationId: string, fulfillmentOrderIds: string[], limit = 100) {

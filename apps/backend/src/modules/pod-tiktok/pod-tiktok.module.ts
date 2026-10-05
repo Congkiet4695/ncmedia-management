@@ -16,6 +16,9 @@ import { PodTiktokAccountMapper } from './mappers/pod-tiktok-account.mapper';
 import { PodOrderController } from './pod-order.controller';
 import { PodPayoutController } from './pod-payout.controller';
 import { PodDashboardController } from './pod-dashboard.controller';
+import { PodEmployeeWorkController } from './pod-employee-work.controller';
+import { PodEmployeeWorkRepository } from './repositories/pod-employee-work.repository';
+import { PodEmployeeWorkService } from './services/pod-employee-work.service';
 import { PodDashboardRepository } from './repositories/pod-dashboard.repository';
 import { PodDashboardService } from './services/pod-dashboard.service';
 import { PodTiktokAccountController } from './pod-tiktok-account.controller';
@@ -72,11 +75,15 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     PodOrderController,
     PodPayoutController,
     PodDashboardController,
+    PodEmployeeWorkController,
   ],
   providers: [
     // Dashboard quản trị (Hold · shop · đơn · tài chính · seller · xu hướng) — tổng hợp SQL.
     PodDashboardRepository,
     PodDashboardService,
+    // Thống kê công việc nhân viên (Admin) — listing · shop · đơn · lợi nhuận theo người.
+    PodEmployeeWorkRepository,
+    PodEmployeeWorkService,
     // Sprint 1 — Link Account (luồng OAuth tự động)
     PodTiktokAccountService,
     PodTiktokOAuthService,

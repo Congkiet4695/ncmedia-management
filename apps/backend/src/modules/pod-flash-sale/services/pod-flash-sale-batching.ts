@@ -1,3 +1,5 @@
+import type { Prisma } from '@prisma/client';
+import { FLASH_SALE_ITEM_INSERT_CHUNK } from '../constants/pod-flash-sale.constants';
 import {
   TIKTOK_ACTIVITY_MAX_PRODUCTS_PER_CALL,
   TIKTOK_ACTIVITY_MAX_SKUS_PER_CALL,
@@ -97,4 +99,22 @@ export function chunkActivityProducts(
 export function computeBatchRetryDelayMs(attempt: number, baseMs: number, maxMs: number): number {
   if (attempt <= 0) return 0;
   return Math.min(baseMs * Math.pow(2, attempt - 1), maxMs);
+}
+
+/**
+ * Ghi dòng Flash Sale theo lô `FLASH_SALE_ITEM_INSERT_CHUNK` trong transaction của bên gọi — DÙNG CHUNG
+ * cho mọi đường tạo dòng hàng loạt (tạo / nhân bản / Auto / template / import). Trả số dòng đã ghi.
+ */
+export async function insertFlashSaleItems(
+  tx: Prisma.TransactionClient,
+  rows: Prisma.PodFlashSaleItemCreateManyInput[],
+): Promise<number> {
+  let inserted = 0;
+  for (let offset = 0; offset < rows.length; offset += FLASH_SALE_ITEM_INSERT_CHUNK) {
+    const result = await tx.podFlashSaleItem.createMany({
+      data: rows.slice(offset, offset + FLASH_SALE_ITEM_INSERT_CHUNK),
+    });
+    inserted += result.count;
+  }
+  return inserted;
 }

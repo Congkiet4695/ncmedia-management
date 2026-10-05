@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsEnum,
   IsIn,
@@ -12,13 +15,20 @@ import {
   IsString,
   IsUrl,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   MinLength,
   Min,
+  ValidateNested,
   type ValidationArguments,
 } from 'class-validator';
 import { FulfillmentProvider, FulfillmentStatus, PodDesignPlacement } from '@prisma/client';
+
+/** Trần giá vốn nhập tay cho MỘT đơn vị — chặn gõ nhầm số (cột base_cost là Decimal(12,4)). */
+export const MANUAL_BASE_COST_MAX = 100_000;
+/** Số dòng tối đa trong một lần nhập tay. */
+export const MANUAL_BASE_COST_MAX_ITEMS = 50;
 import { PodDesignDto } from '../../pod-tiktok/dto/pod-design.dto';
 import {
   FULFILLMENT_ISSUE_SECTIONS,
@@ -1426,4 +1436,50 @@ export class FulfillmentSyncResultDto {
   @ApiProperty() apiCalls!: number;
   @ApiProperty() durationMs!: number;
   @ApiProperty() skippedByLock!: boolean;
+}
+
+/** Giá vốn nhập tay cho MỘT dòng hàng của lần fulfill đang hiệu lực. */
+export class ManualBaseCostItemDto {
+  @ApiProperty({ description: '`fulfillment_order_items.id` (xem `items[].id` của FulfillmentOrderDto).' })
+  @IsUUID('4')
+  itemId!: string;
+
+  @ApiProperty({
+    example: 9.12,
+    description: 'Giá vốn MỘT đơn vị (≥ 0). Số lẻ theo đơn vị tiền (USD: 2 chữ số) — server kiểm lại.',
+  })
+  @Type(() => Number)
+  @IsNumber({ allowNaN: false, allowInfinity: false, maxDecimalPlaces: 4 })
+  @Min(0)
+  @Max(MANUAL_BASE_COST_MAX)
+  baseCost!: number;
+}
+
+/** Admin nhập tay giá vốn cho đơn ĐÃ fulfill mà hệ thống chưa lấy được giá. */
+export class UpdateManualBaseCostDto {
+  @ApiProperty({ type: [ManualBaseCostItemDto], description: 'Giá vốn của MỌI dòng hàng của lần fulfill' })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(MANUAL_BASE_COST_MAX_ITEMS)
+  @ValidateNested({ each: true })
+  @Type(() => ManualBaseCostItemDto)
+  items!: ManualBaseCostItemDto[];
+
+  @ApiPropertyOptional({
+    example: 'USD',
+    description:
+      'Mã ISO 4217 — CHỈ cần khi bản ghi chưa có đơn vị tiền. Không đổi được đơn vị tiền đã có (giá vốn ' +
+      'tính bằng đơn vị tiền của nhà cung cấp).',
+  })
+  @IsOptional()
+  @Transform(({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim().toUpperCase() : value))
+  @Matches(/^[A-Z]{3}$/, { message: 'currency phải là mã ISO 4217 (3 chữ cái)' })
+  currency?: string;
+
+  @ApiPropertyOptional({ maxLength: 500, description: 'Lý do / nguồn số liệu (hoá đơn nhà cung cấp…) — lưu vào nhật ký.' })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
 }

@@ -244,14 +244,34 @@ export class SellerwixOrderMapper {
     };
   }
 
-  /** Chi phí từng dòng hàng (`line_items[]` cấp đơn). */
+  /**
+   * Chi phí từng dòng hàng.
+   *
+   * Nguồn chính: `line_items[]` cấp đơn. Tài liệu (Get order details) lặp lại CÙNG dòng hàng — cùng
+   * `id` — trong `fulfillments[].line_items[]`; dòng cấp đơn thiếu `item_cost` thì lấy ở đó theo `id`
+   * (cùng một dòng, không phải đoán). Đơn chỉ có `fulfillments[].line_items[]` ⇒ dùng chúng.
+   */
   lineCosts(order: SellerwixOrder | null | undefined): SellerwixLineCost[] {
-    return (order?.line_items ?? []).map((item) => ({
-      providerItemId: item.id !== undefined && item.id !== null ? String(item.id) : null,
-      referenceId: item.reference_id?.trim() || null,
-      sku: item.sku?.trim() || null,
-      itemCost: this.toNumber(item.item_cost),
-    }));
+    const idOf = (item: { id?: string | number | null }) =>
+      item.id !== undefined && item.id !== null && String(item.id).trim() ? String(item.id).trim() : null;
+    const nested = (order?.fulfillments ?? []).flatMap((part) => part.line_items ?? []);
+    const top = order?.line_items ?? [];
+    const nestedById = new Map(
+      nested.flatMap((item) => {
+        const id = idOf(item);
+        return id ? [[id, item] as const] : [];
+      }),
+    );
+    return (top.length > 0 ? top : nested).map((item) => {
+      const providerItemId = idOf(item);
+      const twin = providerItemId ? nestedById.get(providerItemId) : undefined;
+      return {
+        providerItemId,
+        referenceId: item.reference_id?.trim() || twin?.reference_id?.trim() || null,
+        sku: item.sku?.trim() || twin?.sku?.trim() || null,
+        itemCost: this.toNumber(item.item_cost) ?? this.toNumber(twin?.item_cost),
+      };
+    });
   }
 
   /** Tổng chi phí cấp đơn — `null` khi Sellerwix chưa báo (KHÔNG quy về 0). */

@@ -137,17 +137,17 @@
       "URL": "Public URL"
     },
     "url": {
-      "placeholder": "https://… (public image URL)",
+      "placeholder": "https://… (public image URL or Google Drive link)",
       "use": "Use URL",
       "replace": "Replace",
-      "saved": "{{placement}} design set from URL",
+      "saved": "{{placement}} design downloaded and stored",
       "failed": "Could not use this URL",
       "sourceLabel": "Public URL",
-      "hint": "HTTPS only. The provider downloads the file directly from this URL — it must be publicly accessible.",
+      "hint": "The file is downloaded from this URL and stored in our storage — previews and the provider use the stored copy. PNG, JPEG or WEBP; the link must be publicly accessible (Google Drive: “Anyone with the link”).",
       "error": {
         "EMPTY": "Enter a URL.",
         "MALFORMED": "This is not a valid URL.",
-        "NOT_HTTPS": "The URL must start with https://"
+        "UNSUPPORTED_PROTOCOL": "The URL must start with http:// or https://"
       }
     }
   },
@@ -459,9 +459,20 @@
         "runNowConfirm": "Run Auto Flash Sale now? Due sales with Auto on will get their next sale created on TikTok for real.",
         "runDone": "Done: {{created}} created · {{transferred}} handed over · {{failed}} failed",
         "rulesTitle": "Chain rules",
-        "rules": "Create the next sale when the active sale has ≤ {{leadHours}} hours left · it starts {{gapMinutes}} minutes after the previous one ends · lasts {{durationDays}} days − {{endTrimMinutes}} minute(s).",
+        "rules": "Create the next sale when the active sale has ≤ {{leadHours}} hours left · it starts {{gapMinutes}} minutes after the previous one ends (rounded to the minute) · lasts {{durationDays}} calendar day(s), ending at {{endOfDay}} on the last day in the sale’s time zone.",
         "summary": "Checked {{checked}} · created {{created}} · handed over {{transferred}} · sending {{inProgress}} · skipped {{skipped}} · failed {{failed}}",
-        "invalidTime": "Run time must be HH:mm."
+        "invalidTime": "Run time must be HH:mm.",
+        "durationMode": "Mode",
+        "durationModes": {
+          "CALENDAR_DAYS": "Duration"
+        },
+        "duration": "Duration",
+        "durations": {
+          "ONE_DAY": "1 day",
+          "TWO_DAYS": "2 days",
+          "THREE_DAYS": "3 days"
+        },
+        "durationHint": "Calendar days: 1 day = ends 23:59:59 on the start day itself (not +24 hours). E.g. start 20/10 00:00 · 3 days ⇒ ends 22/10 23:59:59."
       }
     }
   },
@@ -1075,7 +1086,14 @@
         "ACTIVE": "Live",
         "OFFLINE": "Offline",
         "DELETED": "Deleted"
-      }
+      },
+      "selectedCount": "{{count}} selected",
+      "selectRow": "Select this row",
+      "deleteSelected": "Delete selected ({{count}})",
+      "bulkDeleteConfirm": "Delete the {{count}} selected Draft Listings from the system?",
+      "bulkDeleteRemoteConfirm": "Delete the {{count}} selected Draft Listings? Drafts that already exist on TikTok will ALSO be deleted on TikTok (Seller Center).",
+      "bulkDeleted": "Deleted {{count}} Draft Listing(s)",
+      "bulkDeletePartial": "Deleted {{deleted}} · {{failed}} draft(s) could NOT be deleted"
     },
     "publish": {
       "all": "Publish All",
@@ -1468,7 +1486,13 @@
       "refulfill": "Fulfill again",
       "retry": "Retry fulfill",
       "cancelledBy": "Cancelled by {{who}} · {{at}}",
-      "cancelReason": "Reason: {{reason}}"
+      "cancelReason": "Reason: {{reason}}",
+      "retryBaseCost": "Retry cost",
+      "retryBaseCostHint": "Ask the provider again for the actual base cost of this order",
+      "retryBaseCostDone": "Base cost received from the provider",
+      "retryBaseCostStillPending": "The provider has not reported the base cost yet — you can enter it manually",
+      "updateBaseCost": "Update cost",
+      "reconciling": "Reconciling with the provider — do NOT resubmit this order."
     },
     "actions": {
       "syncFulfillment": "Sync fulfillment",
@@ -1816,7 +1840,7 @@
       "tooManyTerms": "At most {{max}} search keywords.",
       "badPrice": "{{count}} SKUs have an invalid retail price (must be greater than 0).",
       "badQuantity": "{{count}} SKUs have an invalid quantity (must be 0 or more).",
-      "duplicateSku": "{{count}} Seller SKU codes are duplicated across variants.",
+      "duplicateSku": "Seller SKU {{codes}} is already used by another variant of this product ({{count}} code(s)) — choose a different code.",
       "imageRequired": "A product must have at least one image.",
       "categoryTemplate": "Category template",
       "categoryTemplateHint": "Applying this fills Brand · Size chart · Video. The category does NOT change — TikTok does not allow changing the category of an existing product.",

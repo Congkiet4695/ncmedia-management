@@ -9,7 +9,8 @@ import { AdminDashboard } from '@/features/dashboard/components/admin-dashboard'
  * với người có quyền `report.read`.
  *
  * `AdminDashboard` (Hold · shop · đơn theo kỳ · tài chính · seller · xu hướng của POD / TikTok Shop) —
- * cùng quyền `report.read`; phạm vi dữ liệu do backend giới hạn. Các khối cũ giữ nguyên.
+ * `report.read` (Admin) hoặc `pod.dashboard.read` (Seller — chỉ số liệu của TikTok Account được gán);
+ * phạm vi dữ liệu do backend giới hạn. Các khối cũ giữ nguyên.
  */
 export default function DashboardPage() {
   return (

@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import { isIP } from 'node:net';
+import { isPublicHostname } from '../../../common/utils/network-address.util';
 
 /**
  * Kiểm một URL mà **nhà cung cấp fulfillment sẽ tự tải về** (design nguồn URL).
@@ -12,6 +12,21 @@ import { isIP } from 'node:net';
  * kèm `details.reason` để giao diện nói đúng lỗi nằm ở URL (không phải upload / nhà cung cấp).
  */
 export function assertPublicHttpsUrl(raw: string): string {
+  return assertPublicUrl(raw, ['https:']);
+}
+
+/**
+ * Kiểm một URL mà **chính hệ thống sẽ tải về** (design nhập bằng URL ⇒ tải về ⇒ lưu R2).
+ *
+ * Nhận cả `http:` (file được tải về server rồi lưu lại, nhà cung cấp chỉ thấy URL R2). Đây chỉ là
+ * kiểm HÌNH THỨC lúc nhập — IP thật mà DNS trả về được kiểm lại ngay lúc kết nối, ở mọi bước
+ * chuyển hướng (`common/http/safe-remote-fetch.ts`).
+ */
+export function assertPublicDownloadUrl(raw: string): string {
+  return assertPublicUrl(raw, ['https:', 'http:']);
+}
+
+function assertPublicUrl(raw: string, protocols: readonly string[]): string {
   const value = (raw ?? '').trim();
   let parsed: URL;
   try {
@@ -20,16 +35,18 @@ export function assertPublicHttpsUrl(raw: string): string {
     throw invalid('MALFORMED', 'URL design không đúng định dạng.');
   }
 
-  if (parsed.protocol !== 'https:') {
-    throw invalid('NOT_HTTPS', 'URL design phải dùng HTTPS để xưởng in tải được file.');
+  if (!protocols.includes(parsed.protocol)) {
+    throw protocols.includes('http:')
+      ? invalid('UNSUPPORTED_PROTOCOL', 'URL design phải dùng http hoặc https.')
+      : invalid('NOT_HTTPS', 'URL design phải dùng HTTPS để xưởng in tải được file.');
   }
   if (parsed.username || parsed.password) {
     throw invalid('CREDENTIALS_IN_URL', 'URL design không được chứa tài khoản/mật khẩu.');
   }
-  if (!isPublicHost(parsed.hostname)) {
+  if (!isPublicHostname(parsed.hostname)) {
     throw invalid(
       'NOT_PUBLIC',
-      'URL design phải là địa chỉ CÔNG KHAI — xưởng in không truy cập được localhost / mạng nội bộ.',
+      'URL design phải là địa chỉ CÔNG KHAI — không nhận localhost / mạng nội bộ.',
     );
   }
   return value;
@@ -41,42 +58,4 @@ function invalid(reason: string, message: string): BadRequestException {
     message,
     details: { reason },
   });
-}
-
-/** Host có thể truy cập từ Internet: có TLD, không phải IP nội bộ / loopback / link-local. */
-function isPublicHost(hostname: string): boolean {
-  const host = hostname.toLowerCase().replace(/^\[|\]$/g, '');
-  if (!host) return false;
-
-  const ipVersion = isIP(host);
-  if (ipVersion === 4) return !isPrivateIpv4(host);
-  if (ipVersion === 6) return !isPrivateIpv6(host);
-
-  if (host === 'localhost' || !host.includes('.')) return false;
-  return !/\.(local|localhost|internal|lan|home|corp|intranet)$/.test(host);
-}
-
-function isPrivateIpv4(ip: string): boolean {
-  const [a, b] = ip.split('.').map(Number);
-  return (
-    a === 0 ||
-    a === 10 ||
-    a === 127 ||
-    (a === 100 && b >= 64 && b <= 127) ||
-    (a === 169 && b === 254) ||
-    (a === 172 && b >= 16 && b <= 31) ||
-    (a === 192 && b === 168) ||
-    a >= 224
-  );
-}
-
-function isPrivateIpv6(ip: string): boolean {
-  return (
-    ip === '::' ||
-    ip === '::1' ||
-    ip.startsWith('fc') ||
-    ip.startsWith('fd') ||
-    ip.startsWith('fe80') ||
-    ip.startsWith('::ffff:')
-  );
 }

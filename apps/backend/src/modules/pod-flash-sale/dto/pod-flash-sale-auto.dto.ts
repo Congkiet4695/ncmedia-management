@@ -1,7 +1,11 @@
-import { ApiProperty } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform } from 'class-transformer';
-import { IsBoolean, IsString, Matches, MaxLength } from 'class-validator';
-import { PodFlashSaleStatus } from '@prisma/client';
+import { IsBoolean, IsEnum, IsOptional, IsString, Matches, MaxLength } from 'class-validator';
+import {
+  PodFlashSaleAutoDuration,
+  PodFlashSaleAutoDurationMode,
+  PodFlashSaleStatus,
+} from '@prisma/client';
 import { FLASH_SALE_AUTO_ACTION, type FlashSaleAutoAction } from '../constants/pod-flash-sale.constants';
 
 const trim = ({ value }: { value: unknown }) => (typeof value === 'string' ? value.trim() : value);
@@ -27,6 +31,24 @@ export class UpdateFlashSaleAutoConfigDto {
   @IsString()
   @MaxLength(64)
   timezone!: string;
+
+  @ApiPropertyOptional({
+    enum: PodFlashSaleAutoDurationMode,
+    description: 'Cách tính giờ kết thúc của đợt sinh tự động. Bỏ trống ⇒ giữ giá trị đang lưu.',
+  })
+  @IsOptional()
+  @IsEnum(PodFlashSaleAutoDurationMode)
+  durationMode?: PodFlashSaleAutoDurationMode;
+
+  @ApiPropertyOptional({
+    enum: PodFlashSaleAutoDuration,
+    description:
+      'Khoảng thời gian (ngày LỊCH) của đợt sinh tự động: kết thúc 23:59:59 của ngày (bắt đầu + N − 1) ' +
+      'theo múi giờ của đợt sale. Bỏ trống ⇒ giữ giá trị đang lưu (mặc định THREE_DAYS).',
+  })
+  @IsOptional()
+  @IsEnum(PodFlashSaleAutoDuration)
+  duration?: PodFlashSaleAutoDuration;
 }
 
 /** Bật/tắt Auto ở MỘT đợt sale. */
@@ -44,8 +66,9 @@ export class SetFlashSaleAutoModeDto {
 export class PodFlashSaleAutoRulesDto {
   @ApiProperty({ description: 'Tạo đợt kế tiếp khi đợt hiện tại còn ≤ số giờ này' }) leadHours!: number;
   @ApiProperty({ description: 'Đợt kế tiếp bắt đầu sau khi đợt hiện tại kết thúc (phút)' }) gapMinutes!: number;
-  @ApiProperty({ description: 'Độ dài đợt kế tiếp (ngày lịch), trừ đi endTrimMinutes' }) durationDays!: number;
-  @ApiProperty() endTrimMinutes!: number;
+  @ApiProperty({ description: 'Khoảng thời gian đang cấu hình (ngày lịch)' }) durationDays!: number;
+  @ApiProperty({ example: '23:59:59', description: 'Giờ kết thúc của ngày cuối (múi giờ của đợt sale)' })
+  endOfDay!: string;
 }
 
 export class PodFlashSaleAutoNodeResultDto {
@@ -79,6 +102,8 @@ export class PodFlashSaleAutoConfigDto {
   @ApiProperty() enabled!: boolean;
   @ApiProperty({ nullable: true, type: String, example: '05:00' }) runTime!: string | null;
   @ApiProperty({ nullable: true, type: String, example: 'America/Los_Angeles' }) timezone!: string | null;
+  @ApiProperty({ enum: PodFlashSaleAutoDurationMode }) durationMode!: PodFlashSaleAutoDurationMode;
+  @ApiProperty({ enum: PodFlashSaleAutoDuration }) duration!: PodFlashSaleAutoDuration;
   @ApiProperty({ nullable: true, type: String }) lastRunAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) lastRunTrigger!: string | null;
   @ApiProperty({ nullable: true, type: String }) lastRunStatus!: string | null;

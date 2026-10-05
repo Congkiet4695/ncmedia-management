@@ -122,6 +122,10 @@ const PERMISSIONS: Array<{
   // Sprint 2: Scheduler + Get Orders + Sync Orders
   { code: 'pod.tiktok.order.read',     module: 'POD_TIKTOK', resource: 'pod.tiktok.order',   action: 'read',   description: 'Xem đơn TikTok đã đồng bộ + nhật ký đồng bộ' },
   { code: 'pod.tiktok.order.sync',     module: 'POD_TIKTOK', resource: 'pod.tiktok.order',   action: 'sync',   description: 'Kích hoạt đồng bộ đơn TikTok thủ công' },
+  // Seller Dashboard: cùng API `/pod/dashboard/*` với Dashboard quản trị, phạm vi do
+  // PodAccessScopeService giới hạn ở backend. Tách khỏi `report.read` vì quyền đó còn mở
+  // `/reports/*` — báo cáo cấp TỔ CHỨC, không lọc theo shop được gán.
+  { code: 'pod.dashboard.read',        module: 'POD_TIKTOK', resource: 'pod.dashboard',      action: 'read',   description: 'Xem Dashboard POD (Seller: chỉ số liệu của TikTok Account được gán)' },
   // Sprint Order List Enhancement: upload design cho tung san pham
   { code: 'pod.tiktok.design.upload',  module: 'POD_TIKTOK', resource: 'pod.tiktok.design',  action: 'upload', description: 'Upload/thay thế design in cho sản phẩm POD' },
   { code: 'pod.tiktok.design.delete',  module: 'POD_TIKTOK', resource: 'pod.tiktok.design',  action: 'delete', description: 'Xoá design in của sản phẩm POD' },
@@ -170,6 +174,8 @@ const PERMISSIONS: Array<{
   { code: 'fulfillment.read',   module: 'FULFILLMENT', resource: 'fulfillment', action: 'read',   description: 'Xem trạng thái, lịch sử và lỗi fulfillment' },
   { code: 'fulfillment.create', module: 'FULFILLMENT', resource: 'fulfillment', action: 'create', description: 'Gửi đơn sang xưởng in (Fulfill / Retry)' },
   { code: 'fulfillment.cancel', module: 'FULFILLMENT', resource: 'fulfillment', action: 'cancel', description: 'Huỷ đơn tại xưởng in' },
+  // Nhập tay giá vốn cho đơn đã fulfill (thao tác TÀI CHÍNH, có nhật ký) — mặc định chỉ Admin.
+  { code: 'fulfillment.basecost.update', module: 'FULFILLMENT', resource: 'fulfillment.basecost', action: 'update', description: 'Cập nhật Base Cost thủ công cho đơn đã fulfill (có nhật ký kiểm toán)' },
   { code: 'fulfillment.config', module: 'FULFILLMENT', resource: 'fulfillment', action: 'config', description: 'Quản lý Fulfillment Provider (thêm/sửa/xoá/bật-tắt/test kết nối) và đồng bộ danh mục' },
   // 🔴 TÁCH khỏi `fulfillment.config`. Ánh xạ sản phẩm là việc của Seller/Designer; cấu hình
   // nhà cung cấp là việc của Admin. Gộp chung nghĩa là muốn cho Seller ánh xạ thì phải cho

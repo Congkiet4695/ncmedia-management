@@ -127,6 +127,10 @@ export const DEFAULT_PLACEMENT_MAP: Readonly<Record<PodDesignPlacement, MangoPri
 export const MANGO_STATUS_MAP: Readonly<Record<string, FulfillmentStatus>> = {
   new_order: FulfillmentStatus.SUBMITTED,
   in_production: FulfillmentStatus.IN_PRODUCTION,
+  // 🔴 KHÔNG có trong enum OrderStatus của tài liệu, nhưng API thật trả về (timeline đơn thật
+  // 2026-10-04: `new_order → processing`, sau đó có mã vận đơn). Nằm giữa "đơn mới" và "đã ship" ⇒
+  // đang sản xuất. Thiếu dòng này đơn hiện UNKNOWN dù xưởng đang làm.
+  processing: FulfillmentStatus.IN_PRODUCTION,
   on_hold: FulfillmentStatus.ON_HOLD,
   shipped: FulfillmentStatus.SHIPPED,
   rejected: FulfillmentStatus.REJECTED,

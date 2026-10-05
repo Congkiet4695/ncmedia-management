@@ -18,6 +18,7 @@ import {
   FulfillmentErrorClass,
   FulfillmentNotReadyException,
   FulfillmentProviderTimeoutException,
+  FulfillmentReconciliationPendingException,
   FulfillmentSubmittedToOtherProviderException,
   FulfillmentValidationException,
 } from '../../exceptions/fulfillment.exceptions';
@@ -126,6 +127,10 @@ interface Harness {
   twoItems?: boolean;
   /** Ghi đè tài khoản Sellerwix (mặc định: tài khoản CŨ còn Public Key ID / Private Key). */
   account?: Record<string, unknown>;
+  /** Cấu hình hệ thống (ConfigService) — mặc định rỗng. */
+  config?: Record<string, unknown>;
+  /** Đơn vị tiền catalog trả cho các SKU (mặc định USD). */
+  catalogCurrency?: string | null;
 }
 
 function notFound(): FulfillmentClientError {
@@ -288,7 +293,9 @@ function build(options: Harness = {}) {
   } as unknown as FulfillmentRepository;
 
   const catalogRepo = {
-    findCostCurrency: jest.fn().mockResolvedValue('USD'),
+    findCostCurrency: jest
+      .fn()
+      .mockResolvedValue(options.catalogCurrency === undefined ? 'USD' : options.catalogCurrency),
     findVariantsForAccount: jest.fn((_account: string, skus: string[]) =>
       Promise.resolve(
         skus.map((sku) => ({
@@ -356,7 +363,7 @@ function build(options: Harness = {}) {
   } as unknown as DistributedLockService;
 
   const service = new SellerwixFulfillmentService(
-    { get: () => undefined } as unknown as ConfigService,
+    { get: (key: string) => options.config?.[key] } as unknown as ConfigService,
     repo,
     catalogRepo,
     { findById: jest.fn().mockResolvedValue(order) } as unknown as PodOrderRepository,
@@ -568,7 +575,10 @@ describe('SellerwixFulfillmentService.fulfill — xác thực CHỈ bằng API K
     const result = await h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND);
 
     expect(h.createOrder).toHaveBeenCalledTimes(1);
-    const [ctx, request] = h.createOrder.mock.calls[0] as unknown as [Record<string, unknown>, SellerwixCreateOrderRequest];
+    const [ctx, request] = h.createOrder.mock.calls[0] as unknown as [
+      Record<string, unknown>,
+      SellerwixCreateOrderRequest,
+    ];
     expect(ctx).toMatchObject({ apiKey: 'api-key-123', storeId: 'store-1' });
     expect(ctx).not.toHaveProperty('privateKeyPem');
     expect(ctx).not.toHaveProperty('publicKeyId');
@@ -878,7 +888,11 @@ describe('SellerwixFulfillmentService — Cancel ⇒ Fulfill lại', () => {
       expect.objectContaining({ externalOrderId: `${TIKTOK_ORDER}-R2` }),
     );
     // Tra idempotency theo mã MỚI, và request tạo đơn mang đúng mã đó.
-    expect(h.getOrderByReference).toHaveBeenCalledWith(expect.anything(), expect.anything(), `${TIKTOK_ORDER}-R2`);
+    expect(h.getOrderByReference).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      `${TIKTOK_ORDER}-R2`,
+    );
     expect(h.createOrder.mock.calls[0][1].reference_id).toBe(`${TIKTOK_ORDER}-R2`);
   });
 });
@@ -925,7 +939,9 @@ describe('SellerwixFulfillmentService.cancel — hỏi trạng thái THẬT trư
 
     await h.service.cancel(ORG, USER, POD_ORDER, 'khách huỷ', 'EMPLOYEE');
 
-    expect(h.cancelOrder).toHaveBeenCalledWith(expect.anything(), 'swx-order-1', { reason: 'khách huỷ' });
+    expect(h.cancelOrder).toHaveBeenCalledWith(expect.anything(), 'swx-order-1', {
+      reason: 'khách huỷ',
+    });
     expect(h.record.status).toBe(FulfillmentStatus.CANCELLED);
     // Audit: truy vết được Seller nào đã huỷ, với vai trò gì, vì sao.
     expect(h.histories).toContainEqual(
@@ -982,5 +998,286 @@ describe('SellerwixFulfillmentService.shippingMethods — nguyên nhân danh sá
     expect(result.options).toEqual([]);
     expect(result.warnings.join(' ')).toMatch(/nhà cung cấp khác/);
     expect(h.listShippingMethods).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * 🔴 Lỗi thật: fulfill Sellerwix "Premium Luster Photo Paper Poster" thành công nhưng Base Cost / Lợi
+ * nhuận không cập nhật. Nguyên nhân gốc: API Sellerwix KHÔNG trả đơn vị tiền ⇒ catalog
+ * (`fulfillment_products.currency`) NULL ⇒ `fulfillment_orders.currency` NULL ⇒ Lợi nhuận báo
+ * COST_CURRENCY_UNKNOWN, Dashboard bỏ Basecost (lọc `f.currency = <đơn vị tiền>`).
+ */
+describe('SellerwixFulfillmentService — giá vốn & đơn vị tiền (Premium Luster Photo Paper Poster)', () => {
+  const POSTER_SKU = 'SW-PF-PLPPP-WH-24X36';
+  const USD = { 'fulfillment.sellerwix.costCurrency': 'USD' };
+  const localRow = (id: string, sku: string, providerItemId: string | null) => ({
+    id,
+    providerSku: sku,
+    providerItemId,
+    baseCost: null,
+    baseCostConfirmedAt: null,
+    podOrderItemId: null,
+    podOrderItem: null,
+  });
+  /** Danh sách giá vốn đã gửi xuống repository ở lần gọi thứ `index` (âm = đếm từ cuối). */
+  const appliedCosts = (h: ReturnType<typeof build>, index = 0) => {
+    const calls = h.repoMocks.applyProviderItemCosts.mock.calls as Array<
+      [string, Array<Record<string, unknown>>]
+    >;
+    return calls.at(index)?.[1] ?? [];
+  };
+  const detailResult = (data: SellerwixOrder) => ({
+    data,
+    requestId: 'req-detail',
+    durationMs: 8,
+    httpStatus: 200,
+  });
+
+  it('🔴 catalog không có đơn vị tiền ⇒ bản ghi fulfillment lấy SELLERWIX_COST_CURRENCY; giá vốn = item_cost của ĐÚNG dòng biến thể', async () => {
+    const h = build({ config: USD, catalogCurrency: null });
+    h.getOrder.mockResolvedValueOnce(
+      detailResult(
+        detail({
+          line_items: [{ id: '20001', reference_id: 'li-1', sku: SKU_BLACK_XL, item_cost: 9.12 }],
+        }),
+      ),
+    );
+
+    await h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND);
+
+    expect(h.record).toMatchObject({ status: FulfillmentStatus.SUBMITTED, currency: 'USD' });
+    const applied = appliedCosts(h, -1);
+    expect(applied).toEqual([
+      { id: 'fi-1', baseCost: 9.12, color: null, size: null, providerItemId: '20001' },
+    ]);
+    expect(h.rows().map((row) => Number(row.baseCost))).toEqual([9.12]);
+  });
+
+  it('🔴 thiếu cấu hình ⇒ currency vẫn NULL (không đoán), giá vốn vẫn được ghi', async () => {
+    const h = build({ catalogCurrency: null });
+    await h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND);
+    expect((h.record as { currency?: string | null }).currency ?? null).toBeNull();
+    expect(h.rows().map((row) => Number(row.baseCost))).toEqual([10.45]);
+  });
+
+  it('bản ghi CŨ (currency NULL) được điền đơn vị tiền khi đồng bộ; bản ghi đã có thì giữ nguyên', async () => {
+    const h = build({ config: USD });
+    Object.assign(h.record, {
+      providerOrderId: 'swx-order-1',
+      status: FulfillmentStatus.SHIPPED,
+      currency: null,
+    });
+    await h.service.applyProviderState(h.record as never, detail(), FulfillmentTrigger.MANUAL);
+    expect(h.record).toMatchObject({ currency: 'USD' });
+
+    const other = build({ config: USD });
+    Object.assign(other.record, { providerOrderId: 'swx-order-1', currency: 'EUR' });
+    await other.service.applyProviderState(
+      other.record as never,
+      detail(),
+      FulfillmentTrigger.MANUAL,
+    );
+    const call = other.updateOrder.mock.calls.at(-1)?.[1] as Record<string, unknown>;
+    expect(call).not.toHaveProperty('currency');
+  });
+
+  it('dòng cấp đơn thiếu item_cost ⇒ lấy ở fulfillments[].line_items CÙNG id', async () => {
+    const h = build({ config: USD });
+    await h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND);
+    Object.assign(h.record, { providerOrderId: 'swx-order-1' });
+    h.repoMocks.applyProviderItemCosts.mockClear();
+
+    await h.service.applyProviderState(
+      h.record as never,
+      detail({
+        line_items: [{ id: '20001', reference_id: 'li-1', sku: SKU_BLACK_XL }],
+        fulfillments: [
+          {
+            status: 'in supplier',
+            line_items: [
+              { id: '20001', reference_id: 'li-1', sku: SKU_BLACK_XL, item_cost: '11.97' },
+            ],
+          },
+        ],
+      }),
+      FulfillmentTrigger.CRON,
+    );
+
+    expect(appliedCosts(h)[0]).toMatchObject({
+      baseCost: 11.97,
+    });
+  });
+
+  it('Sellerwix không trả reference_id ⇒ ghép theo id dòng đã liên kết (provider_item_id)', async () => {
+    const h = build({ config: USD, twoItems: true });
+    await h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND);
+    Object.assign(h.record, { providerOrderId: 'swx-order-1' });
+    h.repoMocks.listItemsWithLineRef.mockResolvedValueOnce([
+      localRow('fi-1', SKU_WHITE_S, '30001'),
+      localRow('fi-2', SKU_WHITE_S, '30002'),
+    ]);
+    h.repoMocks.applyProviderItemCosts.mockClear();
+
+    await h.service.applyProviderState(
+      h.record as never,
+      detail({
+        line_items: [
+          { id: '30002', sku: SKU_WHITE_S, item_cost: 8 },
+          { id: '30001', sku: SKU_WHITE_S, item_cost: 7 },
+        ],
+      }),
+      FulfillmentTrigger.CRON,
+    );
+
+    const costs = appliedCosts(h);
+    expect(costs.map((cost) => cost.baseCost)).toEqual([7, 8]);
+  });
+
+  it('🔴 nhập nhằng (cùng SKU, không reference_id / id) ⇒ KHÔNG ghi giá, cảnh báo LINE_NOT_MATCHED', async () => {
+    const h = build({ config: USD });
+    await h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND);
+    Object.assign(h.record, { providerOrderId: 'swx-order-1' });
+    h.repoMocks.listItemsWithLineRef.mockResolvedValueOnce([
+      localRow('fi-1', POSTER_SKU, null),
+      localRow('fi-2', POSTER_SKU, null),
+    ]);
+    h.repoMocks.applyProviderItemCosts.mockClear();
+    const warn = jest.spyOn(
+      (h.service as unknown as { logger: { warn: (entry: unknown) => void } }).logger,
+      'warn',
+    );
+
+    await h.service.applyProviderState(
+      h.record as never,
+      detail({
+        line_items: [
+          { sku: POSTER_SKU, item_cost: 9.12 },
+          { sku: POSTER_SKU, item_cost: 9.12 },
+        ],
+      }),
+      FulfillmentTrigger.CRON,
+    );
+
+    const costs = appliedCosts(h);
+    expect(costs.every((cost) => cost.baseCost === null)).toBe(true);
+    expect(warn).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: 'base-cost.apply',
+        reason: 'LINE_NOT_MATCHED',
+        providerSku: POSTER_SKU,
+      }),
+    );
+  });
+
+  it('🔴 log chẩn đoán có đủ trường đối soát và KHÔNG chứa API key / PII người mua', async () => {
+    const h = build({ config: USD });
+    const log = jest.spyOn(
+      (h.service as unknown as { logger: { log: (entry: unknown) => void } }).logger,
+      'log',
+    );
+    await h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND);
+
+    const entry = log.mock.calls
+      .map((call) => call[0] as Record<string, unknown>)
+      .find((value) => value.operation === 'base-cost.apply');
+    expect(entry).toMatchObject({
+      organizationId: ORG,
+      podOrderId: POD_ORDER,
+      providerOrderId: 'swx-order-1',
+      providerSku: SKU_BLACK_XL,
+      providerVariantId: SKU_BLACK_XL,
+      providerPrice: 10.45,
+      baseCostBefore: null,
+      baseCostAfter: 10.45,
+    });
+    const serialized = JSON.stringify(log.mock.calls);
+    expect(serialized).not.toContain('api-key-123');
+    expect(serialized).not.toContain('John');
+    expect(serialized).not.toContain('5551234567');
+    expect(serialized).not.toContain('123 Main St');
+  });
+});
+
+describe('SellerwixFulfillmentService — nhà cung cấp ĐÃ nhận đơn ≠ request local thành công', () => {
+  const server502 = () =>
+    new FulfillmentClientError(FulfillmentErrorClass.SERVER, 'Bad Gateway', 502);
+
+  it('🔴 CASE E — tạo đơn 502, tra lại reference_id CŨNG hỏng ⇒ GIỮ SUBMITTING, RECONCILIATION_REQUIRED, 409', async () => {
+    // Lần tra 1 (trước khi tạo) = 404; lần tra 2 (sau lỗi mơ hồ) = 502.
+    const h = build({ lookups: ['NOT_FOUND', server502()], create: server502() });
+
+    await expect(
+      h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND),
+    ).rejects.toBeInstanceOf(FulfillmentReconciliationPendingException);
+    expect(h.createOrder).toHaveBeenCalledTimes(1);
+    expect(h.record.status).toBe(FulfillmentStatus.SUBMITTING);
+    expect(h.histories.some((entry) => entry.eventType === 'RECONCILIATION_REQUIRED')).toBe(true);
+  });
+
+  it('🔴 CASE B — Sellerwix nhận đơn nhưng ghi DB hỏng ⇒ KHÔNG FAILED, LOCAL_UPDATE_FAILED, 409', async () => {
+    const h = build();
+    h.updateOrder.mockImplementation((_id: string, data: Record<string, unknown>) => {
+      if (data.status === FulfillmentStatus.SUBMITTED) return Promise.reject(new Error('db down'));
+      Object.assign(h.record, data);
+      return Promise.resolve(h.record);
+    });
+
+    await expect(
+      h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND),
+    ).rejects.toBeInstanceOf(FulfillmentReconciliationPendingException);
+    expect(h.record.status).not.toBe(FulfillmentStatus.FAILED);
+    expect(h.histories.some((entry) => entry.eventType === 'LOCAL_UPDATE_FAILED')).toBe(true);
+  });
+
+  it('nhật ký sau khi tạo đơn hỏng ⇒ đơn VẪN SUBMITTED (không báo thất bại)', async () => {
+    const h = build();
+    h.repoMocks.touchAccountUsed.mockRejectedValueOnce(new Error('db hiccup'));
+
+    const result = await h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND);
+
+    expect(result.status).not.toBe(FulfillmentStatus.FAILED);
+    expect(h.record.status).not.toBe(FulfillmentStatus.FAILED);
+  });
+
+  it('🔴 bản ghi FAILED nhưng Sellerwix có đơn ⇒ đồng bộ khôi phục, xoá lỗi cũ, ghi mốc đối soát', async () => {
+    const h = build();
+    Object.assign(h.record, {
+      providerOrderId: 'swx-order-1',
+      status: FulfillmentStatus.FAILED,
+      lastErrorCode: 'SERVER',
+      submittedAt: new Date('2026-10-04T07:00:00Z'),
+    });
+
+    await h.service.applyProviderState(h.record as never, detail(), FulfillmentTrigger.CRON);
+
+    expect(h.record).toMatchObject({
+      status: FulfillmentStatus.SUBMITTED,
+      lastErrorCode: null,
+      lastErrorMessage: null,
+    });
+    expect(
+      h.histories.some((entry) => (entry.payload as { reconciled?: boolean })?.reconciled),
+    ).toBe(true);
+  });
+
+  it('đồng bộ bị 429 ⇒ báo rateLimited (bộ đồng bộ tạm dừng tài khoản), không đổi trạng thái', async () => {
+    const h = build();
+    Object.assign(h.record, { providerOrderId: 'swx-order-1', status: FulfillmentStatus.SHIPPED });
+    h.getOrder.mockRejectedValueOnce(
+      new FulfillmentClientError(
+        FulfillmentErrorClass.RATE_LIMIT,
+        'Too many requests, please try again later.',
+        429,
+      ),
+    );
+
+    const outcome = await h.service.syncOne(
+      h.record as never,
+      ACCOUNT as never,
+      FulfillmentTrigger.CRON,
+    );
+
+    expect(outcome).toMatchObject({ rateLimited: true, changed: false });
+    expect(h.record.status).toBe(FulfillmentStatus.SHIPPED);
   });
 });

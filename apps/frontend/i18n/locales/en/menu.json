@@ -39,5 +39,7 @@
   "superAdminFulfillmentProviders": "Fulfillment Providers",
   "superAdminOrganizations": "Organizations",
   "settings": "Settings",
-  "settingsNotifications": "Notifications"
+  "settingsNotifications": "Notifications",
+  "settingsAutoFlashSale": "Auto Flash Sale Scheduler",
+  "employeeWorkStatistics": "Employee Work Statistics"
 }

@@ -7,7 +7,13 @@ import type { PodProductDetailDto } from '../dto/pod-product-response.dto';
 import type { UpdatePodProductDto } from '../dto/pod-product-update.dto';
 import { PodProductCatalogService } from './pod-product-catalog.service';
 import { PodProductSyncService } from './pod-product-sync.service';
-import { buildPartialEditPayload, type ProductEditInput, type ProductSnapshot } from './pod-product-edit.payload';
+import {
+  buildPartialEditPayload,
+  findIntroducedSkuConflicts,
+  type IntroducedSkuConflict,
+  type ProductEditInput,
+  type ProductSnapshot,
+} from './pod-product-edit.payload';
 import { PodProductMediaService } from './pod-product-media.service';
 import {
   PodDescriptionImageException,
@@ -20,6 +26,20 @@ import { PodProductSyncRepository } from '../repositories/pod-product-sync.repos
 
 /** Khoá chống bấm Lưu hai lần. Đủ dài cho một lượt gọi TikTok + đồng bộ lại. */
 const EDIT_LOCK_MS = 60_000;
+
+/** Seller SKU vừa đổi trùng mã của biến thể khác cùng sản phẩm — chặn TRƯỚC khi gọi TikTok. */
+export class PodProductSkuDuplicateException extends BadRequestException {
+  constructor(conflicts: IntroducedSkuConflict[]) {
+    const codes = [...new Set(conflicts.map((conflict) => conflict.sellerSku))];
+    super({
+      code: 'POD_PRODUCT_SKU_DUPLICATE',
+      message:
+        `Seller SKU ${codes.slice(0, 5).join(', ')} đang được biến thể khác của sản phẩm này dùng — ` +
+        'đổi sang mã khác (hệ thống không tự đổi mã).',
+      details: conflicts,
+    });
+  }
+}
 
 /** Không có gì thay đổi — chặn TRƯỚC khi gọi TikTok. */
 export class PodProductNoChangeException extends BadRequestException {
@@ -118,10 +138,34 @@ export class PodProductEditService {
     const ctx = await this.catalog.buildContext(target);
     const resolved = await this.resolveMedia(organizationId, ctx, dto, product.description);
 
-    const plan = buildPartialEditPayload(resolved, this.toSnapshot(product));
+    const snapshot = this.toSnapshot(product);
+    const plan = buildPartialEditPayload(resolved, snapshot);
+    /** SKU sẽ gửi đi (id TikTok + mã) — chỉ phục vụ log, không có dữ liệu nhạy cảm. */
+    const skuLog = (plan.body.skus ?? []).map((sku) => ({
+      variantId: sku.id,
+      sellerSku: sku.sellerSku ?? null,
+      operation: 'update',
+    }));
     // Không có gì đổi thì KHÔNG gọi TikTok — mỗi request thừa là một lần tiêu hạn mức và
     // một cơ hội để sàn từ chối vì lý do không liên quan.
     if (plan.isEmpty) throw new PodProductNoChangeException();
+
+    // 🔴 Cùng luật với giao diện (chặn ở trình duyệt là không đủ): chỉ trùng DO LẦN SỬA NÀY mới bị
+    // chặn; SKU không đổi (kể cả đang trùng sẵn trên sàn) không bao giờ bị coi là trùng.
+    const skuConflicts = findIntroducedSkuConflicts(plan.body.skus ?? [], snapshot);
+    if (skuConflicts.length > 0) {
+      this.logger.warn({
+        module: 'pod-product',
+        operation: 'product.edit.sku-duplicate',
+        organizationId,
+        productId: id,
+        shopId: product.shopId,
+        tiktokProductId: product.tiktokProductId,
+        conflicts: skuConflicts,
+        msg: 'Chặn Partial Edit: Seller SKU vừa đổi trùng biến thể khác cùng sản phẩm',
+      });
+      throw new PodProductSkuDuplicateException(skuConflicts);
+    }
 
     /**
      * 🔴 Khoá theo SẢN PHẨM, ở tầng server.
@@ -140,6 +184,7 @@ export class PodProductEditService {
         tiktokProductId: product.tiktokProductId,
         changedFields: plan.changedFields,
         changedSkus: plan.changedSkus,
+        skus: skuLog,
         msg: 'Gửi Partial Edit Product',
       });
 
@@ -153,6 +198,9 @@ export class PodProductEditService {
           organizationId,
           productId: id,
           tiktokProductId: product.tiktokProductId,
+          shopId: product.shopId,
+          provider: 'TIKTOK_SHOP',
+          skus: skuLog,
           tiktokCode: detail.code,
           msg: detail.message,
         });

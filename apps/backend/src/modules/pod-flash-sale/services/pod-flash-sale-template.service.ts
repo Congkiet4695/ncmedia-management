@@ -1,3 +1,5 @@
+import { insertFlashSaleItems } from './pod-flash-sale-batching';
+import { FLASH_SALE_WRITE_TX_OPTIONS } from '../constants/pod-flash-sale.constants';
 import { Injectable, Logger } from '@nestjs/common';
 import { PodFlashSaleItemStatus, PodFlashSaleProductLevel, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
@@ -261,9 +263,9 @@ export class PodFlashSaleTemplateService {
 
     if (rows.length > 0) {
       await this.prisma.$transaction(async (tx) => {
-        await tx.podFlashSaleItem.createMany({ data: rows });
+        await insertFlashSaleItems(tx, rows);
         await this.flashSales.refreshItemCount(flashSale.id, tx);
-      });
+      }, FLASH_SALE_WRITE_TX_OPTIONS);
     }
 
     await this.prisma.podFlashSale.update({
@@ -319,13 +321,13 @@ export class PodFlashSaleTemplateService {
     );
 
     await this.prisma.$transaction(async (tx) => {
-      if (rows.length > 0) await tx.podFlashSaleItem.createMany({ data: rows });
+      if (rows.length > 0) await insertFlashSaleItems(tx, rows);
       await tx.podFlashSale.update({
         where: { id: flashSale.id },
         data: { sourceTemplateId: templateId, productLevel: config.productLevel, updatedBy: userId },
       });
       await this.flashSales.refreshItemCount(flashSale.id, tx);
-    });
+    }, FLASH_SALE_WRITE_TX_OPTIONS);
 
     if (skipped.length > 0) {
       await this.flashSales.writeLog({

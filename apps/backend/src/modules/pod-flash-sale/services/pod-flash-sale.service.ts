@@ -1,3 +1,4 @@
+import { insertFlashSaleItems } from './pod-flash-sale-batching';
 import { Injectable, Logger } from '@nestjs/common';
 import {
   PodFlashSaleItemStatus,
@@ -18,6 +19,7 @@ import {
   FLASH_SALE_EDITABLE_STATUSES,
   FLASH_SALE_MAX_ITEMS,
   POD_FLASH_SALE_PROVIDER_TIKTOK,
+  FLASH_SALE_WRITE_TX_OPTIONS,
 } from '../constants/pod-flash-sale.constants';
 import type {
   PodFlashSaleProductQueryDto,
@@ -511,8 +513,10 @@ export class PodFlashSaleService {
       });
 
       if (items.length > 0) {
-        await tx.podFlashSaleItem.createMany({
-          data: items.map((item, index) => ({
+        // Chia lô (tới 10.000 dòng) — xem FLASH_SALE_ITEM_INSERT_CHUNK.
+        await insertFlashSaleItems(
+          tx,
+          items.map((item, index) => ({
             organizationId,
             flashSaleId: flashSale.id,
             productId: item.productId,
@@ -537,11 +541,11 @@ export class PodFlashSaleService {
                 : PodFlashSaleItemStatus.READY,
             sortOrder: index,
           })),
-        });
+        );
       }
 
       return flashSale.id;
-    });
+    }, FLASH_SALE_WRITE_TX_OPTIONS);
 
     this.logger.log({
       module: 'pod-flash-sale',

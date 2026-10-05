@@ -83,7 +83,7 @@ export interface FulfillmentProviderAdapter {
     account: FulfillmentAccount,
     trigger: FulfillmentTrigger,
     actorUserId?: string,
-  ): Promise<{ changed: boolean; apiCalls: number }>;
+  ): Promise<{ changed: boolean; apiCalls: number; rateLimited?: boolean }>;
 
   syncByPodOrder(
     organizationId: string,

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PodListingPayloadStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import {
@@ -9,6 +9,7 @@ import { shopScopeFilter } from '../../pod-tiktok/shared/shop-scope';
 import { POD_PUBLISHABLE_PAYLOAD_STATUSES } from '../constants/pod-listing.constants';
 import { PodListingPublisherService } from './pod-listing-publisher.service';
 import type {
+  BulkDeleteDraftListingsResultDto,
   GenerateListingPayloadDto,
   PodListingPayloadQueryDto,
   PreviewListingPayloadDto,
@@ -277,6 +278,10 @@ export class PodListingPayloadService {
     const where: Prisma.PodListingPayloadWhereInput = {
       organizationId,
       deletedAt: null,
+      // 🔴 Sản phẩm ĐÃ LÊN SÀN THẬT (TikTok báo ACTIVE ít nhất một lần) không còn là "draft" ⇒ không
+      // hiện ở đây nữa. Bản ghi KHÔNG bị xoá: nó là chốt chống publish trùng và dữ liệu của Publish
+      // History. Đang duyệt / bị từ chối / publish hỏng ⇒ vẫn hiện.
+      wentLiveAt: null,
       ...(query.status ? { status: query.status } : {}),
       // 🔴 GIAO của phạm vi và bộ lọc người dùng chọn. Gán rồi ghi đè (`...scope` xong
       // `...query.shopId`) là lỗ hổng: `?shopId=<shop người khác>` sẽ thắng.
@@ -410,6 +415,50 @@ export class PodListingPayloadService {
     return { removedRemote };
   }
 
+  /**
+   * Xoá NHIỀU Draft Listing đã chọn — từng dòng đi qua ĐÚNG đường `remove` (kiểm phạm vi shop, chặn
+   * PUBLISHED / PUBLISHING, xoá bên TikTok trước khi xoá mềm).
+   *
+   * 🔴 Kết quả THEO TỪNG DÒNG: dòng hỏng (draft của shop khác ⇒ 403, không tồn tại, đã publish…)
+   * không chặn các dòng khác và KHÔNG bị gộp vào "thành công". Không bọc chung một transaction: mỗi
+   * dòng có thể đã gọi TikTok, nên rollback DB của dòng trước là nói dối về trạng thái bên sàn.
+   */
+  async removeMany(
+    organizationId: string,
+    userId: string,
+    ids: string[],
+    scope: PodAccessScope,
+    options: { remote?: boolean } = {},
+  ): Promise<BulkDeleteDraftListingsResultDto> {
+    const result: BulkDeleteDraftListingsResultDto = {
+      requested: ids.length,
+      deleted: [],
+      removedRemote: [],
+      failed: [],
+    };
+    // Tuần tự: xoá bên TikTok tốn hạn mức API của shop; chạy song song là tự gây 429.
+    for (const id of ids) {
+      try {
+        const { removedRemote } = await this.remove(organizationId, userId, id, scope, options);
+        result.deleted.push(id);
+        if (removedRemote) result.removedRemote.push(id);
+      } catch (error) {
+        result.failed.push({ id, ...describeRemoveFailure(error) });
+      }
+    }
+    this.logger.log({
+      module: 'pod-listing',
+      operation: 'draft.bulk-delete',
+      organizationId,
+      requested: result.requested,
+      deleted: result.deleted.length,
+      removedRemote: result.removedRemote.length,
+      failed: result.failed.length,
+      msg: 'Xoá hàng loạt Draft Listing',
+    });
+    return result;
+  }
+
   // ---------------------------------------------------------------------------
   // Private
   // ---------------------------------------------------------------------------
@@ -474,7 +523,9 @@ export class PodListingPayloadService {
       const payload = existing
         ? await tx.podListingPayload.update({
             where: { id: existing.id },
-            data: { ...data, deletedAt: null, updatedBy: userId },
+            // Sinh lại draft ⇒ nó lại là một draft đang chờ (status ghi đè ở `data`) ⇒ hiện lại ở màn
+            // Draft Listings; mốc "đã lên sàn" chỉ còn đúng cho lần publish trước.
+            data: { ...data, deletedAt: null, wentLiveAt: null, updatedBy: userId },
             select: { id: true },
           })
         : await tx.podListingPayload.create({
@@ -517,4 +568,23 @@ export class PodListingPayloadService {
       return { id: payload.id, created: !existing, errorCount, status };
     });
   }
+}
+
+/** Lỗi của MỘT dòng khi xoá hàng loạt ⇒ `{ code, message }` (không lộ stack / lỗi hạ tầng). */
+function describeRemoveFailure(error: unknown): { code: string; message: string } {
+  if (error instanceof HttpException) {
+    const body = error.getResponse();
+    if (body && typeof body === 'object') {
+      const record = body as Record<string, unknown>;
+      return {
+        code: typeof record.code === 'string' ? record.code : 'POD_DRAFT_DELETE_FAILED',
+        message: typeof record.message === 'string' ? record.message : error.message,
+      };
+    }
+    return { code: 'POD_DRAFT_DELETE_FAILED', message: error.message };
+  }
+  return {
+    code: 'POD_DRAFT_DELETE_FAILED',
+    message: error instanceof Error ? error.message : 'Không xoá được draft',
+  };
 }

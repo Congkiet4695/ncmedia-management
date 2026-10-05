@@ -28,6 +28,7 @@ import {
   FulfillmentProviderException,
   FulfillmentProviderTimeoutException,
   FulfillmentRateLimitedException,
+  FulfillmentReconciliationPendingException,
   FulfillmentSubmittedToOtherProviderException,
   FulfillmentValidationException,
 } from '../../exceptions/fulfillment.exceptions';
@@ -54,6 +55,13 @@ import {CANCELLABLE_FULFILLMENT_STATUSES,
   isNewAttemptOnSubmit,
 } from '../../shared/fulfillment-lifecycle';
 import { MangoApiClient, MangoCallContext } from '../clients/mango-api.client';
+import {
+  CREATE_AMBIGUOUS_ERROR_CLASSES,
+  RECONCILABLE_STATUSES,
+  isNeverArrived,
+  isQuietReconcileFailure,
+  isRateLimited,
+} from '../../shared/fulfillment-reconcile';
 import { MangoCredentialService } from './mango-credential.service';
 import { FulfillmentOptionsService } from '../../services/fulfillment-options.service';
 import { SHIPPING_LABEL_SOURCE } from '../../services/fulfillment-shipping-label.service';
@@ -392,9 +400,37 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
       performedBy: actorUserId,
     });
 
+    // 🔴 Chỉ LỜI GỌI tạo đơn quyết định "Mango có nhận hay không". Mọi bước SAU khi Mango đã nhận
+    // (ghi DB, lấy giá vốn, nhật ký) hỏng KHÔNG được biến đơn thành FAILED — FAILED cho phép bấm
+    // Fulfill lại, tức là mời tạo đơn THỨ HAI ở xưởng in.
+    let result: Awaited<ReturnType<MangoApiClient['createOrder']>>;
     try {
-      const result = await this.client.createOrder(this.callContext(account), request);
+      result = await this.client.createOrder(this.callContext(account), request);
+    } catch (error) {
+      if (
+        error instanceof FulfillmentClientError &&
+        CREATE_AMBIGUOUS_ERROR_CLASSES.includes(error.errorClass)
+      ) {
+        // Timeout / 5xx: request có thể ĐÃ tới Mango. Tra NGAY theo đúng mã đã gửi.
+        const outcome = await this.resolveAmbiguousCreate(record, account, trigger, actorUserId, error);
+        if (outcome === 'ADOPTED') return this.requireRecord(organizationId, record.id);
+        if (outcome === 'UNKNOWN') {
+          throw new FulfillmentReconciliationPendingException('MangoTeePrints', externalOrderId);
+        }
+      }
+      await this.recordFailure(
+        organizationId,
+        record.id,
+        'create',
+        trigger,
+        actorUserId,
+        error,
+        FulfillmentEventType.CREATE_FAILED,
+      );
+      throw this.translate(error);
+    }
 
+    try {
       await this.repo.updateOrder(record.id, {
         status: FulfillmentStatus.SUBMITTED,
         // `id` là khoá phía Mango; thiếu thì lấy `order_id` — bản ghi KHÔNG có mã nhà cung cấp
@@ -410,6 +446,15 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
         updatedBy: actorUserId,
       });
 
+    } catch (error) {
+      // Mango ĐÃ nhận đơn nhưng ghi kết quả vào DB hỏng. Bản ghi còn SUBMITTING ⇒ bộ đồng bộ tra lại
+      // theo `order_id` và khôi phục (findOrdersToSync). KHÔNG đánh FAILED.
+      await this.recordLocalUpdateFailure(record, trigger, actorUserId, result.data?.id ?? null, error);
+      throw new FulfillmentReconciliationPendingException('MangoTeePrints', externalOrderId);
+    }
+
+    // Từ đây đơn ĐÃ ở Mango và đã ghi SUBMITTED. Bước phụ hỏng ⇒ ghi nhận, không hạ trạng thái.
+    try {
       // 🔴 Giá vốn nằm NGAY trong response tạo đơn (`data` = OrderResponseSchema, mỗi
       // `items[].base_cost`). Bỏ qua nó là tự ép mình chờ lượt đồng bộ sau mới biết giá vốn.
       const pending = await this.applyProviderCosts(record.id, organizationId, result.data);
@@ -419,6 +464,11 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
         // KHÔNG ghi 0, KHÔNG ghi đè null lên số đã có.
         await this.refreshCosts(organizationId, record.id, account, trigger, actorUserId);
       }
+    } catch (error) {
+      await this.recordBaseCostFetchFailure(record, trigger, actorUserId, error);
+    }
+
+    try {
       await this.repo.addHistory({
         organizationId,
         fulfillmentOrderId: record.id,
@@ -447,8 +497,16 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
         msg: 'Tạo đơn fulfillment thành công',
       });
     } catch (error) {
-      await this.recordFailure(organizationId, record.id, 'create', trigger, actorUserId, error);
-      throw this.translate(error);
+      // Nhật ký / mốc sử dụng tài khoản hỏng — đơn đã SUBMITTED, không được báo thất bại.
+      this.logger.error({
+        module: 'fulfillment',
+        provider: 'MANGO',
+        operation: 'create.post',
+        organizationId,
+        podOrderId,
+        fulfillmentOrderId: record.id,
+        msg: `Đơn đã tạo ở Mango, ghi nhật ký sau đó hỏng: ${(error as Error).message}`,
+      });
     }
 
     return this.requireRecord(organizationId, record.id);
@@ -467,7 +525,7 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
     account: FulfillmentAccount,
     trigger: FulfillmentTrigger,
     actorUserId?: string,
-  ): Promise<{ changed: boolean; apiCalls: number }> {
+  ): Promise<{ changed: boolean; apiCalls: number; rateLimited?: boolean }> {
     try {
       const result = await this.client.getOrder(this.callContext(account), record.externalOrderId);
       const changed = await this.applyProviderState(record, result.data, trigger, {
@@ -477,6 +535,36 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
       });
       return { changed, apiCalls: 1 };
     } catch (error) {
+      // Đang chờ đối soát (SUBMITTING, chưa có mã Mango) và Mango trả 404 ⇒ lần gửi đó CHƯA từng tới
+      // nơi ⇒ FAILED (gửi lại an toàn: lần gửi lại vẫn tra trước khi tạo).
+      if (isNeverArrived(record, error)) {
+        await this.recordFailure(
+          record.organizationId,
+          record.id,
+          'sync.reconcile',
+          trigger,
+          actorUserId,
+          error,
+          FulfillmentEventType.CREATE_FAILED,
+        );
+        return { changed: true, apiCalls: 1 };
+      }
+      // Đối soát một bản ghi FAILED mà vẫn không hỏi được ⇒ chỉ log (không phủ timeline mỗi 5 phút).
+      if (isQuietReconcileFailure(record)) {
+        this.logger.warn({
+          module: 'fulfillment',
+          provider: 'MANGO',
+          operation: 'sync.reconcile',
+          organizationId: record.organizationId,
+          fulfillmentOrderId: record.id,
+          errorClass: error instanceof FulfillmentClientError ? error.errorClass : 'UNKNOWN',
+          msg: 'Đối soát bản ghi FAILED: nhà cung cấp chưa trả được đơn — giữ FAILED, thử lại lượt sau',
+        });
+        await this.repo.updateOrder(record.id, { lastSyncedAt: new Date() });
+        return { changed: false, apiCalls: 1, rateLimited: isRateLimited(error) };
+      }
+      // 🔴 Lỗi ĐỒNG BỘ (vd Mango trả 502) KHÔNG phải lỗi TẠO đơn: trước đây hàm này để mặc định
+      // CREATE_FAILED ⇒ đơn đã ở xưởng (có tracking) bị hạ về FAILED và hiện nút "Retry fulfill".
       await this.recordFailure(
         record.organizationId,
         record.id,
@@ -484,10 +572,11 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
         trigger,
         actorUserId,
         error,
+        FulfillmentEventType.SYNC,
       );
       // Đồng bộ lỗi KHÔNG đổi trạng thái đơn: giữ nguyên để lượt sau thử lại.
       await this.repo.updateOrder(record.id, { lastSyncedAt: new Date() });
-      return { changed: false, apiCalls: 1 };
+      return { changed: false, apiCalls: 1, rateLimited: isRateLimited(error) };
     }
   }
 
@@ -530,10 +619,21 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
 
     const statusChanged = nextStatus !== record.status || providerStatus !== record.providerStatus;
     const trackingChanged = trackingNumber !== record.trackingNumber;
+    // Mango TRẢ ĐƯỢC đơn này ⇒ đơn đang ở xưởng. Bản ghi đang FAILED / SUBMITTING (lỗi local, timeout,
+    // hoặc bị hạ sai bởi lỗi đồng bộ cũ) ⇒ khôi phục: mã đơn, mốc gửi, xoá lỗi cũ.
+    const reconciled = RECONCILABLE_STATUSES.includes(record.status);
 
     await this.repo.updateOrder(record.id, {
       status: nextStatus,
       providerStatus,
+      ...(reconciled
+        ? {
+            providerOrderId: record.providerOrderId ?? detail.id ?? detail.order_id ?? null,
+            submittedAt: record.submittedAt ?? new Date(),
+            lastErrorCode: null,
+            lastErrorMessage: null,
+          }
+        : {}),
       providerFulfillId: detail.order_fulfill_id ?? record.providerFulfillId,
       trackingNumber,
       trackingStatus,
@@ -563,6 +663,24 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
     // là mọi đường vào đều cập nhật được (tạo đơn · đồng bộ định kỳ · webhook · sửa đơn).
     await this.applyProviderCosts(record.id, record.organizationId, detail);
 
+    if (reconciled) {
+      await this.repo.addHistory({
+        organizationId: record.organizationId,
+        fulfillmentOrderId: record.id,
+        eventType: FulfillmentEventType.CREATE_SUCCESS,
+        trigger,
+        fromStatus: record.status,
+        toStatus: nextStatus,
+        providerStatus,
+        message:
+          `Đối soát: đơn ${record.externalOrderId} ĐANG ở Mango (${providerStatus ?? '—'}) — khôi phục trạng thái ` +
+          `thật thay cho ${record.status}, không tạo đơn mới`,
+        payload: { providerOrderId: detail.id ?? detail.order_id ?? null, reconciled: true },
+        durationMs: meta.durationMs,
+        requestId: meta.requestId,
+        performedBy: meta.performedBy,
+      });
+    }
     if (statusChanged) {
       await this.repo.addHistory({
         organizationId: record.organizationId,
@@ -657,6 +775,19 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
     // giờ hỏi lại Get Order Detail để lấy giá thật.
     const missing = fresh.filter((row) => !row.baseCostConfirmedAt).length;
 
+    // Lần đầu MỌI dòng có giá nhà cung cấp xác nhận ⇒ một mốc trên timeline (không ghi lại mỗi lượt sync).
+    if (missing === 0 && rows.some((row) => !row.baseCostConfirmedAt)) {
+      const total = fresh.reduce((sum, row) => sum + Number(row.baseCost ?? 0) * (row.quantity || 1), 0);
+      await this.repo.addHistory({
+        organizationId,
+        fulfillmentOrderId,
+        eventType: FulfillmentEventType.BASE_COST_UPDATED,
+        trigger: FulfillmentTrigger.CRON,
+        message: `Giá vốn Mango đã xác nhận: ${Math.round(total * 10_000) / 10_000} (${fresh.length} dòng)`,
+        payload: { productCost: Math.round(total * 10_000) / 10_000, items: fresh.length },
+      });
+    }
+
     if (providerItems.length > 0) {
       this.logger.log({
         module: 'fulfillment',
@@ -672,6 +803,139 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
       });
     }
     return missing > 0;
+  }
+
+  /**
+   * Tạo đơn bị timeout / 5xx: tra NGAY theo đúng `order_id` đã gửi.
+   *
+   *  - Mango có đơn  ⇒ 'ADOPTED'   — liên kết, áp trạng thái + giá vốn, KHÔNG tạo đơn thứ hai.
+   *  - 404           ⇒ 'NOT_FOUND' — request chưa tới nơi ⇒ nơi gọi đánh FAILED (gửi lại an toàn).
+   *  - tra cũng hỏng ⇒ 'UNKNOWN'   — giữ SUBMITTING + RECONCILIATION_REQUIRED; bộ đồng bộ tra lại sau.
+   */
+  private async resolveAmbiguousCreate(
+    record: FulfillmentOrder,
+    account: FulfillmentAccount,
+    trigger: FulfillmentTrigger,
+    actorUserId: string,
+    createError: FulfillmentClientError,
+  ): Promise<'ADOPTED' | 'NOT_FOUND' | 'UNKNOWN'> {
+    try {
+      const result = await this.client.getOrder(this.callContext(account), record.externalOrderId);
+      if (!result.data) return 'NOT_FOUND';
+      const fresh = await this.repo.findById(record.organizationId, record.id);
+      if (!fresh) return 'UNKNOWN';
+      await this.applyProviderState(fresh, result.data, trigger, {
+        durationMs: result.durationMs,
+        requestId: result.requestId,
+        performedBy: actorUserId,
+      });
+      this.logger.warn({
+        module: 'fulfillment',
+        provider: 'MANGO',
+        operation: 'create.reconcile',
+        organizationId: record.organizationId,
+        podOrderId: record.podOrderId,
+        fulfillmentOrderId: record.id,
+        externalOrderId: record.externalOrderId,
+        createErrorClass: createError.errorClass,
+        msg: 'Tạo đơn không nhận được phản hồi nhưng Mango ĐÃ có đơn — đã liên kết, không tạo lại',
+      });
+      return 'ADOPTED';
+    } catch (error) {
+      if (error instanceof FulfillmentClientError && error.errorClass === FulfillmentErrorClass.NOT_FOUND) {
+        return 'NOT_FOUND';
+      }
+      await this.safeHistory({
+        organizationId: record.organizationId,
+        fulfillmentOrderId: record.id,
+        eventType: FulfillmentEventType.RECONCILIATION_REQUIRED,
+        trigger,
+        success: false,
+        message:
+          `Mango không phản hồi rõ khi tạo đơn (${createError.errorClass}: ${createError.message}) và tra lại ` +
+          `theo mã ${record.externalOrderId} cũng hỏng — chờ đối soát tự động, KHÔNG gửi lại.`,
+        payload: { createErrorClass: createError.errorClass, lookupError: (error as Error).message },
+        performedBy: actorUserId,
+      });
+      this.logger.error({
+        module: 'fulfillment',
+        provider: 'MANGO',
+        operation: 'create.reconcile',
+        code: 'RECONCILIATION_REQUIRED',
+        organizationId: record.organizationId,
+        fulfillmentOrderId: record.id,
+        externalOrderId: record.externalOrderId,
+        msg: 'Không xác định được Mango đã nhận đơn hay chưa — giữ SUBMITTING chờ đối soát',
+      });
+      return 'UNKNOWN';
+    }
+  }
+
+  /** Mango ĐÃ nhận đơn nhưng ghi DB local hỏng ⇒ ghi nhận (nếu còn ghi được) để đối soát. */
+  private async recordLocalUpdateFailure(
+    record: FulfillmentOrder,
+    trigger: FulfillmentTrigger,
+    actorUserId: string,
+    providerOrderId: string | null,
+    error: unknown,
+  ): Promise<void> {
+    this.logger.error({
+      module: 'fulfillment',
+      provider: 'MANGO',
+      operation: 'create.local-save',
+      code: 'RECONCILIATION_REQUIRED',
+      organizationId: record.organizationId,
+      podOrderId: record.podOrderId,
+      fulfillmentOrderId: record.id,
+      externalOrderId: record.externalOrderId,
+      providerOrderId,
+      msg: `Mango đã nhận đơn nhưng ghi DB local hỏng: ${(error as Error).message}`,
+    });
+    await this.safeHistory({
+      organizationId: record.organizationId,
+      fulfillmentOrderId: record.id,
+      eventType: FulfillmentEventType.LOCAL_UPDATE_FAILED,
+      trigger,
+      success: false,
+      message: `Mango ĐÃ nhận đơn (mã ${providerOrderId ?? record.externalOrderId}) nhưng lưu kết quả hỏng — chờ đối soát tự động.`,
+      payload: { providerOrderId },
+      performedBy: actorUserId,
+    });
+  }
+
+  /** Lấy giá vốn sau khi tạo đơn hỏng — đơn VẪN ở Mango, giá lấy ở lượt đồng bộ sau. */
+  private async recordBaseCostFetchFailure(
+    record: FulfillmentOrder,
+    trigger: FulfillmentTrigger,
+    actorUserId: string,
+    error: unknown,
+  ): Promise<void> {
+    this.logger.warn({
+      module: 'fulfillment',
+      provider: 'MANGO',
+      operation: 'base-cost.fetch',
+      organizationId: record.organizationId,
+      fulfillmentOrderId: record.id,
+      msg: `Chưa lấy được giá vốn sau khi tạo đơn: ${(error as Error).message}`,
+    });
+    await this.safeHistory({
+      organizationId: record.organizationId,
+      fulfillmentOrderId: record.id,
+      eventType: FulfillmentEventType.BASE_COST_FETCH_FAILED,
+      trigger,
+      success: false,
+      message: `Chưa lấy được giá vốn từ Mango: ${(error as Error).message}`.slice(0, 2000),
+      performedBy: actorUserId,
+    });
+  }
+
+  /** Ghi nhật ký mà KHÔNG để lỗi ghi nhật ký che mất lỗi gốc. */
+  private async safeHistory(entry: Parameters<FulfillmentRepository['addHistory']>[0]): Promise<void> {
+    try {
+      await this.repo.addHistory(entry);
+    } catch {
+      // DB đang hỏng — log có cấu trúc ở nơi gọi đã đủ để đối soát.
+    }
   }
 
   /**
@@ -914,6 +1178,7 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
         FulfillmentTrigger.MANUAL,
         actorUserId,
         error,
+        FulfillmentEventType.CANCEL_FAILED,
       );
       throw this.translate(error);
     }
@@ -951,6 +1216,7 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
         trigger,
         actorUserId,
         error,
+        FulfillmentEventType.CREATE_FAILED,
       );
       throw this.translate(error);
     }
@@ -1410,7 +1676,8 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
     trigger: FulfillmentTrigger,
     actorUserId: string | undefined,
     error: unknown,
-    eventType: FulfillmentEventType = FulfillmentEventType.CREATE_FAILED,
+    // 🔴 BẮT BUỘC truyền: mặc định CREATE_FAILED từng khiến lỗi ĐỒNG BỘ hạ đơn đã gửi về FAILED.
+    eventType: FulfillmentEventType,
   ): Promise<void> {
     const clientError =
       error instanceof FulfillmentClientError

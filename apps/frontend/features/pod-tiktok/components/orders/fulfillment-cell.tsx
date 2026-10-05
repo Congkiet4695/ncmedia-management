@@ -1,15 +1,19 @@
 'use client';
 
 import { useState } from 'react';
-import { AlertTriangle, Factory, RotateCcw, Send } from 'lucide-react';
+import { AlertTriangle, Factory, Loader2, PencilLine, RefreshCw, RotateCcw, Send } from 'lucide-react';
+import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Tooltip } from '@/components/ui/tooltip';
+import { useApiError } from '@/hooks/use-api-error';
+import { useAuth } from '@/hooks/use-auth';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
+import { BaseCostDialog } from '@/features/fulfillment/components/base-cost-dialog';
 import { FulfillOrderDrawer } from '@/features/fulfillment/components/fulfill-order-drawer';
-import { useFulfillmentState } from '@/features/fulfillment/hooks/use-fulfillment';
+import { useFulfillmentActions, useFulfillmentState } from '@/features/fulfillment/hooks/use-fulfillment';
 import type { FulfillmentCancellation, FulfillmentStatus } from '@/features/fulfillment/types';
 import { SUBMITTABLE_STATUSES } from '@/features/fulfillment/product-config';
 import { EMPTY, formatOrderDateTime, orderCurrency } from '../../order-view-model';
@@ -65,8 +69,14 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
   const { t } = useTranslation(['pod', 'fulfillment']);
   const { formatCurrency } = useLocaleFormat();
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [baseCostOpen, setBaseCostOpen] = useState(false);
+  const { hasPermission } = useAuth();
+  const translateApiError = useApiError();
+  // 🔴 Quyền RIÊNG cho thao tác tài chính — backend chặn bằng đúng quyền này.
+  const canEditBaseCost = hasPermission('fulfillment.basecost.update');
 
   const state = useFulfillmentState(podOrderId, enabled);
+  const actions = useFulfillmentActions(podOrderId);
 
   if (!enabled) {
     return <span className="text-xs text-muted-foreground">{EMPTY}</span>;
@@ -170,6 +180,13 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
   // của nhà cung cấp (đã gồm phí ship). Chưa được nhà cung cấp xác nhận ⇒ "chờ báo giá", không
   // hiển thị số tạm như thể là giá thật.
   const costPending = fulfillment.baseCostPending || !fulfillment.productCostConfirmed;
+  // Nhà cung cấp ĐÃ nhận đơn (có mốc gửi, đang giữ đơn) nhưng chưa có giá vốn xác nhận ⇒ "Base Cost Pending":
+  // hỏi lại nhà cung cấp (Retry) hoặc Admin nhập tay. Đơn hỏng / huỷ thì không có giá vốn để sửa.
+  const heldByProvider =
+    Boolean(fulfillment.submittedAt) &&
+    !['DRAFT', 'FAILED', 'CANCELLED', 'REJECTED'].includes(fulfillment.status);
+  const baseCostMissing =
+    heldByProvider && (costPending || fulfillment.productCost === null || !fulfillment.currency);
   const baseCostValue =
     fulfillment.status === 'CANCELLED' || fulfillment.status === 'FAILED'
       ? EMPTY
@@ -243,12 +260,65 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
         hint={costPending ? t('pod:orders.fulfillment.baseCostPendingHint') : costBreakdown || undefined}
         mono
       />
+      {baseCostMissing && (
+        <div className="flex gap-1 pt-0.5">
+          <Button
+            variant="outline"
+            size="sm"
+            className="h-6 flex-1 px-2 text-[11px]"
+            disabled={actions.sync.isPending}
+            title={t('pod:orders.fulfillment.retryBaseCostHint')}
+            onClick={(event) => {
+              event.stopPropagation();
+              void actions.sync
+                .mutateAsync()
+                .then((record) =>
+                  record.productCostConfirmed
+                    ? toast.success(t('pod:orders.fulfillment.retryBaseCostDone'))
+                    : toast.info(t('pod:orders.fulfillment.retryBaseCostStillPending')),
+                )
+                .catch((error: unknown) => toast.error(translateApiError(error)));
+            }}
+          >
+            {actions.sync.isPending ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+            {t('pod:orders.fulfillment.retryBaseCost')}
+          </Button>
+          {canEditBaseCost && (
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-6 flex-1 px-2 text-[11px]"
+              onClick={(event) => {
+                event.stopPropagation();
+                setBaseCostOpen(true);
+              }}
+            >
+              <PencilLine className="size-3" />
+              {t('pod:orders.fulfillment.updateBaseCost')}
+            </Button>
+          )}
+        </div>
+      )}
+      {canEditBaseCost && baseCostOpen && (
+        <BaseCostDialog
+          open={baseCostOpen}
+          onClose={() => setBaseCostOpen(false)}
+          podOrderId={podOrderId}
+          fulfillment={fulfillment}
+        />
+      )}
       {fulfillment.trackingNumber && (
         <Row
           label={t('pod:orders.fulfillment.tracking')}
           value={fulfillment.trackingNumber}
           mono
         />
+      )}
+
+      {/* Đang gửi / chờ đối soát: nhà cung cấp có thể ĐÃ nhận đơn — hệ thống tự tra theo mã tham chiếu.
+          Không có nút gửi lại ở trạng thái này (chống tạo đơn trùng). */}
+      {fulfillment.status === 'SUBMITTING' && (
+        <p className="text-[10px] text-amber-600">{t('pod:orders.fulfillment.reconciling')}</p>
       )}
 
       {fulfillment.status === 'CANCELLED' && data?.cancellation && (

@@ -1,5 +1,6 @@
 import {
   addCalendarDays,
+  computeEndOfDuration,
   computeNextWindow,
   fromZonedParts,
   isDueForNext,
@@ -23,36 +24,78 @@ const wall = (date: Date, tz = LA) => {
   return `${p.year}-${pad(p.month)}-${pad(p.day)} ${pad(p.hour)}:${pad(p.minute)}`;
 };
 
-describe('computeNextWindow — START = END + 10 phút, END = START + 3 ngày lịch − 1 phút', () => {
-  it('A 13/01 00:00 → 15/01 23:59 ⇒ B 16/01 00:09 → 19/01 00:08', () => {
-    const next = computeNextWindow(at(2026, 1, 15, 23, 59), LA);
-    expect(wall(next.startAt)).toBe('2026-01-16 00:09');
-    expect(wall(next.endAt)).toBe('2026-01-19 00:08');
+const wallSec = (date: Date, tz = LA) => {
+  const p = toZonedParts(date, tz);
+  const pad = (n: number) => String(n).padStart(2, '0');
+  return `${p.year}-${pad(p.month)}-${pad(p.day)} ${pad(p.hour)}:${pad(p.minute)}:${pad(p.second)}`;
+};
+const atSec = (y: number, mo: number, d: number, h: number, mi: number, s: number, tz = LA) =>
+  fromZonedParts({ year: y, month: mo, day: d, hour: h, minute: mi, second: s }, tz);
+
+describe('computeEndOfDuration — "Khoảng thời gian" theo NGÀY LỊCH, kết thúc 23:59:59', () => {
+  it.each([
+    [1, '2026-10-20 23:59:59'],
+    [2, '2026-10-21 23:59:59'],
+    [3, '2026-10-22 23:59:59'],
+  ])('start 20/10/2026 00:00 · %i ngày ⇒ %s', (days, expected) => {
+    expect(wallSec(computeEndOfDuration(at(2026, 10, 20, 0, 0), days, LA))).toBe(expected);
+  });
+
+  it('🔴 1 ngày = hết CHÍNH ngày bắt đầu, KHÔNG phải +24 giờ (bắt đầu 00:09 ⇒ kết thúc 23:59:59 cùng ngày)', () => {
+    const start = at(2026, 10, 21, 0, 9);
+    const end = computeEndOfDuration(start, 1, LA);
+    expect(wallSec(end)).toBe('2026-10-21 23:59:59');
+    expect(end.getTime() - start.getTime()).toBeLessThan(24 * 3_600_000);
+  });
+
+  it('khoảng thời gian không hợp lệ ⇒ ném lỗi (không đoán)', () => {
+    expect(() => computeEndOfDuration(at(2026, 10, 20, 0, 0), 0, LA)).toThrow();
+    expect(() => computeEndOfDuration(at(2026, 10, 20, 0, 0), 1.5, LA)).toThrow();
+  });
+});
+
+describe('computeNextWindow — START = END + 10 phút (tròn phút), END = 23:59:59 của ngày (START + N − 1)', () => {
+  it.each([
+    [1, '2026-10-21 23:59:59'],
+    [2, '2026-10-22 23:59:59'],
+    [3, '2026-10-23 23:59:59'],
+  ])('A kết thúc 20/10 23:59:59 ⇒ B 21/10 00:09:00 → (%i ngày) %s', (days, expectedEnd) => {
+    const next = computeNextWindow(atSec(2026, 10, 20, 23, 59, 59), LA, days);
+    expect(wallSec(next.startAt)).toBe('2026-10-21 00:09:00');
+    expect(wallSec(next.endAt)).toBe(expectedEnd);
+  });
+
+  it('chuỗi cũ (A kết thúc 23:59:00) vẫn bắt đầu 00:09:00 như trước', () => {
+    const next = computeNextWindow(at(2026, 1, 15, 23, 59), LA, 3);
+    expect(wallSec(next.startAt)).toBe('2026-01-16 00:09:00');
+    expect(wallSec(next.endAt)).toBe('2026-01-18 23:59:59');
   });
 
   it('chu kỳ kế: C tính từ END của B, không từ ngày chạy cron', () => {
-    const b = computeNextWindow(at(2026, 1, 15, 23, 59), LA);
-    const c = computeNextWindow(b.endAt, LA);
-    expect(wall(c.startAt)).toBe('2026-01-19 00:18');
-    expect(wall(c.endAt)).toBe('2026-01-22 00:17');
+    const b = computeNextWindow(atSec(2026, 10, 20, 23, 59, 59), LA, 2);
+    const c = computeNextWindow(b.endAt, LA, 2);
+    expect(wallSec(c.startAt)).toBe('2026-10-23 00:09:00');
+    expect(wallSec(c.endAt)).toBe('2026-10-24 23:59:59');
   });
 
-  it('🔴 qua mốc đổi giờ mùa hè (08/03/2026) vẫn giữ giờ treo tường — không cộng cứng 72 giờ', () => {
-    const next = computeNextWindow(at(2026, 3, 6, 23, 59), LA);
-    expect(wall(next.startAt)).toBe('2026-03-07 00:09');
-    expect(wall(next.endAt)).toBe('2026-03-10 00:08');
-    // Mất một giờ vì DST: 3 ngày lịch − 1 phút = 71 giờ 59 phút − 1 giờ.
-    expect((next.endAt.getTime() - next.startAt.getTime()) / 60_000).toBe(71 * 60 - 1);
+  it('🔴 qua mốc đổi giờ mùa hè (08/03/2026) vẫn kết thúc 23:59:59 giờ treo tường', () => {
+    const next = computeNextWindow(atSec(2026, 3, 6, 23, 59, 59), LA, 3);
+    expect(wallSec(next.startAt)).toBe('2026-03-07 00:09:00');
+    expect(wallSec(next.endAt)).toBe('2026-03-09 23:59:59');
   });
 
-  it('🔴 cùng một thời điểm, múi giờ khác ⇒ kết quả theo múi giờ CỦA ĐỢT SALE, không của server', () => {
-    const end = at(2026, 1, 15, 23, 59, 'Asia/Ho_Chi_Minh');
-    const next = computeNextWindow(end, 'Asia/Ho_Chi_Minh');
-    expect(wall(next.endAt, 'Asia/Ho_Chi_Minh')).toBe('2026-01-19 00:08');
+  it('🔴 múi giờ của ĐỢT SALE quyết định ngày, không phải múi giờ server / trình duyệt', () => {
+    const end = atSec(2026, 10, 20, 23, 59, 59, 'Asia/Ho_Chi_Minh');
+    const vn = computeNextWindow(end, 'Asia/Ho_Chi_Minh', 1);
+    expect(wallSec(vn.startAt, 'Asia/Ho_Chi_Minh')).toBe('2026-10-21 00:09:00');
+    expect(wallSec(vn.endAt, 'Asia/Ho_Chi_Minh')).toBe('2026-10-21 23:59:59');
+    // Cùng thời điểm A kết thúc, nếu (sai) tính theo Los Angeles thì ngày cuối lệch.
+    expect(wallSec(computeNextWindow(end, LA, 1).endAt, 'Asia/Ho_Chi_Minh')).not.toBe('2026-10-21 23:59:59');
   });
 
   it('cộng ngày lịch qua cuối tháng/năm', () => {
     expect(wall(addCalendarDays(at(2026, 12, 30, 10, 0), 3, LA))).toBe('2027-01-02 10:00');
+    expect(wallSec(computeNextWindow(atSec(2026, 12, 30, 23, 59, 59), LA, 3).endAt)).toBe('2027-01-02 23:59:59');
   });
 });
 

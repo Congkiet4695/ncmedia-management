@@ -39,5 +39,7 @@
   "superAdminFulfillmentProviders": "Fulfillment Providers",
   "superAdminOrganizations": "Organizations",
   "settings": "Cài đặt",
-  "settingsNotifications": "Thông báo"
+  "settingsNotifications": "Thông báo",
+  "settingsAutoFlashSale": "Auto Flash Sale Scheduler",
+  "employeeWorkStatistics": "Thống kê công việc nhân viên"
 }

@@ -114,6 +114,34 @@ function videoOf(product: PodProductDetail): EditProductForm['video'] {
  * Backend còn diff lần nữa với dữ liệu đã đồng bộ, nhưng phép so ở đây mới là thứ quyết định
  * nút Lưu có sáng lên hay không — và quyết định có upload ảnh mới lên TikTok hay không.
  */
+/**
+ * Seller SKU bị trùng DO LẦN SỬA NÀY: một biến thể được ĐỔI sang mã đang (hoặc sẽ) thuộc một biến thể
+ * khác của CÙNG sản phẩm. Trả về các mã trùng (không lặp).
+ *
+ * 🔴 Trùng CÓ SẴN thì KHÔNG chặn: TikTok cho phép nhiều biến thể dùng chung Seller SKU (POD hay đặt một
+ * mã cho cả 100+ size/màu) và sản phẩm đã đồng bộ về đúng như vậy. Trước đây phép kiểm chạy trên MỌI
+ * SKU ⇒ những sản phẩm đó không lưu được BẤT KỲ thay đổi nào, kể cả chỉ sửa tiêu đề. So khớp sau khi
+ * cắt khoảng trắng — cùng cách `buildUpdatePayload` quyết định SKU có đổi hay không; ô để trống không
+ * tính (trống = không đổi mã).
+ */
+export function introducedDuplicateSkus(product: PodProductDetail, form: EditProductForm): string[] {
+  const finalOf = new Map(
+    product.variants.map((variant) => [
+      variant.tiktokSkuId,
+      (form.skus[variant.tiktokSkuId]?.sellerSku ?? variant.sellerSku ?? '').trim(),
+    ]),
+  );
+  const duplicated = new Set<string>();
+  for (const variant of product.variants) {
+    const code = finalOf.get(variant.tiktokSkuId) ?? '';
+    if (!code || code === (variant.sellerSku ?? '').trim()) continue; // không đổi ⇒ không phải lỗi của lần sửa này
+    for (const [otherId, otherCode] of finalOf) {
+      if (otherId !== variant.tiktokSkuId && otherCode === code) duplicated.add(code);
+    }
+  }
+  return [...duplicated];
+}
+
 export function buildUpdatePayload(
   product: PodProductDetail,
   form: EditProductForm,

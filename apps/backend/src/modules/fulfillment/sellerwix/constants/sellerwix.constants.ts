@@ -12,6 +12,15 @@ import { FulfillmentStatus } from '@prisma/client';
 /** Base URL (biến `baseUrl` của collection). Các endpoint bên dưới TƯƠNG ĐỐI so với nó. */
 export const SELLERWIX_DEFAULT_BASE_URL = 'https://api.sellerwix.com/public-api';
 
+/**
+ * Khoá cấu hình đơn vị tiền của giá vốn Sellerwix (`SELLERWIX_COST_CURRENCY`, mặc định USD).
+ *
+ * 🔴 API Sellerwix không trả đơn vị tiền ở endpoint nào ⇒ đây là nguồn DUY NHẤT của đơn vị tiền
+ * giá vốn Sellerwix: danh mục đồng bộ (`fulfillment_products.currency`) và bản ghi fulfillment
+ * (`fulfillment_orders.currency`) đều đọc từ đây — không có giá trị mặc định nào khác trong code.
+ */
+export const SELLERWIX_COST_CURRENCY_CONFIG_KEY = 'fulfillment.sellerwix.costCurrency';
+
 export const SELLERWIX_ENDPOINTS = {
   /** GET — danh sách danh mục. */
   categories: '/v1/category',

@@ -3,6 +3,7 @@ import { apiClient } from '@/services/api-client';
 import type { ApiResponse, Paginated } from '@/types/api';
 import type { PodDesign, PodDesignPlacement } from '@/features/pod-tiktok/order-types';
 import type {
+  UpdateBaseCostPayload,
   CatalogSyncStarted,
   CreateFulfillmentProviderInput,
   FulfillPayload,
@@ -98,6 +99,15 @@ export const fulfillmentService = {
   async sync(podOrderId: string): Promise<FulfillmentOrder> {
     const res = await apiClient.post<ApiResponse<FulfillmentOrder>>(
       `${BASE_PATH}/orders/${podOrderId}/sync`,
+    );
+    return res.data.data;
+  },
+
+  /** Admin nhập tay giá vốn cho đơn ĐÃ fulfill (`fulfillment.basecost.update`). */
+  async updateBaseCost(podOrderId: string, payload: UpdateBaseCostPayload): Promise<FulfillmentOrder> {
+    const res = await apiClient.patch<ApiResponse<FulfillmentOrder>>(
+      `${BASE_PATH}/orders/${podOrderId}/base-cost`,
+      payload,
     );
     return res.data.data;
   },
@@ -439,8 +449,12 @@ export const productMappingService = {
   },
 
   /**
-   * Đặt / thay thế design tại MỘT vị trí in bằng URL CÔNG KHAI — không tải file, không upload lại.
-   * Backend kiểm lại HTTPS + host công khai (lỗi `FULFILLMENT_DESIGN_URL_INVALID`).
+   * Đặt / thay thế design tại MỘT vị trí in từ URL CÔNG KHAI: backend tải file về, kiểm là ảnh
+   * PNG/JPEG/WEBP rồi lưu lên kho (R2) — design trả về trỏ tới file trên kho, không phải URL gốc.
+   * Lỗi: `FULFILLMENT_DESIGN_URL_INVALID` (400) · `FULFILLMENT_DESIGN_URL_FETCH_FAILED` (422).
+   *
+   * Timeout = timeout upload (tải về + đẩy lên kho mất lâu hơn một request thường); backend tự giới
+   * hạn thời gian tải nên request không treo tới mức này.
    */
   async setDesignUrl(
     key: ProductDesignKey,
@@ -450,7 +464,7 @@ export const productMappingService = {
     const res = await apiClient.put<ApiResponse<PodDesign>>(
       `${BASE_PATH}/product-designs/${placement}/url`,
       { url },
-      { params: key },
+      { params: key, timeout: env.uploadTimeoutMs },
     );
     return res.data.data;
   },

@@ -94,5 +94,54 @@
     "completed": "Completed",
     "notProcessed": "Not processed",
     "processing": "Processing"
+  },
+  "employeeWork": {
+    "title": "Employee Work Statistics",
+    "subtitle": "For each employee: which shops they listed on, how many products per shop, and the orders and profit of those shops.",
+    "noPermission": "Only organization Admins can view employee work statistics.",
+    "note": "Listing = a product successfully published by that person (each product on a shop is counted once). Orders and profit belong to the shop within the date range, in operating time; profit uses the same formula as the Order screen — orders without a complete base cost are not counted (shown as \"—\", not 0). Summary order / profit totals count each shop once.",
+    "empty": "No data in the selected date range.",
+    "exportFailed": "Excel export failed",
+    "filter": {
+      "from": "From",
+      "to": "To",
+      "today": "Today",
+      "employee": "Employee",
+      "allEmployees": "All employees",
+      "shop": "Shop",
+      "allShops": "All shops",
+      "currency": "Currency"
+    },
+    "summary": {
+      "activeEmployees": "Employees with listings",
+      "accountsListed": "Shops listed",
+      "productsListed": "Products listed",
+      "orders": "Orders",
+      "profit": "Profit",
+      "profitPerOrder": "Avg profit / order"
+    },
+    "table": {
+      "title": "By employee",
+      "description": "Click a row to see each shop.",
+      "employee": "Employee",
+      "accounts": "Shops",
+      "listings": "Listings",
+      "orders": "Orders",
+      "profit": "Profit",
+      "profitPerOrder": "Profit / order",
+      "expand": "Show shop details",
+      "collapse": "Hide shop details"
+    },
+    "detail": {
+      "shop": "Shop (TikTok Account)",
+      "listings": "Listings",
+      "orders": "Shop orders",
+      "profit": "Profit"
+    },
+    "badge": {
+      "inactive": "Inactive",
+      "notEmployee": "No employee profile",
+      "assigned": "Assigned"
+    }
   }
 }

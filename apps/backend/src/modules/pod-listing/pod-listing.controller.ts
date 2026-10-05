@@ -15,6 +15,7 @@ import {
 import {
   ApiBearerAuth,
   ApiForbiddenResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -28,6 +29,8 @@ import { PodScopeGuard } from '../pod-tiktok/guards/pod-scope.guard';
 import type { PodAccessScope } from '../pod-tiktok/services/pod-access-scope.service';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import {
+  BulkDeleteDraftListingsDto,
+  BulkDeleteDraftListingsResultDto,
   GenerateListingPayloadDto,
   PodListingPayloadQueryDto,
   PreviewListingPayloadDto,
@@ -276,6 +279,27 @@ export class PodListingController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.drafts.get(user.organizationId, id, scope);
+  }
+
+  @Post('draft-listings/bulk-delete')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('pod.draft.generate')
+  @ApiOperation({
+    summary: 'Xoá NHIỀU Draft Listing đã chọn',
+    description:
+      'Cùng luật với xoá từng cái: chỉ draft thuộc shop được gán (Seller) / cả tổ chức (pod.shop.all); ' +
+      'không xoá draft PUBLISHED / PUBLISHING. Trả kết quả TỪNG dòng (deleted / failed kèm mã lỗi) — ' +
+      'dòng hỏng không chặn dòng khác.',
+  })
+  @ApiOkResponse({ type: BulkDeleteDraftListingsResultDto })
+  removeDrafts(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Body() dto: BulkDeleteDraftListingsDto,
+  ): Promise<BulkDeleteDraftListingsResultDto> {
+    return this.drafts.removeMany(user.organizationId, user.userId, dto.ids, scope, {
+      remote: dto.remote === true,
+    });
   }
 
   @Delete('draft-listings/:id')

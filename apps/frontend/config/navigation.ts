@@ -38,6 +38,7 @@ import {
   type LucideIcon,
 } from 'lucide-react';
 import type { Namespace } from '@/i18n/config';
+import { AUTO_FLASH_SALE_SETTINGS_PATH } from '@/features/pod-flash-sale/routes';
 
 export interface NavItemConfig {
   /** Khoá dịch trong namespace `menu` (vd `menu:employees`). */
@@ -96,6 +97,15 @@ export const NAVIGATION: NavItemConfig[] = [
     href: '/dashboard/employees',
     icon: Users,
     permission: 'employee.read',
+  },
+  // Thống kê công việc nhân viên (Admin) — listing · shop · đơn · lợi nhuận theo người, theo ngày.
+  // 🔴 Menu chỉ ẩn/hiện. API `/pod/employee-work-statistics` đòi `report.read` VÀ `pod.shop.all`;
+  // trang tự chặn cả hai (RequirePermission lồng nhau).
+  {
+    labelKey: 'employeeWorkStatistics',
+    href: '/dashboard/employee-work',
+    icon: BarChart3,
+    permission: 'report.read',
   },
 
   // ⛔ TẠM ẨN theo yêu cầu vận hành — giữ nguyên route/permission/API/DB.
@@ -267,17 +277,21 @@ export const NAVIGATION: NavItemConfig[] = [
         icon: Link2,
         permission: 'fulfillment.config',
       },
-      {
-        labelKey: 'podPayout',
-        href: '/dashboard/pod/payout',
-        icon: Wallet,
-        permission: 'pod.tiktok.payout.read',
-      },
     ],
   },
 
-  // Cài đặt của TỔ CHỨC. Hiện chỉ có Thông báo (Telegram) — Bot Token là secret nên chỉ ai có
-  // `notification.config` (mặc định Admin) mới thấy; nhóm tự ẩn khi không còn mục con nào.
+  // TikTok Payout — menu CHÍNH (không còn nằm trong POD). Route giữ nguyên `/dashboard/pod/payout` để
+  // không gãy link / bookmark; nhóm POD sáng theo MENU CON đang mở (không theo tiền tố URL), nên vào
+  // Payout không làm nhóm POD sáng theo.
+  {
+    labelKey: 'podPayout',
+    href: '/dashboard/pod/payout',
+    icon: Wallet,
+    permission: 'pod.tiktok.payout.read',
+  },
+
+  // Cài đặt của TỔ CHỨC: Thông báo (Telegram — Bot Token là secret, chỉ `notification.config`) và
+  // Auto Flash Sale Scheduler (`pod.flashsale.auto.config`). Nhóm tự ẩn khi không còn mục con nào.
   {
     labelKey: 'settings',
     href: '/dashboard/settings',
@@ -288,6 +302,13 @@ export const NAVIGATION: NavItemConfig[] = [
         href: '/dashboard/settings/notifications',
         icon: Bell,
         permission: 'notification.config',
+      },
+      // 🔴 Menu chỉ ẩn/hiện. API `/pod/flash-sale-auto/*` tự chặn bằng cùng quyền `pod.flashsale.auto.config`.
+      {
+        labelKey: 'settingsAutoFlashSale',
+        href: AUTO_FLASH_SALE_SETTINGS_PATH,
+        icon: Zap,
+        permission: 'pod.flashsale.auto.config',
       },
     ],
   },

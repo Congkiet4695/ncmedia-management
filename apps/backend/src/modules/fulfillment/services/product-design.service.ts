@@ -1,4 +1,10 @@
-import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import {
+  BadRequestException,
+  Injectable,
+  Logger,
+  NotFoundException,
+  UnprocessableEntityException,
+} from '@nestjs/common';
 import {
   PodDesignPlacement,
   Prisma,
@@ -11,12 +17,26 @@ import {
   PodShopForbiddenException,
   type PodAccessScope,
 } from '../../pod-tiktok/services/pod-access-scope.service';
+import {
+  fetchRemoteFile,
+  RemoteFetchError,
+  type RemoteFetchFailure,
+  type RemoteFile,
+} from '../../../common/http/safe-remote-fetch';
+import { detectImageMime, IMAGE_MIME_EXTENSION } from '../../../common/utils/image-signature.util';
+import { resolveStorageMaxBytes } from '../../storage/storage.constants';
 import { StorageService } from '../../storage/storage.service';
-import { POD_DESIGN_MIME_TYPES } from '../../pod-tiktok/constants/pod-design.constants';
+import {
+  POD_DESIGN_MIME_TYPES,
+  POD_DESIGN_URL_FETCH_TIMEOUT_MS,
+  POD_DESIGN_URL_GENERIC_CONTENT_TYPES,
+  POD_DESIGN_URL_MAX_REDIRECTS,
+} from '../../pod-tiktok/constants/pod-design.constants';
 import { PodDesignDto } from '../../pod-tiktok/dto/pod-design.dto';
 import { ProductDesignMapper } from '../mappers/product-design.mapper';
 import { mappingKeyOf } from '../shared/mapping-match';
-import { assertPublicHttpsUrl } from '../shared/public-url';
+import { toDirectDownloadUrl } from '../shared/design-url';
+import { assertPublicDownloadUrl } from '../shared/public-url';
 
 /** Design kèm metadata file — hình dạng dùng chung cho mọi hàm ở đây. */
 const DESIGN_INCLUDE = {
@@ -49,6 +69,32 @@ export class ProductDesignNotFoundException extends NotFoundException {
     super({
       code: 'FULFILLMENT_DESIGN_NOT_FOUND',
       message: 'Vị trí in này chưa có design.',
+    });
+  }
+}
+
+/** Lỗi tải về thuộc loại 'URL không hợp lệ' (400) — còn lại là 'tải không được' (422). */
+const URL_INVALID_REASONS: readonly RemoteFetchFailure[] = [
+  'UNSUPPORTED_PROTOCOL',
+  'CREDENTIALS_IN_URL',
+  'PORT_NOT_ALLOWED',
+  'NOT_PUBLIC',
+];
+
+/**
+ * Tải design từ URL không thành công (link hết hạn / không công khai / không phải ảnh / quá lớn /
+ * hết thời gian). `details.reason` cho giao diện nói đúng nguyên nhân.
+ */
+export class DesignUrlFetchFailedException extends UnprocessableEntityException {
+  constructor(
+    reason: RemoteFetchFailure | 'NOT_IMAGE' | 'UNSUPPORTED_TYPE',
+    message: string,
+    status?: number,
+  ) {
+    super({
+      code: 'FULFILLMENT_DESIGN_URL_FETCH_FAILED',
+      message,
+      details: { reason, ...(status ? { status } : {}) },
     });
   }
 }
@@ -124,72 +170,7 @@ export class ProductDesignService {
   ): Promise<PodDesignDto> {
     this.validateFormat(file);
     await this.assertKeyInScope(organizationId, key, scope);
-    const where = this.keyWhere(organizationId, key);
-
-    const previous = await this.findActive(where, placement);
-
-    const stored = await this.storage.upload(file, {
-      organizationId,
-      actorUserId,
-      // `module` = POD_TIKTOK: file này là **design in của sản phẩm POD**. Độ chính xác nằm ở
-      // `referenceType` — thêm một giá trị enum mới chỉ để đổi nhãn là một migration không
-      // mua được gì.
-      module: StorageModuleName.POD_TIKTOK,
-      referenceType: StorageReferenceType.FULFILLMENT_MAPPING_DESIGN,
-      // 🔴 `referenceId` phải NULL: cột này là UUID, mà khoá của design nay là một CẶP CHUỖI
-      // (Product ID + Seller SKU). Nhét mapping id vào đây như trước sẽ dựng lại đúng ràng
-      // buộc "phải ánh xạ xong mới upload được" — và với sản phẩm chưa ánh xạ thì không có
-      // giá trị nào để nhét. Đường tra ngược từ file về sản phẩm nằm ở `folderSegments`
-      // ngay dưới: object key chứa đủ cả hai nửa khoá.
-      referenceId: null,
-      folderSegments: [
-        'fulfillment',
-        'designs',
-        organizationId,
-        key.tiktokProductId,
-        key.sellerSku,
-      ],
-    });
-
-    let saved: ProductDesignWithFile;
-    try {
-      saved = await this.prisma.$transaction(async (tx) => {
-        if (previous) {
-          return tx.fulfillmentProductDesign.update({
-            where: { id: previous.id },
-            data: {
-              storageFileId: stored.id,
-              // Thay design nguồn URL bằng file ⇒ bỏ URL (CHECK: đúng MỘT nguồn).
-              sourceUrl: null,
-              version: previous.version + 1,
-              updatedBy: actorUserId,
-            },
-            include: DESIGN_INCLUDE,
-          });
-        }
-        return tx.fulfillmentProductDesign.create({
-          data: {
-            organizationId,
-            tiktokProductId: key.tiktokProductId,
-            sellerSku: key.sellerSku,
-            placement,
-            storageFileId: stored.id,
-            createdBy: actorUserId,
-            updatedBy: actorUserId,
-          },
-          include: DESIGN_INCLUDE,
-        });
-      });
-    } catch (error) {
-      // Ghi DB hỏng ⇒ dọn file vừa lưu, không để lại rác trên kho lưu trữ.
-      await this.storage.removeInternal(organizationId, actorUserId, stored.id);
-      throw error;
-    }
-
-    // Ghi DB xong mới xoá file cũ — tránh mất file khi transaction rollback.
-    if (previous?.storageFileId && previous.storageFileId !== stored.id) {
-      await this.storage.removeInternal(organizationId, actorUserId, previous.storageFileId);
-    }
+    const saved = await this.store(organizationId, actorUserId, key, placement, file);
 
     this.logger.log({
       module: 'fulfillment',
@@ -198,8 +179,8 @@ export class ProductDesignService {
       productKey: mappingKeyOf(key.tiktokProductId, key.sellerSku),
       placement,
       version: saved.version,
-      storageFileId: stored.id,
-      msg: previous ? 'Đã thay design của sản phẩm' : 'Đã upload design cho sản phẩm',
+      storageFileId: saved.storageFileId,
+      msg: saved.version > 1 ? 'Đã thay design của sản phẩm' : 'Đã upload design cho sản phẩm',
     });
 
     return this.designMapper.toDto(saved);
@@ -257,15 +238,23 @@ export class ProductDesignService {
   }
 
   /**
-   * Đặt (hoặc **thay thế**) design tại một vị trí in bằng **URL công khai** — KHÔNG tải file về,
-   * KHÔNG upload lại. Nhà cung cấp tải thẳng từ URL khi sản xuất.
+   * Đặt (hoặc **thay thế**) design tại một vị trí in từ một **URL công khai**.
    *
-   * 🔴 Chỉ nhận HTTPS và host công khai: `localhost`, IP nội bộ, `*.local`… là địa chỉ xưởng in
-   * không bao giờ tới được — nhận chúng là để đơn hỏng ở phía nhà cung cấp, khó chẩn đoán hơn
-   * nhiều so với một lỗi 400 rõ ràng ngay lúc nhập.
+   * ```
+   *   URL người dùng nhập ─▶ kiểm hình thức ─▶ server TẢI VỀ (chống SSRF) ─▶ kiểm Content-Type +
+   *   chữ ký file (PNG/JPEG/WEBP) ─▶ StorageService.upload (R2) ─▶ design trỏ tới file trên kho
+   * ```
    *
-   * Thay design đang là FILE upload ⇒ file cũ bị xoá khỏi kho SAU khi ghi DB thành công (giống
-   * luồng upload). Cùng luật "một vị trí, một design đang hiệu lực" và cùng kiểm phạm vi shop.
+   * 🔴 URL ngoài KHÔNG còn là URL chính thức của design. Link Drive / CDN có thể là trang HTML,
+   * chuyển hướng, chặn hotlink hoặc hết hạn — Order List và nhà cung cấp chỉ thấy URL trên kho của
+   * mình. Cùng đường lưu với upload file (`store`): cùng object key, cùng luật thay thế.
+   *
+   * Tải / kiểm / lưu hỏng ⇒ KHÔNG ghi gì vào design (design cũ giữ nguyên), lỗi trả rõ lý do:
+   *   - 400 `FULFILLMENT_DESIGN_URL_INVALID` — URL sai hình thức / trỏ vào mạng nội bộ.
+   *   - 422 `FULFILLMENT_DESIGN_URL_FETCH_FAILED` — tải không được / không phải ảnh / quá lớn.
+   *   - lỗi của Storage Module nếu đẩy lên kho thất bại.
+   *
+   * Design cũ nguồn URL (trước thay đổi này, `source_url`) vẫn đọc được như trước — xem mapper.
    */
   async setUrl(
     organizationId: string,
@@ -275,51 +264,189 @@ export class ProductDesignService {
     rawUrl: string,
     scope: PodAccessScope,
   ): Promise<PodDesignDto> {
-    const url = assertPublicHttpsUrl(rawUrl);
+    const url = assertPublicDownloadUrl(rawUrl);
     await this.assertKeyInScope(organizationId, key, scope);
+    // Kiểm khoá TRƯỚC khi tải: không tốn băng thông cho một yêu cầu chắc chắn bị từ chối.
+    this.keyWhere(organizationId, key);
+
+    const startedAt = Date.now();
+    const downloaded = await this.download(url);
+    const saved = await this.store(organizationId, actorUserId, key, placement, downloaded.file);
+
+    this.logger.log({
+      module: 'fulfillment',
+      operation: 'product-design.import-url',
+      organizationId,
+      productKey: mappingKeyOf(key.tiktokProductId, key.sellerSku),
+      placement,
+      version: saved.version,
+      storageFileId: saved.storageFileId,
+      // Chỉ host — URL đầy đủ có thể mang token chia sẻ.
+      sourceHost: new URL(url).hostname,
+      finalHost: new URL(downloaded.finalUrl).hostname,
+      redirects: downloaded.redirects,
+      mimeType: downloaded.file.mimetype,
+      sizeBytes: downloaded.file.size,
+      durationMs: Date.now() - startedAt,
+      msg: 'Đã tải design từ URL và lưu lên kho lưu trữ',
+    });
+
+    return this.designMapper.toDto(saved);
+  }
+
+  // ---------------------------------------------------------------------------
+  // Lưu design (dùng chung cho upload file và nhập từ URL)
+  // ---------------------------------------------------------------------------
+
+  /**
+   * Đẩy file lên kho TRƯỚC (không giữ kết nối DB trong lúc chờ I/O mạng), rồi ghi/ghi đè design trong
+   * transaction; ghi DB hỏng ⇒ dọn file vừa lưu. Ghi xong mới xoá file cũ — tránh mất file khi rollback.
+   */
+  private async store(
+    organizationId: string,
+    actorUserId: string,
+    key: ProductDesignKey,
+    placement: PodDesignPlacement,
+    file: Express.Multer.File,
+  ): Promise<ProductDesignWithFile> {
     const where = this.keyWhere(organizationId, key);
     const previous = await this.findActive(where, placement);
 
-    const saved = previous
-      ? await this.prisma.fulfillmentProductDesign.update({
-          where: { id: previous.id },
-          data: {
-            sourceUrl: url,
-            storageFileId: null,
-            version: previous.version + 1,
-            updatedBy: actorUserId,
-          },
-          include: DESIGN_INCLUDE,
-        })
-      : await this.prisma.fulfillmentProductDesign.create({
+    const stored = await this.storage.upload(file, {
+      organizationId,
+      actorUserId,
+      // `module` = POD_TIKTOK: file này là **design in của sản phẩm POD**. Độ chính xác nằm ở
+      // `referenceType` — thêm một giá trị enum mới chỉ để đổi nhãn là một migration không
+      // mua được gì.
+      module: StorageModuleName.POD_TIKTOK,
+      referenceType: StorageReferenceType.FULFILLMENT_MAPPING_DESIGN,
+      // 🔴 `referenceId` phải NULL: cột này là UUID, mà khoá của design nay là một CẶP CHUỖI
+      // (Product ID + Seller SKU). Nhét mapping id vào đây như trước sẽ dựng lại đúng ràng
+      // buộc "phải ánh xạ xong mới upload được" — và với sản phẩm chưa ánh xạ thì không có
+      // giá trị nào để nhét. Đường tra ngược từ file về sản phẩm nằm ở `folderSegments`
+      // ngay dưới: object key chứa đủ cả hai nửa khoá.
+      referenceId: null,
+      folderSegments: [
+        'fulfillment',
+        'designs',
+        organizationId,
+        key.tiktokProductId,
+        key.sellerSku,
+      ],
+    });
+
+    let saved: ProductDesignWithFile;
+    try {
+      saved = await this.prisma.$transaction(async (tx) => {
+        if (previous) {
+          return tx.fulfillmentProductDesign.update({
+            where: { id: previous.id },
+            data: {
+              storageFileId: stored.id,
+              // Thay design nguồn URL bằng file ⇒ bỏ URL (CHECK: đúng MỘT nguồn).
+              sourceUrl: null,
+              version: previous.version + 1,
+              updatedBy: actorUserId,
+            },
+            include: DESIGN_INCLUDE,
+          });
+        }
+        return tx.fulfillmentProductDesign.create({
           data: {
             organizationId,
-            tiktokProductId: key.tiktokProductId.trim(),
-            sellerSku: key.sellerSku.trim(),
+            tiktokProductId: where.tiktokProductId as string,
+            sellerSku: where.sellerSku as string,
             placement,
-            sourceUrl: url,
+            storageFileId: stored.id,
             createdBy: actorUserId,
             updatedBy: actorUserId,
           },
           include: DESIGN_INCLUDE,
         });
-
-    if (previous?.storageFileId) {
-      await this.storage.removeInternal(organizationId, actorUserId, previous.storageFileId);
+      });
+    } catch (error) {
+      // Ghi DB hỏng ⇒ dọn file vừa lưu, không để lại rác trên kho lưu trữ.
+      await this.storage.removeInternal(organizationId, actorUserId, stored.id);
+      throw error;
     }
 
-    this.logger.log({
-      module: 'fulfillment',
-      operation: 'product-design.set-url',
-      organizationId,
-      productKey: mappingKeyOf(key.tiktokProductId, key.sellerSku),
-      placement,
-      version: saved.version,
-      host: new URL(url).hostname,
-      msg: previous ? 'Đã thay design bằng URL công khai' : 'Đã đặt design bằng URL công khai',
-    });
+    if (previous?.storageFileId && previous.storageFileId !== stored.id) {
+      await this.storage.removeInternal(organizationId, actorUserId, previous.storageFileId);
+    }
+    return saved;
+  }
 
-    return this.designMapper.toDto(saved);
+  /**
+   * Tải design từ URL và dựng thành file Storage Module nhận được. Định dạng do CHỮ KÝ FILE quyết
+   * định — không tin đuôi, không tin `Content-Type` (chỉ dùng để loại sớm HTML/JSON…).
+   */
+  private async download(url: string): Promise<{
+    file: Express.Multer.File;
+    finalUrl: string;
+    redirects: number;
+  }> {
+    let remote: RemoteFile;
+    try {
+      remote = await fetchRemoteFile(toDirectDownloadUrl(url), {
+        maxBytes: resolveStorageMaxBytes(),
+        timeoutMs: POD_DESIGN_URL_FETCH_TIMEOUT_MS,
+        maxRedirects: POD_DESIGN_URL_MAX_REDIRECTS,
+      });
+    } catch (error) {
+      if (!(error instanceof RemoteFetchError)) throw error;
+      if (URL_INVALID_REASONS.includes(error.reason)) {
+        throw new BadRequestException({
+          code: 'FULFILLMENT_DESIGN_URL_INVALID',
+          message: error.message,
+          details: { reason: error.reason },
+        });
+      }
+      throw new DesignUrlFetchFailedException(
+        error.reason,
+        error.reason === 'HTTP_STATUS'
+          ? `Không tải được design: ${error.message} Link có thể đã hết hạn, bị xoá hoặc không công khai.`
+          : `Không tải được design: ${error.message}`,
+        error.status,
+      );
+    }
+
+    if (remote.contentType === 'text/html' || remote.contentType === 'application/xhtml+xml') {
+      throw new DesignUrlFetchFailedException(
+        'NOT_IMAGE',
+        'URL trả về một TRANG WEB (HTML), không phải file ảnh. Hãy dùng link tải trực tiếp của ảnh; ' +
+          'với Google Drive, bật chia sẻ "Bất kỳ ai có đường liên kết".',
+      );
+    }
+    const mimeType = detectImageMime(remote.buffer);
+    const declaredOk =
+      remote.contentType.startsWith('image/') ||
+      (POD_DESIGN_URL_GENERIC_CONTENT_TYPES as readonly string[]).includes(remote.contentType);
+    if (
+      !declaredOk ||
+      !mimeType ||
+      !(POD_DESIGN_MIME_TYPES as readonly string[]).includes(mimeType)
+    ) {
+      throw new DesignUrlFetchFailedException(
+        'UNSUPPORTED_TYPE',
+        `URL không trả về ảnh PNG, JPEG hoặc WEBP (máy chủ khai "${remote.contentType || 'không rõ'}").`,
+      );
+    }
+
+    // Tên gốc chỉ để hiển thị; đuôi luôn theo định dạng THẬT để Storage Module đối chiếu mime ⇄ đuôi.
+    const baseName =
+      (remote.fileName ?? 'design').replace(/\.[A-Za-z0-9]{1,5}$/, '').slice(0, 200) || 'design';
+    return {
+      file: {
+        fieldname: 'file',
+        originalname: `${baseName}.${IMAGE_MIME_EXTENSION[mimeType]}`,
+        encoding: '7bit',
+        mimetype: mimeType,
+        size: remote.buffer.length,
+        buffer: remote.buffer,
+      } as Express.Multer.File,
+      finalUrl: remote.finalUrl,
+      redirects: remote.redirects,
+    };
   }
 
   // ---------------------------------------------------------------------------
@@ -327,7 +454,10 @@ export class ProductDesignService {
   // ---------------------------------------------------------------------------
 
   /** Design đang hiệu lực tại một vị trí (kể cả nguồn URL). */
-  private findActive(where: Prisma.FulfillmentProductDesignWhereInput, placement: PodDesignPlacement) {
+  private findActive(
+    where: Prisma.FulfillmentProductDesignWhereInput,
+    placement: PodDesignPlacement,
+  ) {
     return this.prisma.fulfillmentProductDesign.findFirst({
       where: { ...where, placement },
       select: { id: true, storageFileId: true, version: true },

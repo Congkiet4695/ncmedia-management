@@ -21,7 +21,13 @@ import {
   useUpdateFlashSaleAutoConfig,
 } from '@/features/pod-flash-sale/hooks';
 import { browserTimeZone, listTimeZones } from '@/features/pod-flash-sale/timezone';
-import type { PodFlashSaleAutoRunResult } from '@/features/pod-flash-sale/types';
+import {
+  FLASH_SALE_AUTO_DURATION_MODES,
+  FLASH_SALE_AUTO_DURATIONS,
+  type FlashSaleAutoDuration,
+  type FlashSaleAutoDurationMode,
+  type PodFlashSaleAutoRunResult,
+} from '@/features/pod-flash-sale/types';
 
 const RUN_TIME_PATTERN = /^([01]\d|2[0-3]):[0-5]\d$/;
 
@@ -35,7 +41,8 @@ export default function FlashSaleAutoSettingsPage() {
 }
 
 /**
- * **Auto Flash Sale Scheduler** — Admin chọn giờ chạy mỗi ngày + múi giờ.
+ * **Settings → Auto Flash Sale Scheduler** — Admin chọn giờ chạy mỗi ngày + múi giờ + Khoảng thời gian
+ * của đợt sinh tự động (1/2/3 ngày lịch, kết thúc 23:59:59 theo múi giờ của CHÍNH đợt sale).
  *
  * 🔴 Không có giờ mặc định cứng: cấu hình chưa lưu thì ô giờ để trống, Admin phải chọn. Múi giờ
  * gợi ý là múi giờ của trình duyệt, không phải của server.
@@ -53,12 +60,16 @@ function AutoSettingsView() {
   const [enabled, setEnabled] = useState(false);
   const [runTime, setRunTime] = useState('');
   const [timezone, setTimezone] = useState('');
+  const [durationMode, setDurationMode] = useState<FlashSaleAutoDurationMode>('CALENDAR_DAYS');
+  const [duration, setDuration] = useState<FlashSaleAutoDuration>('THREE_DAYS');
 
   useEffect(() => {
     if (!config.data) return;
     setEnabled(config.data.enabled);
     setRunTime(config.data.runTime ?? '');
     setTimezone(config.data.timezone ?? browserTimeZone());
+    setDurationMode(config.data.durationMode);
+    setDuration(config.data.duration);
   }, [config.data]);
 
   const timeZoneOptions = useMemo(() => listTimeZones().map((zone) => ({ value: zone, label: zone })), []);
@@ -124,6 +135,33 @@ function AutoSettingsView() {
               <Label htmlFor="auto-timezone">{t('flashSale.auto.settings.timezone')}</Label>
               <Combobox id="auto-timezone" value={timezone} onChange={setTimezone} options={timeZoneOptions} />
             </div>
+            <div className="space-y-1.5">
+              <Label htmlFor="auto-duration-mode">{t('flashSale.auto.settings.durationMode')}</Label>
+              <Combobox
+                id="auto-duration-mode"
+                value={durationMode}
+                onChange={(value) => setDurationMode(value as FlashSaleAutoDurationMode)}
+                options={FLASH_SALE_AUTO_DURATION_MODES.map((mode) => ({
+                  value: mode,
+                  label: t(`flashSale.auto.settings.durationModes.${mode}`),
+                }))}
+              />
+            </div>
+            {durationMode === 'CALENDAR_DAYS' && (
+              <div className="space-y-1.5">
+                <Label htmlFor="auto-duration">{t('flashSale.auto.settings.duration')}</Label>
+                <Combobox
+                  id="auto-duration"
+                  value={duration}
+                  onChange={(value) => setDuration(value as FlashSaleAutoDuration)}
+                  options={FLASH_SALE_AUTO_DURATIONS.map((value) => ({
+                    value,
+                    label: t(`flashSale.auto.settings.durations.${value}`),
+                  }))}
+                />
+                <p className="text-xs text-muted-foreground">{t('flashSale.auto.settings.durationHint')}</p>
+              </div>
+            )}
           </div>
 
           <div className="flex flex-wrap gap-2">
@@ -131,7 +169,7 @@ function AutoSettingsView() {
               disabled={!runTimeValid || !timezone || save.isPending}
               onClick={() => {
                 void save
-                  .mutateAsync({ enabled, runTime, timezone })
+                  .mutateAsync({ enabled, runTime, timezone, durationMode, duration })
                   .then(() => toast.success(t('flashSale.auto.settings.saved')))
                   .catch(onError);
               }}

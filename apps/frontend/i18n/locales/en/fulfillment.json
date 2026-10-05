@@ -443,5 +443,24 @@
     "lastError": "Previous sync failed: {{error}}",
     "askAdmin": "Ask an admin to sync the catalog on the Product Mapping screen.",
     "start": "Sync catalog"
+  },
+  "baseCost": {
+    "title": "Update Base Cost",
+    "description": "Enter the base cost the provider charged for this fulfilled order. Profit and margin are recalculated immediately; the change is recorded in the timeline. If the provider later reports the actual cost, it replaces this value.",
+    "field": "Base Cost",
+    "fieldForSku": "Base Cost · {{sku}} × {{quantity}}",
+    "currency": "Currency",
+    "reason": "Reason / source (optional)",
+    "reasonPlaceholder": "e.g. Provider invoice #12345",
+    "total": "Total base cost: {{total}} {{currency}}",
+    "saved": "Base cost updated",
+    "error": {
+      "REQUIRED": "Enter the base cost.",
+      "NOT_NUMBER": "Base cost must be a number.",
+      "NEGATIVE": "Base cost cannot be negative.",
+      "DECIMALS": "At most {{digits}} decimal places.",
+      "CURRENCY_REQUIRED": "Choose a currency.",
+      "CURRENCY_INVALID": "Invalid currency code (e.g. USD)."
+    }
   }
 }

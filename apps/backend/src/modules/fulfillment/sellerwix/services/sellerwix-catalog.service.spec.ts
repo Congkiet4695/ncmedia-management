@@ -1,3 +1,4 @@
+import type { ConfigService } from '@nestjs/config';
 import { FulfillmentCatalogItemStatus } from '@prisma/client';
 import { TiktokEncryptionService } from '../../../pod-tiktok/services/tiktok-encryption.service';
 import {
@@ -28,7 +29,10 @@ function ok<T>(data: T) {
   return Promise.resolve({ data, requestId: 'r', durationMs: 1, httpStatus: 200 });
 }
 
-function build(overrides: Partial<Record<keyof SellerwixApiClient, jest.Mock>> = {}) {
+function build(
+  overrides: Partial<Record<keyof SellerwixApiClient, jest.Mock>> = {},
+  config: Record<string, unknown> = { 'fulfillment.sellerwix.costCurrency': 'USD' },
+) {
   const client = {
     listCategories: jest.fn(() =>
       ok([
@@ -101,6 +105,7 @@ function build(overrides: Partial<Record<keyof SellerwixApiClient, jest.Mock>> =
     new SellerwixCredentialService({
       decrypt: (v: string) => v,
     } as unknown as TiktokEncryptionService),
+    { get: (key: string) => config[key] } as unknown as ConfigService,
   );
   return { service, client };
 }
@@ -121,6 +126,8 @@ describe('SellerwixCatalogService.fetchCatalog', () => {
       ['SW-MD-OLD', 'SW-MD-OLD', FulfillmentCatalogItemStatus.INACTIVE],
     ]);
     expect(snapshot.products[0].rawData).toMatchObject({ categories: ['1', '2'] });
+    // API không trả đơn vị tiền ⇒ lấy từ cấu hình SELLERWIX_COST_CURRENCY.
+    expect(snapshot.products.map((p) => p.currency)).toEqual(['USD', 'USD']);
 
     expect(snapshot.variants).toHaveLength(2);
     expect(snapshot.variants[0]).toMatchObject({
@@ -139,6 +146,14 @@ describe('SellerwixCatalogService.fetchCatalog', () => {
       print_areas: [{ key: 'CF' }, { key: 'FB' }],
     });
     expect(snapshot.variants[1].sku).toBe('SW-MD-MPTG-WH-S');
+  });
+
+  it('thiếu cấu hình đơn vị tiền ⇒ currency NULL (không đoán)', async () => {
+    const { service } = build({}, {});
+
+    const snapshot = await service.fetchCatalog(ACCOUNT);
+
+    expect(snapshot.products.every((p) => p.currency === null)).toBe(true);
   });
 
   it('một lượt đọc lỗi ⇒ warnings (bước archive sẽ bị bỏ qua), không vứt dữ liệu đã đọc', async () => {

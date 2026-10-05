@@ -35,6 +35,7 @@ import {
   useSetFlashSaleAutoMode,
   useSyncFlashSalesFromTiktok,
 } from '@/features/pod-flash-sale/hooks';
+import { AUTO_FLASH_SALE_SETTINGS_PATH } from '@/features/pod-flash-sale/routes';
 import {
   FLASH_SALE_AUTO_LEAD_HOURS,
   POD_FLASH_SALE_STATUSES,
@@ -257,7 +258,7 @@ function FlashSaleListView() {
               {canConfigureAuto && (
                 <Button
                   variant="outline"
-                  onClick={() => router.push('/dashboard/pod/flash-sales/auto-settings')}
+                  onClick={() => router.push(AUTO_FLASH_SALE_SETTINGS_PATH)}
                 >
                   <CalendarClock className="size-4" />
                   {t('flashSale.auto.settingsButton')}

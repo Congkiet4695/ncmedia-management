@@ -109,6 +109,7 @@ export class PodListingReviewService {
         shopId: true,
         tiktokProductId: true,
         reviewStatus: true,
+        wentLiveAt: true,
       },
       // Cái lâu chưa hỏi nhất đi trước — không listing nào bị bỏ quên vĩnh viễn khi lô lớn
       // hơn sức của một tick.
@@ -165,6 +166,12 @@ export class PodListingReviewService {
               reviewStatusRaw: snapshot.raw,
               reviewReason: snapshot.reason,
               reviewCheckedAt: new Date(),
+              // 🔴 Lần ĐẦU TikTok báo ĐANG BÁN ⇒ draft đã lên sàn thật ⇒ rời màn Draft Listings. Chỉ
+              // dựa vào trạng thái TikTok trả về — không dựa vào "request publish thành công" (lúc đó
+              // sản phẩm mới vào hàng chờ duyệt). Đang duyệt / bị từ chối / lỗi ⇒ không đụng.
+              ...(snapshot.status === PodListingReviewStatus.ACTIVE && !draft.wentLiveAt
+                ? { wentLiveAt: new Date() }
+                : {}),
             },
           });
         } catch (error) {

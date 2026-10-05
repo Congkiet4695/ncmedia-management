@@ -171,13 +171,63 @@ describe('NotificationDispatcherService', () => {
     expect(result.nextAttemptAt!.getTime()).toBeGreaterThanOrEqual(before + backoffMs(1));
   });
 
-  it('TEST 19 — timeout (không rõ đã nhận chưa) ⇒ vẫn retry có giới hạn (at-least-once)', async () => {
+  it('🔴 TEST 19 — timeout (không rõ Telegram đã nhận chưa) ⇒ FAILED DELIVERY_UNKNOWN, KHÔNG tự gửi lại', async () => {
     const { service, telegram, finishCall } = build({ claimed: [event('e1')] });
     telegram.sendMessage.mockRejectedValue(
       new TelegramApiError(NOTIFICATION_ERROR_CODES.TIMEOUT, 'timeout', true, 'UNKNOWN'),
     );
     await service.runOnce();
-    expect(finishCall(0)[2]).toMatchObject({ status: 'PENDING', lastErrorCode: NOTIFICATION_ERROR_CODES.TIMEOUT });
+    expect(finishCall(0)[2]).toMatchObject({
+      status: 'FAILED',
+      lastErrorCode: NOTIFICATION_ERROR_CODES.DELIVERY_UNKNOWN,
+    });
+    expect(finishCall(0)[2].nextAttemptAt).toBeUndefined();
+    expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('timeout khi KẾT NỐI (chắc chắn chưa tới Telegram) ⇒ vẫn retry bình thường', async () => {
+    const { service, telegram, finishCall } = build({ claimed: [event('e1')] });
+    telegram.sendMessage.mockRejectedValue(
+      new TelegramApiError(NOTIFICATION_ERROR_CODES.NETWORK, 'connect timeout', true, 'NOT_DELIVERED'),
+    );
+    await service.runOnce();
+    expect(finishCall(0)[2]).toMatchObject({ status: 'PENDING', lastErrorCode: NOTIFICATION_ERROR_CODES.NETWORK });
+  });
+
+  it('🔴 Telegram ĐÃ nhận tin nhưng ghi SENT hỏng ⇒ thử ghi lại SENT, KHÔNG BAO GIỜ đổi sang PENDING / gửi lại', async () => {
+    const { service, telegram, events } = build({ claimed: [event('e1')] });
+    telegram.sendMessage.mockResolvedValue({ messageId: '42' });
+    events.finish.mockRejectedValueOnce(new Error('db hiccup')).mockResolvedValueOnce(true);
+
+    await service.runOnce();
+
+    expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
+    const results = (events.finish.mock.calls as Array<[string, string, { status: string }]>).map((call) => call[2].status);
+    expect(results).toEqual(['SENT', 'SENT']);
+  });
+
+  it('🔴 worker chết giữa lúc gửi (claim lại sự kiện còn dấu IN_FLIGHT) ⇒ DELIVERY_UNKNOWN, KHÔNG gọi Telegram', async () => {
+    const { service, telegram, events, finishCall } = build({
+      claimed: [event('e1', ORG_A, { attemptCount: 1, lastErrorCode: NOTIFICATION_ERROR_CODES.IN_FLIGHT })],
+    });
+
+    await service.runOnce();
+
+    expect(telegram.sendMessage).not.toHaveBeenCalled();
+    expect(events.beginAttempt).not.toHaveBeenCalled();
+    expect(finishCall(0)[2]).toMatchObject({ status: 'FAILED', lastErrorCode: NOTIFICATION_ERROR_CODES.DELIVERY_UNKNOWN });
+  });
+
+  it('retry sau lỗi CHẮC CHẮN chưa gửi (5xx) ⇒ CÙNG sự kiện được gửi lại, không sinh sự kiện mới', async () => {
+    const { service, telegram, events } = build({
+      claimed: [event('e1', ORG_A, { attemptCount: 1, lastErrorCode: NOTIFICATION_ERROR_CODES.SERVER_ERROR })],
+    });
+    telegram.sendMessage.mockResolvedValue({ messageId: '9' });
+
+    await service.runOnce();
+
+    expect(events.beginAttempt).toHaveBeenCalledWith('e1', expect.any(String), expect.any(Number));
+    expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
   });
 
   it('TEST 11 — hết số lần thử ⇒ FAILED (không retry vô hạn)', async () => {
