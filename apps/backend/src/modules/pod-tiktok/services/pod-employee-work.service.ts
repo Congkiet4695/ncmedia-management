@@ -18,6 +18,7 @@ import {
   type EmployeeWorkUserRow,
 } from '../repositories/pod-employee-work.repository';
 import { resolveDayRange, type DashboardDayRange } from '../shared/dashboard-metrics';
+import { labelCostOf } from '../shared/label-cost';
 
 const money = (value: Prisma.Decimal | null): number | null =>
   value === null ? null : Math.round(value.toNumber() * 100) / 100;
@@ -139,7 +140,14 @@ export class PodEmployeeWorkService {
     const range = this.range(query);
     const currency = query.currency ?? (await this.dashboard.currencies(organizationId))[0] ?? '';
     const pairs = (
-      await this.repo.pairs({ organizationId, currency, from: range.from, to: range.to, shopId: query.shopId })
+      await this.repo.pairs({
+        organizationId,
+        currency,
+        from: range.from,
+        to: range.to,
+        shopId: query.shopId,
+        label: labelCostOf(this.config),
+      })
     ).filter((pair) => !query.userId || pair.userId === query.userId);
 
     const users = await this.repo.users(organizationId, [...new Set(pairs.map((pair) => pair.userId))]);

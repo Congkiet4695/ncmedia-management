@@ -59,9 +59,22 @@ export type PodOrderFinancialsStatus =
   | 'NO_COST'
   | 'COST_PENDING'
   | 'COST_CURRENCY_UNKNOWN'
-  | 'CURRENCY_MISMATCH';
+  | 'CURRENCY_MISMATCH'
+  | 'SHIPPING_UNKNOWN'
+  | 'LABEL_CURRENCY_MISMATCH';
 
-/** Tài chính của đơn cho cột Giá — backend đã tính (profit = proceeds − base cost). */
+/** Phí ship Seller THỰC SỰ chịu (dương = chi phí) — backend xác định từ TikTok Finance. */
+export interface PodOrderSellerShipping {
+  amount: number;
+  /** `true` ⇒ TikTok đã trừ trong tiền thu về (lợi nhuận KHÔNG trừ lại). */
+  includedInProceeds: boolean;
+  source: 'SETTLEMENT' | 'TIKTOK_CHARGED' | 'SELLER_SHIPPING_DISCOUNT' | 'ORDER_DETAIL';
+}
+
+/**
+ * Tài chính của đơn cho cột Giá — backend đã tính:
+ * profit = proceeds − base cost − phí ship Seller CHƯA trong proceeds − label (mỗi đơn).
+ */
 export interface PodOrderFinancials {
   proceeds: PodOrderProceeds | null;
   /** Base cost = product cost của lần fulfill đang hiệu lực. */
@@ -69,6 +82,11 @@ export interface PodOrderFinancials {
   productCostConfirmed: boolean;
   costCurrency: string | null;
   fulfilledBy: string | null;
+  /** `null` = chưa xác định (KHÔNG phải 0). */
+  sellerShipping: PodOrderSellerShipping | null;
+  /** Chi phí label MỖI ĐƠN (cấu hình ORDER_LABEL_COST). */
+  labelCost: number;
+  labelCostCurrency: string;
   profit: number | null;
   /** Tỉ lệ (0.25 = 25%) = profit ÷ proceeds. */
   margin: number | null;
@@ -197,6 +215,7 @@ export interface PodOrderShop {
 export interface PodOrder {
   id: string;
   tiktokOrderId: string;
+  financials: PodOrderFinancials;
   status: PodOrderStatus;
   shop: PodOrderShop;
   accountName: string;

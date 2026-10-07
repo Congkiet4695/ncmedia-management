@@ -143,9 +143,13 @@ describe('FulfillmentService.updateBaseCostManually', () => {
         },
       ],
       cost: { productCost: cost.productCost, productCostConfirmed: cost.productCostConfirmed, currency: fresh.currency, fulfilledBy: 'Sellerwix' },
+      // Free ship do Seller tài trợ 0 (Get Order Detail) ⇒ phí ship Seller 0; label 0.50 / đơn.
+      shipping: { shippingType: 'TIKTOK', sellerShippingDiscount: 0 },
+      labelCost: { amount: 0.5, currency: 'USD' },
     });
-    expect(financials).toMatchObject({ status: 'OK', productCost: 9.12, profit: 9.05 });
-    expect(financials.margin).toBeCloseTo(0.4981, 4);
+    // TEST 8: đổi base cost sau fulfill ⇒ lợi nhuận tính lại ngay: 18.17 − 9.12 − 0 − 0.50.
+    expect(financials).toMatchObject({ status: 'OK', productCost: 9.12, profit: 8.55 });
+    expect(financials.margin).toBeCloseTo(8.55 / 18.17, 4);
   });
 
   it('bản ghi CHƯA có đơn vị tiền ⇒ phải gửi currency; có thì ghi kèm', async () => {

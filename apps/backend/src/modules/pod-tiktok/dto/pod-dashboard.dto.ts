@@ -186,7 +186,14 @@ export class DashboardSellerRowDto {
   @ApiProperty() estRevenue!: number;
   @ApiProperty() revenue!: number;
   @ApiProperty() baseCost!: number;
-  @ApiProperty({ description: 'PF = Est. Revenue − Basecost.' }) profit!: number;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description:
+      'PF = Σ lợi nhuận từng đơn (CÙNG công thức màn Order: tiền thu về − giá vốn − phí ship Seller chưa trừ − label). ' +
+      'NULL = không đơn nào tính được.',
+  })
+  profit!: number | null;
   @ApiProperty() paid!: number;
   @ApiProperty() processing!: number;
   @ApiProperty() hold!: number;

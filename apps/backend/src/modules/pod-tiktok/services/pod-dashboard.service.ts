@@ -18,6 +18,7 @@ import {
   type Window,
 } from '../repositories/pod-dashboard.repository';
 import { percentChange, resolveDayRange, type DashboardDayRange } from '../shared/dashboard-metrics';
+import { labelCostOf } from '../shared/label-cost';
 import { ORDER_STATUS_GROUP_KEYS } from '../shared/order-status-groups';
 import { resolveDateRange } from '../utils/date-range.util';
 import type { PodAccessScope } from './pod-access-scope.service';
@@ -152,6 +153,7 @@ export class PodDashboardService {
       order: query.order ?? 'desc',
       page,
       limit,
+      label: labelCostOf(this.config),
     });
     return {
       currency: filter.currency || null,
@@ -161,7 +163,7 @@ export class PodDashboardService {
         estRevenue: money(row.estRevenue),
         revenue: money(row.revenue),
         baseCost: money(row.baseCost),
-        profit: money(row.profit),
+        profit: row.profit === null ? null : money(row.profit),
         paid: money(row.paid),
         processing: money(row.processing),
         hold: money(row.hold),

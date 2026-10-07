@@ -1378,7 +1378,9 @@
     "syncVersion": "Số lần cập nhật từ TikTok",
     "tax": "Thuế",
     "tiktokUpdatedAt": "TikTok cập nhật lúc",
-    "trackingNumber": "Mã vận đơn"
+    "trackingNumber": "Mã vận đơn",
+    "financialTitle": "Thông tin tài chính",
+    "financialFormula": "Lợi nhuận = Tiền thu về − Base cost − Phí ship Seller (phần chưa trừ trong tiền thu về) − Label cost. Margin = Lợi nhuận ÷ Tiền thu về."
   },
   "orders": {
     "allAccounts": "Tất cả kết nối",
@@ -1449,7 +1451,9 @@
         "NO_COST": "Chưa có base cost — đơn chưa được fulfill (hoặc lần fulfill đã huỷ).",
         "COST_PENDING": "Đang chờ nhà cung cấp fulfillment xác nhận base cost.",
         "COST_CURRENCY_UNKNOWN": "Nhà cung cấp không nêu đơn vị tiền của base cost — chưa tính lợi nhuận.",
-        "CURRENCY_MISMATCH": "Tiền thu về và base cost khác đơn vị tiền — chưa tính lợi nhuận."
+        "CURRENCY_MISMATCH": "Tiền thu về và base cost khác đơn vị tiền — chưa tính lợi nhuận.",
+        "SHIPPING_UNKNOWN": "Chưa xác định được phí ship Seller chịu — chưa tính lợi nhuận (không coi là $0).",
+        "LABEL_CURRENCY_MISMATCH": "Label cost chỉ cấu hình cho đơn vị tiền khác — chưa tính lợi nhuận (không quy đổi tỉ giá)."
       },
       "section": {
         "revenue": "Doanh thu",
@@ -1489,6 +1493,22 @@
         "shipping_insurance_fee_amount": "Bảo hiểm vận chuyển",
         "signature_confirmation_fee_amount": "Phí xác nhận chữ ký",
         "tiktok_shop_shipping_incentive_amount": "Hỗ trợ phí ship của TikTok Shop"
+      },
+      "baseCost": "Base cost",
+      "sellerShipping": "Phí ship Seller",
+      "sellerShippingIncluded": "Phí ship Seller (đã trừ)",
+      "labelCost": "Label cost",
+      "labelCostHint": "Chi phí label tính MỘT lần cho mỗi đơn (không nhân theo sản phẩm / SKU).",
+      "sellerShippingHint": {
+        "included": "TikTok ĐÃ trừ khoản này trong tiền thu về — lợi nhuận không trừ lại.",
+        "pending": "Tiền thu về CHƯA trừ khoản này (phí ship sau giảm có thể là $0 nhưng Seller vẫn chịu) — lợi nhuận đã trừ.",
+        "unknown": "Chưa xác định được phí ship Seller chịu (TikTok chưa trả đủ dữ liệu, hoặc đơn tự vận chuyển) — chưa tính lợi nhuận. Đồng bộ tài chính lại để cập nhật."
+      },
+      "sellerShippingSource": {
+        "SETTLEMENT": "Nguồn: TikTok Finance — shipping_cost_amount của giao dịch đã quyết toán.",
+        "TIKTOK_CHARGED": "Nguồn: TikTok Finance — phí ship TikTok đã tính trong ước tính.",
+        "SELLER_SHIPPING_DISCOUNT": "Nguồn: TikTok Finance — seller_shipping_fee_discount_amount (free ship do Seller tài trợ).",
+        "ORDER_DETAIL": "Nguồn: Get Order Detail — shipping_fee_seller_discount (giao dịch chưa có breakdown)."
       }
     },
     "fulfillment": {

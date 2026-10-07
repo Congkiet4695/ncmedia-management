@@ -1,6 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import type { LabelCostConfig } from '../shared/order-financials';
+import { orderProfitCtes } from '../shared/order-profit.sql';
 import { NON_BLOCKING_FULFILLMENT_STATUSES } from '../../fulfillment/shared/fulfillment-lifecycle';
 import { ORDER_STATUS_GROUPS, type OrderStatusGroup } from '../shared/order-status-groups';
 
@@ -69,7 +71,8 @@ export interface SellerStatRow {
   estRevenue: string;
   revenue: string;
   baseCost: string;
-  profit: string;
+  /** NULL = không đơn nào của seller tính được lợi nhuận. */
+  profit: string | null;
   paid: string;
   processing: string;
   hold: string;
@@ -105,7 +108,9 @@ const dec = (value: Prisma.Decimal | string | number | null | undefined): string
  *   Doanh thu     = Σ pod_orders.total_amount, trừ đơn CANCELLED (GMV — tiền khách trả)
  *   Basecost      = Σ base_cost × quantity — dòng fulfillment ĐÃ được nhà cung cấp xác nhận giá, của
  *                   bản ghi đang hiệu lực (không tính lần gửi đã huỷ / lỗi), cùng đơn vị tiền
- *   PF (Profit)   = Est. Revenue − Basecost
+ *   PF (Profit)   = Σ lợi nhuận TỪNG ĐƠN theo CÙNG công thức màn Order (`orderProfitCtes`): tiền thu về −
+ *                   giá vốn − phí ship Seller chưa trong tiền thu về − label mỗi đơn. Đơn thiếu dữ kiện không
+ *                   cộng (không coi là 0); không đơn nào tính được ⇒ NULL ("—").
  *
  * 🔴 Phạm vi tổ chức + phạm vi Seller nằm trong MỌI câu WHERE (`scope()`), không lọc ở frontend.
  */
@@ -300,6 +305,8 @@ export class PodDashboardRepository {
       order: 'asc' | 'desc';
       page: number;
       limit: number;
+      /** Chi phí label mỗi đơn — cùng nguồn với màn Order. */
+      label: LabelCostConfig;
     },
   ): Promise<{ items: SellerStatRow[]; total: number }> {
     const sellerConds: Prisma.Sql[] = [
@@ -331,7 +338,7 @@ export class PodDashboardRepository {
         est_revenue: Prisma.Decimal;
         revenue: Prisma.Decimal;
         base_cost: Prisma.Decimal;
-        profit: Prisma.Decimal;
+        profit: Prisma.Decimal | null;
         paid: Prisma.Decimal;
         processing: Prisma.Decimal;
         hold: Prisma.Decimal;
@@ -339,13 +346,17 @@ export class PodDashboardRepository {
       }>
     >(Prisma.sql`
       WITH ${this.orderFinanceCte(filter, window)},
+      ${orderProfitCtes(filter.organizationId, options.label)},
       by_orders AS (
         SELECT a.seller_id,
                COUNT(*)::bigint                                                         AS orders,
                COALESCE(SUM(fin.proceeds), 0)                                           AS est_revenue,
                COALESCE(SUM(fin.total_amount) FILTER (WHERE fin.grp <> 'CANCELLED'), 0) AS revenue,
-               COALESCE(SUM(fin.cost), 0)                                               AS base_cost
-          FROM fin JOIN pod_tiktok_accounts a ON a.id = fin.account_id
+               COALESCE(SUM(fin.cost), 0)                                               AS base_cost,
+               SUM(op.profit)                                                           AS profit
+          FROM fin
+          JOIN pod_tiktok_accounts a ON a.id = fin.account_id
+          LEFT JOIN order_profit op  ON op.id = fin.id
          GROUP BY a.seller_id
       ),
       by_paid AS (
@@ -391,7 +402,7 @@ export class PodDashboardRepository {
                COALESCE(o.est_revenue, 0)                AS est_revenue,
                COALESCE(o.revenue, 0)                    AS revenue,
                COALESCE(o.base_cost, 0)                  AS base_cost,
-               COALESCE(o.est_revenue, 0) - COALESCE(o.base_cost, 0) AS profit,
+               o.profit                                  AS profit,
                COALESCE(pa.amount, 0)                    AS paid,
                COALESCE(pr.amount, 0)                    AS processing,
                COALESCE(h.amount, 0)                     AS hold
@@ -416,7 +427,7 @@ export class PodDashboardRepository {
         estRevenue: dec(row.est_revenue),
         revenue: dec(row.revenue),
         baseCost: dec(row.base_cost),
-        profit: dec(row.profit),
+        profit: row.profit === null ? null : dec(row.profit),
         paid: dec(row.paid),
         processing: dec(row.processing),
         hold: dec(row.hold),

@@ -79,7 +79,7 @@ async function main() {
   check('Seller: Σ đơn = tổng đơn của kỳ', sellers.items.reduce((s, r) => s + r.orders, 0) === s2.orders.total, [sellers.items.map((r) => r.orders), s2.orders.total]);
   check('Seller: Σ đã thanh toán = tài chính', near(sellers.items.reduce((s, r) => s + r.paid, 0), s2.finance.paid));
   check('Seller: Σ on hold = Hold', near(sellers.items.reduce((s, r) => s + r.hold, 0), overview.hold.amount));
-  check('PF = Est. Revenue − Basecost (từng dòng)', sellers.items.every((r) => near(r.profit, r.estRevenue - r.baseCost)));
+  check('PF = Σ lợi nhuận từng đơn theo công thức màn Order (null khi không đơn nào tính được; đối chiếu từng đơn: e2e-employee-work P1)', sellers.items.every((r) => r.profit === null || Number.isFinite(r.profit)));
   const gmv = await one(Prisma.sql`SELECT COALESCE(SUM(total_amount),0)::float AS amt FROM pod_orders
     WHERE organization_id=${orgId}::uuid AND deleted_at IS NULL AND currency=${overview.currency} AND status <> 'CANCELLED'
       AND ordered_at >= (${yearAgo}::date - interval '7 hours')`);

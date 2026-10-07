@@ -32,7 +32,24 @@ export class PodOrderProceedsDto {
   @ApiProperty({ nullable: true, type: String }) unsettledReason!: string | null;
 }
 
-/** Tài chính của đơn cho cột "Giá": tiền thu về · giá vốn · lợi nhuận · margin. */
+/** Phí ship Seller THỰC SỰ chịu (dương = chi phí). */
+export class PodOrderSellerShippingDto {
+  @ApiProperty() amount!: number;
+  @ApiProperty({
+    description: 'true ⇒ TikTok đã trừ trong tiền thu về (không trừ lại vào lợi nhuận); false ⇒ chưa trừ, lợi nhuận trừ khoản này',
+  })
+  includedInProceeds!: boolean;
+  @ApiProperty({
+    enum: ['SETTLEMENT', 'TIKTOK_CHARGED', 'SELLER_SHIPPING_DISCOUNT', 'ORDER_DETAIL'],
+    description:
+      'SETTLEMENT: −shipping_cost_amount (đã quyết toán) · TIKTOK_CHARGED: −est_shipping_cost_amount (TikTok đã tính) · ' +
+      'SELLER_SHIPPING_DISCOUNT: −supplementary_component.seller_shipping_fee_discount_amount (chưa tính) · ' +
+      'ORDER_DETAIL: payment.shipping_fee_seller_discount (giao dịch chưa có breakdown)',
+  })
+  source!: string;
+}
+
+/** Tài chính của đơn cho cột "Giá": tiền thu về · giá vốn · phí ship Seller · label · lợi nhuận · margin. */
 export class PodOrderFinancialsDto {
   @ApiProperty({ type: PodOrderProceedsDto, nullable: true }) proceeds!: PodOrderProceedsDto | null;
   @ApiProperty({
@@ -45,7 +62,19 @@ export class PodOrderFinancialsDto {
   @ApiProperty({ nullable: true, type: String }) costCurrency!: string | null;
   @ApiProperty({ nullable: true, type: String, description: 'Nhà cung cấp thực sự nhận đơn' })
   fulfilledBy!: string | null;
-  @ApiProperty({ nullable: true, type: Number, description: 'profit = proceeds − productCost' })
+  @ApiProperty({
+    type: PodOrderSellerShippingDto,
+    nullable: true,
+    description: 'NULL = chưa xác định được (KHÔNG phải 0)',
+  })
+  sellerShipping!: PodOrderSellerShippingDto | null;
+  @ApiProperty({ description: 'Chi phí label MỖI ĐƠN (ORDER_LABEL_COST)' }) labelCost!: number;
+  @ApiProperty() labelCostCurrency!: string;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description: 'profit = proceeds − productCost − phí ship Seller CHƯA trong proceeds − labelCost',
+  })
   profit!: number | null;
   @ApiProperty({
     nullable: true,
@@ -61,6 +90,8 @@ export class PodOrderFinancialsDto {
       'COST_PENDING',
       'COST_CURRENCY_UNKNOWN',
       'CURRENCY_MISMATCH',
+      'SHIPPING_UNKNOWN',
+      'LABEL_CURRENCY_MISMATCH',
     ],
     description: 'Vì sao chưa tính được lợi nhuận (OK = đã tính)',
   })

@@ -44,7 +44,7 @@ async function main() {
     const ts = await app.get(PodOrderFinanceService).summarize(org, all);
     const sqlRows = await prisma.$queryRaw<Array<{ id: string; profit: Prisma.Decimal | null }>>(Prisma.sql`
       WITH o AS (SELECT po.id, po.tiktok_order_id, po.shop_id FROM pod_orders po WHERE po.organization_id = ${org}::uuid AND po.deleted_at IS NULL),
-      ${orderProfitCtes(org)}
+      ${orderProfitCtes(org, app.get(PodOrderFinanceService).labelCost())}
       SELECT id, profit FROM order_profit`);
     const mismatches = sqlRows.filter((row) => {
       const expected = ts.get(row.id)?.profit ?? null;
@@ -204,7 +204,7 @@ async function main() {
     const tsP2 = await app.get(PodOrderFinanceService).summarize(org, p2Orders);
     const sqlP2 = await prisma.$queryRaw<Array<{ id: string; profit: Prisma.Decimal | null }>>(Prisma.sql`
       WITH o AS (SELECT po.id, po.tiktok_order_id, po.shop_id FROM pod_orders po WHERE po.id IN (${Prisma.join(p2Orders.map((o) => Prisma.sql`${o.id}::uuid`))})),
-      ${orderProfitCtes(org)}
+      ${orderProfitCtes(org, app.get(PodOrderFinanceService).labelCost())}
       SELECT id, profit FROM order_profit`);
     const p2 = p2Orders.map((order, index) => ({
       scenario: index,

@@ -13,6 +13,7 @@ import { useApiError } from '@/hooks/use-api-error';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { ImageLightbox } from '@/features/pod-tiktok/components/image-lightbox';
 import { OrderProductList } from '@/features/pod-tiktok/components/order-product-list';
+import { OrderFinancialCard } from '@/features/pod-tiktok/components/orders/order-financial-card';
 import { PodOrderStatusBadge } from '@/features/pod-tiktok/components/pod-order-status-badge';
 import { UploadDesignDialog } from '@/features/pod-tiktok/components/upload-design-dialog';
 import type { PodOrderItem } from '@/features/pod-tiktok/order-types';
@@ -202,6 +203,8 @@ function DetailView({ id }: { id: string }) {
             </p>
           </CardContent>
         </Card>
+
+        <OrderFinancialCard financials={order.financials} currency={order.currency} />
       </div>
 
       <Card>

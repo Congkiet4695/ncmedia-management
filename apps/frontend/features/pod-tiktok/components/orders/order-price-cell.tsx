@@ -7,14 +7,17 @@ import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { cn } from '@/lib/utils';
 import { EMPTY, type OrderPriceBreakdown } from '../../order-view-model';
 import type { FinanceBreakdown, PodOrderProceeds } from '../../order-types';
+import { useFinancialLabels } from './order-financial-labels';
 
 /**
- * Cột **Giá**: Tạm tính · Thuế · Phí ship · Tổng tiền · Tiền thu về · Lợi nhuận · Margin.
+ * Cột **Giá**: Tạm tính · Thuế · Phí ship · Tổng tiền · Tiền thu về · Base cost · Phí ship Seller · Label ·
+ * Lợi nhuận · Margin.
  *
  * 🔴 Giao diện KHÔNG tự tính công thức tài chính nào — mọi số do backend trả:
  *   - Tiền thu về = \`settlement_amount\` (đã quyết toán) hoặc \`est_settlement_amount\` (ước tính)
  *     của TikTok Finance API; nhãn "Ước tính" / "Đã quyết toán" nói rõ nguồn.
- *   - Lợi nhuận = tiền thu về − base cost; Margin = lợi nhuận ÷ tiền thu về (backend tính).
+ *   - Lợi nhuận = tiền thu về − base cost − phí ship Seller CHƯA nằm trong tiền thu về − label (mỗi đơn);
+ *     Margin = lợi nhuận ÷ tiền thu về (backend tính).
  *   - Chưa đủ dữ kiện ⇒ \`—\` kèm tooltip nói đúng thiếu gì (chưa fulfill, chờ báo giá…).
  *
  * Hover dòng Tiền thu về ⇒ breakdown NGUYÊN VĂN của TikTok (Gross sales, Seller discount,
@@ -30,8 +33,7 @@ export function OrderPriceCell({ price }: { price: OrderPriceBreakdown }) {
   const money = (value: number | null, currency = price.currency): string =>
     value === null ? EMPTY : formatCurrency(value, currency);
 
-  const profitHint =
-    financials.status === 'OK' ? undefined : t(`orders.price.profitStatus.${financials.status}`);
+  const { sellerShippingLabel, sellerShippingHint, baseCostHint, profitHint } = useFinancialLabels(financials);
 
   return (
     <div className="space-y-0.5 text-right text-[11px] leading-tight">
@@ -60,6 +62,21 @@ export function OrderPriceCell({ price }: { price: OrderPriceBreakdown }) {
             t('orders.price.profitStatus.NO_PROCEEDS')
           )
         }
+      />
+      <Line
+        label={t('orders.price.baseCost')}
+        value={money(financials.productCost, financials.costCurrency ?? proceedsCurrency)}
+        hint={baseCostHint}
+      />
+      <Line
+        label={sellerShippingLabel}
+        value={financials.sellerShipping ? money(financials.sellerShipping.amount, proceedsCurrency) : EMPTY}
+        hint={sellerShippingHint}
+      />
+      <Line
+        label={t('orders.price.labelCost')}
+        value={money(financials.labelCost, financials.labelCostCurrency || proceedsCurrency)}
+        hint={t('orders.price.labelCostHint')}
       />
       <Line
         label={t('orders.price.profit')}
@@ -211,12 +228,15 @@ function Line({
   hint?: ReactNode;
   tone?: 'positive' | 'negative';
 }) {
+  // 🔴 Nhãn `min-w-0` (được co / xuống dòng), số tiền `shrink-0 whitespace-nowrap` (không bao giờ gãy
+  // "11.24 | US$"). Trước đây nhãn là `shrink-0`: bảng tính độ rộng cột theo min-content (cho phép xuống dòng)
+  // nhưng khi vẽ nhãn lại giữ nguyên một dòng ⇒ dòng rộng hơn cột và tràn sang cột Trạng thái.
   const body = (
-    <div className="flex items-baseline justify-between gap-2">
-      <span className="shrink-0 text-muted-foreground opacity-80">{label}</span>
+    <div className="flex min-w-0 items-baseline justify-between gap-2">
+      <span className="min-w-0 text-left text-muted-foreground opacity-80">{label}</span>
       <span
         className={cn(
-          'tabular-nums',
+          'shrink-0 whitespace-nowrap tabular-nums',
           emphasis ? 'font-semibold text-foreground' : 'text-muted-foreground',
           tone === 'positive' && 'font-medium text-emerald-600 dark:text-emerald-400',
           tone === 'negative' && 'font-medium text-destructive',

@@ -157,6 +157,15 @@ export default () => ({
   timezoneOffsetMinutes: parseInt(process.env.APP_TIMEZONE_OFFSET_MINUTES ?? '420', 10),
 
   /**
+   * Chi phí label tính cho MỖI ĐƠN (không theo sản phẩm / SKU / kiện) khi tính lợi nhuận đơn POD.
+   * Chỉ trừ được vào đơn CÙNG đơn vị tiền (không quy đổi tỉ giá) — đơn tiền khác ⇒ lợi nhuận "—".
+   */
+  orderLabelCost: {
+    amount: parseFloat(process.env.ORDER_LABEL_COST ?? '0.50'),
+    currency: (process.env.ORDER_LABEL_COST_CURRENCY ?? 'USD').toUpperCase(),
+  },
+
+  /**
    * Module Fulfillment — gửi đơn sang xưởng in (docs/fulfillment/README.md).
    *
    * API key của nhà cung cấp KHÔNG nằm ở đây: mỗi Organization tự cấu hình và khoá được

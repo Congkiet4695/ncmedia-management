@@ -1,11 +1,14 @@
 import { Injectable } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PodStatementTxType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { NON_BLOCKING_FULFILLMENT_STATUSES } from '../../fulfillment/shared/fulfillment-lifecycle';
 import { productCostOf } from '../../fulfillment/shared/product-cost';
+import { labelCostOf } from '../shared/label-cost';
 import {
   calculateOrderFinancials,
   type FinanceTransactionInput,
+  type LabelCostConfig,
   type OrderFinancials,
 } from '../shared/order-financials';
 
@@ -16,7 +19,10 @@ const UNSETTLED_ORDER_TYPE = 'ORDER';
  * PodOrderFinanceService — nạp dữ liệu tài chính cho MỘT TRANG đơn và tính bằng
  * \`calculateOrderFinancials\`.
  *
- * 🔴 Ba truy vấn cho cả trang (settled · unsettled · fulfillment), ghép trong bộ nhớ — không N+1.
+ * 🔴 Bốn truy vấn cho cả trang (settled · unsettled · fulfillment · vận chuyển của đơn), ghép trong bộ nhớ —
+ * không N+1. KHÔNG gọi TikTok: mọi số liệu tài chính đã được lượt đồng bộ Payout ghi vào DB (upsert theo
+ * `tiktok_transaction_id`), nên lợi nhuận luôn được tính LẠI từ dữ liệu mới nhất mỗi lần đọc (ADR-014) —
+ * đổi giá vốn, fulfill / huỷ fulfill, đồng bộ tài chính hay đổi `ORDER_LABEL_COST` đều phản ánh ngay.
  * Mọi truy vấn khoá theo \`organizationId\` (ADR-004); tập đơn truyền vào đã được lọc theo phạm vi
  * shop của người gọi ở tầng trên.
  *
@@ -26,7 +32,15 @@ const UNSETTLED_ORDER_TYPE = 'ORDER';
  */
 @Injectable()
 export class PodOrderFinanceService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly config: ConfigService,
+  ) {}
+
+  /** Chi phí label mỗi đơn (`ORDER_LABEL_COST` / `ORDER_LABEL_COST_CURRENCY`) — nguồn DUY NHẤT cho mọi nơi tính lợi nhuận. */
+  labelCost(): LabelCostConfig {
+    return labelCostOf(this.config);
+  }
 
   async summarize(
     organizationId: string,
@@ -36,7 +50,7 @@ export class PodOrderFinanceService {
     const tiktokIds = orders.map((order) => order.tiktokOrderId);
     const podOrderIds = orders.map((order) => order.id);
 
-    const [settledRows, unsettledRows, fulfillmentRows] = await Promise.all([
+    const [settledRows, unsettledRows, fulfillmentRows, shippingRows] = await Promise.all([
       this.prisma.podTiktokStatementTransaction.findMany({
         where: {
           organizationId,
@@ -67,7 +81,14 @@ export class PodOrderFinanceService {
         },
         orderBy: { updatedAt: 'desc' },
       }),
+      // Get Order Detail: loại vận chuyển + free ship do Seller tài trợ (nguồn dự phòng của phí ship Seller).
+      this.prisma.podOrder.findMany({
+        where: { organizationId, id: { in: podOrderIds } },
+        select: { id: true, shippingType: true, shippingFeeSellerDiscount: true },
+      }),
     ]);
+    const shippingOf = new Map(shippingRows.map((row) => [row.id, row]));
+    const labelCost = this.labelCost();
 
     const settled = groupBy(settledRows, (row) => row.tiktokOrderId);
     const unsettled = groupBy(unsettledRows, (row) => row.tiktokOrderId);
@@ -80,6 +101,7 @@ export class PodOrderFinanceService {
     for (const order of orders) {
       const record = fulfillment.get(order.id);
       const cost = record ? productCostOf(record.submittedAt !== null, record.items) : null;
+      const shipping = shippingOf.get(order.id);
       result.set(
         order.id,
         calculateOrderFinancials({
@@ -118,6 +140,11 @@ export class PodOrderFinanceService {
                   fulfilledBy: record.account?.name ?? null,
                 }
               : null,
+          shipping: {
+            shippingType: shipping?.shippingType ?? null,
+            sellerShippingDiscount: toNumber(shipping?.shippingFeeSellerDiscount ?? null),
+          },
+          labelCost,
         }),
       );
     }

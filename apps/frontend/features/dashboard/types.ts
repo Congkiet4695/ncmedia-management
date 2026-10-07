@@ -105,7 +105,8 @@ export interface DashboardSellerRow {
   estRevenue: number;
   revenue: number;
   baseCost: number;
-  profit: number;
+  /** `null` = không đơn nào tính được lợi nhuận. */
+  profit: number | null;
   paid: number;
   processing: number;
   hold: number;

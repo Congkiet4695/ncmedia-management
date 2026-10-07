@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PodListingJobItemStatus, PodListingJobType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import type { LabelCostConfig } from '../shared/order-financials';
 import { orderProfitCtes } from '../shared/order-profit.sql';
 
 /**
@@ -20,6 +21,8 @@ export interface EmployeeWorkFilter {
   from: Date;
   to: Date;
   shopId?: string;
+  /** Chi phí label mỗi đơn — trừ vào lợi nhuận (cùng nguồn với màn Order). */
+  label: LabelCostConfig;
 }
 
 /** Một cặp (người dùng × shop): đã listing trên shop đó trong khoảng, và/hoặc phụ trách shop đó. */
@@ -136,7 +139,7 @@ export class PodEmployeeWorkRepository {
            AND po.ordered_at BETWEEN ${filter.from} AND ${filter.to}
            AND po.shop_id IN (SELECT shop_id FROM pairs)
       ),
-      ${orderProfitCtes(org)},
+      ${orderProfitCtes(org, filter.label)},
       shop_orders AS (
         SELECT shop_id, COUNT(*)::bigint AS orders, COUNT(profit)::bigint AS profit_orders, SUM(profit) AS profit
           FROM order_profit

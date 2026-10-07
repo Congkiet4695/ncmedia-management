@@ -92,6 +92,10 @@ export const envValidationSchema = Joi.object({
   // Múi giờ quy đổi preset lọc thời gian (phút). Mặc định 420 = UTC+7.
   APP_TIMEZONE_OFFSET_MINUTES: Joi.number().integer().min(-720).max(840).default(420),
 
+  // Chi phí label MỖI ĐƠN trừ vào lợi nhuận đơn POD (mặc định 0.50 USD). Đơn khác đơn vị tiền ⇒ lợi nhuận "—".
+  ORDER_LABEL_COST: Joi.number().min(0).max(1000).default(0.5),
+  ORDER_LABEL_COST_CURRENCY: Joi.string().length(3).default('USD'),
+
   // --- Module POD — TikTok Shop (docs/pod-tiktok/**) ---
   // app_key / app_secret / service_id: Partner Center → App & Service → Basic Information.
   TIKTOK_APP_KEY: Joi.string().required(),

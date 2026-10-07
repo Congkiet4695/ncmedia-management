@@ -124,7 +124,7 @@ async function main() {
         await dashboard.sellerStats(
           { organizationId: org, currency: order.currency ?? 'USD', accountIds: [order.accountId] },
           window,
-          { activeOnly: false, sort: 'orders', order: 'desc', page: 1, limit: 100 },
+          { activeOnly: false, sort: 'orders', order: 'desc', page: 1, limit: 100, label: { amount: 0.5, currency: 'USD' } },
         )
       ).items.reduce((sum, item) => sum + Number(item.baseCost), 0);
 

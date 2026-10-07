@@ -4,16 +4,10 @@ import { Package } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { cn } from '@/lib/utils';
+import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PodOrderCard } from './orders/pod-order-card';
-import { PodOrderRow } from './orders/pod-order-row';
+import { ORDER_COLUMNS, PodOrderRow } from './orders/pod-order-row';
 import type { LightboxRequest } from '../order-view-model';
 import type { PodOrderItem, PodOrderListItem } from '../order-types';
 
@@ -98,14 +92,26 @@ export function PodOrderTable({
                 />
               </TableHead>
               <TableHead className="w-8 px-1" />
-              <TableHead>{t('orders.columns.info')}</TableHead>
-              <TableHead>{t('orders.columns.products')}</TableHead>
-              {/* Tablet ẩn hai cột tra cứu để cột Products còn đủ chỗ thở (§Responsive). */}
-              <TableHead className="hidden lg:table-cell">{t('orders.columns.price')}</TableHead>
-              <TableHead>{t('orders.columns.status')}</TableHead>
-              <TableHead className="hidden lg:table-cell">{t('orders.columns.tracking')}</TableHead>
-              <TableHead>{t('orders.columns.fulfillment')}</TableHead>
-              <TableHead className="text-right">{t('orders.columns.action')}</TableHead>
+              <TableHead className={ORDER_COLUMNS.info.cell}>{t('orders.columns.info')}</TableHead>
+              <TableHead className={ORDER_COLUMNS.products.cell}>
+                {t('orders.columns.products')}
+              </TableHead>
+              {/* Mọi cột luôn hiện; thiếu chỗ ⇒ bảng cuộn ngang trong khung `Table` (không ép cột, không giấu giá). */}
+              <TableHead className={ORDER_COLUMNS.price.cell}>
+                {t('orders.columns.price')}
+              </TableHead>
+              <TableHead className={ORDER_COLUMNS.status.cell}>
+                {t('orders.columns.status')}
+              </TableHead>
+              <TableHead className={ORDER_COLUMNS.tracking.cell}>
+                {t('orders.columns.tracking')}
+              </TableHead>
+              <TableHead className={ORDER_COLUMNS.fulfillment.cell}>
+                {t('orders.columns.fulfillment')}
+              </TableHead>
+              <TableHead className={cn(ORDER_COLUMNS.action.cell, 'text-right')}>
+                {t('orders.columns.action')}
+              </TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>

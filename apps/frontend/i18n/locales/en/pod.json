@@ -1378,7 +1378,9 @@
     "syncVersion": "Updates received from TikTok",
     "tax": "Tax",
     "tiktokUpdatedAt": "TikTok updated at",
-    "trackingNumber": "Tracking number"
+    "trackingNumber": "Tracking number",
+    "financialTitle": "Financial information",
+    "financialFormula": "Profit = Proceeds − Base cost − Seller shipping fee (part not yet deducted from proceeds) − Label cost. Margin = Profit ÷ Proceeds."
   },
   "orders": {
     "allAccounts": "All connections",
@@ -1449,7 +1451,9 @@
         "NO_COST": "No base cost yet — the order has not been fulfilled (or the fulfillment was cancelled).",
         "COST_PENDING": "Waiting for the fulfillment provider to confirm the base cost.",
         "COST_CURRENCY_UNKNOWN": "The provider did not state the currency of the base cost — profit is not calculated.",
-        "CURRENCY_MISMATCH": "Proceeds and base cost use different currencies — profit is not calculated."
+        "CURRENCY_MISMATCH": "Proceeds and base cost use different currencies — profit is not calculated.",
+        "SHIPPING_UNKNOWN": "Seller shipping cost is not known yet — profit not calculated (not treated as $0).",
+        "LABEL_CURRENCY_MISMATCH": "Label cost is configured for a different currency — profit not calculated (no FX conversion)."
       },
       "section": {
         "revenue": "Revenue",
@@ -1489,6 +1493,22 @@
         "shipping_insurance_fee_amount": "Shipping insurance",
         "signature_confirmation_fee_amount": "Signature confirmation fee",
         "tiktok_shop_shipping_incentive_amount": "TikTok Shop shipping incentive"
+      },
+      "baseCost": "Base cost",
+      "sellerShipping": "Seller shipping fee",
+      "sellerShippingIncluded": "Seller shipping fee (deducted)",
+      "labelCost": "Label cost",
+      "labelCostHint": "Label cost is charged ONCE per order (not per product / SKU).",
+      "sellerShippingHint": {
+        "included": "TikTok has ALREADY deducted this from the proceeds — profit does not deduct it again.",
+        "pending": "Proceeds do NOT include this yet (shipping after discounts may be $0, but the seller still pays it) — profit deducts it.",
+        "unknown": "Seller shipping cost is not known yet (TikTok has not returned enough data, or the order is self-shipped) — profit not calculated. Re-sync finance to update."
+      },
+      "sellerShippingSource": {
+        "SETTLEMENT": "Source: TikTok Finance — shipping_cost_amount of the settled transaction.",
+        "TIKTOK_CHARGED": "Source: TikTok Finance — TikTok shipping fee already in the estimate.",
+        "SELLER_SHIPPING_DISCOUNT": "Source: TikTok Finance — seller_shipping_fee_discount_amount (seller-funded free shipping).",
+        "ORDER_DETAIL": "Source: Get Order Detail — shipping_fee_seller_discount (transaction has no breakdown)."
       }
     },
     "fulfillment": {

@@ -97,7 +97,7 @@ async function main() {
       const stats = await dashboard.sellerStats(
         { organizationId: order.organizationId, currency: order.currency ?? 'USD', accountIds: [order.accountId] },
         window,
-        { activeOnly: false, sort: 'orders', order: 'desc', page: 1, limit: 100 },
+        { activeOnly: false, sort: 'orders', order: 'desc', page: 1, limit: 100, label: { amount: 0.5, currency: 'USD' } },
       );
       return stats.items.reduce((sum, row) => sum + Number(row.baseCost), 0);
     };

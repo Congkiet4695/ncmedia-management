@@ -38,7 +38,8 @@ export function SellerStatsTable({ range, enabled }: { range: DashboardRange; en
     enabled,
   );
   const currency = query.data?.currency ?? null;
-  const money = (value: number) => (currency ? formatCurrency(value, currency) : '—');
+  // `null` (PF khi không đơn nào tính được lợi nhuận) ⇒ "—", không hiện 0.
+  const money = (value: number | null) => (currency && value !== null ? formatCurrency(value, currency) : '—');
   const rows = query.data?.items ?? [];
 
   const toggleSort = (field: SellerSortField) => {
@@ -139,7 +140,7 @@ export function SellerStatsTable({ range, enabled }: { range: DashboardRange; en
   );
 }
 
-function SellerRow({ index, row, money }: { index: number; row: DashboardSellerRow; money: (v: number) => string }) {
+function SellerRow({ index, row, money }: { index: number; row: DashboardSellerRow; money: (v: number | null) => string }) {
   const { t } = useTranslation('dashboard');
   return (
     <tr className="border-t hover:bg-muted/30">
@@ -155,7 +156,7 @@ function SellerRow({ index, row, money }: { index: number; row: DashboardSellerR
       <td className="px-3 py-2 text-right tabular-nums">{money(row.estRevenue)}</td>
       <td className="px-3 py-2 text-right tabular-nums">{money(row.revenue)}</td>
       <td className="px-3 py-2 text-right tabular-nums">{money(row.baseCost)}</td>
-      <td className={cn('px-3 py-2 text-right font-medium tabular-nums', row.profit < 0 && 'text-destructive')}>
+      <td className={cn('px-3 py-2 text-right font-medium tabular-nums', row.profit !== null && row.profit < 0 && 'text-destructive')}>
         {money(row.profit)}
       </td>
       <td className="px-3 py-2 text-right tabular-nums">{money(row.paid)}</td>
