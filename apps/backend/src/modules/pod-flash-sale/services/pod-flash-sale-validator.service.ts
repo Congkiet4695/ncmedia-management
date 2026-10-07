@@ -6,13 +6,18 @@ import {
   FLASH_SALE_MIN_DURATION_MINUTES,
   FLASH_SALE_MIN_LEAD_SECONDS,
 } from '../constants/pod-flash-sale.constants';
-import { TIKTOK_ACTIVITY_MAX_TITLE_LENGTH } from '../../tiktok-sdk/tiktok-sdk.constants';
+import {
+  TIKTOK_ACTIVITY_MAX_TITLE_LENGTH,
+  TIKTOK_PRODUCT_STATUS,
+} from '../../tiktok-sdk/tiktok-sdk.constants';
 import type { PodFlashSaleIssueDto } from '../dto/pod-flash-sale-response.dto';
 import { validatePricing, validateQuantityLimit } from './pod-flash-sale-pricing';
 
 /** Hình dạng tối thiểu mà validator cần từ một đợt sale (không phụ thuộc `include`). */
 export interface ValidatableFlashSale {
   id: string;
+  /** Shop của đợt — có thì kiểm "sản phẩm thuộc đúng shop". */
+  shopId?: string;
   name: string;
   startAt: Date;
   endAt: Date;
@@ -21,6 +26,8 @@ export interface ValidatableFlashSale {
 
 export interface ValidatableFlashSaleItem {
   id: string;
+  /** `pod_products.id` của dòng — đối chiếu với sản phẩm cha của biến thể hiện tại. */
+  productId?: string;
   originalPrice: Prisma.Decimal;
   flashSalePrice: Prisma.Decimal;
   discountPercent: Prisma.Decimal;
@@ -31,6 +38,22 @@ export interface ValidatableFlashSaleItem {
   variantId: string | null;
   currency: string | null;
   status: PodFlashSaleItemStatus;
+  /**
+   * Bản ghi sản phẩm / biến thể HIỆN TẠI (bảng mirror của TikTok). Có thì validator đối chiếu với
+   * `provider_*_id` chụp lúc thêm dòng — bản chụp cũ là nguồn của lỗi 17029016 khi nhân bản đợt sale.
+   */
+  product?: ValidatableProduct | null;
+  variant?: { tiktokSkuId: string; productId: string } | null;
+}
+
+export interface ValidatableProduct {
+  tiktokProductId: string;
+  shopId: string;
+  /** `status` TikTok (ACTIVATE / SELLER_DEACTIVATED / FREEZE / DELETED …) — ảnh chụp lần đồng bộ cuối. */
+  status: string | null;
+  /** Lượt đồng bộ FULL không còn thấy sản phẩm trong tập đang bán. */
+  deactivatedAt: Date | null;
+  deletedAt: Date | null;
 }
 
 /** Kết quả kiểm tra một đợt sale. */
@@ -68,7 +91,7 @@ export class PodFlashSaleValidatorService {
       ...this.validateCurrency(flashSale.items),
     ];
 
-    const itemResult = this.validateItems(flashSale.items);
+    const itemResult = this.validateItems(flashSale.items, flashSale.shopId);
     issues.push(...itemResult.issues);
     const readyItemIds = itemResult.readyItemIds;
 
@@ -90,17 +113,39 @@ export class PodFlashSaleValidatorService {
    * Dùng khi thêm sản phẩm vào đợt ĐANG CHẠY: giờ bắt đầu đã qua là chuyện bình thường của
    * một đợt đang chạy, không phải lỗi; chỉ từng dòng mới cần hợp lệ trước khi gửi lên sàn.
    */
-  validateItems(items: ValidatableFlashSaleItem[]): {
+  validateItems(
+    items: ValidatableFlashSaleItem[],
+    shopId?: string,
+  ): {
     issues: PodFlashSaleIssueDto[];
     readyItemIds: string[];
   } {
     const issues: PodFlashSaleIssueDto[] = [];
     const readyItemIds: string[] = [];
+    // Khoá TikTok đã gặp — SKU (mức biến thể) hoặc sản phẩm (mức PRODUCT). Dòng sau trùng dòng trước là lỗi.
+    const seen = new Set<string>();
     for (const item of items) {
       // Dòng đã bị gỡ khỏi sàn không còn tham gia đợt này — kiểm nó chỉ tạo nhiễu.
       if (item.status === PodFlashSaleItemStatus.REMOVED) continue;
 
-      const itemIssues = this.validateItem(item);
+      const itemIssues = [...this.validateItem(item), ...this.validateProviderIdentity(item, shopId)];
+      // Khoá TikTok của dòng: SKU (mức biến thể) · sản phẩm (mức PRODUCT). Dòng biến thể thiếu SKU id đã
+      // có lỗi riêng — không đem so trùng theo sản phẩm.
+      const key = item.providerVariantId
+        ? `sku:${item.providerVariantId}`
+        : item.variantId || !item.providerProductId
+          ? `item:${item.id}`
+          : `product:${item.providerProductId}`;
+      if (seen.has(key)) {
+        itemIssues.push({
+          level: 'ERROR',
+          code: FLASH_SALE_ISSUE_CODES.DUPLICATE_SKU,
+          field: 'providerVariantId',
+          message: `${item.providerVariantId ? 'SKU' : 'Sản phẩm'} ${item.providerVariantId ?? item.providerProductId} xuất hiện hai lần trong đợt sale.`,
+          itemId: item.id,
+        });
+      }
+      seen.add(key);
       issues.push(...itemIssues);
       if (!itemIssues.some((issue) => issue.level === 'ERROR')) readyItemIds.push(item.id);
     }
@@ -237,6 +282,75 @@ export class PodFlashSaleValidatorService {
       });
     }
 
+    return issues;
+  }
+
+  /**
+   * Pre-flight: SKU/sản phẩm mà dòng sẽ gửi lên có còn đúng là SKU của sản phẩm ĐANG BÁN, thuộc ĐÚNG
+   * shop của đợt hay không — theo bảng mirror sản phẩm (không gọi TikTok).
+   *
+   * 🔴 Root cause của 17029016 "No SKU in the product matches" khi nhân bản đợt sale: dòng mang
+   * `provider_product_id` / `provider_variant_id` CHỤP từ đợt gốc. Sản phẩm sau đó rời trạng thái
+   * ACTIVATE (bị xoá, ngừng bán, đóng băng, trượt duyệt) — Get Product VẪN trả về sản phẩm và đủ SKU,
+   * nên "SKU còn tồn tại", nhưng TikTok không cho SKU của sản phẩm không còn bán vào khuyến mãi và từ
+   * chối CẢ request. Bảng mirror đã đánh dấu (`deactivated_at`) nhưng module Flash Sale chưa từng đọc nó.
+   */
+  private validateProviderIdentity(item: ValidatableFlashSaleItem, shopId?: string): PodFlashSaleIssueDto[] {
+    const issues: PodFlashSaleIssueDto[] = [];
+    const product = item.product;
+    if (product) {
+      const notLive =
+        product.deletedAt !== null ||
+        product.deactivatedAt !== null ||
+        (product.status !== null && product.status !== TIKTOK_PRODUCT_STATUS.ACTIVATE);
+      if (notLive) {
+        issues.push({
+          level: 'ERROR',
+          code: FLASH_SALE_ISSUE_CODES.PRODUCT_NOT_ACTIVE,
+          field: 'productId',
+          message:
+            `Sản phẩm ${product.tiktokProductId} không còn đang bán trên TikTok` +
+            `${product.deletedAt || product.deactivatedAt ? '' : ` (trạng thái ${product.status})`} — ` +
+            'TikTok không nhận SKU của sản phẩm này vào Flash Sale. Xoá dòng hoặc đồng bộ lại sản phẩm.',
+          itemId: item.id,
+        });
+      }
+      if (shopId && product.shopId !== shopId) {
+        issues.push({
+          level: 'ERROR',
+          code: FLASH_SALE_ISSUE_CODES.PRODUCT_SHOP_MISMATCH,
+          field: 'productId',
+          message: `Sản phẩm ${product.tiktokProductId} không thuộc shop của đợt sale.`,
+          itemId: item.id,
+        });
+      }
+      if (item.providerProductId && product.tiktokProductId !== item.providerProductId) {
+        issues.push({
+          level: 'ERROR',
+          code: FLASH_SALE_ISSUE_CODES.SKU_PRODUCT_MISMATCH,
+          field: 'providerProductId',
+          message:
+            `Dòng trỏ tới sản phẩm TikTok ${item.providerProductId} nhưng sản phẩm hiện tại là ` +
+            `${product.tiktokProductId} — bản chụp cũ, hãy thêm lại sản phẩm.`,
+          itemId: item.id,
+        });
+      }
+    }
+    const variant = item.variant;
+    if (variant && item.providerVariantId) {
+      if (variant.tiktokSkuId !== item.providerVariantId ||
+        (item.productId !== undefined && variant.productId !== item.productId)) {
+        issues.push({
+          level: 'ERROR',
+          code: FLASH_SALE_ISSUE_CODES.SKU_PRODUCT_MISMATCH,
+          field: 'providerVariantId',
+          message:
+            `SKU ${item.providerVariantId} không còn là SKU của sản phẩm này (SKU hiện tại: ` +
+            `${variant.tiktokSkuId}) — bản chụp cũ, hãy thêm lại sản phẩm.`,
+          itemId: item.id,
+        });
+      }
+    }
     return issues;
   }
 

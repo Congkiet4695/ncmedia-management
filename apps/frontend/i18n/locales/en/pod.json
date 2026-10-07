@@ -382,15 +382,40 @@
       "VALIDATE": "Validate data"
     },
     "publish": {
-      "running": "Publishing to TikTok…",
-      "completed": "Published to TikTok",
-      "failed": "Publishing failed",
       "batchProgress": "{{done}} / {{total}} batches",
-      "itemsDone": "{{count}} SKU accepted",
-      "itemsPending": "{{count}} SKU remaining",
       "activityId": "Promotion {{id}}",
-      "failedAtBatch": "Stopped at batch {{batch}}/{{total}}. {{message}} Retry resumes on the same promotion — no second promotion is created.",
-      "asyncHint": "Products are sent to TikTok in batches of up to 300 SKUs. You can leave this page; publishing continues in the background."
+      "asyncHint": "Products are sent to TikTok in batches of up to 300 SKUs. You can leave this page; publishing continues in the background.",
+      "outcome": {
+        "RUNNING": "Publishing to TikTok…",
+        "SUCCEEDED": "Published to TikTok — all batches succeeded",
+        "PARTIAL": "Published to TikTok — some SKUs failed",
+        "FAILED": "Publishing to TikTok failed — no SKU went live"
+      },
+      "counter": {
+        "succeeded": "Succeeded",
+        "failed": "Failed",
+        "pending": "Pending",
+        "skipped": "Not sent (run stopped)"
+      },
+      "batchesLabel": "Batch results",
+      "batchStatus": {
+        "PENDING": "Pending",
+        "PROCESSING": "Processing",
+        "SUCCEEDED": "Succeeded",
+        "PARTIAL": "Partial",
+        "FAILED": "Failed",
+        "SKIPPED": "Skipped"
+      },
+      "batchCounts": "{{succeeded}} succeeded · {{failed}} failed / {{total}} SKUs",
+      "failures": {
+        "toggle": "Show {{count}} failed SKUs",
+        "batch": "Batch",
+        "product": "Product",
+        "sku": "SKU",
+        "code": "Error code",
+        "message": "Details",
+        "more": "Showing {{shown}} / {{total}} failed SKUs — filter \"Failed\" in the product table to see all."
+      }
     },
     "stats": {
       "success": "{{count}} succeeded",

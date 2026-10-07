@@ -142,12 +142,16 @@ function buildService(flashSale: FlashSaleDetailRow = buildFlashSale()) {
     renew: jest.fn().mockResolvedValue(true),
   };
 
+  // Get Product — chỉ được gọi khi một lô bị TikTok từ chối (kiểm chứng sản phẩm/SKU của lô đó).
+  const productApi = { getProduct: jest.fn() };
+
   const service = new PodFlashSalePublisherService(
     prisma as never,
     flashSales as never,
     promotionApi as never,
     shopContext as never,
     locks as never,
+    productApi as never,
   );
 
   // `jest.fn()` trả `any` cho `mock.calls`. Ép kiểu MỘT chỗ ở đây thay vì rải `as` khắp

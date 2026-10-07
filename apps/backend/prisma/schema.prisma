@@ -5527,6 +5527,12 @@ model PodFlashSale {
   /// nghĩa là tiến trình đã chết giữa chừng ⇒ lượt quét được phép nhặt lại.
   publishHeartbeatAt DateTime? @map("publish_heartbeat_at") @db.Timestamptz(6)
 
+  /// Kết quả TỪNG LÔ của lượt publish gần nhất: `[{ batch, status, skus, products, succeeded, failed,
+  /// errorCode, errorMessage, requestId, startedAt, finishedAt }]`, status ∈ PENDING · PROCESSING ·
+  /// SUCCEEDED · PARTIAL · FAILED · SKIPPED. 🔴 Chỉ để HIỂN THỊ và đếm tiến độ — phần chạy lại vẫn đọc
+  /// trạng thái DÒNG. Một lô hỏng không chặn các lô sau; lượt kết thúc thì không còn lô PENDING.
+  publishBatchResults Json? @map("publish_batch_results")
+
   /// Nguồn của đợt sale: `SYSTEM` (tạo trong hệ thống) | `TIKTOK` (đồng bộ về từ TikTok —
   /// tạo ở Seller Center). Chuỗi thay vì enum để thêm nguồn khác không phải migration enum.
   source String @default("SYSTEM") @db.VarChar(16)
@@ -5677,6 +5683,8 @@ model PodFlashSaleItem {
   providerSkuId     String? @map("provider_sku_id") @db.VarChar(64)
 
   status    PodFlashSaleItemStatus @default(PENDING)
+  /// Lô (1-based) của lượt publish GẦN NHẤT đã gửi dòng này — để màn hình chỉ ra "SKU lỗi ở lô nào".
+  publishBatch Int? @map("publish_batch")
   /// Mã lỗi TikTok riêng của dòng này.
   errorCode String?                @map("error_code") @db.VarChar(32)
   error     String?                @db.VarChar(2000)

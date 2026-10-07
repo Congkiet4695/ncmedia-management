@@ -32,6 +32,11 @@ export class FakeTiktok {
   silentlyRejected = new Set<string>();
   /** Số lời gọi Update Activity Products tiếp theo sẽ bị từ chối hẳn (lỗi nghiệp vụ). */
   failNextProductCalls = 0;
+  /**
+   * Sản phẩm TikTok KHÔNG còn bán: request Update Activity Products chứa một trong số này ⇒ TikTok từ
+   * chối CẢ request với 17029016 "No SKU in the product matches" (hành vi thật đã gặp).
+   */
+  rejectProducts = new Set<string>();
   /** Số lời gọi Create Activity tiếp theo sẽ bị từ chối. */
   failNextCreateActivity = 0;
   /** SKU trong từng lời gọi Update Activity Products, theo thứ tự. */
@@ -115,6 +120,10 @@ export class FakeTiktok {
           ActivitiesActivityIdProductsPut: async (id: string, _t: string, _c: string, _s: string, req: any) => {
             const skusInCall: string[] = req.products.flatMap((p: any) => p.skus.map((s: any) => s.id));
             self.productCalls.push(skusInCall);
+            const notLive = req.products.find((p: any) => self.rejectProducts.has(p.id));
+            if (notLive) {
+              throw new TiktokClientError(TiktokErrorClass.BUSINESS, 17029016, `Resource Not Found: No SKU in the product matches ${notLive.id}`, 200, `req-17029016-${++self.seq}`, "PROMOTION_ACTIVITY_PRODUCTS_UPDATE");
+            }
             if (self.failNextProductCalls > 0) {
               self.failNextProductCalls -= 1;
               throw new TiktokClientError(TiktokErrorClass.CLIENT_BUG, 17000999, 'Fake: product not eligible for promotion', 200, 'req-fail', 'PROMOTION_ACTIVITY_PRODUCTS_UPDATE');

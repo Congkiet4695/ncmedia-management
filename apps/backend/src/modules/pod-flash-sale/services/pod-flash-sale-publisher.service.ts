@@ -9,7 +9,10 @@ import {
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
-import { RETRYABLE_ERROR_CLASSES } from '../../pod-tiktok/constants/tiktok-error-code.constants';
+import {
+  RETRYABLE_ERROR_CLASSES,
+  TiktokErrorClass,
+} from '../../pod-tiktok/constants/tiktok-error-code.constants';
 import { DistributedLockService, type AcquiredLock } from '../../pod-tiktok/infra/distributed-lock.service';
 import { TiktokClientError } from '../../pod-tiktok/exceptions/pod-tiktok.exceptions';
 import {
@@ -20,12 +23,14 @@ import {
   PodTiktokShopContextException,
   PodTiktokShopContextService,
 } from '../../pod-tiktok/services/pod-tiktok-shop-context.service';
+import { TiktokProductApiService } from '../../tiktok-sdk/tiktok-product-api.service';
 import { TiktokPromotionApiService } from '../../tiktok-sdk/tiktok-promotion-api.service';
 import {
   TIKTOK_ACTIVITY_COMMAND_IMMUTABLE,
   TIKTOK_ACTIVITY_PRODUCT_LEVEL,
   TIKTOK_ACTIVITY_STATUS,
   TIKTOK_ACTIVITY_TYPE,
+  TIKTOK_PRODUCT_STATUS,
 } from '../../tiktok-sdk/tiktok-sdk.constants';
 import type {
   TiktokActivityDetail,
@@ -33,19 +38,32 @@ import type {
 } from '../../tiktok-sdk/types/tiktok-promotion.types';
 import type { TiktokShopContext } from '../../tiktok-sdk/types/tiktok-shop-context.type';
 import {
+  FLASH_SALE_BATCH_ISOLATION_ROUNDS,
+  FLASH_SALE_BATCH_STATUS,
   FLASH_SALE_BATCH_TIMEOUT_MS,
   FLASH_SALE_BATCH_MAX_RETRIES,
   FLASH_SALE_BATCH_RETRY_BASE_MS,
   FLASH_SALE_BATCH_RETRY_MAX_MS,
   FLASH_SALE_CANCELLABLE_STATUSES,
+  FLASH_SALE_ISSUE_CODES,
   FLASH_SALE_ITEM_ERROR_CODES,
+  FLASH_SALE_LOG_MAX_FAILED_SKUS,
   FLASH_SALE_PUBLISHABLE_STATUSES,
+  FLASH_SALE_PUBLISH_PARTIAL_CODE,
   FLASH_SALE_PUBLISH_LOCK_PREFIX,
   FLASH_SALE_PUBLISH_LOCK_RENEW_MS,
   FLASH_SALE_PUBLISH_LOCK_TTL_MS,
   FLASH_SALE_UNLIMITED,
+  FLASH_SALE_VERIFY_CONCURRENCY,
   TIKTOK_TO_FLASH_SALE_STATUS,
 } from '../constants/pod-flash-sale.constants';
+import {
+  batchStatusOf,
+  initialBatchResults,
+  skipUnfinishedBatches,
+  summarizeBatchResults,
+  type FlashSaleBatchResult,
+} from './pod-flash-sale-batch-results';
 import {
   chunkBySkuLimit,
   computeBatchRetryDelayMs,
@@ -109,6 +127,12 @@ interface PublishRunParams {
   /** `activity_id` — MỘT giá trị duy nhất cho toàn bộ các lô của lượt. */
   activityId: string;
   batches: ActivityProductPlan[][];
+  /** Kết quả từng lô — GIỮ TRONG BỘ NHỚ của lượt, ghi nguyên mảng sau mỗi lô (cùng điều kiện runId). */
+  results: FlashSaleBatchResult[];
+  /** Đợt đã có dòng trên sàn TRƯỚC lượt này (lượt chạy lại) — quyết định RUNNING hay FAILED khi kết thúc. */
+  hadPublishedItems: boolean;
+  /** Dòng bị loại ở pre-flight (đã đánh FAILED, không vào lô nào) — vẫn là "SKU lỗi" của lượt. */
+  preflightFailed: number;
   userId: string | null;
   attempt: number;
 }
@@ -118,6 +142,46 @@ export interface ProviderFailure {
   code: string | null;
   message: string;
   requestId: string | null;
+}
+
+/**
+ * Lỗi khiến CẢ lượt phải dừng — khác lỗi của MỘT lô/SKU.
+ *
+ * Uỷ quyền shop hỏng, sai cấu hình, hoạt động khuyến mãi đã bị đóng: mọi lô phía sau chắc chắn hỏng
+ * y hệt, gửi tiếp chỉ đốt quota. Lượt dừng, các lô chưa gửi thành `SKIPPED` kèm lý do (không `PENDING`).
+ */
+class PodFlashSaleRunAbortedError extends Error {
+  constructor(readonly failure: ProviderFailure) {
+    super(failure.message);
+    this.name = 'PodFlashSaleRunAbortedError';
+  }
+}
+
+/** Lớp lỗi TikTok áp cho CẢ shop/ứng dụng — không phải lỗi của một lô. */
+const RUN_FATAL_ERROR_CLASSES: readonly TiktokErrorClass[] = [
+  TiktokErrorClass.AUTH,
+  TiktokErrorClass.TOKEN_EXPIRED,
+  TiktokErrorClass.CONFIG,
+  TiktokErrorClass.CLIENT_BUG,
+];
+
+/** Lỗi ghi lên MỘT dòng. */
+interface ItemFailure {
+  code: string;
+  message: string;
+}
+
+/** Kết quả xử lý một lô ở phía TikTok — chưa ghi database. */
+interface BatchOutcome {
+  /** Phần TikTok đã nhận request (sau khi tách mục hỏng). Rỗng ⇒ lô không gửi được gì. */
+  sentPlans: ActivityProductPlan[];
+  result: ProviderBatchResult | null;
+  /** Dòng của `sentPlans` mà Get Activity xác nhận KHÔNG có mặt. */
+  rejected: Map<string, string>;
+  /** Dòng bị tách ra trước khi gửi lại, hoặc cả lô khi không gửi được — kèm lý do. */
+  failedItems: Map<string, ItemFailure>;
+  /** Lỗi TikTok gần nhất của lô (nếu có) — hiển thị ở kết quả lô. */
+  lastFailure: ProviderFailure | null;
 }
 
 /**
@@ -169,6 +233,8 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
     // 🔴 Tham số MỚI đặt ở CUỐI: các spec dựng service bằng `new` theo thứ tự vị trí, chèn
     // vào giữa là làm hỏng mọi lời gọi đó mà trình biên dịch chỉ báo ở một chỗ.
     private readonly locks: DistributedLockService,
+    // Kiểm chứng sản phẩm/SKU của một lô bị TikTok từ chối (Get Product, đúng shop đang publish).
+    private readonly productApi: TiktokProductApiService,
   ) {}
 
   /**
@@ -267,6 +333,10 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
     const pending = publishable.filter((item) => item.status !== PodFlashSaleItemStatus.PUBLISHED);
     const plans = this.buildProductPlans(flashSale.productLevel, pending);
     const batches = chunkBySkuLimit(plans, (plan) => countActivitySkus(plan.input));
+    const results = this.initialResults(batches);
+    const hadPublishedItems = flashSale.items.some(
+      (item) => item.status === PodFlashSaleItemStatus.PUBLISHED,
+    );
 
     // ----------------------------------------------------------------------
     // GIÀNH lượt — chống trùng (idempotency)
@@ -291,6 +361,7 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
         publishStartedAt: startedAt,
         publishFinishedAt: null,
         publishHeartbeatAt: startedAt,
+        publishBatchResults: results as unknown as Prisma.InputJsonValue,
         ...(userId ? { updatedBy: userId } : {}),
       },
     });
@@ -302,6 +373,10 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
       );
     }
 
+    // Dòng bị bỏ qua vì SKU/sản phẩm không gửi được (pre-flight) ⇒ FAILED kèm ĐÚNG lý do, để đếm được
+    // và nhìn thấy được — không nằm im ở READY như thể "chưa tới lượt".
+    const preflightFailed = await this.markInvalidItems(flashSale, validation.issues);
+
     const attempt = flashSale.retryCount;
 
     // Lượt gọi DUY NHẤT nằm trong request HTTP: tạo (hoặc cập nhật) hoạt động khuyến mãi.
@@ -311,7 +386,7 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
       activityId = await this.ensureActivity(context, flashSale, userId, attempt);
     } catch (error) {
       const failure = this.describeFailure(error);
-      await this.failPublishRun(flashSale, runId, failure, userId, null, 'PUBLISH');
+      await this.failPublishRun(flashSale, runId, failure, userId, null, 'PUBLISH', results);
       this.logger.error({
         module: 'pod-flash-sale',
         operation: 'flashSale.publish.activity',
@@ -343,10 +418,22 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
     });
 
     // Không còn gì để gửi (mọi dòng đã lên sàn ở lượt trước) ⇒ chốt luôn, không chạy nền.
+    const runParams: PublishRunParams = {
+      mode: 'PUBLISH',
+      flashSale,
+      runId,
+      activityId,
+      batches,
+      results,
+      hadPublishedItems,
+      preflightFailed,
+      userId,
+      attempt,
+    };
     if (batches.length === 0) {
-      await this.finishPublishRun(flashSale, runId, activityId, userId, 'PUBLISH');
+      await this.finishPublishRun(runParams, null);
     } else {
-      this.launchPublishRun({ mode: 'PUBLISH', flashSale, runId, activityId, batches, userId, attempt });
+      this.launchPublishRun(runParams);
     }
 
     return {
@@ -527,16 +614,23 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
           status: PodFlashSaleStatus.RUNNING,
           publishTotalItems: 0,
           publishTotalBatches: 0,
+          publishBatchResults: [],
           publishFinishedAt: new Date(),
         },
       });
       return noop();
     }
+    const preflightFailed = await this.markInvalidItems(fresh, this.flashSales.validateItemsOnly(fresh).issues);
     const plans = this.buildProductPlans(fresh.productLevel, pending);
     const batches = chunkBySkuLimit(plans, (plan) => countActivitySkus(plan.input));
+    const results = this.initialResults(batches);
     await this.prisma.podFlashSale.updateMany({
       where: { id: flashSaleId, publishRunId: runId },
-      data: { publishTotalItems: pending.length, publishTotalBatches: batches.length },
+      data: {
+        publishTotalItems: pending.length,
+        publishTotalBatches: batches.length,
+        publishBatchResults: results as unknown as Prisma.InputJsonValue,
+      },
     });
 
     this.logger.log({
@@ -558,6 +652,9 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
       runId,
       activityId,
       batches,
+      results,
+      hadPublishedItems: true,
+      preflightFailed,
       userId,
       attempt: flashSale.retryCount,
     });
@@ -654,6 +751,7 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
         params.userId,
         null,
         params.mode,
+        params.results,
       );
     } finally {
       clearInterval(watchdog);
@@ -661,17 +759,37 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
     }
   }
 
-  /** Vòng gửi lô — tách khỏi phần khoá để đọc được mạch nghiệp vụ mà không lẫn hạ tầng. */
+  /**
+   * Vòng gửi lô — tách khỏi phần khoá để đọc được mạch nghiệp vụ mà không lẫn hạ tầng.
+   *
+   * 🔴 **Một lô hỏng KHÔNG chặn các lô sau.** Mỗi lô có vòng đời riêng
+   * `PENDING → PROCESSING → SUCCEEDED | PARTIAL | FAILED`, có try/catch riêng; lỗi của lô (SKU sai,
+   * sản phẩm không còn bán, TikTok từ chối nghiệp vụ, hết lượt thử lại lỗi tạm thời) được ghi lên ĐÚNG
+   * các dòng của lô đó rồi đi tiếp lô sau. Trước đây lô 1 hỏng là dừng cả lượt và 12 lô còn lại nằm
+   * im — một SKU của sản phẩm đã bị xoá làm 3.000 SKU khác không lên sale.
+   *
+   * Chỉ lỗi áp cho CẢ lượt (`PodFlashSaleRunAbortedError`: uỷ quyền shop, hoạt động đã bị đóng) mới
+   * dừng sớm — và khi đó mọi lô chưa gửi thành `SKIPPED` kèm lý do, không còn lô `PENDING`.
+   *
+   * 🔴 Không transaction nào bao lời gọi TikTok: mỗi lô gọi TikTok xong mới mở MỘT transaction ngắn
+   * để ghi kết quả (`persistBatchOutcome`).
+   */
   private async sendBatches(params: PublishRunParams, lock: AcquiredLock): Promise<void> {
-    const { flashSale, runId, activityId, batches, userId, attempt, mode } = params;
+    const { flashSale, runId, activityId, batches, results } = params;
     const context = await this.resolveContext(flashSale.organizationId, flashSale.shopId);
+    let abort: ProviderFailure | null = null;
 
     for (let index = 0; index < batches.length; index += 1) {
       const batch = batches[index];
       const batchNo = index + 1;
+      results[index] = {
+        ...results[index],
+        status: FLASH_SALE_BATCH_STATUS.PROCESSING,
+        startedAt: new Date().toISOString(),
+      };
 
       // Lượt mới hơn đã bắt đầu (người dùng bấm Retry) ⇒ lượt này rút lui, không ghi đè.
-      if (!(await this.markBatchStarted(flashSale.id, runId, batchNo))) {
+      if (!(await this.markBatchStarted(flashSale.id, runId, batchNo, results))) {
         this.logger.warn({
           module: 'pod-flash-sale',
           flashSaleId: flashSale.id,
@@ -681,90 +799,127 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
         return;
       }
 
-      const skuCount = batch.reduce((sum, plan) => sum + countActivitySkus(plan.input), 0);
       this.logger.log({
         module: 'pod-flash-sale',
         operation: 'flashSale.publish.batch',
         flashSaleId: flashSale.id,
+        shopId: flashSale.shopId,
         runId,
         activityId,
-        batch: `${batchNo}/${batches.length}`,
-        products: batch.length,
-        skus: skuCount,
-        msg: `Lô ${batchNo}/${batches.length} bắt đầu`,
+        batchIndex: batchNo,
+        totalBatches: batches.length,
+        batchSize: results[index].products,
+        skuCount: results[index].skus,
+        msg: `[FLASH_SALE] Lô ${batchNo}/${batches.length} bắt đầu`,
       });
 
+      let outcome: BatchOutcome;
       try {
-        const result = await this.sendBatchWithRetry(context, activityId, batch, lock);
-        // 🔴 Lượt gọi thành công KHÔNG có nghĩa mọi dòng đã vào hoạt động: response chỉ có
-        // `total_count`. Ít hơn số đã gửi ⇒ hỏi Get Activity xem dòng nào thực sự có mặt.
-        const rejected = await this.verifyBatchAcceptance(
-          context,
-          flashSale,
-          activityId,
-          batch,
-          result,
-        );
-        await this.markBatchPublished({
-          flashSale,
-          runId,
-          activityId,
-          batch,
-          batchNo,
-          result,
-          rejected,
-          userId,
-          attempt,
-        });
-
-        this.logger.log({
-          module: 'pod-flash-sale',
-          operation: 'flashSale.publish.batch',
-          flashSaleId: flashSale.id,
-          runId,
-          activityId,
-          batch: `${batchNo}/${batches.length}`,
-          msg: `Lô ${batchNo}/${batches.length} hoàn tất`,
-        });
+        outcome = await this.processBatch(params, context, batch, batchNo, lock);
       } catch (error) {
-        const failure = this.describeFailure(error);
-        // Dòng của lô hỏng ⇒ FAILED kèm ĐÚNG lỗi TikTok (đếm được ở danh sách, gửi lại được).
-        // Dòng của các lô SAU chưa từng được gửi ⇒ giữ nguyên (chưa gửi ≠ thất bại).
-        await this.markItemsFailed(
-          batch.flatMap((plan) => plan.itemIds),
-          FLASH_SALE_ITEM_ERROR_CODES.BATCH_REJECTED,
-          failure.code ? `[${failure.code}] ${failure.message}` : failure.message,
-        );
-        await this.failPublishRun(flashSale, runId, failure, userId, batchNo, mode);
-
-        this.logger.error({
-          module: 'pod-flash-sale',
-          operation: 'flashSale.publish.batch',
-          flashSaleId: flashSale.id,
-          runId,
-          activityId,
-          batch: `${batchNo}/${batches.length}`,
-          batchSize: skuCount,
-          errorCode: failure.code,
-          requestId: failure.requestId,
-          msg: `Lô ${batchNo}/${batches.length} THẤT BẠI: ${failure.message}`,
-        });
-        // 🔴 Dừng hẳn. Gửi tiếp sau khi một lô đã hỏng là để đợt sale kết thúc ở một trạng
-        // thái không ai mô tả được: vài lô lên sàn, vài lô không, và không biết vì sao.
-        return;
+        if (!(error instanceof PodFlashSaleRunAbortedError)) throw error;
+        // Lỗi của CẢ lượt: lô này coi như hỏng với đúng lỗi đó, các lô sau SKIPPED (ở `finishPublishRun`).
+        abort = error.failure;
+        const message = this.failureText(abort);
+        outcome = {
+          sentPlans: [],
+          result: null,
+          rejected: new Map(),
+          failedItems: new Map(
+            batch
+              .flatMap((plan) => plan.itemIds)
+              .map((itemId) => [itemId, { code: FLASH_SALE_ITEM_ERROR_CODES.BATCH_REJECTED, message }]),
+          ),
+          lastFailure: abort,
+        };
       }
+
+      await this.persistBatchOutcome(params, batch, batchNo, outcome);
+      if (abort) break;
     }
 
-    await this.finishPublishRun(flashSale, runId, activityId, userId, mode);
-    this.logger.log({
-      module: 'pod-flash-sale',
-      operation: 'flashSale.publish.done',
-      flashSaleId: flashSale.id,
-      runId,
-      activityId,
-      totalBatches: batches.length,
-      msg: `Đồng bộ Flash Sale hoàn tất: ${batches.length}/${batches.length} lô`,
-    });
+    await this.finishPublishRun(params, abort);
+  }
+
+  /**
+   * Xử lý MỘT lô ở phía TikTok. Không ném lỗi cho lỗi của lô — chỉ ném `PodFlashSaleRunAbortedError`
+   * (lỗi của cả lượt). Lỗi lạ (bug, mất database) văng ra để `runPublishBatches` đóng lượt.
+   *
+   * ```
+   *   gửi lô ──▶ OK ──▶ kiểm total_count (Get Activity nếu thiếu) ──▶ xong
+   *     │
+   *     └─ lỗi ── lớp AUTH / CONFIG / CLIENT_BUG ─────────────────▶ dừng CẢ lượt
+   *            ── NETWORK / RATE_LIMIT / SERVER (đã hết lượt thử) ──▶ lô FAILED, đi tiếp
+   *            ── lỗi nghiệp vụ (vd 17029016 "No SKU in the product matches")
+   *                 ▼
+   *               Get Product từng sản phẩm của lô (đúng shop): sản phẩm không ACTIVATE / SKU không
+   *               còn trên sản phẩm / không tìm thấy ⇒ TÁCH các dòng đó ra (FAILED, ghi lý do) rồi gửi
+   *               lại phần còn lại. Không tách được gì ⇒ kiểm hoạt động (đóng ⇒ dừng lượt), lô FAILED.
+   * ```
+   *
+   * 🔴 Không "nuốt" lỗi: mỗi lần TikTok từ chối đều được ghi log (payload đã gửi, mã lỗi, request_id),
+   * và mỗi dòng hỏng mang ĐÚNG lý do của nó.
+   */
+  private async processBatch(
+    params: PublishRunParams,
+    context: TiktokShopContext,
+    batch: ActivityProductPlan[],
+    batchNo: number,
+    lock: AcquiredLock,
+  ): Promise<BatchOutcome> {
+    const { flashSale, activityId } = params;
+    const failedItems = new Map<string, ItemFailure>();
+    let plans = batch;
+    let lastFailure: ProviderFailure | null = null;
+
+    for (let round = 0; plans.length > 0; round += 1) {
+      try {
+        const result = await this.sendBatchWithRetry(context, activityId, plans, lock);
+        // 🔴 Lượt gọi thành công KHÔNG có nghĩa mọi dòng đã vào hoạt động: response chỉ có
+        // `total_count`. Ít hơn số đã gửi ⇒ hỏi Get Activity xem dòng nào thực sự có mặt.
+        const rejected = await this.verifyBatchAcceptance(context, flashSale, activityId, plans, result);
+        return { sentPlans: plans, result, rejected, failedItems, lastFailure };
+      } catch (error) {
+        if (this.isRunFatal(error)) throw new PodFlashSaleRunAbortedError(this.describeFailure(error));
+        const failure = this.describeFailure(error);
+        lastFailure = failure;
+        await this.logRejectedAttempt(params, batchNo, round, plans, failure);
+
+        // Lỗi tạm thời đã hết lượt thử, hoặc đã hết số vòng tách ⇒ không đoán thêm: cả phần còn lại FAILED.
+        const exhaustedTransient = this.isTransient(error);
+        const invalid =
+          exhaustedTransient || round >= FLASH_SALE_BATCH_ISOLATION_ROUNDS
+            ? new Map<string, ItemFailure>()
+            : await this.findUnpublishableItems(context, plans, failure);
+
+        if (invalid.size === 0) {
+          if (!exhaustedTransient) await this.assertActivityWritable(context, activityId, failure);
+          const message = this.failureText(failure);
+          for (const itemId of plans.flatMap((plan) => plan.itemIds)) {
+            failedItems.set(itemId, { code: FLASH_SALE_ITEM_ERROR_CODES.BATCH_REJECTED, message });
+          }
+          return { sentPlans: [], result: null, rejected: new Map(), failedItems, lastFailure };
+        }
+
+        for (const [itemId, itemFailure] of invalid) failedItems.set(itemId, itemFailure);
+        plans = this.withoutItems(plans, new Set(invalid.keys()));
+        this.logger.warn({
+          module: 'pod-flash-sale',
+          operation: 'flashSale.publish.batch.isolate',
+          flashSaleId: flashSale.id,
+          shopId: flashSale.shopId,
+          activityId,
+          batchIndex: batchNo,
+          round: round + 1,
+          failedCount: invalid.size,
+          remaining: plans.reduce((sum, plan) => sum + plan.itemIds.length, 0),
+          errorCode: failure.code,
+          msg: `[FLASH_SALE] Lô ${batchNo}: tách ${invalid.size} dòng không gửi được, gửi lại phần còn lại`,
+        });
+      }
+    }
+    // Mọi dòng của lô đều bị tách ra — không còn gì để gửi.
+    return { sentPlans: [], result: null, rejected: new Map(), failedItems, lastFailure };
   }
 
   /**
@@ -1249,113 +1404,258 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
     flashSaleId: string,
     runId: string,
     batchNo: number,
+    results: FlashSaleBatchResult[],
   ): Promise<boolean> {
     const result = await this.prisma.podFlashSale.updateMany({
       where: { id: flashSaleId, publishRunId: runId },
-      data: { publishCurrentBatch: batchNo, publishHeartbeatAt: new Date() },
+      data: {
+        publishCurrentBatch: batchNo,
+        publishHeartbeatAt: new Date(),
+        publishBatchResults: results as unknown as Prisma.InputJsonValue,
+      },
     });
     return result.count > 0;
   }
 
   /**
-   * Một lô đã được TikTok nhận: đánh dấu đúng những dòng của lô đó, nhích tiến độ, ghi log.
+   * Ghi kết quả MỘT lô trong MỘT transaction ngắn (không có lời gọi TikTok nào bên trong):
+   *  - dòng TikTok nhận ⇒ `PUBLISHED`;
+   *  - dòng TikTok không nhận (Get Activity vắng) ⇒ `FAILED` `NOT_ACCEPTED_BY_TIKTOK`;
+   *  - dòng bị tách / cả lô không gửi được ⇒ `FAILED` kèm ĐÚNG lý do;
+   *  - kết quả lô (SUCCEEDED / PARTIAL / FAILED) + số lô đã xử lý.
    *
-   * 🔴 Đánh dấu NGAY sau từng lô chứ không đợi hết lượt. Đợi hết lượt nghĩa là một lượt hỏng
-   * ở lô 33/34 sẽ không để lại dấu vết nào về 32 lô đã thành công — và lần chạy lại gửi lại
-   * toàn bộ 10.000 SKU.
+   * 🔴 Ghi NGAY sau từng lô chứ không đợi hết lượt: lượt chết ở lô 33/34 vẫn để lại vết của 32 lô
+   * trước, và lần chạy lại chỉ gửi phần chưa `PUBLISHED`.
    */
-  private async markBatchPublished(params: {
-    flashSale: FlashSaleDetailRow;
-    runId: string;
-    activityId: string;
-    batch: ActivityProductPlan[];
-    batchNo: number;
-    result: ProviderBatchResult;
-    /** Dòng TikTok KHÔNG nhận dù lượt gọi thành công (xem `verifyBatchAcceptance`). */
-    rejected: Map<string, string>;
-    userId: string | null;
-    attempt: number;
-  }): Promise<void> {
-    const { flashSale, runId, activityId, batch, batchNo, result, rejected, userId, attempt } =
-      params;
+  private async persistBatchOutcome(
+    params: PublishRunParams,
+    batch: ActivityProductPlan[],
+    batchNo: number,
+    outcome: BatchOutcome,
+  ): Promise<void> {
+    const { flashSale, runId, activityId, results, userId, attempt } = params;
+    const sentIds = outcome.sentPlans.flatMap((plan) => plan.itemIds);
+    const acceptedIds = sentIds.filter((id) => !outcome.rejected.has(id));
+    const failures = new Map<string, ItemFailure>(outcome.failedItems);
+    for (const [itemId, message] of outcome.rejected) {
+      failures.set(itemId, { code: FLASH_SALE_ITEM_ERROR_CODES.NOT_ACCEPTED, message });
+    }
 
-    const itemIds = batch.flatMap((plan) => plan.itemIds);
-    const acceptedIds = itemIds.filter((id) => !rejected.has(id));
+    const index = batchNo - 1;
+    const notAccepted = outcome.rejected.size;
+    results[index] = {
+      ...results[index],
+      status: batchStatusOf(acceptedIds.length, failures.size),
+      succeeded: acceptedIds.length,
+      failed: failures.size,
+      errorCode:
+        outcome.lastFailure?.code ??
+        (notAccepted > 0 ? FLASH_SALE_ITEM_ERROR_CODES.NOT_ACCEPTED : null),
+      errorMessage:
+        outcome.lastFailure?.message.slice(0, 2000) ??
+        (notAccepted > 0 ? `TikTok không nhận ${notAccepted} SKU của lô.` : null),
+      requestId: outcome.result?.requestId ?? outcome.lastFailure?.requestId ?? null,
+      finishedAt: new Date().toISOString(),
+    };
 
     await this.prisma.$transaction(async (tx) => {
       if (acceptedIds.length > 0) {
         await tx.podFlashSaleItem.updateMany({
           where: { id: { in: acceptedIds } },
-          data: { status: PodFlashSaleItemStatus.PUBLISHED, errorCode: null, error: null },
+          data: {
+            status: PodFlashSaleItemStatus.PUBLISHED,
+            errorCode: null,
+            error: null,
+            publishBatch: batchNo,
+          },
         });
       }
-      for (const [itemId, message] of rejected) {
-        await tx.podFlashSaleItem.update({
-          where: { id: itemId },
+      // Gộp theo (mã, thông điệp): thông điệp gắn theo SẢN PHẨM nên số câu lệnh ~ số sản phẩm hỏng,
+      // không phải số SKU. Dòng đã PUBLISHED (lượt khác vừa nhận) không bị hạ xuống FAILED.
+      for (const [key, itemIds] of this.groupFailures(failures)) {
+        const { code, message } = JSON.parse(key) as ItemFailure;
+        await tx.podFlashSaleItem.updateMany({
+          where: { id: { in: itemIds }, status: { not: PodFlashSaleItemStatus.PUBLISHED } },
           data: {
             status: PodFlashSaleItemStatus.FAILED,
-            errorCode: FLASH_SALE_ITEM_ERROR_CODES.NOT_ACCEPTED,
+            errorCode: code.slice(0, 32),
             error: message.slice(0, 2000),
+            publishBatch: batchNo,
           },
         });
       }
       await tx.podFlashSale.updateMany({
         where: { id: flashSale.id, publishRunId: runId },
-        data: { publishDoneBatches: batchNo, publishHeartbeatAt: new Date() },
+        data: {
+          publishDoneBatches: batchNo,
+          publishHeartbeatAt: new Date(),
+          publishBatchResults: results as unknown as Prisma.InputJsonValue,
+        },
       });
     });
 
+    const level =
+      failures.size === 0
+        ? PodFlashSaleLogLevel.INFO
+        : acceptedIds.length > 0
+          ? PodFlashSaleLogLevel.WARN
+          : PodFlashSaleLogLevel.ERROR;
     await this.flashSales.writeLog({
       organizationId: flashSale.organizationId,
       flashSaleId: flashSale.id,
       action: PodFlashSaleLogAction.UPDATE_PRODUCTS,
-      level: rejected.size > 0 ? PodFlashSaleLogLevel.WARN : PodFlashSaleLogLevel.INFO,
+      level,
       message:
-        `Lô ${batchNo}: đã gửi ${batch.length} sản phẩm (${itemIds.length} dòng); TikTok nhận ` +
-        `${acceptedIds.length}${rejected.size > 0 ? `, KHÔNG nhận ${rejected.size}` : ''}.`,
-      request: { activityId, batch: batchNo, products: batch.map((plan) => plan.input) } as unknown as Prisma.InputJsonValue,
-      response: result.data as unknown as Prisma.InputJsonValue,
-      requestId: result.requestId ?? null,
+        `Lô ${batchNo}/${params.batches.length} (${results[index].status}): ${batch.length} sản phẩm, ` +
+        `${results[index].skus} dòng; TikTok nhận ${acceptedIds.length}` +
+        `${failures.size > 0 ? `, lỗi ${failures.size}` : ''}.`,
+      request: {
+        activityId,
+        batch: batchNo,
+        products: outcome.sentPlans.map((plan) => plan.input),
+      } as unknown as Prisma.InputJsonValue,
+      response: {
+        provider: (outcome.result?.data ?? null) as unknown as Prisma.InputJsonValue,
+        failedItems: this.describeFailedSkus(batch, failures),
+      },
+      errorCode: results[index].errorCode,
+      errorMessage: results[index].errorMessage,
+      requestId: results[index].requestId,
       attempt,
       userId,
     });
+
+    const log = {
+      module: 'pod-flash-sale',
+      operation: 'flashSale.publish.batch',
+      flashSaleId: flashSale.id,
+      shopId: flashSale.shopId,
+      runId,
+      activityId,
+      batchIndex: batchNo,
+      batchSize: batch.length,
+      skuCount: results[index].skus,
+      successCount: acceptedIds.length,
+      failedCount: failures.size,
+      errorCode: results[index].errorCode,
+      errorMessage: results[index].errorMessage,
+      failedSkus: this.describeFailedSkus(batch, failures).slice(0, FLASH_SALE_LOG_MAX_FAILED_SKUS),
+      msg: `[FLASH_SALE] Lô ${batchNo}/${params.batches.length} ${results[index].status}`,
+    };
+    if (failures.size > 0) this.logger.warn(log);
+    else this.logger.log(log);
   }
 
-  /** Cả lượt đã xong: đợt sale lên sàn (hoặc — lượt PUSH — đã nhận thêm dòng mới). */
-  private async finishPublishRun(
-    flashSale: FlashSaleDetailRow,
-    runId: string,
-    activityId: string,
-    userId: string | null,
-    mode: PublishRunMode,
-  ): Promise<void> {
+  /**
+   * Lượt đã chạy HẾT các lô (hoặc dừng sớm vì lỗi của cả lượt) ⇒ chốt trạng thái đợt từ kết quả lô.
+   *
+   * ```
+   *   có dòng trên sàn (lượt này hoặc trước đó) ⇒ RUNNING — hoạt động ĐANG chạy trên TikTok
+   *        còn SKU lỗi / lô SKIPPED            ⇒ kèm lastErrorCode = PUBLISH_PARTIAL + tóm tắt
+   *   không dòng nào lên sàn                    ⇒ FAILED (Retry, cùng activity_id)
+   *   lượt PUSH                                 ⇒ luôn RUNNING (khuyến mãi cũ vẫn bán)
+   * ```
+   *
+   * 🔴 Không có trạng thái "thành công" khi còn lô hỏng: `lastErrorCode` + kết quả lô (`publish-status`)
+   * nói rõ bao nhiêu SKU lỗi ở lô nào. Không thêm giá trị enum mới — `RUNNING` vẫn đúng nghĩa "đang
+   * chạy trên sàn", và Retry phần lỗi đi đường "gửi thêm" có sẵn (`pushPendingItems`).
+   */
+  private async finishPublishRun(params: PublishRunParams, abort: ProviderFailure | null): Promise<void> {
+    const { flashSale, runId, activityId, userId, mode } = params;
     const now = new Date();
-    await this.prisma.podFlashSale.updateMany({
+    const results = abort
+      ? skipUnfinishedBatches(
+          params.results,
+          { code: abort.code, message: `Không gửi vì lượt phải dừng: ${abort.message}` },
+          now,
+        )
+      : params.results;
+    params.results.splice(0, params.results.length, ...results);
+    const summary = summarizeBatchResults(results);
+    const onProvider = params.hadPublishedItems || summary.succeeded > 0;
+    const status =
+      mode === 'PUSH' || onProvider ? PodFlashSaleStatus.RUNNING : PodFlashSaleStatus.FAILED;
+    const hasProblems = summary.failed > 0 || summary.skipped > 0 || params.preflightFailed > 0;
+    const lastProblem = [...results].reverse().find((result) => result.errorCode !== null) ?? null;
+
+    const error = !hasProblems
+      ? { lastErrorCode: null, lastErrorMessage: null, lastErrorRequestId: null }
+      : {
+          lastErrorCode:
+            status === PodFlashSaleStatus.RUNNING
+              ? FLASH_SALE_PUBLISH_PARTIAL_CODE
+              : (abort?.code ?? lastProblem?.errorCode ?? null),
+          lastErrorMessage: (
+            `${summary.succeeded} SKU lên sàn, ${summary.failed + params.preflightFailed} SKU lỗi` +
+            `${params.preflightFailed > 0 ? ` (${params.preflightFailed} bị loại trước khi gửi: sản phẩm/SKU không hợp lệ)` : ''}` +
+            `${summary.skipped > 0 ? `, ${summary.skipped} SKU chưa gửi` : ''} ` +
+            `(${summary.failedBatches} lô lỗi, ${summary.partialBatches} lô một phần` +
+            `${summary.skippedBatches > 0 ? `, ${summary.skippedBatches} lô bỏ qua` : ''}).` +
+            `${(abort ?? lastProblem) ? ` Lỗi gần nhất: ${abort ? this.failureText(abort) : `[${lastProblem?.errorCode}] ${lastProblem?.errorMessage ?? ''}`}` : ''}`
+          ).slice(0, 2000),
+          lastErrorRequestId: abort?.requestId ?? lastProblem?.requestId ?? null,
+        };
+
+    const updated = await this.prisma.podFlashSale.updateMany({
       where: { id: flashSale.id, publishRunId: runId },
       data: {
-        status: PodFlashSaleStatus.RUNNING,
+        status,
         providerFlashSaleId: activityId,
-        // Lượt PUSH không đổi mốc lên sàn — đợt đã lên sàn từ trước.
-        ...(mode === 'PUBLISH' ? { publishedAt: now } : {}),
+        // Mốc lên sàn: lượt PUBLISH có dòng được nhận lần đầu. Lượt PUSH không đổi mốc.
+        ...(mode === 'PUBLISH' && summary.succeeded > 0 && !params.hadPublishedItems ? { publishedAt: now } : {}),
         lastSyncedAt: now,
         publishFinishedAt: now,
         publishHeartbeatAt: now,
         publishCurrentBatch: null,
-        publishFailedBatch: null,
-        lastErrorCode: null,
-        lastErrorMessage: null,
-        lastErrorRequestId: null,
+        publishFailedBatch: summary.firstProblemBatch,
+        publishBatchResults: results as unknown as Prisma.InputJsonValue,
+        ...error,
         ...(userId ? { updatedBy: userId } : {}),
       },
+    });
+    if (updated.count === 0) return;
+
+    if (hasProblems) {
+      await this.flashSales.writeLog({
+        organizationId: flashSale.organizationId,
+        flashSaleId: flashSale.id,
+        action: PodFlashSaleLogAction.UPDATE_PRODUCTS,
+        level: status === PodFlashSaleStatus.FAILED ? PodFlashSaleLogLevel.ERROR : PodFlashSaleLogLevel.WARN,
+        message: `Lượt ${mode === 'PUSH' ? 'gửi thêm' : 'publish'} kết thúc (${status}): ${error.lastErrorMessage ?? ''}`,
+        response: { batches: results } as unknown as Prisma.InputJsonValue,
+        errorCode: error.lastErrorCode,
+        errorMessage: error.lastErrorMessage,
+        requestId: error.lastErrorRequestId,
+        attempt: flashSale.retryCount,
+        userId,
+      });
+    }
+
+    this.logger.log({
+      module: 'pod-flash-sale',
+      operation: 'flashSale.publish.done',
+      flashSaleId: flashSale.id,
+      shopId: flashSale.shopId,
+      runId,
+      activityId,
+      status,
+      totalBatches: summary.totalBatches,
+      succeededBatches: summary.succeededBatches,
+      partialBatches: summary.partialBatches,
+      failedBatches: summary.failedBatches,
+      skippedBatches: summary.skippedBatches,
+      successCount: summary.succeeded,
+      failedCount: summary.failed,
+      skippedCount: summary.skipped,
+      msg: `[FLASH_SALE] Lượt kết thúc: ${summary.processedBatches}/${summary.totalBatches} lô đã xử lý`,
     });
   }
 
   /**
-   * Lượt hỏng: đợt sale về `FAILED`, giữ nguyên MỌI dữ liệu.
+   * Lượt hỏng TRƯỚC khi gửi được lô nào (tạo hoạt động thất bại) hoặc dừng bất thường (bug, mất
+   * database): đợt về `FAILED` (lượt PUSH: vẫn `RUNNING`), giữ nguyên MỌI dữ liệu.
    *
-   * 🔴 Trạng thái tuyệt đối KHÔNG được là `RUNNING`/hoàn tất khi còn lô chưa gửi. `failedBatch`
-   * cộng với trạng thái từng dòng là đủ để người vận hành biết "hỏng ở lô 12/34" và để nút
-   * Retry gửi tiếp từ đúng chỗ đó — trên CÙNG một hoạt động khuyến mãi.
+   * 🔴 Mọi lô chưa có kết quả ⇒ `SKIPPED` kèm lý do — không để `PENDING` treo sau khi lượt đã kết thúc.
    */
   private async failPublishRun(
     flashSale: FlashSaleDetailRow,
@@ -1364,19 +1664,32 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
     userId: string | null,
     batchNo: number | null,
     mode: PublishRunMode,
+    results: FlashSaleBatchResult[] = [],
   ): Promise<void> {
     const now = new Date();
+    const skipped = skipUnfinishedBatches(
+      results,
+      { code: failure.code, message: `Không gửi vì lượt dừng: ${failure.message}` },
+      now,
+    );
+    const summary = summarizeBatchResults(skipped);
+    const onProvider =
+      mode === 'PUSH' ||
+      summary.succeeded > 0 ||
+      flashSale.items.some((item) => item.status === PodFlashSaleItemStatus.PUBLISHED);
     const changed = await this.prisma.podFlashSale.updateMany({
       where: { id: flashSale.id, publishRunId: runId },
       data: {
-        // 🔴 Lượt PUSH hỏng: đợt VẪN đang chạy trên TikTok với các dòng cũ ⇒ RUNNING, không FAILED.
-        status: mode === 'PUSH' ? PodFlashSaleStatus.RUNNING : PodFlashSaleStatus.FAILED,
+        // 🔴 Đã có dòng trên sàn (lượt PUSH, hoặc lô trước đã được nhận): hoạt động VẪN chạy ⇒ RUNNING.
+        status: onProvider ? PodFlashSaleStatus.RUNNING : PodFlashSaleStatus.FAILED,
         lastErrorCode: failure.code,
         lastErrorMessage: failure.message.slice(0, 2000),
         lastErrorRequestId: failure.requestId,
-        publishFailedBatch: batchNo,
+        publishFailedBatch: batchNo ?? summary.firstProblemBatch,
+        publishCurrentBatch: null,
         publishFinishedAt: now,
         publishHeartbeatAt: now,
+        ...(results.length > 0 ? { publishBatchResults: skipped as unknown as Prisma.InputJsonValue } : {}),
         ...(userId ? { updatedBy: userId } : {}),
       },
     });
@@ -1468,17 +1781,265 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
     return rejected;
   }
 
-  /** Đánh dấu các dòng thất bại kèm lỗi — KHÔNG xoá dòng (FAILED ≠ DELETE). */
-  private async markItemsFailed(itemIds: string[], code: string, message: string): Promise<void> {
-    if (itemIds.length === 0) return;
-    await this.prisma.podFlashSaleItem.updateMany({
-      where: { id: { in: itemIds }, status: { not: PodFlashSaleItemStatus.PUBLISHED } },
-      data: {
-        status: PodFlashSaleItemStatus.FAILED,
-        errorCode: code.slice(0, 32),
-        error: message.slice(0, 2000),
-      },
+  /** Kết quả lô ban đầu (mọi lô PENDING) — `skus` là số DÒNG của lô. */
+  private initialResults(batches: ActivityProductPlan[][]): FlashSaleBatchResult[] {
+    return initialBatchResults(
+      batches.map((batch) => ({
+        products: batch.length,
+        skus: batch.reduce((sum, plan) => sum + plan.itemIds.length, 0),
+      })),
+    );
+  }
+
+  /** Lỗi áp cho CẢ lượt: uỷ quyền / cấu hình / lỗi lập trình / ngữ cảnh shop. */
+  private isRunFatal(error: unknown): boolean {
+    if (error instanceof PodFlashSaleShopContextException) return true;
+    return error instanceof TiktokClientError && RUN_FATAL_ERROR_CLASSES.includes(error.errorClass);
+  }
+
+  /** Lỗi tạm thời (đã đi hết lượt thử lại trong `sendBatchWithRetry`). */
+  private isTransient(error: unknown): boolean {
+    return (
+      error instanceof PodFlashSaleBatchTimeoutError ||
+      (error instanceof TiktokClientError && RETRYABLE_ERROR_CLASSES.includes(error.errorClass))
+    );
+  }
+
+  private failureText(failure: ProviderFailure): string {
+    return failure.code ? `[${failure.code}] ${failure.message}` : failure.message;
+  }
+
+  /** Mỗi lần TikTok từ chối một lô ⇒ một dòng nhật ký: payload ĐÃ gửi, mã lỗi, request_id. */
+  private async logRejectedAttempt(
+    params: PublishRunParams,
+    batchNo: number,
+    round: number,
+    plans: ActivityProductPlan[],
+    failure: ProviderFailure,
+  ): Promise<void> {
+    const { flashSale, activityId, userId, attempt } = params;
+    await this.flashSales.writeLog({
+      organizationId: flashSale.organizationId,
+      flashSaleId: flashSale.id,
+      action: PodFlashSaleLogAction.UPDATE_PRODUCTS,
+      level: PodFlashSaleLogLevel.ERROR,
+      message: `Lô ${batchNo}${round > 0 ? ` (gửi lại lần ${round})` : ''}: TikTok từ chối — ${this.failureText(failure)}`,
+      request: {
+        activityId,
+        batch: batchNo,
+        round,
+        products: plans.map((plan) => plan.input),
+      } as unknown as Prisma.InputJsonValue,
+      errorCode: failure.code,
+      errorMessage: failure.message,
+      requestId: failure.requestId,
+      attempt,
+      userId,
     });
+    this.logger.warn({
+      module: 'pod-flash-sale',
+      operation: 'flashSale.publish.batch.rejected',
+      flashSaleId: flashSale.id,
+      shopId: flashSale.shopId,
+      activityId,
+      batchIndex: batchNo,
+      round,
+      batchSize: plans.length,
+      skuCount: plans.reduce((sum, plan) => sum + plan.itemIds.length, 0),
+      errorCode: failure.code,
+      errorMessage: failure.message,
+      requestId: failure.requestId,
+      msg: `[FLASH_SALE] Lô ${batchNo}: TikTok từ chối`,
+    });
+  }
+
+  /**
+   * Kiểm chứng TRÊN TIKTOK từng sản phẩm của một lô bị từ chối — Get Product bằng ngữ cảnh của ĐÚNG
+   * shop đang publish, nên sản phẩm của shop khác cũng lộ ra ở đây (lỗi "không tìm thấy").
+   *
+   * 🔴 "SKU tồn tại trong database" ≠ "SKU gửi được". Một sản phẩm đã bị xoá / ngừng bán trên TikTok
+`   * vẫn được Get Product trả về KÈM đủ SKU — điều duy nhất khác là `status` ≠ ACTIVATE. Vì vậy kiểm
+   * CẢ trạng thái sản phẩm lẫn việc SKU còn nằm trên sản phẩm.
+   *
+   * Không đọc được (lỗi tạm thời) ⇒ KHÔNG kết luận gì về sản phẩm đó (không đánh hỏng oan).
+   */
+  private async findUnpublishableItems(
+    context: TiktokShopContext,
+    plans: ActivityProductPlan[],
+    cause: ProviderFailure,
+  ): Promise<Map<string, ItemFailure>> {
+    const invalid = new Map<string, ItemFailure>();
+    const tiktok = `TikTok từ chối lô: ${this.failureText(cause)}`;
+    const queue = [...plans];
+    const worker = async (): Promise<void> => {
+      for (let plan = queue.shift(); plan; plan = queue.shift()) {
+        const productId = plan.input.id;
+        let detail: { status?: string; productStatus?: string; skus?: Array<{ id?: string }> };
+        try {
+          detail = (await this.withRequestTimeout(this.productApi.getProduct(context, productId))).data;
+        } catch (error) {
+          if (this.isTransient(error) || this.isRunFatal(error)) continue;
+          const failure = this.describeFailure(error);
+          const message = `Không đọc được sản phẩm ${productId} ở shop này (${this.failureText(failure)}). ${tiktok}`;
+          plan.itemIds.forEach((itemId) =>
+            invalid.set(itemId, { code: FLASH_SALE_ITEM_ERROR_CODES.PRODUCT_NOT_FOUND, message }),
+          );
+          continue;
+        }
+
+        const status = detail.productStatus ?? detail.status;
+        if (status && status !== TIKTOK_PRODUCT_STATUS.ACTIVATE) {
+          const message =
+            `Sản phẩm ${productId} đang ở trạng thái ${status} trên TikTok — không còn bán nên không ` +
+            `vào được Flash Sale (SKU vẫn tồn tại trên sản phẩm). ${tiktok}`;
+          plan.itemIds.forEach((itemId) =>
+            invalid.set(itemId, { code: FLASH_SALE_ITEM_ERROR_CODES.PRODUCT_NOT_LIVE, message }),
+          );
+          continue;
+        }
+
+        const skuIds = new Set((detail.skus ?? []).map((sku) => sku.id).filter(Boolean));
+        for (const [skuId, itemId] of plan.itemByVariantId) {
+          if (!skuIds.has(skuId)) {
+            invalid.set(itemId, {
+              code: FLASH_SALE_ITEM_ERROR_CODES.SKU_NOT_ON_PRODUCT,
+              message: `SKU ${skuId} không còn thuộc sản phẩm ${productId} trên TikTok. ${tiktok}`,
+            });
+          }
+        }
+      }
+    };
+    await Promise.all(
+      Array.from({ length: Math.min(FLASH_SALE_VERIFY_CONCURRENCY, plans.length) }, () => worker()),
+    );
+    return invalid;
+  }
+
+  /**
+   * Lô bị từ chối mà KHÔNG tách được mục nào ⇒ có thể chính hoạt động đã bị đóng. Hỏi Get Activity:
+   * đóng / bị khoá / không đọc được vì lỗi nghiệp vụ ⇒ lỗi của CẢ lượt (dừng, các lô sau SKIPPED);
+   * còn mở ⇒ đây là lỗi riêng của lô, lượt đi tiếp.
+   */
+  private async assertActivityWritable(
+    context: TiktokShopContext,
+    activityId: string,
+    cause: ProviderFailure,
+  ): Promise<void> {
+    let activity: TiktokActivityDetail;
+    try {
+      activity = (await this.withRequestTimeout(this.promotionApi.getActivity(context, activityId))).data;
+    } catch (error) {
+      if (this.isTransient(error)) return;
+      throw new PodFlashSaleRunAbortedError(this.describeFailure(error));
+    }
+    const immutable = Boolean(activity.activityCommands?.includes(TIKTOK_ACTIVITY_COMMAND_IMMUTABLE));
+    const closed = [
+      TIKTOK_ACTIVITY_STATUS.DEACTIVATED,
+      TIKTOK_ACTIVITY_STATUS.EXPIRED,
+      TIKTOK_ACTIVITY_STATUS.NOT_EFFECTIVE,
+    ].includes(activity.status as never);
+    if (immutable || closed) {
+      throw new PodFlashSaleRunAbortedError({
+        code: cause.code,
+        message:
+          `Hoạt động TikTok ${activityId} không còn nhận sản phẩm (${activity.status ?? 'không rõ'}` +
+          `${immutable ? ', IMMUTABLE' : ''}). ${cause.message}`,
+        requestId: cause.requestId,
+      });
+    }
+  }
+
+  /** Bỏ các dòng hỏng khỏi kế hoạch gửi — sản phẩm không còn SKU nào thì bỏ cả mục. */
+  private withoutItems(plans: ActivityProductPlan[], itemIds: Set<string>): ActivityProductPlan[] {
+    const kept: ActivityProductPlan[] = [];
+    for (const plan of plans) {
+      if (plan.itemByVariantId.size === 0) {
+        // Mức PRODUCT: một mục = một dòng.
+        if (!plan.itemIds.some((id) => itemIds.has(id))) kept.push(plan);
+        continue;
+      }
+      const variants = [...plan.itemByVariantId].filter(([, itemId]) => !itemIds.has(itemId));
+      if (variants.length === 0) continue;
+      const keptSkuIds = new Set(variants.map(([skuId]) => skuId));
+      kept.push({
+        input: { ...plan.input, skus: plan.input.skus.filter((sku) => keptSkuIds.has(sku.id)) },
+        itemIds: plan.itemIds.filter((id) => !itemIds.has(id)),
+        itemByVariantId: new Map(variants),
+      });
+    }
+    return kept;
+  }
+
+  /** Gộp dòng hỏng theo (mã, thông điệp) — mỗi nhóm MỘT câu `updateMany`. */
+  private groupFailures(failures: Map<string, ItemFailure>): Map<string, string[]> {
+    const groups = new Map<string, string[]>();
+    for (const [itemId, failure] of failures) {
+      const key = JSON.stringify({ code: failure.code, message: failure.message });
+      groups.set(key, [...(groups.get(key) ?? []), itemId]);
+    }
+    return groups;
+  }
+
+  /** `{productId, skuId, code}` của từng dòng hỏng — cho log (không chứa dữ liệu nhạy cảm). */
+  private describeFailedSkus(
+    batch: ActivityProductPlan[],
+    failures: Map<string, ItemFailure>,
+  ): Array<{ productId: string; skuId: string | null; code: string }> {
+    const rows: Array<{ productId: string; skuId: string | null; code: string }> = [];
+    for (const plan of batch) {
+      const skuByItem = new Map([...plan.itemByVariantId].map(([skuId, itemId]) => [itemId, skuId]));
+      for (const itemId of plan.itemIds) {
+        const failure = failures.get(itemId);
+        if (failure) rows.push({ productId: plan.input.id, skuId: skuByItem.get(itemId) ?? null, code: failure.code });
+      }
+    }
+    return rows;
+  }
+
+  /**
+   * Dòng bị bỏ qua ở pre-flight vì ĐỊNH DANH phía sàn không gửi được (sản phẩm không còn bán, SKU đã
+   * xoá / bản chụp cũ, sai shop, trùng SKU, thiếu id) ⇒ FAILED kèm mã + lý do của validator.
+   *
+   * Lỗi GIÁ / GIỚI HẠN không đổi trạng thái dòng: đó là việc người dùng cần sửa, vẫn hiện ở danh sách
+   * vấn đề như trước. Dòng đã PUBLISHED không bao giờ bị hạ xuống.
+   */
+  private async markInvalidItems(
+    flashSale: FlashSaleDetailRow,
+    issues: Array<{ level: string; code: string; message: string; itemId?: string | null }>,
+  ): Promise<number> {
+    const identityCodes: string[] = [
+      FLASH_SALE_ISSUE_CODES.PRODUCT_NOT_ACTIVE,
+      FLASH_SALE_ISSUE_CODES.SKU_PRODUCT_MISMATCH,
+      FLASH_SALE_ISSUE_CODES.PRODUCT_SHOP_MISMATCH,
+      FLASH_SALE_ISSUE_CODES.VARIANT_REMOVED,
+      FLASH_SALE_ISSUE_CODES.DUPLICATE_SKU,
+      FLASH_SALE_ISSUE_CODES.MISSING_PROVIDER_ID,
+    ];
+    const failures = new Map<string, ItemFailure>();
+    for (const issue of issues) {
+      if (issue.level !== 'ERROR' || !issue.itemId || !identityCodes.includes(issue.code)) continue;
+      if (!failures.has(issue.itemId)) failures.set(issue.itemId, { code: issue.code, message: issue.message });
+    }
+    if (failures.size === 0) return 0;
+
+    await this.prisma.$transaction(async (tx) => {
+      for (const [key, itemIds] of this.groupFailures(failures)) {
+        const { code, message } = JSON.parse(key) as ItemFailure;
+        await tx.podFlashSaleItem.updateMany({
+          where: { id: { in: itemIds }, flashSaleId: flashSale.id, status: { not: PodFlashSaleItemStatus.PUBLISHED } },
+          data: { status: PodFlashSaleItemStatus.FAILED, errorCode: code.slice(0, 32), error: message.slice(0, 2000) },
+        });
+      }
+    });
+    this.logger.warn({
+      module: 'pod-flash-sale',
+      operation: 'flashSale.publish.preflight',
+      flashSaleId: flashSale.id,
+      shopId: flashSale.shopId,
+      failedCount: failures.size,
+      msg: `[FLASH_SALE] Pre-flight: ${failures.size} dòng không gửi được (sản phẩm/SKU không hợp lệ) — đánh FAILED`,
+    });
+    return failures.size;
   }
 
   /** Dòng nào được phép gửi: tất cả, hoặc chỉ những dòng không có lỗi khi bỏ qua dòng sai. */

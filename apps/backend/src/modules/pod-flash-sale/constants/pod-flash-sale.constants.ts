@@ -44,7 +44,54 @@ export const FLASH_SALE_ITEM_ERROR_CODES = {
   BATCH_REJECTED: 'BATCH_REJECTED',
   /** Lô thành công nhưng Get Activity KHÔNG có SKU/sản phẩm này. */
   NOT_ACCEPTED: 'NOT_ACCEPTED_BY_TIKTOK',
+  /**
+   * Get Product (đúng shop đang publish): sản phẩm KHÔNG ở trạng thái ACTIVATE (DELETED / FREEZE /
+   * SELLER_DEACTIVATED …). TikTok vẫn trả về sản phẩm và SKU của nó, nhưng không cho vào khuyến mãi.
+   */
+  PRODUCT_NOT_LIVE: 'PRODUCT_NOT_LIVE',
+  /** Get Product: sản phẩm còn bán nhưng KHÔNG còn SKU này (SKU đã bị thay khi sửa sản phẩm). */
+  SKU_NOT_ON_PRODUCT: 'SKU_NOT_ON_PRODUCT',
+  /** Get Product lỗi nghiệp vụ (không tìm thấy / không thuộc shop đang publish). */
+  PRODUCT_NOT_FOUND: 'PRODUCT_NOT_FOUND',
 } as const;
+
+/**
+ * Trạng thái của MỘT lô trong `pod_flash_sales.publish_batch_results`.
+ *
+ * 🔴 Lượt đã kết thúc thì KHÔNG còn lô `PENDING` / `PROCESSING`: lô chưa gửi vì lượt phải dừng
+ * (lỗi uỷ quyền, hoạt động bị đóng) mang `SKIPPED` kèm lý do.
+ */
+export const FLASH_SALE_BATCH_STATUS = {
+  PENDING: 'PENDING',
+  PROCESSING: 'PROCESSING',
+  SUCCEEDED: 'SUCCEEDED',
+  /** TikTok nhận một phần: SKU hỏng đã được tách ra (ghi lỗi riêng), phần còn lại lên sàn. */
+  PARTIAL: 'PARTIAL',
+  FAILED: 'FAILED',
+  SKIPPED: 'SKIPPED',
+} as const;
+export type FlashSaleBatchStatus = (typeof FLASH_SALE_BATCH_STATUS)[keyof typeof FLASH_SALE_BATCH_STATUS];
+
+/** Mã lỗi cấp ĐỢT khi lượt publish kết thúc mà còn SKU hỏng / lô chưa gửi (đợt vẫn lên sàn). */
+export const FLASH_SALE_PUBLISH_PARTIAL_CODE = 'PUBLISH_PARTIAL';
+
+/**
+ * Số vòng "tách SKU hỏng rồi gửi lại phần còn lại" cho MỘT lô.
+ *
+ * TikTok từ chối CẢ request khi chỉ một SKU sai (17029016 "No SKU in the product matches"). Vòng 1
+ * tách các sản phẩm/SKU mà Get Product xác nhận không gửi được; vòng 2 để dự phòng khi lần gửi lại
+ * lộ thêm một mục sai mà vòng trước chưa thấy. Hết vòng ⇒ lô FAILED, lượt đi tiếp lô sau.
+ */
+export const FLASH_SALE_BATCH_ISOLATION_ROUNDS = 2;
+
+/** Số lời gọi Get Product song song khi kiểm chứng sản phẩm của một lô hỏng (quota theo App × Shop). */
+export const FLASH_SALE_VERIFY_CONCURRENCY = 4;
+
+/** Số SKU lỗi tối đa liệt kê trong MỘT dòng log (log không phình theo kích thước lô). */
+export const FLASH_SALE_LOG_MAX_FAILED_SKUS = 50;
+
+/** Số dòng lỗi tối đa trả về ở `publish-status` — phần còn lại xem ở bảng sản phẩm (lọc FAILED). */
+export const FLASH_SALE_PUBLISH_FAILURES_LIMIT = 200;
 
 /** Khoá phân tán cho lượt đồng bộ Flash Sale từ TikTok — theo shop. */
 export const FLASH_SALE_IMPORT_LOCK_PREFIX = 'pod:flash-sale:import:lock:';
@@ -377,6 +424,12 @@ export const FLASH_SALE_ISSUE_CODES = {
   PRODUCT_NOT_ACTIVE: 'FLASH_SALE_PRODUCT_NOT_ACTIVE',
   /** SKU đã bị người bán xoá trên TikTok — dòng còn giữ, nhưng không gửi lên sàn được. */
   VARIANT_REMOVED: 'FLASH_SALE_VARIANT_REMOVED',
+  /** `provider_*_id` chụp lúc thêm dòng KHÔNG còn khớp sản phẩm / SKU hiện tại (bản chụp cũ). */
+  SKU_PRODUCT_MISMATCH: 'FLASH_SALE_SKU_PRODUCT_MISMATCH',
+  /** Sản phẩm của dòng không thuộc shop của đợt sale. */
+  PRODUCT_SHOP_MISMATCH: 'FLASH_SALE_PRODUCT_SHOP_MISMATCH',
+  /** Cùng một SKU (hoặc cùng sản phẩm ở mức PRODUCT) xuất hiện hai lần. */
+  DUPLICATE_SKU: 'FLASH_SALE_DUPLICATE_SKU',
 } as const;
 export type PodFlashSaleIssueCode =
   (typeof FLASH_SALE_ISSUE_CODES)[keyof typeof FLASH_SALE_ISSUE_CODES];

@@ -16,6 +16,7 @@ import {
 import { TIKTOK_ACTIVITY_MAX_TITLE_LENGTH } from '../../tiktok-sdk/tiktok-sdk.constants';
 import {
   FLASH_SALE_LIVE_STATUSES,
+  FLASH_SALE_PUBLISH_FAILURES_LIMIT,
   FLASH_SALE_EDITABLE_STATUSES,
   FLASH_SALE_MAX_ITEMS,
   POD_FLASH_SALE_PROVIDER_TIKTOK,
@@ -60,6 +61,7 @@ import {
   type FlashSaleDetailRow,
 } from '../mappers/pod-flash-sale.mapper';
 import { PodFlashSaleValidatorService } from './pod-flash-sale-validator.service';
+import { parseBatchResults, summarizeBatchResults } from './pod-flash-sale-batch-results';
 
 /** Đủ để dựng phần đầu của một đợt sale mới — dùng chung cho Create, Duplicate và Apply Template. */
 export interface FlashSaleHeaderInput {
@@ -272,7 +274,7 @@ export class PodFlashSaleService {
   /** Kiểm tra một bản ghi đã nạp (không truy vấn thêm). */
   validateRow(row: FlashSaleDetailRow, now: Date = new Date()): PodFlashSaleValidationDto {
     const result = this.validator.validate(
-      { id: row.id, name: row.name, startAt: row.startAt, endAt: row.endAt, items: row.items },
+      { id: row.id, shopId: row.shopId, name: row.name, startAt: row.startAt, endAt: row.endAt, items: row.items },
       now,
     );
     return {
@@ -288,7 +290,7 @@ export class PodFlashSaleService {
    * là bình thường. Cùng bộ luật dòng với `validateRow`.
    */
   validateItemsOnly(row: FlashSaleDetailRow): { issues: PodFlashSaleValidationDto['issues']; readyItemIds: string[] } {
-    return this.validator.validateItems(row.items);
+    return this.validator.validateItems(row.items, row.shopId);
   }
 
   async validate(
@@ -791,6 +793,7 @@ export class PodFlashSaleService {
         publishFailedBatch: true,
         publishStartedAt: true,
         publishFinishedAt: true,
+        publishBatchResults: true,
         lastErrorCode: true,
         lastErrorMessage: true,
         lastErrorRequestId: true,
@@ -799,17 +802,49 @@ export class PodFlashSaleService {
     if (!row) throw new PodFlashSaleNotFoundException();
     this.accessScope.assertShopAllowed(scope, row.shopId);
 
-    const [publishedItems, pendingItems] = await Promise.all([
-      this.prisma.podFlashSaleItem.count({
-        where: { flashSaleId: id, status: PodFlashSaleItemStatus.PUBLISHED },
+    // 🔴 FAILED KHÔNG phải "còn lại": trước đây `pendingItems` = mọi dòng chưa PUBLISHED, nên SKU lỗi bị
+    // hiển thị như "đang chờ" và con số "còn lại" không bao giờ giảm sau một lô hỏng.
+    const [counts, failures] = await Promise.all([
+      this.prisma.podFlashSaleItem.groupBy({
+        by: ['status'],
+        where: { flashSaleId: id },
+        _count: { _all: true },
       }),
-      this.prisma.podFlashSaleItem.count({
-        where: {
-          flashSaleId: id,
-          status: { notIn: [PodFlashSaleItemStatus.PUBLISHED, PodFlashSaleItemStatus.REMOVED] },
+      this.prisma.podFlashSaleItem.findMany({
+        where: { flashSaleId: id, status: PodFlashSaleItemStatus.FAILED },
+        orderBy: [{ publishBatch: { sort: 'asc', nulls: 'last' } }, { sortOrder: 'asc' }],
+        take: FLASH_SALE_PUBLISH_FAILURES_LIMIT,
+        select: {
+          id: true,
+          publishBatch: true,
+          providerProductId: true,
+          providerVariantId: true,
+          errorCode: true,
+          error: true,
+          product: { select: { title: true } },
+          variant: { select: { variantName: true, sellerSku: true } },
         },
       }),
     ]);
+    const countOf = (statuses: PodFlashSaleItemStatus[]) =>
+      counts.filter((entry) => statuses.includes(entry.status)).reduce((sum, entry) => sum + entry._count._all, 0);
+    const publishedItems = countOf([PodFlashSaleItemStatus.PUBLISHED]);
+    const pendingItems = countOf([PodFlashSaleItemStatus.READY, PodFlashSaleItemStatus.PENDING]);
+    const failedItems = countOf([PodFlashSaleItemStatus.FAILED]);
+
+    const batches = parseBatchResults(row.publishBatchResults);
+    const summary = summarizeBatchResults(batches);
+    // `live` (PUBLISHING | RUNNING) là luật tự làm mới; "lượt đang chạy" chỉ là PUBLISHING.
+    const outcome =
+      batches.length === 0
+        ? null
+        : row.status === PodFlashSaleStatus.PUBLISHING
+          ? 'RUNNING'
+          : summary.failed + summary.skipped + failedItems === 0
+            ? 'SUCCEEDED'
+            : summary.succeeded > 0 || row.status === PodFlashSaleStatus.RUNNING
+              ? 'PARTIAL'
+              : 'FAILED';
 
     return {
       flashSaleId: row.id,
@@ -823,6 +858,31 @@ export class PodFlashSaleService {
       failedBatch: row.publishFailedBatch,
       publishedItems,
       pendingItems,
+      failedItems,
+      outcome,
+      run: {
+        succeeded: summary.succeeded,
+        failed: summary.failed,
+        skipped: summary.skipped,
+        pending: summary.pending,
+        processedBatches: summary.processedBatches,
+        succeededBatches: summary.succeededBatches,
+        partialBatches: summary.partialBatches,
+        failedBatches: summary.failedBatches,
+        skippedBatches: summary.skippedBatches,
+      },
+      batches,
+      failures: failures.map((item) => ({
+        itemId: item.id,
+        batch: item.publishBatch,
+        productTitle: item.product?.title ?? null,
+        providerProductId: item.providerProductId,
+        providerVariantId: item.providerVariantId,
+        variantName: item.variant?.variantName ?? null,
+        sellerSku: item.variant?.sellerSku ?? null,
+        errorCode: item.errorCode,
+        error: item.error,
+      })),
       errorCode: row.lastErrorCode,
       errorMessage: row.lastErrorMessage,
       errorRequestId: row.lastErrorRequestId,

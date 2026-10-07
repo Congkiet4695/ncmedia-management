@@ -30,6 +30,16 @@ import { PodFlashSaleItemService } from '../../src/modules/pod-flash-sale/servic
 import { PodFlashSalePublisherService } from '../../src/modules/pod-flash-sale/services/pod-flash-sale-publisher.service';
 import { PodFlashSaleValidatorService } from '../../src/modules/pod-flash-sale/services/pod-flash-sale-validator.service';
 import { PodFlashSaleService } from '../../src/modules/pod-flash-sale/services/pod-flash-sale.service';
+import { TiktokErrorClass } from '../../src/modules/pod-tiktok/constants/tiktok-error-code.constants';
+import { TiktokClientError } from '../../src/modules/pod-tiktok/exceptions/pod-tiktok.exceptions';
+
+/** Get Product chỉ dùng khi một lô bị từ chối — kịch bản này coi như "không đọc được" (không tách gì). */
+const productApiStub = {
+  getProduct: async () => {
+    throw new TiktokClientError(TiktokErrorClass.NETWORK, 0, 'not available in this scenario', 0);
+  },
+};
+
 
 const prisma = new PrismaClient();
 const results: string[] = [];
@@ -57,7 +67,7 @@ async function main(): Promise<void> {
   const accessScope = new PodAccessScopeService(prisma as never);
   const flashSales = new PodFlashSaleService(prisma as never, accessScope, new PodFlashSaleValidatorService());
   const items = new PodFlashSaleItemService(prisma as never, flashSales);
-  const publisher = new PodFlashSalePublisherService(prisma as never, flashSales, promotionApi, shopContext as never, locks as never);
+  const publisher = new PodFlashSalePublisherService(prisma as never, flashSales, promotionApi, shopContext as never, locks as never, productApiStub as never);
   const importer = new PodFlashSaleImportService(prisma as never, flashSales, publisher, promotionApi, accessScope, locks as never);
 
   const productIds: string[] = [];

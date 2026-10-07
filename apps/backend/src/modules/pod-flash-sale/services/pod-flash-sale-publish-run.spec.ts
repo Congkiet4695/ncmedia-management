@@ -152,12 +152,16 @@ function buildService(flashSale: FlashSaleDetailRow = buildFlashSale()) {
     renew: jest.fn().mockResolvedValue(true),
   };
 
+  // Get Product — chỉ được gọi khi một lô bị TikTok từ chối (kiểm chứng sản phẩm/SKU của lô đó).
+  const productApi = { getProduct: jest.fn() };
+
   const service = new PodFlashSalePublisherService(
     prisma as never,
     flashSales as never,
     promotionApi as never,
     shopContext as never,
     locks as never,
+    productApi as never,
   );
 
   const publishAndSettle = async () => {
@@ -179,12 +183,42 @@ function buildService(flashSale: FlashSaleDetailRow = buildFlashSale()) {
     ...(tx.podFlashSale.updateMany.mock.calls as unknown as Array<[{ data: Record<string, unknown> }]>).map((c) => c[0].data),
   ];
 
+  type ItemWrite = [{ where: { id: { in: string[] } }; data: { status: string; errorCode?: string; error?: string; publishBatch?: number } }];
+  const itemWrites = () => tx.podFlashSaleItem.updateMany.mock.calls as unknown as ItemWrite[];
+
   /** Id các dòng đã được đánh dấu PUBLISHED. */
   const publishedItemIds = (): string[] =>
-    (tx.podFlashSaleItem.updateMany.mock.calls as unknown as Array<[{ where: { id: { in: string[] } } }]>)
+    itemWrites()
+      .filter((c) => c[0].data.status === PodFlashSaleItemStatus.PUBLISHED)
       .flatMap((c) => c[0].where.id.in);
 
-  return { service, prisma, tx, promotionApi, flashSales, locks, publishAndSettle, calls, writes, publishedItemIds };
+  /** Dòng đã bị đánh FAILED: id ⇒ { errorCode, error, publishBatch }. */
+  const failedItems = (): Map<string, { errorCode?: string; error?: string; publishBatch?: number }> =>
+    new Map(
+      itemWrites()
+        .filter((c) => c[0].data.status === PodFlashSaleItemStatus.FAILED)
+        .flatMap((c) => c[0].where.id.in.map((id) => [id, c[0].data] as const)),
+    );
+
+  /** Kết quả lô ghi lần CUỐI (`publishBatchResults`). */
+  const batchResults = (): Array<{ batch: number; status: string; succeeded: number; failed: number; errorCode: string | null }> =>
+    (writes().filter((row) => Array.isArray(row.publishBatchResults)).at(-1)?.publishBatchResults ?? []) as never;
+
+  return {
+    service,
+    prisma,
+    tx,
+    promotionApi,
+    productApi,
+    flashSales,
+    locks,
+    publishAndSettle,
+    calls,
+    writes,
+    publishedItemIds,
+    failedItems,
+    batchResults,
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -338,28 +372,35 @@ describe('Per Variant — giá deal tính ĐỘC LẬP cho từng SKU', () => {
 // ---------------------------------------------------------------------------
 
 describe('Thất bại một phần', () => {
-  it('🔴 lô 2 hỏng ⇒ KHÔNG gửi lô 3, đợt sale KHÔNG phải RUNNING, và biết hỏng ở lô nào', async () => {
-    const { publishAndSettle, promotionApi, writes } = buildService(
+  it('🔴 lô 2 hỏng ⇒ lô 3 VẪN được gửi; đợt RUNNING kèm PUBLISH_PARTIAL; biết lô nào hỏng, mã lỗi TikTok', async () => {
+    const { publishAndSettle, promotionApi, productApi, writes, batchResults } = buildService(
       buildFlashSale({ items: buildItems(900), itemCount: 900 }),
     );
     promotionApi.updateActivityProducts
       .mockResolvedValueOnce({ data: { products: [] }, requestId: 'r-1' })
       .mockRejectedValueOnce(
         new TiktokClientError(TiktokErrorClass.BUSINESS, 12345, 'SKU không hợp lệ', 400, 'req-x'),
-      );
+      )
+      .mockResolvedValue({ data: { products: [] }, requestId: 'r-3' });
+    // Get Product không chỉ ra mục nào sai ⇒ không tách được ⇒ cả lô 2 FAILED; hoạt động vẫn mở.
+    productApi.getProduct.mockImplementation((_ctx: unknown, id: string) =>
+      Promise.resolve({ data: { status: 'ACTIVATE', skus: [{ id: id.replace('TT-P-', 'TT-SKU-') }] } }),
+    );
+    promotionApi.getActivity.mockResolvedValue({ data: { status: 'NOT_START', products: [] }, requestId: 'g' });
 
     await publishAndSettle();
 
-    // Lô 3 KHÔNG được gửi: gửi tiếp sau khi một lô hỏng là để đợt sale rơi vào trạng thái
-    // không ai mô tả được.
-    expect(promotionApi.updateActivityProducts).toHaveBeenCalledTimes(2);
+    // Lô 3 VẪN được gửi — một lô hỏng không chặn phần còn lại.
+    expect(promotionApi.updateActivityProducts).toHaveBeenCalledTimes(3);
+    expect(batchResults().map((r) => r.status)).toEqual(['SUCCEEDED', 'FAILED', 'SUCCEEDED']);
 
-    const data = writes();
-    expect(data.some((row) => row.status === PodFlashSaleStatus.FAILED)).toBe(true);
-    expect(data.some((row) => row.status === PodFlashSaleStatus.RUNNING)).toBe(false);
-    expect(data.some((row) => row.publishFailedBatch === 2)).toBe(true);
-    expect(data.some((row) => row.lastErrorCode === '12345')).toBe(true);
-    expect(data.some((row) => row.lastErrorRequestId === 'req-x')).toBe(true);
+    // Lần ghi CHỐT lượt: mang trạng thái + mốc kết thúc.
+    const final = writes().find((w) => w.status !== undefined && w.publishFinishedAt instanceof Date) as Record<string, unknown>;
+    expect(final.status).toBe(PodFlashSaleStatus.RUNNING);
+    expect(final.lastErrorCode).toBe('PUBLISH_PARTIAL');
+    expect(final.publishFailedBatch).toBe(2);
+    expect(final.lastErrorRequestId).toBe('req-x');
+    expect(String(final.lastErrorMessage)).toContain('12345');
   });
 
   it('🔴 lô 1 thành công vẫn được đánh dấu PUBLISHED dù lô 2 hỏng — nền tảng của việc chạy lại', async () => {
@@ -371,6 +412,7 @@ describe('Thất bại một phần', () => {
       .mockRejectedValueOnce(
         new TiktokClientError(TiktokErrorClass.BUSINESS, 999, 'hỏng', 400, 'req-y'),
       );
+    promotionApi.getActivity.mockResolvedValue({ data: { status: 'NOT_START', products: [] }, requestId: 'g' });
 
     await publishAndSettle();
 
@@ -592,7 +634,7 @@ describe('Nhặt lại lượt publish đứt gánh', () => {
 describe('Lô thành công nhưng TikTok nhận thiếu (total_count < số mục gửi)', () => {
   it('🔴 25/30: đúng 5 dòng vắng trong Get Activity ⇒ FAILED (NOT_ACCEPTED_BY_TIKTOK), 25 PUBLISHED', async () => {
     const flashSale = buildFlashSale({ items: buildItems(30), itemCount: 30 });
-    const { publishAndSettle, promotionApi, tx, publishedItemIds } = buildService(flashSale);
+    const { publishAndSettle, promotionApi, publishedItemIds, failedItems, batchResults } = buildService(flashSale);
     promotionApi.updateActivityProducts.mockResolvedValue({ data: { totalCount: 25 }, requestId: 'r3' });
     promotionApi.getActivity.mockResolvedValue({
       data: {
@@ -607,15 +649,10 @@ describe('Lô thành công nhưng TikTok nhận thiếu (total_count < số mụ
     await publishAndSettle();
 
     expect(publishedItemIds()).toHaveLength(25);
-    const failed = (
-      tx.podFlashSaleItem.update.mock.calls as unknown as Array<
-        [{ where: { id: string }; data: { status: string; errorCode: string } }]
-      >
-    )
-      .map((c) => c[0])
-      .filter((c) => c.data.status === PodFlashSaleItemStatus.FAILED);
-    expect(failed.map((c) => c.where.id).sort()).toEqual(['item-25', 'item-26', 'item-27', 'item-28', 'item-29']);
-    expect(failed.every((c) => c.data.errorCode === 'NOT_ACCEPTED_BY_TIKTOK')).toBe(true);
+    const failed = failedItems();
+    expect([...failed.keys()].sort()).toEqual(['item-25', 'item-26', 'item-27', 'item-28', 'item-29']);
+    expect([...failed.values()].every((d) => d.errorCode === 'NOT_ACCEPTED_BY_TIKTOK')).toBe(true);
+    expect(batchResults()[0]).toMatchObject({ status: 'PARTIAL', succeeded: 25, failed: 5 });
   });
 
   it('total_count đủ ⇒ KHÔNG gọi Get Activity (không tốn thêm lời gọi)', async () => {
@@ -684,14 +721,10 @@ describe('pushPendingItems — thêm sản phẩm vào đợt ĐANG CHẠY', () 
 
     expect(harness.writes().some((w) => w.status === PodFlashSaleStatus.RUNNING)).toBe(true);
     expect(harness.writes().some((w) => w.status === PodFlashSaleStatus.FAILED)).toBe(false);
-    const failedWrite = (
-      harness.prisma.podFlashSaleItem.updateMany.mock.calls as unknown as Array<
-        [{ data: { status?: string; errorCode?: string } }]
-      >
-    )
-      .map((c) => c[0].data)
-      .find((d) => d.status === PodFlashSaleItemStatus.FAILED);
-    expect(failedWrite?.errorCode).toBe('BATCH_REJECTED');
+    // CLIENT_BUG là lỗi của CẢ lượt ⇒ lô này FAILED với đúng lỗi đó, không tách SKU, không gọi Get Product.
+    expect([...harness.failedItems().values()].every((d) => d.errorCode === 'BATCH_REJECTED')).toBe(true);
+    expect(harness.failedItems().size).toBe(2);
+    expect(harness.productApi.getProduct).not.toHaveBeenCalled();
   });
 
   it('không còn dòng nào chưa gửi ⇒ không gọi TikTok, không giành lượt', async () => {
@@ -759,5 +792,272 @@ describe('pushPendingItems — thêm sản phẩm vào đợt ĐANG CHẠY', () 
     expect(result.status).toBe(PodFlashSaleStatus.RUNNING);
     expect(harness.promotionApi.updateActivityProducts).not.toHaveBeenCalled();
     expect(harness.writes().some((w) => w.status === PodFlashSaleStatus.RUNNING)).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Cô lập lỗi theo LÔ / theo SKU — một mục hỏng không được chặn phần còn lại
+// ---------------------------------------------------------------------------
+
+/** TikTok 17029016 — lỗi thật của đợt "FLASH SALE_MINA #3 CopyY". */
+const skuNotMatch = () =>
+  new TiktokClientError(
+    TiktokErrorClass.BUSINESS,
+    17029016,
+    'Resource Not Found: No SKU in the product matches the sku_id',
+    200,
+    'req-17029016',
+  );
+
+/** Get Product giả: sản phẩm `TT-P-i` có SKU `TT-SKU-i`; `deleted` ⇒ DELETED (SKU VẪN còn trên sản phẩm). */
+function tiktokCatalog(options: { deleted?: string[]; missingSkus?: string[] } = {}) {
+  return (_ctx: unknown, productId: string) =>
+    Promise.resolve({
+      data: {
+        id: productId,
+        status: options.deleted?.includes(productId) ? 'DELETED' : 'ACTIVATE',
+        skus: [{ id: productId.replace('TT-P-', 'TT-SKU-') }, { id: `${productId}-S1` }, { id: `${productId}-S3` }]
+          .filter((sku) => !options.missingSkus?.includes(sku.id)),
+      },
+      requestId: 'gp',
+    });
+}
+
+/** Payload nào chứa một sản phẩm "hỏng" ⇒ TikTok từ chối CẢ request (đúng hành vi đã thấy). */
+function rejectWhenContains(badProductIds: string[], badSkuIds: string[] = []) {
+  return (_ctx: unknown, _activityId: string, products: ProductPayload[]) => {
+    const bad = products.some(
+      (product) => badProductIds.includes(product.id) || product.skus.some((sku) => badSkuIds.includes(sku.id)),
+    );
+    if (bad) return Promise.reject(skuNotMatch());
+    return Promise.resolve({
+      data: { totalCount: products.reduce((sum, p) => sum + Math.max(p.skus.length, 1), 0) },
+      requestId: 'ok',
+    });
+  };
+}
+
+describe('Cô lập lỗi: một lô / SKU hỏng KHÔNG chặn các lô còn lại', () => {
+  it('CASE 1 — đợt nhân bản 3 lô, cả 3 thành công ⇒ 3/3 SUCCEEDED, RUNNING, không lỗi, một hoạt động', async () => {
+    const harness = buildService(buildFlashSale({ items: buildItems(900), itemCount: 900 }));
+    harness.promotionApi.updateActivityProducts.mockImplementation(rejectWhenContains([]));
+
+    await harness.publishAndSettle();
+
+    expect(harness.batchResults().map((r) => r.status)).toEqual(['SUCCEEDED', 'SUCCEEDED', 'SUCCEEDED']);
+    expect(harness.publishedItemIds()).toHaveLength(900);
+    expect(harness.promotionApi.createActivity).toHaveBeenCalledTimes(1);
+    const final = harness.writes().find((w) => w.status !== undefined && w.publishFinishedAt instanceof Date);
+    expect(final).toMatchObject({ status: PodFlashSaleStatus.RUNNING, lastErrorCode: null });
+  });
+
+  it('CASE 2 — lô 1 FAILED vì sản phẩm đã xoá (17029016), lô 2 & 3 SUCCEEDED, không lô nào PENDING', async () => {
+    const harness = buildService(buildFlashSale({ items: buildItems(900), itemCount: 900 }));
+    const batch1 = Array.from({ length: 300 }, (_, index) => `TT-P-${index}`);
+    harness.promotionApi.updateActivityProducts.mockImplementation(rejectWhenContains(batch1));
+    harness.productApi.getProduct.mockImplementation(tiktokCatalog({ deleted: batch1 }));
+
+    await harness.publishAndSettle();
+
+    expect(harness.batchResults().map((r) => r.status)).toEqual(['FAILED', 'SUCCEEDED', 'SUCCEEDED']);
+    expect(harness.batchResults().some((r) => r.status === 'PENDING' || r.status === 'PROCESSING')).toBe(false);
+    expect(harness.publishedItemIds()).toHaveLength(600);
+    const failed = harness.failedItems();
+    expect(failed.size).toBe(300);
+    // Lý do cụ thể trên TỪNG dòng: sản phẩm DELETED + lỗi gốc của TikTok, kèm lô.
+    expect(failed.get('item-0')).toMatchObject({ errorCode: 'PRODUCT_NOT_LIVE', publishBatch: 1 });
+    expect(failed.get('item-0')?.error).toContain('DELETED');
+    expect(failed.get('item-0')?.error).toContain('17029016');
+    // Lỗi TikTok được ghi nhật ký kèm payload đã gửi — không "nuốt" lỗi.
+    const rejectedLog = (harness.flashSales.writeLog.mock.calls as Array<[Record<string, unknown>]>)
+      .map((c) => c[0])
+      .find((entry) => entry.errorCode === '17029016');
+    expect(rejectedLog).toMatchObject({ requestId: 'req-17029016' });
+    expect((rejectedLog?.request as { products: unknown[] }).products).toHaveLength(300);
+  });
+
+  it('CASE 3 — lô 1: 5 SKU hỏng, 295 lên sàn; lô 2: 300 ⇒ succeeded 595, failed 5, pending 0', async () => {
+    const harness = buildService(buildFlashSale({ items: buildItems(600), itemCount: 600 }));
+    const bad = ['TT-P-3', 'TT-P-50', 'TT-P-120', 'TT-P-200', 'TT-P-299'];
+    harness.promotionApi.updateActivityProducts.mockImplementation(rejectWhenContains(bad));
+    harness.productApi.getProduct.mockImplementation(tiktokCatalog({ deleted: bad }));
+
+    await harness.publishAndSettle();
+
+    const results = harness.batchResults();
+    expect(results[0]).toMatchObject({ status: 'PARTIAL', succeeded: 295, failed: 5, errorCode: '17029016' });
+    expect(results[1]).toMatchObject({ status: 'SUCCEEDED', succeeded: 300, failed: 0 });
+    expect(harness.publishedItemIds()).toHaveLength(595);
+    expect([...harness.failedItems().keys()].sort()).toEqual(
+      ['item-120', 'item-200', 'item-299', 'item-3', 'item-50'],
+    );
+    // Lần gửi lại của lô 1 KHÔNG chứa sản phẩm hỏng.
+    const resend = harness.calls()[1].products.map((p) => p.id);
+    expect(resend).toHaveLength(295);
+    expect(resend.some((id) => bad.includes(id))).toBe(false);
+  });
+
+  it('CASE 4 — một SKU không thuộc sản phẩm ⇒ CHỈ SKU đó FAILED, các SKU khác cùng sản phẩm vẫn lên sàn', async () => {
+    const items = ['S1', 'S2', 'S3'].map((suffix, index) =>
+      buildItem({
+        id: `item-${suffix}`,
+        variantId: `v-${suffix}`,
+        providerProductId: 'TT-P-A',
+        providerVariantId: `TT-P-A-${suffix}`,
+        sortOrder: index,
+      }),
+    );
+    const harness = buildService(buildFlashSale({ items, itemCount: 3 }));
+    harness.promotionApi.updateActivityProducts.mockImplementation(rejectWhenContains([], ['TT-P-A-S2']));
+    harness.productApi.getProduct.mockImplementation(tiktokCatalog({ missingSkus: ['TT-P-A-S2'] }));
+
+    await harness.publishAndSettle();
+
+    expect(harness.failedItems().get('item-S2')).toMatchObject({ errorCode: 'SKU_NOT_ON_PRODUCT' });
+    expect(harness.failedItems().size).toBe(1);
+    expect(harness.publishedItemIds().sort()).toEqual(['item-S1', 'item-S3']);
+    expect(harness.calls()[1].products[0].skus.map((s) => s.id)).toEqual(['TT-P-A-S1', 'TT-P-A-S3']);
+  });
+
+  it.each([
+    ['CASE 5 — 429', TiktokErrorClass.RATE_LIMIT, 429],
+    ['CASE 6 — HTTP 500', TiktokErrorClass.SERVER, 500],
+  ])('%s hết lượt thử lại ⇒ lô 1 FAILED, lô 2 VẪN chạy; không tách SKU vì lỗi tạm thời', async (_label, errorClass, http) => {
+    jest.useFakeTimers({ doNotFake: ['performance'] });
+    try {
+      const harness = buildService(buildFlashSale({ items: buildItems(600), itemCount: 600 }));
+      const transient = new TiktokClientError(errorClass, http, 'tạm thời', http, 'req-t');
+      harness.promotionApi.updateActivityProducts.mockImplementation(
+        (_ctx: unknown, _id: string, products: ProductPayload[]) =>
+          products.some((p) => p.id === 'TT-P-0')
+            ? Promise.reject(transient)
+            : Promise.resolve({ data: { totalCount: products.length }, requestId: 'ok' }),
+      );
+
+      await harness.service.publish('org-1', 'user-1', 'fs-1', {}, SCOPE);
+      await jest.runAllTimersAsync();
+      await harness.service.whenPublishIdle();
+
+      // 1 lần đầu + FLASH_SALE_BATCH_MAX_RETRIES (3) lần thử lại cho lô 1, rồi lô 2.
+      expect(harness.calls()).toHaveLength(5);
+      expect(harness.batchResults().map((r) => r.status)).toEqual(['FAILED', 'SUCCEEDED']);
+      expect(harness.productApi.getProduct).not.toHaveBeenCalled();
+      expect([...harness.failedItems().values()].every((d) => d.errorCode === 'BATCH_REJECTED')).toBe(true);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('CASE 7 — timeout SAU KHI TikTok đã nhận ⇒ gửi lại ĐÚNG payload vào CÙNG hoạt động; không tạo hoạt động thứ hai', async () => {
+    jest.useFakeTimers({ doNotFake: ['performance'] });
+    try {
+      const harness = buildService(buildFlashSale({ items: buildItems(3), itemCount: 3 }));
+      harness.promotionApi.updateActivityProducts
+        .mockImplementationOnce(() => new Promise(() => {})) // TikTok nhận nhưng không trả lời kịp
+        .mockResolvedValue({ data: { totalCount: 3 }, requestId: 'r-ok' });
+
+      await harness.service.publish('org-1', 'user-1', 'fs-1', {}, SCOPE);
+      await jest.runAllTimersAsync();
+      await harness.service.whenPublishIdle();
+
+      const [first, second] = harness.calls();
+      expect(second.activityId).toBe(first.activityId);
+      // Update Activity Products là "thêm hoặc sửa" theo id ⇒ gửi lại cùng payload không nhân đôi SKU.
+      expect(second.products).toEqual(first.products);
+      expect(harness.promotionApi.createActivity).toHaveBeenCalledTimes(1);
+      expect(harness.batchResults().map((r) => r.status)).toEqual(['SUCCEEDED']);
+    } finally {
+      jest.useRealTimers();
+    }
+  });
+
+  it('lỗi của CẢ lượt (uỷ quyền) ở lô 2 ⇒ lô 3 SKIPPED kèm lý do, KHÔNG gửi; không còn lô PENDING', async () => {
+    const harness = buildService(buildFlashSale({ items: buildItems(900), itemCount: 900 }));
+    harness.promotionApi.updateActivityProducts
+      .mockResolvedValueOnce({ data: { totalCount: 300 }, requestId: 'r-1' })
+      .mockRejectedValueOnce(new TiktokClientError(TiktokErrorClass.AUTH, 105002, 'Hết hạn uỷ quyền', 401, 'req-a'));
+
+    await harness.publishAndSettle();
+
+    expect(harness.calls()).toHaveLength(2);
+    expect(harness.batchResults().map((r) => r.status)).toEqual(['SUCCEEDED', 'FAILED', 'SKIPPED']);
+    expect(harness.batchResults()[2].errorCode).toBe('105002');
+    expect(harness.productApi.getProduct).not.toHaveBeenCalled();
+    const final = harness.writes().find((w) => w.status !== undefined && w.publishFinishedAt instanceof Date);
+    // Lô 1 đã lên sàn ⇒ hoạt động đang chạy ⇒ RUNNING kèm PUBLISH_PARTIAL, không phải "thành công".
+    expect(final).toMatchObject({ status: PodFlashSaleStatus.RUNNING, lastErrorCode: 'PUBLISH_PARTIAL' });
+  });
+
+  it('không tách được SKU nào và hoạt động đã bị đóng ⇒ dừng lượt, các lô sau SKIPPED', async () => {
+    const harness = buildService(buildFlashSale({ items: buildItems(600), itemCount: 600 }));
+    harness.promotionApi.updateActivityProducts.mockRejectedValue(skuNotMatch());
+    harness.productApi.getProduct.mockImplementation(tiktokCatalog());
+    harness.promotionApi.getActivity.mockResolvedValue({ data: { status: 'DEACTIVATED', products: [] }, requestId: 'g' });
+
+    await harness.publishAndSettle();
+
+    expect(harness.calls()).toHaveLength(1);
+    expect(harness.batchResults().map((r) => r.status)).toEqual(['FAILED', 'SKIPPED']);
+    const final = harness.writes().find((w) => w.status !== undefined && w.publishFinishedAt instanceof Date);
+    // Chưa dòng nào lên sàn ⇒ FAILED (Retry dùng lại activity_id).
+    expect(final).toMatchObject({ status: PodFlashSaleStatus.FAILED });
+  });
+
+  it('CASE 9 — pre-flight: dòng của sản phẩm không còn bán bị đánh FAILED kèm lý do và KHÔNG được gửi', async () => {
+    const flashSale = buildFlashSale({ items: buildItems(3), itemCount: 3 });
+    const harness = buildService(flashSale);
+    harness.flashSales.validateRow.mockReturnValue({
+      flashSaleId: 'fs-1',
+      ok: false,
+      readyItems: 2,
+      issues: [
+        {
+          level: 'ERROR',
+          code: 'FLASH_SALE_PRODUCT_NOT_ACTIVE',
+          field: 'productId',
+          message: 'Sản phẩm TT-P-1 không còn đang bán trên TikTok',
+          itemId: 'item-1',
+        },
+      ],
+    });
+    harness.promotionApi.updateActivityProducts.mockImplementation(rejectWhenContains([]));
+
+    await harness.service.publish('org-1', 'user-1', 'fs-1', { skipInvalidItems: true }, SCOPE);
+    await harness.service.whenPublishIdle();
+
+    expect(harness.failedItems().get('item-1')).toMatchObject({ errorCode: 'FLASH_SALE_PRODUCT_NOT_ACTIVE' });
+    const sent = harness.calls().flatMap((c) => c.products.map((p) => p.id));
+    expect(sent.sort()).toEqual(['TT-P-0', 'TT-P-2']);
+    expect(harness.publishedItemIds().sort()).toEqual(['item-0', 'item-2']);
+  });
+
+  it('CASE 10 — Retry sau khi hỏng một phần: CHỈ gửi dòng FAILED / chưa gửi, không gửi lại dòng đã lên sàn', async () => {
+    const row = buildFlashSale({
+      status: PodFlashSaleStatus.RUNNING,
+      providerFlashSaleId: 'TT-ACT-1',
+      endAt: new Date(Date.now() + 3_600_000),
+      items: buildItems(4, (index) => ({
+        status: [
+          PodFlashSaleItemStatus.PUBLISHED,
+          PodFlashSaleItemStatus.FAILED,
+          PodFlashSaleItemStatus.PUBLISHED,
+          PodFlashSaleItemStatus.READY,
+        ][index],
+      })),
+    });
+    const harness = buildService(row);
+    Object.assign(harness.flashSales, {
+      validateItemsOnly: jest.fn().mockReturnValue({ issues: [], readyItemIds: row.items.map((i) => i.id) }),
+    });
+    harness.promotionApi.getActivity.mockResolvedValue({ data: { status: 'ONGOING', products: [] }, requestId: 'g' });
+    harness.promotionApi.updateActivityProducts.mockImplementation(rejectWhenContains([]));
+
+    await harness.service.pushPendingItems('org-1', 'user-1', 'fs-1', SCOPE);
+    await harness.service.whenPublishIdle();
+
+    const sent = harness.calls().flatMap((c) => c.products.flatMap((p) => p.skus.map((s) => s.id)));
+    expect(sent).toEqual(['TT-SKU-1', 'TT-SKU-3']);
+    expect(harness.calls().every((c) => c.activityId === 'TT-ACT-1')).toBe(true);
+    expect(harness.promotionApi.createActivity).not.toHaveBeenCalled();
   });
 });

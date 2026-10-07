@@ -399,12 +399,74 @@ export interface PodFlashSalePublishStatus {
   /** Khác null ⇒ đợt sale KHÔNG hoàn tất, còn lô chưa gửi. */
   failedBatch: number | null;
   publishedItems: number;
+  /** Dòng chưa gửi (READY / PENDING) — KHÔNG gồm dòng lỗi. */
   pendingItems: number;
+  /** Dòng lỗi (FAILED) của cả đợt. */
+  failedItems: number;
+  /** Kết quả lượt gần nhất. `null` = chưa có kết quả lô (dữ liệu cũ / chưa publish). */
+  outcome: PodFlashSalePublishOutcome | null;
+  run: PodFlashSalePublishRunSummary;
+  batches: PodFlashSalePublishBatch[];
+  /** Tối đa 200 dòng lỗi, theo lô. */
+  failures: PodFlashSalePublishFailure[];
   errorCode: string | null;
   errorMessage: string | null;
   errorRequestId: string | null;
   startedAt: string | null;
   finishedAt: string | null;
+}
+
+export type PodFlashSalePublishOutcome = 'RUNNING' | 'SUCCEEDED' | 'PARTIAL' | 'FAILED';
+
+export type PodFlashSaleBatchStatus =
+  | 'PENDING'
+  | 'PROCESSING'
+  | 'SUCCEEDED'
+  | 'PARTIAL'
+  | 'FAILED'
+  | 'SKIPPED';
+
+/** Kết quả MỘT lô (một request Update Activity Products, tối đa 300 SKU). */
+export interface PodFlashSalePublishBatch {
+  batch: number;
+  status: PodFlashSaleBatchStatus;
+  products: number;
+  skus: number;
+  succeeded: number;
+  failed: number;
+  errorCode: string | null;
+  errorMessage: string | null;
+  requestId: string | null;
+  startedAt: string | null;
+  finishedAt: string | null;
+}
+
+export interface PodFlashSalePublishRunSummary {
+  succeeded: number;
+  failed: number;
+  /** SKU của lô bị bỏ qua vì lượt phải dừng — chưa gửi. */
+  skipped: number;
+  /** SKU còn chờ — chỉ khác 0 khi lượt đang chạy. */
+  pending: number;
+  processedBatches: number;
+  succeededBatches: number;
+  partialBatches: number;
+  failedBatches: number;
+  skippedBatches: number;
+}
+
+/** MỘT dòng lỗi: Batch · Product · SKU · Error code · Message. */
+export interface PodFlashSalePublishFailure {
+  /** Chỉ làm khoá — không hiển thị. */
+  itemId: string;
+  batch: number | null;
+  productTitle: string | null;
+  providerProductId: string | null;
+  providerVariantId: string | null;
+  variantName: string | null;
+  sellerSku: string | null;
+  errorCode: string | null;
+  error: string | null;
 }
 
 /**

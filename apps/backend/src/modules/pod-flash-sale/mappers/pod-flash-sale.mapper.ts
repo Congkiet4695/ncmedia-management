@@ -41,6 +41,11 @@ export const FLASH_SALE_DETAIL_INCLUDE = {
           id: true,
           title: true,
           tiktokProductId: true,
+          // Pre-flight trước khi gửi TikTok (validator): sản phẩm còn bán, đúng shop của đợt.
+          shopId: true,
+          status: true,
+          deactivatedAt: true,
+          deletedAt: true,
           // Ảnh CHÍNH của sản phẩm (`variantId = null`), lấy đúng một tấm đầu tiên —
           // bảng chỉ hiển thị một thumbnail nên kéo cả bộ ảnh về là lãng phí thuần tuý.
           images: {
@@ -57,6 +62,8 @@ export const FLASH_SALE_DETAIL_INCLUDE = {
           variantName: true,
           sellerSku: true,
           tiktokSkuId: true,
+          // Pre-flight: SKU vẫn thuộc đúng sản phẩm của dòng.
+          productId: true,
           imageUrl: true,
         },
       },

@@ -325,6 +325,48 @@ export class PodFlashSalePublishResultDto {
  * dòng. Với một đợt 10.000 SKU đó là vài MB cho mỗi lần hỏi — hỏi vài giây một lần trong
  * suốt lượt publish là tự tạo ra một vấn đề lớn hơn vấn đề đang giải.
  */
+/** Kết quả MỘT lô của lượt publish gần nhất. */
+export class PodFlashSalePublishBatchDto {
+  @ApiProperty({ description: 'Số thứ tự lô (từ 1)' }) batch!: number;
+  @ApiProperty({ enum: ['PENDING', 'PROCESSING', 'SUCCEEDED', 'PARTIAL', 'FAILED', 'SKIPPED'] })
+  status!: string;
+  @ApiProperty({ description: 'Số sản phẩm của lô' }) products!: number;
+  @ApiProperty({ description: 'Số dòng (SKU) của lô' }) skus!: number;
+  @ApiProperty() succeeded!: number;
+  @ApiProperty() failed!: number;
+  @ApiProperty({ nullable: true, type: String }) errorCode!: string | null;
+  @ApiProperty({ nullable: true, type: String }) errorMessage!: string | null;
+  @ApiProperty({ nullable: true, type: String }) requestId!: string | null;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) startedAt!: string | null;
+  @ApiProperty({ nullable: true, type: String, format: 'date-time' }) finishedAt!: string | null;
+}
+
+/** Tổng hợp của lượt publish gần nhất — tính từ kết quả lô. */
+export class PodFlashSalePublishRunSummaryDto {
+  @ApiProperty({ description: 'SKU TikTok đã nhận trong lượt' }) succeeded!: number;
+  @ApiProperty({ description: 'SKU lỗi trong lượt' }) failed!: number;
+  @ApiProperty({ description: 'SKU của lô bị bỏ qua (lượt phải dừng) — chưa gửi' }) skipped!: number;
+  @ApiProperty({ description: 'SKU còn chờ (chỉ khác 0 khi lượt đang chạy). KHÔNG gồm SKU lỗi.' }) pending!: number;
+  @ApiProperty() processedBatches!: number;
+  @ApiProperty() succeededBatches!: number;
+  @ApiProperty() partialBatches!: number;
+  @ApiProperty() failedBatches!: number;
+  @ApiProperty() skippedBatches!: number;
+}
+
+/** MỘT dòng lỗi — Batch · Product · SKU · Error code · Error message. */
+export class PodFlashSalePublishFailureDto {
+  @ApiProperty({ description: 'Id dòng — chỉ làm khoá' }) itemId!: string;
+  @ApiProperty({ nullable: true, type: Number }) batch!: number | null;
+  @ApiProperty({ nullable: true, type: String }) productTitle!: string | null;
+  @ApiProperty({ nullable: true, type: String }) providerProductId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) providerVariantId!: string | null;
+  @ApiProperty({ nullable: true, type: String }) variantName!: string | null;
+  @ApiProperty({ nullable: true, type: String }) sellerSku!: string | null;
+  @ApiProperty({ nullable: true, type: String }) errorCode!: string | null;
+  @ApiProperty({ nullable: true, type: String }) error!: string | null;
+}
+
 export class PodFlashSalePublishStatusDto {
   @ApiProperty() flashSaleId!: string;
   @ApiProperty({ enum: PodFlashSaleStatus }) status!: PodFlashSaleStatus;
@@ -343,7 +385,22 @@ export class PodFlashSalePublishStatusDto {
   failedBatch!: number | null;
 
   @ApiProperty({ description: 'Số dòng TikTok đã xác nhận' }) publishedItems!: number;
-  @ApiProperty({ description: 'Số dòng còn lại chưa lên sàn' }) pendingItems!: number;
+  @ApiProperty({ description: 'Số dòng chưa gửi (READY / PENDING) — KHÔNG gồm dòng lỗi' }) pendingItems!: number;
+  @ApiProperty({ description: 'Số dòng lỗi (FAILED) của cả đợt' }) failedItems!: number;
+
+  @ApiProperty({
+    enum: ['RUNNING', 'SUCCEEDED', 'PARTIAL', 'FAILED'],
+    nullable: true,
+    type: String,
+    description:
+      'Kết quả lượt gần nhất: RUNNING (đang chạy) · SUCCEEDED (mọi lô trọn vẹn) · PARTIAL (có SKU lỗi / lô ' +
+      'bỏ qua nhưng có SKU lên sàn) · FAILED (không SKU nào lên sàn). null = chưa có kết quả lô.',
+  })
+  outcome!: 'RUNNING' | 'SUCCEEDED' | 'PARTIAL' | 'FAILED' | null;
+  @ApiProperty({ type: PodFlashSalePublishRunSummaryDto }) run!: PodFlashSalePublishRunSummaryDto;
+  @ApiProperty({ type: [PodFlashSalePublishBatchDto] }) batches!: PodFlashSalePublishBatchDto[];
+  @ApiProperty({ type: [PodFlashSalePublishFailureDto], description: 'Tối đa 200 dòng lỗi (theo lô)' })
+  failures!: PodFlashSalePublishFailureDto[];
 
   @ApiProperty({ nullable: true, type: String }) errorCode!: string | null;
   @ApiProperty({ nullable: true, type: String }) errorMessage!: string | null;

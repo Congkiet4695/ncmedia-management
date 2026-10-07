@@ -382,15 +382,40 @@
       "VALIDATE": "Kiểm tra dữ liệu"
     },
     "publish": {
-      "running": "Đang đẩy lên TikTok…",
-      "completed": "Đã đẩy lên TikTok",
-      "failed": "Đẩy lên TikTok thất bại",
       "batchProgress": "{{done}} / {{total}} lô",
-      "itemsDone": "{{count}} SKU đã được nhận",
-      "itemsPending": "{{count}} SKU còn lại",
       "activityId": "Khuyến mãi {{id}}",
-      "failedAtBatch": "Dừng ở lô {{batch}}/{{total}}. {{message}} Bấm Retry sẽ gửi tiếp trên CÙNG khuyến mãi — không tạo khuyến mãi thứ hai.",
-      "asyncHint": "Sản phẩm được gửi lên TikTok theo từng lô tối đa 300 SKU. Bạn có thể rời khỏi trang, quá trình vẫn chạy nền."
+      "asyncHint": "Sản phẩm được gửi lên TikTok theo từng lô tối đa 300 SKU. Bạn có thể rời khỏi trang, quá trình vẫn chạy nền.",
+      "outcome": {
+        "RUNNING": "Đang đẩy lên TikTok…",
+        "SUCCEEDED": "Đã đẩy lên TikTok — mọi lô thành công",
+        "PARTIAL": "Đã đẩy lên TikTok — một phần SKU lỗi",
+        "FAILED": "Đẩy lên TikTok thất bại — chưa SKU nào lên sàn"
+      },
+      "counter": {
+        "succeeded": "Thành công",
+        "failed": "Lỗi",
+        "pending": "Đang chờ",
+        "skipped": "Chưa gửi (lượt dừng)"
+      },
+      "batchesLabel": "Kết quả từng lô",
+      "batchStatus": {
+        "PENDING": "Chờ gửi",
+        "PROCESSING": "Đang gửi",
+        "SUCCEEDED": "Thành công",
+        "PARTIAL": "Một phần",
+        "FAILED": "Thất bại",
+        "SKIPPED": "Bỏ qua"
+      },
+      "batchCounts": "{{succeeded}} thành công · {{failed}} lỗi / {{total}} SKU",
+      "failures": {
+        "toggle": "Xem {{count}} SKU lỗi",
+        "batch": "Lô",
+        "product": "Sản phẩm",
+        "sku": "SKU",
+        "code": "Mã lỗi",
+        "message": "Chi tiết",
+        "more": "Đang hiện {{shown}} / {{total}} SKU lỗi — lọc \"Thất bại\" ở bảng sản phẩm để xem tất cả."
+      }
     },
     "stats": {
       "success": "{{count}} thành công",

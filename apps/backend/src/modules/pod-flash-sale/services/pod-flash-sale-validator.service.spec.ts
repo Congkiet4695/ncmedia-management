@@ -148,7 +148,7 @@ describe('PodFlashSaleValidatorService', () => {
 
   it('trộn nhiều loại tiền ⇒ CẢNH BÁO, không chặn (shop đa vùng vẫn hợp lệ)', () => {
     const result = validator.validate(
-      flashSale({ items: [item(), item({ id: 'item-2', currency: 'GBP' })] }),
+      flashSale({ items: [item(), item({ id: 'item-2', providerVariantId: '17295929697144', currency: 'GBP' })] }),
       NOW,
     );
     expect(result.ok).toBe(true);
@@ -173,5 +173,80 @@ describe('PodFlashSaleValidatorService', () => {
     expect(result.issues.map((issue) => issue.code)).toContain(
       FLASH_SALE_ISSUE_CODES.LIMIT_OUT_OF_RANGE,
     );
+  });
+});
+
+describe('PodFlashSaleValidatorService — pre-flight định danh phía sàn (lỗi 17029016 khi nhân bản)', () => {
+  const validator = new PodFlashSaleValidatorService();
+  const product = (over: Record<string, unknown> = {}) => ({
+    tiktokProductId: '17295929697122',
+    shopId: 'shop-1',
+    status: 'ACTIVATE',
+    deactivatedAt: null,
+    deletedAt: null,
+    ...over,
+  });
+  const live = (over: Partial<ValidatableFlashSaleItem> = {}) =>
+    item({
+      productId: 'product-1',
+      product: product(),
+      variant: { tiktokSkuId: '17295929697133', productId: 'product-1' },
+      ...over,
+    });
+  const codesOf = (items: ValidatableFlashSaleItem[]) =>
+    validator.validate(flashSale({ shopId: 'shop-1', items }), NOW).issues.map((issue) => issue.code);
+
+  it('sản phẩm còn bán, đúng shop, SKU khớp ⇒ hợp lệ', () => {
+    const result = validator.validate(flashSale({ shopId: 'shop-1', items: [live()] }), NOW);
+    expect(result.ok).toBe(true);
+  });
+
+  it.each([
+    ['đã rời tập đang bán (deactivated_at)', { deactivatedAt: new Date('2026-08-01') }],
+    ['trạng thái DELETED', { status: 'DELETED' }],
+    ['trạng thái SELLER_DEACTIVATED', { status: 'SELLER_DEACTIVATED' }],
+    ['đã xoá mềm', { deletedAt: new Date('2026-08-01') }],
+  ])('🔴 sản phẩm %s ⇒ PRODUCT_NOT_ACTIVE, dòng không được gửi', (_label, over) => {
+    const result = validator.validate(
+      flashSale({ shopId: 'shop-1', items: [live({ id: 'bad', product: product(over) })] }),
+      NOW,
+    );
+    expect(result.issues.find((issue) => issue.itemId === 'bad')?.code).toBe(
+      FLASH_SALE_ISSUE_CODES.PRODUCT_NOT_ACTIVE,
+    );
+    expect(result.readyItemIds).not.toContain('bad');
+  });
+
+  it('🔴 SKU chụp ở đợt gốc KHÔNG còn là SKU hiện tại của biến thể ⇒ SKU_PRODUCT_MISMATCH', () => {
+    expect(
+      codesOf([live({ variant: { tiktokSkuId: '99999999999999', productId: 'product-1' } })]),
+    ).toContain(FLASH_SALE_ISSUE_CODES.SKU_PRODUCT_MISMATCH);
+  });
+
+  it('biến thể thuộc sản phẩm KHÁC sản phẩm của dòng ⇒ SKU_PRODUCT_MISMATCH', () => {
+    expect(
+      codesOf([live({ variant: { tiktokSkuId: '17295929697133', productId: 'product-2' } })]),
+    ).toContain(FLASH_SALE_ISSUE_CODES.SKU_PRODUCT_MISMATCH);
+  });
+
+  it('TikTok Product ID của dòng khác sản phẩm hiện tại ⇒ SKU_PRODUCT_MISMATCH', () => {
+    expect(codesOf([live({ product: product({ tiktokProductId: '1111' }) })])).toContain(
+      FLASH_SALE_ISSUE_CODES.SKU_PRODUCT_MISMATCH,
+    );
+  });
+
+  it('sản phẩm thuộc shop khác shop của đợt ⇒ PRODUCT_SHOP_MISMATCH', () => {
+    expect(codesOf([live({ product: product({ shopId: 'shop-2' }) })])).toContain(
+      FLASH_SALE_ISSUE_CODES.PRODUCT_SHOP_MISMATCH,
+    );
+  });
+
+  it('cùng một SKU hai lần ⇒ dòng sau DUPLICATE_SKU, dòng đầu vẫn gửi được', () => {
+    const result = validator.validate(
+      flashSale({ shopId: 'shop-1', items: [live({ id: 'a' }), live({ id: 'b' })] }),
+      NOW,
+    );
+    expect(result.issues.find((issue) => issue.itemId === 'b')?.code).toBe(FLASH_SALE_ISSUE_CODES.DUPLICATE_SKU);
+    expect(result.readyItemIds).toEqual(['a']);
   });
 });
