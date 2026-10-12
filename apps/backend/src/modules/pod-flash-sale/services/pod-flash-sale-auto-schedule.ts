@@ -1,4 +1,6 @@
-import { FLASH_SALE_AUTO_END_OF_DAY, FLASH_SALE_AUTO_RULES } from '../constants/pod-flash-sale.constants';
+import { FLASH_SALE_AUTO_MINUTES_PER_DAY, FLASH_SALE_AUTO_RULES } from '../constants/pod-flash-sale.constants';
+
+const MS_PER_MINUTE = 60_000;
 
 /**
  * Phép tính thời gian của Auto Flash Sale — hàm THUẦN, không đọc đồng hồ của server, không đọc
@@ -97,43 +99,39 @@ export function addCalendarDays(instant: Date, days: number, timeZone: string): 
 }
 
 /**
- * Giờ KẾT THÚC theo "Khoảng thời gian": 23:59:59 của ngày lịch (ngày chứa `startAt` + `durationDays` − 1)
- * ở `timeZone`. 1 ngày = hết CHÍNH ngày bắt đầu — KHÔNG phải `startAt` + 24 giờ.
- *
- * ```
- *   start 20/10 00:00 · 1 ngày ⇒ 20/10 23:59:59 · 2 ngày ⇒ 21/10 23:59:59 · 3 ngày ⇒ 22/10 23:59:59
- * ```
+ * "Khoảng thời gian" N ngày ⇒ số PHÚT của đợt Auto: N × 1440. Đơn vị nghiệp vụ là phút, không phải
+ * ngày lịch — 1 ngày = 1440 phút kể từ giờ bắt đầu, kể cả qua mốc đổi giờ mùa hè.
  */
-export function computeEndOfDuration(startAt: Date, durationDays: number, timeZone: string): Date {
+export function autoDurationMinutes(durationDays: number): number {
   if (!Number.isInteger(durationDays) || durationDays < 1) {
     throw new Error(`Khoảng thời gian không hợp lệ: ${durationDays}`);
   }
-  const lastDay = toZonedParts(addCalendarDays(startAt, durationDays - 1, timeZone), timeZone);
-  return fromZonedParts({ ...lastDay, ...FLASH_SALE_AUTO_END_OF_DAY }, timeZone);
+  return durationDays * FLASH_SALE_AUTO_MINUTES_PER_DAY;
 }
 
 /**
  * Khung giờ của đợt KẾ TIẾP trong chuỗi — tính từ `endAt` của đợt hiện tại, KHÔNG từ ngày chạy
- * cron, không từ ngày hôm nay.
+ * cron, không từ ngày hôm nay. Biểu diễn phút BAO GỒM hai đầu: đợt N ngày chiếm đúng N × 1440 phút.
  *
  * ```
- *   A.end   = 20/10 23:59:59
- *   B.start = A.end + 10 phút, làm tròn xuống tới phút = 21/10 00:09:00
- *   B.end   = 23:59:59 của (21/10 + N − 1)              = 23/10 23:59:59 khi N = 3
+ *   A.end   = 21/10 13:59
+ *   B.start = A.end + 1 phút, làm tròn xuống tới phút    = 21/10 14:00
+ *   B.end   = B.start + (N × 1440 − 1) phút               = 22/10 13:59 | 23/10 13:59 | 24/10 13:59 (N = 1 | 2 | 3)
  * ```
  *
- * Làm tròn xuống tới phút để giờ bắt đầu là giờ "chẵn phút" (A kết thúc 23:59:59 ⇒ B bắt đầu
- * 00:09:00, không phải 00:09:59). Múi giờ IANA lệch nguyên phút, nên tròn phút theo UTC cũng là
+ * 🔴 KHÔNG ép giờ kết thúc về 23:59 / cuối ngày: phép tính là số phút trôi qua trên thời điểm tuyệt
+ * đối (UTC), nên không phụ thuộc múi giờ của server, trình duyệt hay đợt sale.
+ *
+ * Làm tròn xuống tới phút để giờ bắt đầu là giờ "chẵn phút" (đợt cũ kết thúc 23:59:59 ⇒ đợt mới bắt
+ * đầu 00:00:00, không phải 00:00:59). Múi giờ IANA lệch nguyên phút, nên tròn phút theo UTC cũng là
  * tròn phút theo giờ treo tường.
  */
-export function computeNextWindow(
-  currentEndAt: Date,
-  timeZone: string,
-  durationDays: number,
-): { startAt: Date; endAt: Date } {
+export function computeNextWindow(currentEndAt: Date, durationDays: number): { startAt: Date; endAt: Date } {
+  const durationMinutes = autoDurationMinutes(durationDays);
   const rawStart = currentEndAt.getTime() + FLASH_SALE_AUTO_RULES.GAP_MS;
-  const startAt = new Date(rawStart - (rawStart % 60_000));
-  return { startAt, endAt: computeEndOfDuration(startAt, durationDays, timeZone) };
+  const startAt = new Date(rawStart - (rawStart % MS_PER_MINUTE));
+  const endAt = new Date(startAt.getTime() + (durationMinutes - 1) * MS_PER_MINUTE);
+  return { startAt, endAt };
 }
 
 /** Đợt có tới hạn tạo đợt kế tiếp chưa: còn ≤ LEAD (kể cả đã hết hạn). */

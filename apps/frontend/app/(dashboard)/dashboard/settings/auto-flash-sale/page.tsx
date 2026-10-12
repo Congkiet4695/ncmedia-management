@@ -42,7 +42,7 @@ export default function FlashSaleAutoSettingsPage() {
 
 /**
  * **Settings → Auto Flash Sale Scheduler** — Admin chọn giờ chạy mỗi ngày + múi giờ + Khoảng thời gian
- * của đợt sinh tự động (1/2/3 ngày lịch, kết thúc 23:59:59 theo múi giờ của CHÍNH đợt sale).
+ * của đợt sinh tự động (1/2/3 ngày = 1440/2880/4320 phút, tính từ giờ bắt đầu — không ép 23:59).
  *
  * 🔴 Không có giờ mặc định cứng: cấu hình chưa lưu thì ô giờ để trống, Admin phải chọn. Múi giờ
  * gợi ý là múi giờ của trình duyệt, không phải của server.

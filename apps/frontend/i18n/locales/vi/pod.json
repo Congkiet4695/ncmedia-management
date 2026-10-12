@@ -484,7 +484,7 @@
         "runNowConfirm": "Chạy Auto Flash Sale ngay bây giờ? Các đợt đang bật Auto đã tới hạn sẽ được tạo đợt kế tiếp THẬT trên TikTok.",
         "runDone": "Xong: {{created}} tạo mới · {{transferred}} chuyển Auto · {{failed}} lỗi",
         "rulesTitle": "Luật của chuỗi",
-        "rules": "Tạo đợt kế tiếp khi đợt đang bật Auto còn ≤ {{leadHours}} giờ · đợt mới bắt đầu {{gapMinutes}} phút sau khi đợt cũ kết thúc (tròn phút) · kéo dài {{durationDays}} ngày lịch, kết thúc {{endOfDay}} của ngày cuối theo múi giờ của đợt sale.",
+        "rules": "Tạo đợt kế tiếp khi đợt đang bật Auto còn ≤ {{leadHours}} giờ · đợt mới bắt đầu {{gapMinutes}} phút sau khi đợt cũ kết thúc (tròn phút) · kéo dài {{durationDays}} ngày = {{durationMinutes}} phút (kết thúc = bắt đầu + {{durationMinutes}} phút − 1 phút).",
         "summary": "Kiểm {{checked}} · tạo {{created}} · chuyển {{transferred}} · đang gửi {{inProgress}} · bỏ qua {{skipped}} · lỗi {{failed}}",
         "invalidTime": "Giờ chạy phải có dạng HH:mm.",
         "durationMode": "Mode",
@@ -497,7 +497,7 @@
           "TWO_DAYS": "2 ngày",
           "THREE_DAYS": "3 ngày"
         },
-        "durationHint": "Tính theo ngày LỊCH: 1 ngày = kết thúc 23:59:59 của chính ngày bắt đầu (không phải +24 giờ). Ví dụ bắt đầu 20/10 00:00 · 3 ngày ⇒ kết thúc 22/10 23:59:59."
+        "durationHint": "Tính theo PHÚT: 1 ngày = 1440 phút, 2 ngày = 2880 phút, 3 ngày = 4320 phút, không ép về 23:59. Ví dụ đợt trước kết thúc 21/10 13:59 · 1 ngày ⇒ đợt mới 21/10 14:00 → 22/10 13:59."
       }
     }
   },

@@ -342,10 +342,17 @@ describe('PodFlashSaleAutoService.processNode', () => {
     expect(h.tx.podFlashSale.update).not.toHaveBeenCalled();
   });
 
-  it('shouldHandleExpiredFlashSale — vừa hết hạn (B.start vẫn ở tương lai) ⇒ tạo', async () => {
+  it('sắp hết hạn (B.start = A.end + 1 phút vẫn ở tương lai) ⇒ tạo', async () => {
+    const h = build();
+    const result = await h.service.processNode(node({ endAt: new Date(NOW.getTime() + 5 * 60_000) }), NOW);
+    expect(result.action).toBe('CREATED');
+  });
+
+  it('shouldHandleExpiredFlashSale — vừa hết hạn (B.start = A.end + 1 phút đã qua) ⇒ FAILED, không tạo', async () => {
     const h = build();
     const result = await h.service.processNode(node({ endAt: new Date(NOW.getTime() - 5 * 60_000) }), NOW);
-    expect(result.action).toBe('CREATED');
+    expect(result.action).toBe('FAILED');
+    expect(h.tx.podFlashSale.create).not.toHaveBeenCalled();
   });
 
   it('shouldHandleExpiredFlashSale — hết hạn lâu (B.start đã qua) ⇒ FAILED, không tạo, A vẫn ON', async () => {
@@ -356,15 +363,29 @@ describe('PodFlashSaleAutoService.processNode', () => {
     expect(h.transferred()).toBe(false);
   });
 
-  it('shouldRespectTimezone — khung giờ B theo múi giờ của đợt sale', async () => {
+  it('khung giờ B: START = A.end + 1 phút, END = START + (3 × 1440 − 1) phút (mặc định 3 ngày)', async () => {
     const h = build();
     await h.service.processNode(node(), NOW);
     const data = h.createdSale().data as { startAt: Date; endAt: Date };
     const s = toZonedParts(data.startAt, LA);
     const e = toZonedParts(data.endAt, LA);
-    expect([s.day, s.hour, s.minute, s.second]).toEqual([16, 0, 9, 0]);
-    // Mặc định 3 ngày lịch: 16, 17, 18 ⇒ kết thúc 18/01 23:59:59 (giờ của đợt sale).
-    expect([e.day, e.hour, e.minute, e.second]).toEqual([18, 23, 59, 59]);
+    // A kết thúc 15/01 23:59 LA ⇒ B 16/01 00:00 → 18/01 23:59 (KHÔNG phải 23:59:59).
+    expect([s.day, s.hour, s.minute, s.second]).toEqual([16, 0, 0, 0]);
+    expect([e.day, e.hour, e.minute, e.second]).toEqual([18, 23, 59, 0]);
+    expect(data.endAt.getTime() - data.startAt.getTime()).toBe((4320 - 1) * 60_000);
+  });
+
+  it.each([
+    [1, '2026-01-16T06:59:00.000Z'],
+    [2, '2026-01-17T06:59:00.000Z'],
+    [3, '2026-01-18T06:59:00.000Z'],
+  ])('🔴 A kết thúc 14:00 → B giữ đúng phút (không ép 23:59) · %i ngày ⇒ END %s', async (days, expectedEnd) => {
+    const h = build();
+    // A kết thúc 15/01 06:59Z = 15/01 13:59 giờ VN — một giờ bất kỳ trong ngày.
+    await h.service.processNode(node({ endAt: new Date('2026-01-15T06:59:00.000Z') }), new Date('2026-01-15T00:00:00.000Z'), days);
+    const data = h.createdSale().data as { startAt: Date; endAt: Date };
+    expect(data.startAt.toISOString()).toBe('2026-01-15T07:00:00.000Z');
+    expect(data.endAt.toISOString()).toBe(expectedEnd);
   });
 });
 
@@ -401,13 +422,13 @@ describe('PodFlashSaleAutoService.runOrganization', () => {
     [PodFlashSaleAutoDuration.ONE_DAY, 16],
     [PodFlashSaleAutoDuration.TWO_DAYS, 17],
     [PodFlashSaleAutoDuration.THREE_DAYS, 18],
-  ])('Khoảng thời gian %s ⇒ đợt sinh tự động kết thúc %i/01 23:59:59 (cron dùng ĐÚNG cấu hình)', async (duration, endDay) => {
+  ])('Khoảng thời gian %s ⇒ đợt sinh tự động kết thúc %i/01 23:59 = START + N × 1440 − 1 phút (cron dùng ĐÚNG cấu hình)', async (duration, endDay) => {
     const h = build({ config: { duration } });
     h.prisma.podFlashSale.findMany.mockResolvedValueOnce([node()]);
     const result = await h.service.runOrganization('org-1', 'CRON', NOW);
     expect(result).toMatchObject({ created: 1 });
     const e = toZonedParts((h.createdSale().data as { endAt: Date }).endAt, LA);
-    expect([e.day, e.hour, e.minute, e.second]).toEqual([endDay, 23, 59, 59]);
+    expect([e.day, e.hour, e.minute, e.second]).toEqual([endDay, 23, 59, 0]);
     // Cấu hình đọc MỘT lần cho cả lượt, đúng tổ chức.
     expect(h.prisma.podFlashSaleAutoConfig.findFirst).toHaveBeenCalledTimes(1);
     expect(h.prisma.podFlashSaleAutoConfig.findFirst).toHaveBeenCalledWith(

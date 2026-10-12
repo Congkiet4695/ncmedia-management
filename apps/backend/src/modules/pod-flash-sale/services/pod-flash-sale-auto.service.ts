@@ -25,7 +25,6 @@ import {
   FLASH_SALE_AUTO_DEFAULT_DURATION,
   FLASH_SALE_AUTO_DEFAULT_DURATION_MODE,
   FLASH_SALE_AUTO_DURATION_DAYS,
-  FLASH_SALE_AUTO_END_OF_DAY,
   FLASH_SALE_AUTO_RULES,
   FLASH_SALE_AUTO_RUN_STATUS,
   FLASH_SALE_AUTO_TRIGGER,
@@ -52,6 +51,7 @@ import {
 } from '../exceptions/pod-flash-sale.exceptions';
 import type { FlashSaleDetailRow } from '../mappers/pod-flash-sale.mapper';
 import {
+  autoDurationMinutes,
   computeNextWindow,
   isDueForNext,
   isValidTimeZone,
@@ -135,6 +135,7 @@ export class PodFlashSaleAutoService {
     const row = await this.prisma.podFlashSaleAutoConfig.findFirst({
       where: { organizationId, deletedAt: null },
     });
+    const durationDays = FLASH_SALE_AUTO_DURATION_DAYS[row?.duration ?? FLASH_SALE_AUTO_DEFAULT_DURATION];
     return {
       configured: row !== null,
       enabled: row?.enabled ?? false,
@@ -153,14 +154,8 @@ export class PodFlashSaleAutoService {
       rules: {
         leadHours: FLASH_SALE_AUTO_RULES.LEAD_MS / 3_600_000,
         gapMinutes: FLASH_SALE_AUTO_RULES.GAP_MS / 60_000,
-        durationDays: FLASH_SALE_AUTO_DURATION_DAYS[row?.duration ?? FLASH_SALE_AUTO_DEFAULT_DURATION],
-        endOfDay: [
-          FLASH_SALE_AUTO_END_OF_DAY.hour,
-          FLASH_SALE_AUTO_END_OF_DAY.minute,
-          FLASH_SALE_AUTO_END_OF_DAY.second,
-        ]
-          .map((part) => String(part).padStart(2, '0'))
-          .join(':'),
+        durationDays,
+        durationMinutes: autoDurationMinutes(durationDays),
       },
     };
   }
@@ -216,7 +211,7 @@ export class PodFlashSaleAutoService {
   }
 
   /**
-   * Khoảng thời gian (ngày lịch) của tổ chức — cấu hình cũ / chưa cấu hình ⇒ mặc định của cột DB.
+   * Khoảng thời gian (số ngày, × 1440 phút) của tổ chức — cấu hình cũ / chưa cấu hình ⇒ mặc định của cột DB.
    * Đọc MỘT lần mỗi lượt chạy: mọi đợt trong lượt dùng cùng một giá trị.
    */
   private async durationDaysOf(organizationId: string): Promise<number> {
@@ -505,8 +500,8 @@ export class PodFlashSaleAutoService {
     durationDays: number,
     runId: string,
   ): Promise<NodeOutcome> {
-    // Múi giờ của CHÍNH đợt sale (`pod_flash_sales.timezone`) — cùng múi giờ TikTok hiển thị đợt đó.
-    const window = computeNextWindow(node.endAt, node.timezone, durationDays);
+    // Tính theo số phút trôi qua trên thời điểm tuyệt đối — không ép về cuối ngày, không phụ thuộc múi giờ.
+    const window = computeNextWindow(node.endAt, durationDays);
     // TikTok đòi begin_time ở TƯƠNG LAI (cùng đệm với validator). Quá hạn ⇒ không tự dời lịch.
     if (window.startAt.getTime() < now.getTime() + FLASH_SALE_MIN_LEAD_SECONDS * 1_000) {
       return this.fail(
@@ -608,7 +603,7 @@ export class PodFlashSaleAutoService {
     const ready = rows.filter((row) => row.status === PodFlashSaleItemStatus.READY).length;
     const message =
       `Tạo đợt kế tiếp "${name}" (#${sequence}): ${rows.length} dòng (${ready} sẵn sàng), ` +
-      `${window.startAt.toISOString()} → ${window.endAt.toISOString()} (khoảng thời gian ${durationDays} ngày, ${node.timezone}).`;
+      `${window.startAt.toISOString()} → ${window.endAt.toISOString()} (khoảng thời gian ${durationDays} ngày = ${autoDurationMinutes(durationDays)} phút, ${node.timezone}).`;
     await this.writeChainLog(node.organizationId, node.id, message, PodFlashSaleLogLevel.INFO);
     await this.writeChainLog(
       node.organizationId,

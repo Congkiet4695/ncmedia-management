@@ -484,7 +484,7 @@
         "runNowConfirm": "Run Auto Flash Sale now? Due sales with Auto on will get their next sale created on TikTok for real.",
         "runDone": "Done: {{created}} created · {{transferred}} handed over · {{failed}} failed",
         "rulesTitle": "Chain rules",
-        "rules": "Create the next sale when the active sale has ≤ {{leadHours}} hours left · it starts {{gapMinutes}} minutes after the previous one ends (rounded to the minute) · lasts {{durationDays}} calendar day(s), ending at {{endOfDay}} on the last day in the sale’s time zone.",
+        "rules": "Create the next sale when the active sale has ≤ {{leadHours}} hours left · it starts {{gapMinutes}} minute(s) after the previous one ends (rounded to the minute) · lasts {{durationDays}} day(s) = {{durationMinutes}} minutes (end = start + {{durationMinutes}} minutes − 1 minute).",
         "summary": "Checked {{checked}} · created {{created}} · handed over {{transferred}} · sending {{inProgress}} · skipped {{skipped}} · failed {{failed}}",
         "invalidTime": "Run time must be HH:mm.",
         "durationMode": "Mode",
@@ -497,7 +497,7 @@
           "TWO_DAYS": "2 days",
           "THREE_DAYS": "3 days"
         },
-        "durationHint": "Calendar days: 1 day = ends 23:59:59 on the start day itself (not +24 hours). E.g. start 20/10 00:00 · 3 days ⇒ ends 22/10 23:59:59."
+        "durationHint": "Counted in minutes: 1 day = 1440, 2 days = 2880, 3 days = 4320 minutes — never forced to 23:59. E.g. previous sale ends 21/10 13:59 · 1 day ⇒ next sale 21/10 14:00 → 22/10 13:59."
       }
     }
   },

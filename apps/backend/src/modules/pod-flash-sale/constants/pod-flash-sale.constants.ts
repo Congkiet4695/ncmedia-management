@@ -454,25 +454,24 @@ export const FLASH_SALE_PERMISSIONS = {
  * Luật tạo đợt kế tiếp. Đặt tên ở MỘT chỗ để không có con số ma nào rải trong code:
  *
  * ```
- *   điều kiện tạo : A.endAt − now ≤ LEAD_MS                     (còn ≤ 24 giờ)
- *   START(B)      : A.endAt + GAP_MS, làm tròn XUỐNG tới phút       (23:59:59 ⇒ 00:09:00)
- *   END(B)        : 23:59:59 của ngày LỊCH (START(B) + N − 1)         (N = Khoảng thời gian)
+ *   điều kiện tạo : A.endAt − now ≤ LEAD_MS                         (còn ≤ 24 giờ)
+ *   START(B)      : A.endAt + GAP_MS, làm tròn XUỐNG tới phút           (13:59 ⇒ 14:00 · 23:59:59 ⇒ 00:00:00)
+ *   END(B)        : START(B) + (N × 1440 − 1) phút                      (N = Khoảng thời gian)
  * ```
  *
- * "Ngày lịch" tính theo múi giờ của CHÍNH đợt sale (`pod_flash_sales.timezone`) — không phải múi
- * giờ trình duyệt hay server — nên 1 ngày = "hết ngày hôm đó", KHÔNG phải +24 giờ, và qua mốc đổi
- * giờ mùa hè vẫn đúng giờ treo tường.
+ * Thời lượng tính theo PHÚT trôi qua, không theo ngày lịch: KHÔNG ép giờ kết thúc về 23:59. Các đợt
+ * liên tiếp nối nhau đúng 1 phút sau END của đợt trước — không hở, không chồng.
  */
 export const FLASH_SALE_AUTO_RULES = {
   LEAD_MS: 24 * 60 * 60_000,
-  GAP_MS: 10 * 60_000,
+  GAP_MS: 60_000,
 } as const;
 
-/** Giờ treo tường kết thúc đợt Auto: 23:59:59 của ngày cuối. */
-export const FLASH_SALE_AUTO_END_OF_DAY = { hour: 23, minute: 59, second: 59 } as const;
+/** Số phút của MỘT ngày trong "Khoảng thời gian" (1 ngày = 1440 phút, 2 = 2880, 3 = 4320). */
+export const FLASH_SALE_AUTO_MINUTES_PER_DAY = 24 * 60;
 
 /**
- * "Khoảng thời gian" của đợt Auto ⇒ số ngày LỊCH. Nguồn DUY NHẤT của con số — enum ở DB
+ * "Khoảng thời gian" của đợt Auto ⇒ số ngày (× 1440 phút). Nguồn DUY NHẤT của con số — enum ở DB
  * (`pod_flash_sale_auto_duration`), ánh xạ ở đây; không rải 1/2/3 trong code.
  */
 export const FLASH_SALE_AUTO_DURATION_DAYS: Readonly<Record<PodFlashSaleAutoDuration, number>> = {
@@ -481,7 +480,7 @@ export const FLASH_SALE_AUTO_DURATION_DAYS: Readonly<Record<PodFlashSaleAutoDura
   [PodFlashSaleAutoDuration.THREE_DAYS]: 3,
 };
 
-/** Cấu hình cũ / thiếu ⇒ dùng đúng mặc định của cột DB (3 ngày lịch). */
+/** Cấu hình cũ / thiếu ⇒ dùng đúng mặc định của cột DB (3 ngày = 4320 phút). */
 export const FLASH_SALE_AUTO_DEFAULT_DURATION = PodFlashSaleAutoDuration.THREE_DAYS;
 export const FLASH_SALE_AUTO_DEFAULT_DURATION_MODE = PodFlashSaleAutoDurationMode.CALENDAR_DAYS;
 

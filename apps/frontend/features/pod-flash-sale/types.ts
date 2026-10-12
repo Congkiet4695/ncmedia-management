@@ -595,7 +595,7 @@ export interface PodFlashSaleAutoConfig {
   lastRunSummary: PodFlashSaleAutoRunResult | null;
   nextRunAt: string | null;
   /** Luật của chuỗi — chỉ đọc. */
-  rules: { leadHours: number; gapMinutes: number; durationDays: number; endOfDay: string };
+  rules: { leadHours: number; gapMinutes: number; durationDays: number; durationMinutes: number };
 }
 
 export interface UpdateFlashSaleAutoConfigPayload {

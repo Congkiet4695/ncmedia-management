@@ -69,7 +69,7 @@ async function main() {
       duration: row.duration,
       mode: row.durationMode,
     });
-    check('A2 luật trả về: 1 ngày lịch, kết thúc 23:59:59', saved.rules.durationDays === 1 && saved.rules.endOfDay === '23:59:59', saved.rules);
+    check('A2 luật trả về: 1 ngày = 1440 phút', saved.rules.durationDays === 1 && saved.rules.durationMinutes === 1440, saved.rules);
     await auto.updateConfig(org, admin.id, base); // client cũ: không gửi duration
     const kept = await prisma.podFlashSaleAutoConfig.findUniqueOrThrow({ where: { organizationId: org } });
     check('A3 không gửi field mới ⇒ GIỮ cấu hình đang lưu', kept.duration === 'ONE_DAY', { duration: kept.duration });

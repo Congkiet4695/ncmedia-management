@@ -43,8 +43,8 @@ export class UpdateFlashSaleAutoConfigDto {
   @ApiPropertyOptional({
     enum: PodFlashSaleAutoDuration,
     description:
-      'Khoảng thời gian (ngày LỊCH) của đợt sinh tự động: kết thúc 23:59:59 của ngày (bắt đầu + N − 1) ' +
-      'theo múi giờ của đợt sale. Bỏ trống ⇒ giữ giá trị đang lưu (mặc định THREE_DAYS).',
+      'Khoảng thời gian của đợt sinh tự động, tính theo PHÚT: ONE_DAY = 1440, TWO_DAYS = 2880, THREE_DAYS = 4320. ' +
+      'START = END đợt trước + 1 phút; END = START + (số phút − 1). Bỏ trống ⇒ giữ giá trị đang lưu (mặc định THREE_DAYS).',
   })
   @IsOptional()
   @IsEnum(PodFlashSaleAutoDuration)
@@ -66,9 +66,12 @@ export class SetFlashSaleAutoModeDto {
 export class PodFlashSaleAutoRulesDto {
   @ApiProperty({ description: 'Tạo đợt kế tiếp khi đợt hiện tại còn ≤ số giờ này' }) leadHours!: number;
   @ApiProperty({ description: 'Đợt kế tiếp bắt đầu sau khi đợt hiện tại kết thúc (phút)' }) gapMinutes!: number;
-  @ApiProperty({ description: 'Khoảng thời gian đang cấu hình (ngày lịch)' }) durationDays!: number;
-  @ApiProperty({ example: '23:59:59', description: 'Giờ kết thúc của ngày cuối (múi giờ của đợt sale)' })
-  endOfDay!: string;
+  @ApiProperty({ description: 'Khoảng thời gian đang cấu hình (ngày)' }) durationDays!: number;
+  @ApiProperty({
+    example: 4320,
+    description: 'Thời lượng đợt kế tiếp (phút) = durationDays × 1440; END = START + (durationMinutes − 1) phút',
+  })
+  durationMinutes!: number;
 }
 
 export class PodFlashSaleAutoNodeResultDto {

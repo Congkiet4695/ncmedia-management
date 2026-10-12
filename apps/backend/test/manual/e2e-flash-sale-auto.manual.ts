@@ -45,6 +45,11 @@ const check = (label: string, ok: boolean, detail = '') =>
 const SCOPE = { allShops: true, accountIds: [], shopIds: [] };
 const RUN = `E2EAUTO${Date.now()}`;
 const H = 3_600_000;
+/** START của đợt kế tiếp: END đợt trước + 1 phút, làm tròn xuống tới phút. */
+const nextMinuteAfter = (endAt: Date) => {
+  const raw = endAt.getTime() + 60_000;
+  return raw - (raw % 60_000);
+};
 const TZ = 'America/Los_Angeles';
 
 async function main(): Promise<void> {
@@ -188,12 +193,9 @@ async function main(): Promise<void> {
 
     if (xB) {
       const a = await node(xA);
-      check('9. B.start = A.end + 10 phút', xB.startAt.getTime() === a.endAt.getTime() + 10 * 60_000, `${wall(a.endAt)} → ${wall(xB.startAt)}`);
-      const expectEnd = toZonedParts(xB.startAt, TZ);
-      const endWall = toZonedParts(xB.endAt, TZ);
-      const startWallPlus3 = new Date(Date.UTC(expectEnd.year, expectEnd.month - 1, expectEnd.day + 3, expectEnd.hour, expectEnd.minute - 1));
-      check('10/17. B.end = B.start + 3 ngày lịch − 1 phút (theo múi giờ America/Los_Angeles)',
-        endWall.year === startWallPlus3.getUTCFullYear() && endWall.month === startWallPlus3.getUTCMonth() + 1 && endWall.day === startWallPlus3.getUTCDate() && endWall.hour === startWallPlus3.getUTCHours() && endWall.minute === startWallPlus3.getUTCMinutes(),
+      check('9. B.start = A.end + 1 phút (tròn phút)', xB.startAt.getTime() === nextMinuteAfter(a.endAt), `${wall(a.endAt)} → ${wall(xB.startAt)}`);
+      check('10/17. B.end = B.start + (3 × 1440 − 1) phút (không ép 23:59)',
+        xB.endAt.getTime() - xB.startAt.getTime() === (3 * 1440 - 1) * 60_000,
         `${wall(xB.startAt)} → ${wall(xB.endAt)}`);
       const aItems = await itemsOf(xA);
       const bItems = await itemsOf(xB.id);
@@ -246,7 +248,7 @@ async function main(): Promise<void> {
       run = await auto.runOrganization(org, 'CRON', new Date(xB.endAt.getTime() - 10 * H));
       const xC = await childOf(xB.id);
       const bNow = await node(xB.id);
-      check('40. chu kỳ kế: tạo C từ B, B OFF, C ON, #3', !!xC && !bNow.autoMode && xC!.autoMode && xC!.autoSequence === 3 && xC!.startAt.getTime() === bNow.endAt.getTime() + 10 * 60_000);
+      check('40. chu kỳ kế: tạo C từ B, B OFF, C ON, #3', !!xC && !bNow.autoMode && xC!.autoMode && xC!.autoSequence === 3 && xC!.startAt.getTime() === nextMinuteAfter(bNow.endAt));
       if (xC) {
         const cItem = (await itemsOf(xC.id)).find((i) => i.productId === singles[5])!;
         const bItem = (await itemsOf(xB.id)).find((i) => i.productId === singles[5])!;
@@ -269,11 +271,11 @@ async function main(): Promise<void> {
 
     // ---------------------------------------------------------------- 4. đã hết hạn
     const eSoon = await makeRunning(shop1.id, 'E1', singles.slice(0, 2).map((productId) => ({ productId, discountPercent: 15 })), { endInMs: 5 * H });
-    await prisma.podFlashSale.update({ where: { id: eSoon }, data: { startAt: new Date(Date.now() - 3 * H), endAt: new Date(Date.now() - 5 * 60_000), status: 'ENDED' } });
+    await prisma.podFlashSale.update({ where: { id: eSoon }, data: { startAt: new Date(Date.now() - 3 * H), endAt: new Date(Date.now() + 5 * 60_000) } });
     const eLate = await makeRunning(shop1.id, 'E2', singles.slice(0, 2).map((productId) => ({ productId, discountPercent: 15 })), { endInMs: 5 * H });
     await prisma.podFlashSale.update({ where: { id: eLate }, data: { startAt: new Date(Date.now() - 5 * H), endAt: new Date(Date.now() - 2 * H), status: 'ENDED' } });
     run = await auto.runOrganization(org, 'CRON', new Date());
-    check('4/24. vừa hết hạn 5 phút (B.start vẫn ở tương lai) ⇒ tạo B', !!(await childOf(eSoon)) && !(await node(eSoon)).autoMode);
+    check('4/24. còn 5 phút (B.start = A.end + 1 phút vẫn ở tương lai) ⇒ tạo B', !!(await childOf(eSoon)) && !(await node(eSoon)).autoMode);
     check('4. hết hạn 2 giờ (B.start đã qua) ⇒ KHÔNG tạo, FAILED, A vẫn ON',
       !(await childOf(eLate)) && (await node(eLate)).autoMode && run!.nodes.find((n) => n.flashSaleId === eLate)?.action === 'FAILED');
     await auto.setAutoMode(org, user.id, eLate, false, SCOPE);

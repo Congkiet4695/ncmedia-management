@@ -5358,13 +5358,13 @@ model PodListingLog {
 /// `pod-flash-sale.constants.ts` — một nơi duy nhất.
 /// Cách tính giờ kết thúc của đợt Auto Flash Sale sinh tự động.
 enum PodFlashSaleAutoDurationMode {
-  /// "Khoảng thời gian": kết thúc lúc 23:59:59 của ngày (bắt đầu + N − 1) theo múi giờ đợt sale.
+  /// "Khoảng thời gian": START = END đợt trước + 1 phút, END = START + (N × 1440 − 1) phút (không ép 23:59).
   CALENDAR_DAYS
 
   @@map("pod_flash_sale_auto_duration_mode")
 }
 
-/// Khoảng thời gian (ngày lịch) của đợt Auto Flash Sale.
+/// Khoảng thời gian của đợt Auto Flash Sale: 1 / 2 / 3 ngày = 1440 / 2880 / 4320 phút.
 enum PodFlashSaleAutoDuration {
   ONE_DAY
   TWO_DAYS
@@ -5611,7 +5611,7 @@ model PodFlashSaleAutoConfig {
 
   /// Cách tính giờ KẾT THÚC của đợt sinh tự động. Mặc định cho cấu hình cũ: CALENDAR_DAYS.
   durationMode PodFlashSaleAutoDurationMode @default(CALENDAR_DAYS) @map("duration_mode")
-  /// Khoảng thời gian (ngày LỊCH) của đợt sinh tự động — xem `FLASH_SALE_AUTO_DURATION_DAYS`.
+  /// Khoảng thời gian (N ngày = N × 1440 phút) của đợt sinh tự động — xem `FLASH_SALE_AUTO_DURATION_DAYS`.
   /// Mặc định THREE_DAYS: gần nhất với luật cố định trước đây (3 ngày).
   duration     PodFlashSaleAutoDuration     @default(THREE_DAYS)
 
