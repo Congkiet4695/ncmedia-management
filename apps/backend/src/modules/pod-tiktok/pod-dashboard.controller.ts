@@ -8,13 +8,17 @@ import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import { PodScope } from './decorators/pod-scope.decorator';
 import {
   DashboardFilterOptionsDto,
+  DashboardHoldShopPageDto,
   DashboardOverviewDto,
   DashboardSellerPageDto,
+  DashboardShopListPageDto,
   DashboardSummaryDto,
   DashboardTrendsDto,
   PodDashboardFilterDto,
+  PodDashboardPageQueryDto,
   PodDashboardRangeDto,
   PodDashboardSellerQueryDto,
+  PodDashboardShopListQueryDto,
 } from './dto/pod-dashboard.dto';
 import { PodScopeGuard } from './guards/pod-scope.guard';
 import type { PodAccessScope } from './services/pod-access-scope.service';
@@ -61,6 +65,36 @@ export class PodDashboardController {
     @Query() query: PodDashboardFilterDto,
   ): Promise<DashboardOverviewDto> {
     return this.service.overview(user.organizationId, scope, query);
+  }
+
+  @Get('hold-shops')
+  @ApiOperation({
+    summary: 'Popup "Tổng tiền đang hold": hold theo từng shop (tên kết nối · tên shop · số tiền)',
+    description:
+      'CÙNG nguồn (giao dịch TikTok chưa quyết toán), CÙNG phạm vi và CÙNG đơn vị tiền với thẻ Hold: ' +
+      'meta.total = số shop trên thẻ, totalAmount = số tiền trên thẻ. Seller chỉ thấy shop của TikTok Account được gán.',
+  })
+  @ApiOkResponse({ type: DashboardHoldShopPageDto })
+  holdShops(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Query() query: PodDashboardPageQueryDto,
+  ): Promise<DashboardHoldShopPageDto> {
+    return this.service.holdShops(user.organizationId, scope, query);
+  }
+
+  @Get('shops')
+  @ApiOperation({
+    summary: 'Popup "Trạng thái shop": danh sách shop theo trạng thái (Live = ACTIVE, Die = INACTIVE)',
+    description: 'CÙNG điều kiện với thẻ Trạng thái shop ⇒ meta.total = số trên thẻ. Phạm vi seller áp ở backend.',
+  })
+  @ApiOkResponse({ type: DashboardShopListPageDto })
+  shops(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Query() query: PodDashboardShopListQueryDto,
+  ): Promise<DashboardShopListPageDto> {
+    return this.service.shopsByStatus(user.organizationId, scope, query);
   }
 
   @Get('summary')

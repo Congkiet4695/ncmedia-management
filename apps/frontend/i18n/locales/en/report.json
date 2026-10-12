@@ -142,6 +142,34 @@
       "inactive": "Inactive",
       "notEmployee": "No employee profile",
       "assigned": "Assigned"
+    },
+    "shopStatus": {
+      "label": "Status:",
+      "ACTIVE": "Live",
+      "INACTIVE": "Die",
+      "DEAUTHORIZED": "Deauthorized",
+      "unknown": "N/A"
+    },
+    "listingDialog": {
+      "open": {
+        "employees": "View employees with listings",
+        "shops": "View listed shops"
+      },
+      "employeesTitle": "Employees with listings",
+      "employeesDescription": "People who successfully listed products between {{from}} → {{to}}, with the current filters. One row per person.",
+      "shopsTitle": "Listed shops",
+      "shopsDescription": "Shop × listing employee pairs between {{from}} → {{to}}. A shop listed by several people has several rows.",
+      "shopsSummary": "{{shops}} shop(s) · {{rows}} row(s) (shop × employee)",
+      "employeesSummary": "{{count}} employee(s)",
+      "connection": "Connection name",
+      "shop": "Shop name",
+      "employee": "Employee",
+      "email": "Email",
+      "listings": "Listings",
+      "shops": "Shops",
+      "status": "Shop status",
+      "deleted": "Deleted",
+      "empty": "No listings in the selected date range."
     }
   }
 }

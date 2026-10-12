@@ -6,6 +6,7 @@ import { addSheet, workbookToBuffer } from '../../../common/excel/excel.util';
 import type {
   EmployeeWorkAccountDto,
   EmployeeWorkFilterOptionsDto,
+  EmployeeWorkListingDetailsDto,
   EmployeeWorkPageDto,
   EmployeeWorkQueryDto,
   EmployeeWorkRowDto,
@@ -83,6 +84,66 @@ export class PodEmployeeWorkService {
     };
   }
 
+  /**
+   * Popup của hai thẻ "Nhân viên có listing" / "Shop được listing" — dựng từ CHÍNH các cặp (người × shop)
+   * mà `summaryOf` đếm (cùng bộ lọc, cùng truy vấn) ⇒ số người = thẻ, số shop duy nhất = thẻ.
+   */
+  async listingDetails(organizationId: string, query: EmployeeWorkQueryDto): Promise<EmployeeWorkListingDetailsDto> {
+    const { range, rows } = await this.compute(organizationId, query);
+    const listed = rows.pairs.filter((pair) => pair.listings > 0);
+    const users = new Map(
+      (await this.repo.listingUsers(organizationId, [...new Set(listed.map((pair) => pair.userId))])).map((user) => [
+        user.userId,
+        user,
+      ]),
+    );
+    const byUser = new Map<string, { listings: number; shops: Set<string> }>();
+    for (const pair of listed) {
+      const entry = byUser.get(pair.userId) ?? { listings: 0, shops: new Set<string>() };
+      entry.listings += pair.listings;
+      entry.shops.add(pair.shopId);
+      byUser.set(pair.userId, entry);
+    }
+    const userOf = (userId: string) => users.get(userId);
+    return {
+      from: range.fromDay,
+      to: range.toDay,
+      employees: [...byUser.entries()]
+        .map(([userId, entry]) => {
+          const user = userOf(userId);
+          return {
+            userId,
+            name: user?.name ?? userId,
+            email: user?.email ?? '',
+            isEmployee: user?.isEmployee ?? false,
+            active: user?.active ?? false,
+            deleted: user?.deleted ?? true,
+            listings: entry.listings,
+            shops: entry.shops.size,
+          };
+        })
+        .sort((left, right) => right.listings - left.listings || left.name.localeCompare(right.name)),
+      shops: listed
+        .map((pair) => ({
+          shopId: pair.shopId,
+          shopName: pair.shopName,
+          accountName: pair.accountName,
+          shopStatus: pair.shopStatus,
+          userId: pair.userId,
+          userName: userOf(pair.userId)?.name ?? pair.userId,
+          userEmail: userOf(pair.userId)?.email ?? '',
+          listings: pair.listings,
+        }))
+        .sort(
+          (left, right) =>
+            left.accountName.localeCompare(right.accountName) ||
+            left.shopName.localeCompare(right.shopName) ||
+            right.listings - left.listings,
+        ),
+      uniqueShops: new Set(listed.map((pair) => pair.shopId)).size,
+    };
+  }
+
   /** Xuất Excel (2 sheet: theo nhân viên · theo shop) — cùng bộ lọc, không phân trang. */
   async export(organizationId: string, query: EmployeeWorkQueryDto): Promise<{ buffer: Buffer; filename: string }> {
     const { range, currency, rows } = await this.compute(organizationId, query);
@@ -114,6 +175,7 @@ export class PodEmployeeWorkService {
         { header: 'Nhân viên', key: 'name' },
         { header: 'Shop', key: 'shopName' },
         { header: 'TikTok Account', key: 'accountName' },
+        { header: 'Trạng thái shop', key: 'shopStatus' },
         { header: 'Phụ trách', key: 'assigned' },
         { header: 'Listing', key: 'listings' },
         { header: 'Đơn hàng (của shop)', key: 'orders' },
@@ -172,6 +234,7 @@ export class PodEmployeeWorkService {
         shopId: pair.shopId,
         shopName: pair.shopName,
         accountName: pair.accountName,
+        shopStatus: pair.shopStatus,
         assigned: pair.assigned,
         listings: pair.listings,
         orders: pair.orders,

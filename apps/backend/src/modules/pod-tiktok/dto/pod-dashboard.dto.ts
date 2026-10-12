@@ -12,7 +12,12 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
-import { SELLER_SORT_FIELDS, type SellerSortField } from '../repositories/pod-dashboard.repository';
+import {
+  SELLER_SORT_FIELDS,
+  SHOP_STATUSES,
+  type SellerSortField,
+  type ShopStatus,
+} from '../repositories/pod-dashboard.repository';
 import { ORDER_STATUS_GROUP_KEYS, type OrderStatusGroup } from '../shared/order-status-groups';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -49,6 +54,30 @@ export class PodDashboardRangeDto extends PodDashboardFilterDto {
   @IsOptional()
   @Matches(DAY, { message: 'to phải có dạng YYYY-MM-DD' })
   to?: string;
+}
+
+/** Phân trang cho popup của thẻ tổng quan (bộ lọc chung + trang). */
+export class PodDashboardPageQueryDto extends PodDashboardFilterDto {
+  @ApiPropertyOptional({ minimum: 1, default: 1 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  page?: number = 1;
+
+  @ApiPropertyOptional({ minimum: 1, maximum: 100, default: 20 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(1)
+  @Max(100)
+  limit?: number = 20;
+}
+
+export class PodDashboardShopListQueryDto extends PodDashboardPageQueryDto {
+  @ApiProperty({ enum: SHOP_STATUSES, description: 'ACTIVE = Live, INACTIVE = Die, DEAUTHORIZED = Mất uỷ quyền.' })
+  @IsIn(SHOP_STATUSES)
+  status!: ShopStatus;
 }
 
 export class PodDashboardSellerQueryDto extends PodDashboardRangeDto {
@@ -105,6 +134,42 @@ export class DashboardHoldDto {
     description: 'Hold của các đơn vị tiền KHÁC (không quy đổi — hệ thống không có nguồn tỷ giá).',
   })
   otherCurrencies!: Array<{ currency: string; amount: number; shopCount: number }>;
+}
+
+export class DashboardPageMetaDto {
+  @ApiProperty() total!: number;
+  @ApiProperty() page!: number;
+  @ApiProperty() limit!: number;
+  @ApiProperty() totalPages!: number;
+}
+
+export class DashboardHoldShopDto {
+  @ApiProperty() shopId!: string;
+  @ApiPropertyOptional({ nullable: true, type: String, description: 'Tên shop TikTok.' }) shopName!: string | null;
+  @ApiPropertyOptional({ nullable: true, type: String, description: 'Tên kết nối TikTok (TikTok Account).' })
+  accountName!: string | null;
+  @ApiProperty({ description: 'Σ est_settlement_amount chưa quyết toán của shop, đơn vị `currency`.' }) amount!: number;
+}
+
+export class DashboardHoldShopPageDto {
+  @ApiPropertyOptional({ nullable: true, type: String }) currency!: string | null;
+  @ApiProperty({ description: 'Σ hold của MỌI shop (mọi trang) — bằng số trên thẻ cùng đơn vị tiền.' })
+  totalAmount!: number;
+  @ApiProperty({ type: DashboardHoldShopDto, isArray: true }) items!: DashboardHoldShopDto[];
+  @ApiProperty({ type: DashboardPageMetaDto, description: 'meta.total = số shop trên thẻ.' }) meta!: DashboardPageMetaDto;
+}
+
+export class DashboardShopListItemDto {
+  @ApiProperty() shopId!: string;
+  @ApiProperty() shopName!: string;
+  @ApiPropertyOptional({ nullable: true, type: String }) accountName!: string | null;
+  @ApiPropertyOptional({ nullable: true, type: String }) region!: string | null;
+}
+
+export class DashboardShopListPageDto {
+  @ApiProperty({ enum: SHOP_STATUSES }) status!: ShopStatus;
+  @ApiProperty({ type: DashboardShopListItemDto, isArray: true }) items!: DashboardShopListItemDto[];
+  @ApiProperty({ type: DashboardPageMetaDto }) meta!: DashboardPageMetaDto;
 }
 
 export class DashboardHoldSellerDto {
@@ -196,17 +261,33 @@ export class DashboardSellerRowDto {
     description: 'Số đơn có yêu cầu Return/Refund còn hiệu lực. NULL: chưa shop nào trong phạm vi đồng bộ Return/Refund.',
   })
   returns!: number | null;
-  @ApiProperty() estRevenue!: number;
-  @ApiProperty() revenue!: number;
-  @ApiProperty() baseCost!: number;
+  @ApiProperty({
+    description:
+      'Doanh thu = Σ tiền thu về TỪNG đơn: đã quyết toán (settlement) nếu có, ngược lại ước tính (est_settlement) — ' +
+      'mỗi đơn MỘT giá trị, không cộng cả hai.',
+  })
+  revenue!: number;
+  @ApiProperty({ description: 'Số đơn có tiền thu về; đơn còn lại chưa có dữ liệu tài chính (không coi là 0).' })
+  revenueOrders!: number;
+  @ApiProperty({ description: 'Σ giá vốn đã xác nhận của lần fulfill đang giữ đơn (CÙNG nguồn màn Order).' })
+  baseCost!: number;
+  @ApiProperty({ description: 'Số đơn có giá vốn đầy đủ & đã xác nhận.' }) baseCostOrders!: number;
+  @ApiProperty({ description: 'Số đơn đã fulfill (có lần fulfill đang giữ đơn).' }) fulfilledOrders!: number;
+  @ApiPropertyOptional({
+    nullable: true,
+    type: Number,
+    description: 'Label = số đơn đã fulfill × label/đơn (ORDER_LABEL_COST). NULL khi label khác đơn vị tiền đang xem.',
+  })
+  label!: number | null;
   @ApiProperty({
     nullable: true,
     type: Number,
     description:
-      'PF = Σ lợi nhuận từng đơn (CÙNG công thức màn Order: tiền thu về − giá vốn − phí ship Seller chưa trừ − label). ' +
-      'NULL = không đơn nào tính được.',
+      'Profit Dự kiến = Σ lợi nhuận từng đơn (CÙNG công thức màn Order): Doanh thu − Base Cost − Label − phí ship ' +
+      'Seller chưa nằm trong tiền thu về. Chỉ cộng đơn đủ dữ kiện (xem profitOrders); NULL = không đơn nào tính được.',
   })
   profit!: number | null;
+  @ApiProperty({ description: 'Số đơn tính được Profit Dự kiến.' }) profitOrders!: number;
   @ApiProperty() paid!: number;
   @ApiProperty() processing!: number;
   @ApiProperty() hold!: number;

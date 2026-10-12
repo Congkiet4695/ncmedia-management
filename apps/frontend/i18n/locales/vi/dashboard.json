@@ -78,24 +78,26 @@
       "name": "Tên seller",
       "orders": "Tổng đơn hàng",
       "returns": "Đơn hoàn",
-      "estRevenue": "Doanh thu dự kiến",
       "revenue": "Doanh thu",
       "baseCost": "Basecost",
-      "profit": "PF",
+      "label": "Label",
+      "profit": "Profit Dự kiến",
       "paid": "Đã thanh toán",
       "processing": "Đang xử lý",
       "hold": "On hold"
     },
     "colHint": {
-      "estRevenue": "Tiền thu về của đơn: đã quyết toán, chưa thì ước tính của TikTok.",
-      "revenue": "Tổng tiền khách trả (GMV), không tính đơn đã huỷ.",
-      "baseCost": "Giá vốn sản phẩm đã được nhà cung cấp fulfillment xác nhận (lần gửi đang hiệu lực).",
-      "profit": "PF = Doanh thu dự kiến − Basecost. Đơn chưa fulfill / chưa có giá vốn xác nhận tính giá vốn = 0.",
+      "revenue": "Tiền thu về của từng đơn: đơn đã quyết toán dùng số đã quyết toán, chưa quyết toán dùng số ước tính của TikTok. Mỗi đơn chỉ một giá trị.",
+      "baseCost": "Giá vốn đã được nhà cung cấp fulfillment xác nhận của lần fulfill đang giữ đơn (gửi lại thay lần cũ).",
+      "label": "Label = số đơn đã fulfill × phí label mỗi đơn. Đơn chưa fulfill / đã huỷ fulfill không tính.",
+      "profit": "Profit Dự kiến = Doanh thu − Base Cost − Label − Phí ship Seller (phần chưa nằm trong tiền thu về), cùng công thức màn Order. Chỉ cộng đơn đủ dữ kiện — không coi dữ liệu thiếu là 0.",
       "paid": "Tiền TikTok đã chi trong khoảng.",
       "processing": "Đã quyết toán, chưa chi (payment PROCESSING).",
       "hold": "Tiền TikTok chưa quyết toán (hiện tại)."
     },
-    "returnsHint": "Số đơn có yêu cầu Return/Refund đang mở hoặc đã xong (không tính yêu cầu huỷ / bị từ chối). — = chưa đồng bộ."
+    "returnsHint": "Số đơn có yêu cầu Return/Refund đang mở hoặc đã xong (không tính yêu cầu huỷ / bị từ chối). — = chưa đồng bộ.",
+    "partial": "{{covered}}/{{total}} đơn",
+    "partialHint": "Chỉ số đơn này có đủ dữ liệu; các đơn còn lại chưa có dữ liệu tài chính / giá vốn nên KHÔNG được cộng (không coi là 0)."
   },
   "trend": {
     "title": "Biểu đồ xu hướng",
@@ -109,5 +111,23 @@
     "delivered": "Giao thành công",
     "inProgress": "Đang xử lý / vận chuyển",
     "cancelled": "Đã huỷ"
+  },
+  "dialog": {
+    "connection": "Tên kết nối",
+    "shop": "Tên shop"
+  },
+  "holdShops": {
+    "open": "Xem danh sách shop đang hold",
+    "title": "Shop đang hold tiền",
+    "description": "Tiền TikTok chưa quyết toán theo từng shop — cùng nguồn, phạm vi và đơn vị tiền với thẻ \"Tổng tiền đang hold\".",
+    "summary": "{{count}} shop · tổng",
+    "amount": "Số tiền đang hold ({{currency}})",
+    "empty": "Không có shop nào đang hold tiền."
+  },
+  "shopList": {
+    "open": "Xem danh sách shop {{status}}",
+    "title": "Shop {{status}}",
+    "description": "Theo trạng thái shop TikTok trong hệ thống, cùng phạm vi với thẻ \"Trạng thái shop\".",
+    "empty": "Không có shop nào ở trạng thái này."
   }
 }

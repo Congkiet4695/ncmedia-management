@@ -13,15 +13,6 @@ import type {
 const KEY = 'reports';
 const STALE = 60 * 1000;
 
-export function useDashboardSummary(params: DateRangeParams, enabled = true) {
-  return useQuery({
-    queryKey: [KEY, 'dashboard-summary', params],
-    queryFn: () => reportService.dashboardSummary(params),
-    staleTime: STALE,
-    enabled,
-  });
-}
-
 export function useOverview(params: TimeSeriesParams) {
   return useQuery({
     queryKey: [KEY, 'overview', params],

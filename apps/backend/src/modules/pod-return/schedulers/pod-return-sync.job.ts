@@ -28,7 +28,7 @@ export class PodReturnSyncJob implements OnModuleInit {
 
   onModuleInit(): void {
     const enabled = this.config.get<boolean>('tiktok.returnSync.enabled', false);
-    const cronExpression = this.config.get<string>('tiktok.returnSync.cron', '*/15 * * * *');
+    const cronExpression = this.config.get<string>('tiktok.returnSync.cron', '*/5 * * * *');
     if (!enabled) {
       this.logger.warn({
         module: 'pod-return',

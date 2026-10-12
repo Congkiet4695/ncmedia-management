@@ -51,6 +51,9 @@ export const POD_RETURN_SYNC_SHOP_LOCK_PREFIX = 'pod:tiktok:return-sync:shop:';
 /** Khoá của cả lượt cron (nhiều instance API cùng chạy scheduler). */
 export const POD_RETURN_SYNC_GLOBAL_LOCK = 'pod:tiktok:return-sync:global';
 
+/** Scope TikTok bắt buộc cho Return & Refund API. */
+export const POD_RETURN_REQUIRED_SCOPE = 'seller.return_refund.basic';
+
 /** Mã lỗi ghi vào trạng thái đồng bộ / trả cho giao diện. */
 export const POD_RETURN_SYNC_ERROR_CODES = {
   /** TikTok 105005 — app / shop chưa được cấp scope `seller.return_refund.basic`. */

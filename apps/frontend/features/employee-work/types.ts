@@ -21,10 +21,14 @@ export interface EmployeeWorkQuery extends EmployeeWorkFilters {
   limit?: number;
 }
 
+export type EmployeeWorkShopStatus = 'ACTIVE' | 'INACTIVE' | 'DEAUTHORIZED';
+
 export interface EmployeeWorkAccount {
   shopId: string;
   shopName: string;
   accountName: string;
+  /** Trạng thái SHOP (không phải TikTok Account): ACTIVE = Live, INACTIVE = Die. */
+  shopStatus: EmployeeWorkShopStatus;
   /** Người này phụ trách shop (TikTok Account được gán cho họ). */
   assigned: boolean;
   listings: number;
@@ -68,6 +72,37 @@ export interface EmployeeWorkPage {
   summary: EmployeeWorkSummary;
   items: EmployeeWorkRow[];
   meta: PaginationMeta;
+}
+
+/** Popup của hai thẻ "Nhân viên có listing" / "Shop được listing" — cùng bộ lọc với thẻ. */
+export interface EmployeeWorkListingDetails {
+  from: string;
+  to: string;
+  /** Mỗi người MỘT dòng — số dòng = thẻ "Nhân viên có listing". */
+  employees: Array<{
+    userId: string;
+    name: string;
+    email: string;
+    isEmployee: boolean;
+    active: boolean;
+    /** Tài khoản đã xoá sau khi listing — listing vẫn được tính trong khoảng. */
+    deleted: boolean;
+    listings: number;
+    shops: number;
+  }>;
+  /** Mỗi cặp (shop × người listing) MỘT dòng — một shop có thể nhiều dòng. */
+  shops: Array<{
+    shopId: string;
+    shopName: string;
+    accountName: string;
+    shopStatus: EmployeeWorkShopStatus;
+    userId: string;
+    userName: string;
+    userEmail: string;
+    listings: number;
+  }>;
+  /** Số shop DUY NHẤT = thẻ "Shop được listing". */
+  uniqueShops: number;
 }
 
 export interface EmployeeWorkFilterOptions {

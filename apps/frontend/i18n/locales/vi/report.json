@@ -142,6 +142,34 @@
       "inactive": "Ngừng hoạt động",
       "notEmployee": "Không có hồ sơ nhân viên",
       "assigned": "Phụ trách"
+    },
+    "shopStatus": {
+      "label": "Trạng thái:",
+      "ACTIVE": "Live",
+      "INACTIVE": "Die",
+      "DEAUTHORIZED": "Mất uỷ quyền",
+      "unknown": "N/A"
+    },
+    "listingDialog": {
+      "open": {
+        "employees": "Xem danh sách nhân viên có listing",
+        "shops": "Xem danh sách shop được listing"
+      },
+      "employeesTitle": "Nhân viên có listing",
+      "employeesDescription": "Người đã đưa sản phẩm lên sàn thành công trong khoảng {{from}} → {{to}}, theo bộ lọc hiện tại. Mỗi người một dòng.",
+      "shopsTitle": "Shop được listing",
+      "shopsDescription": "Quan hệ shop × nhân viên thực hiện listing trong khoảng {{from}} → {{to}}. Một shop có nhiều người listing sẽ có nhiều dòng.",
+      "shopsSummary": "{{shops}} shop · {{rows}} dòng (shop × nhân viên)",
+      "employeesSummary": "{{count}} nhân viên",
+      "connection": "Tên kết nối",
+      "shop": "Tên shop",
+      "employee": "Tên nhân viên",
+      "email": "Email",
+      "listings": "Listing",
+      "shops": "Số shop",
+      "status": "Trạng thái shop",
+      "deleted": "Đã xoá",
+      "empty": "Không có dữ liệu listing trong khoảng ngày đã chọn."
     }
   }
 }

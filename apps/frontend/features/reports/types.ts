@@ -20,12 +20,6 @@ export interface SellerPerformanceParams {
   year?: number;
 }
 
-export interface DashboardSummary {
-  totalOrders: number;
-  totalRevenue: number;
-  currency: string;
-}
-
 export interface TimeSeriesPoint {
   bucket: string;
   value: number;

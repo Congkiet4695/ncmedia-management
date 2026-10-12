@@ -466,7 +466,7 @@ export default () => ({
      */
     returnSync: {
       enabled: (process.env.TIKTOK_RETURN_SYNC_ENABLED ?? 'false') === 'true',
-      cron: process.env.TIKTOK_RETURN_SYNC_CRON ?? '*/15 * * * *',
+      cron: process.env.TIKTOK_RETURN_SYNC_CRON ?? '*/5 * * * *',
       initialLookbackDays: parseInt(process.env.TIKTOK_RETURN_SYNC_INITIAL_LOOKBACK_DAYS ?? '90', 10),
       /** Quét lùi lại bấy nhiêu giây trước watermark — bù độ trễ ghi `update_time` của TikTok. */
       overlapSeconds: parseInt(process.env.TIKTOK_RETURN_SYNC_OVERLAP_SECONDS ?? '600', 10),

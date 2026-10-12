@@ -265,6 +265,28 @@ async function main() {
     const onlyB = await service.page(org, { from: day, to: day, userId: B.user.id });
     check('F1 lọc theo người ⇒ chỉ người đó, tóm tắt theo người đó', onlyB.items.length === 1 && onlyB.summary.productsListed === 2, { items: onlyB.items.length, summary: onlyB.summary });
 
+    // ------------------------------------------------------------- D. Popup thẻ + trạng thái shop
+    const details = await service.listingDetails(org, { from: day, to: day });
+    const popupUsers = details.employees.map((row) => row.userId);
+    check('D1 popup "Nhân viên có listing": số người = thẻ, không trùng, có A & B, không có C (0 listing)',
+      popupUsers.length === result.summary.activeEmployees && new Set(popupUsers).size === popupUsers.length &&
+        popupUsers.includes(A.user.id) && popupUsers.includes(B.user.id) && !popupUsers.includes(C.user.id),
+      { popup: popupUsers.length, card: result.summary.activeEmployees });
+    const pairKeys = details.shops.map((row) => `${row.shopId}:${row.userId}`);
+    check('D2 popup "Shop được listing": shop DUY NHẤT = thẻ; cặp thật (shop1×B, shop2×A); A chỉ phụ trách shop1 ⇒ không ghép',
+      details.uniqueShops === result.summary.accountsListed && pairKeys.includes(`${shop1.id}:${B.user.id}`) &&
+        pairKeys.includes(`${shop2.id}:${A.user.id}`) && !pairKeys.includes(`${shop1.id}:${A.user.id}`),
+      { uniqueShops: details.uniqueShops, card: result.summary.accountsListed, rows: details.shops.length });
+    const dbStatus = new Map((await prisma.podTiktokShop.findMany({ where: { id: { in: [shop1.id, shop2.id] } }, select: { id: true, status: true } })).map((s) => [s.id, s.status as string]));
+    check('D3 bảng Theo nhân viên + popup: trạng thái SHOP đúng từng shop (không lấy trạng thái account)',
+      a1?.shopStatus === dbStatus.get(shop1.id) && a2?.shopStatus === dbStatus.get(shop2.id) &&
+        details.shops.every((row) => row.shopStatus === dbStatus.get(row.shopId)),
+      { a1: a1?.shopStatus, a2: a2?.shopStatus, db: Object.fromEntries(dbStatus) });
+    const detailsB = await service.listingDetails(org, { from: day, to: day, userId: B.user.id });
+    check('D4 popup dùng cùng bộ lọc người với thẻ', detailsB.employees.length === 1 && detailsB.employees[0].userId === B.user.id && detailsB.uniqueShops === onlyB.summary.accountsListed, detailsB.employees.length);
+    const otherDetails = await service.listingDetails((await prisma.organization.findFirstOrThrow({ where: { id: { not: org } }, select: { id: true } })).id, { from: day, to: day });
+    check('D5 popup tổ chức khác KHÔNG thấy người / shop của tổ chức này', !otherDetails.employees.some((row) => [A.user.id, B.user.id].includes(row.userId)) && !otherDetails.shops.some((row) => [shop1.id, shop2.id].includes(row.shopId)), otherDetails.employees.length);
+
     // ------------------------------------------------------------- I. Cô lập tổ chức
     const otherOrg = await prisma.organization.findFirstOrThrow({ where: { id: { not: org } }, select: { id: true } });
     const other = await service.page(otherOrg.id, { from: day, to: day, limit: 100 });

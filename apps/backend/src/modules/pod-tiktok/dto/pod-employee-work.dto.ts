@@ -66,6 +66,11 @@ export class EmployeeWorkAccountDto {
   @ApiProperty() shopId!: string;
   @ApiProperty() shopName!: string;
   @ApiProperty() accountName!: string;
+  @ApiProperty({
+    enum: ['ACTIVE', 'INACTIVE', 'DEAUTHORIZED'],
+    description: 'Trạng thái SHOP (pod_tiktok_shops.status): ACTIVE = Live, INACTIVE = Die, DEAUTHORIZED = mất uỷ quyền.',
+  })
+  shopStatus!: string;
   @ApiProperty({ description: 'Người này phụ trách shop (TikTok Account được gán cho họ)' }) assigned!: boolean;
   @ApiProperty({ description: 'Sản phẩm NGƯỜI NÀY đã đưa lên shop trong khoảng (không đếm trùng)' }) listings!: number;
   @ApiProperty({ description: 'Đơn của SHOP trong khoảng' }) orders!: number;
@@ -108,6 +113,45 @@ export class EmployeeWorkPageDto {
   @ApiProperty({ type: EmployeeWorkSummaryDto }) summary!: EmployeeWorkSummaryDto;
   @ApiProperty({ type: [EmployeeWorkRowDto] }) items!: EmployeeWorkRowDto[];
   @ApiProperty() meta!: { total: number; page: number; limit: number; totalPages: number };
+}
+
+export class EmployeeWorkListedEmployeeDto {
+  @ApiProperty({ description: 'Id người dùng — chỉ dùng làm khoá' }) userId!: string;
+  @ApiProperty() name!: string;
+  @ApiProperty({ description: 'Phân biệt người trùng tên' }) email!: string;
+  @ApiProperty() isEmployee!: boolean;
+  @ApiProperty() active!: boolean;
+  @ApiProperty({ description: 'Tài khoản đã bị xoá sau khi listing (listing vẫn được tính trong khoảng)' }) deleted!: boolean;
+  @ApiProperty({ description: 'Số sản phẩm đã đưa lên sàn trong khoảng' }) listings!: number;
+  @ApiProperty({ description: 'Số shop người này đã listing trong khoảng' }) shops!: number;
+}
+
+export class EmployeeWorkListedShopDto {
+  @ApiProperty() shopId!: string;
+  @ApiProperty() shopName!: string;
+  @ApiProperty({ description: 'Tên kết nối (TikTok Account)' }) accountName!: string;
+  @ApiProperty({ enum: ['ACTIVE', 'INACTIVE', 'DEAUTHORIZED'] }) shopStatus!: string;
+  @ApiProperty() userId!: string;
+  @ApiProperty({ description: 'Nhân viên thực hiện listing (người chạy lượt listing)' }) userName!: string;
+  @ApiProperty() userEmail!: string;
+  @ApiProperty() listings!: number;
+}
+
+export class EmployeeWorkListingDetailsDto {
+  @ApiProperty() from!: string;
+  @ApiProperty() to!: string;
+  @ApiProperty({
+    type: [EmployeeWorkListedEmployeeDto],
+    description: 'Mỗi người MỘT dòng — số dòng = thẻ "Nhân viên có listing".',
+  })
+  employees!: EmployeeWorkListedEmployeeDto[];
+  @ApiProperty({
+    type: [EmployeeWorkListedShopDto],
+    description: 'Mỗi cặp (shop × người listing) MỘT dòng — một shop có thể có nhiều dòng nếu nhiều người cùng listing.',
+  })
+  shops!: EmployeeWorkListedShopDto[];
+  @ApiProperty({ description: 'Số shop DUY NHẤT = thẻ "Shop được listing" (không phải số dòng của `shops`).' })
+  uniqueShops!: number;
 }
 
 export class EmployeeWorkFilterOptionsDto {

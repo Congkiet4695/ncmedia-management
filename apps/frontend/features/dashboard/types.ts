@@ -79,9 +79,9 @@ export interface DashboardSummary {
 export const SELLER_SORT_FIELDS = [
   'name',
   'orders',
-  'estRevenue',
   'revenue',
   'baseCost',
+  'label',
   'profit',
   'paid',
   'processing',
@@ -107,14 +107,47 @@ export interface DashboardSellerRow {
   orders: number;
   /** Số đơn có yêu cầu Return/Refund còn hiệu lực. null: chưa có dữ liệu hoàn hàng. */
   returns: number | null;
-  estRevenue: number;
+  /** Σ tiền thu về từng đơn: đã quyết toán nếu có, chưa thì ước tính (mỗi đơn MỘT giá trị). */
   revenue: number;
+  /** Số đơn có tiền thu về — phần còn lại chưa có dữ liệu tài chính. */
+  revenueOrders: number;
+  /** Σ giá vốn đã xác nhận của lần fulfill đang giữ đơn. */
   baseCost: number;
-  /** `null` = không đơn nào tính được lợi nhuận. */
+  baseCostOrders: number;
+  /** Số đơn đã fulfill (mỗi đơn một label). */
+  fulfilledOrders: number;
+  /** Σ label của đơn đã fulfill; `null` khi label khác đơn vị tiền đang xem. */
+  label: number | null;
+  /** Profit Dự kiến; `null` = không đơn nào tính được. */
   profit: number | null;
+  /** Số đơn tính được Profit Dự kiến (đủ dữ kiện). */
+  profitOrders: number;
   paid: number;
   processing: number;
   hold: number;
+}
+
+/** Bộ lọc chung + trang — popup của thẻ tổng quan. */
+export interface DashboardPageQuery extends DashboardFilters {
+  page: number;
+  limit: number;
+}
+
+/** Trạng thái shop thật — Live = ACTIVE, Die = INACTIVE. */
+export type DashboardShopStatus = 'ACTIVE' | 'INACTIVE' | 'DEAUTHORIZED';
+
+export interface DashboardHoldShopPage {
+  currency: string | null;
+  /** Σ hold mọi shop (mọi trang) — bằng số trên thẻ. */
+  totalAmount: number;
+  items: Array<{ shopId: string; shopName: string | null; accountName: string | null; amount: number }>;
+  meta: PaginationMeta;
+}
+
+export interface DashboardShopListPage {
+  status: DashboardShopStatus;
+  items: Array<{ shopId: string; shopName: string; accountName: string | null; region: string | null }>;
+  meta: PaginationMeta;
 }
 
 export interface DashboardSellerPage {

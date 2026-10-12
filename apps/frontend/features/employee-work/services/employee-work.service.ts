@@ -4,6 +4,7 @@ import type { ApiResponse } from '@/types/api';
 import type {
   EmployeeWorkFilterOptions,
   EmployeeWorkFilters,
+  EmployeeWorkListingDetails,
   EmployeeWorkPage,
   EmployeeWorkQuery,
 } from '../types';
@@ -26,6 +27,12 @@ export const employeeWorkService = {
   async page(query: EmployeeWorkQuery): Promise<EmployeeWorkPage> {
     const res = await apiClient.get<ApiResponse<EmployeeWorkPage>>(BASE_PATH, {
       params: params(query),
+    });
+    return res.data.data;
+  },
+  async listingDetails(filters: EmployeeWorkFilters): Promise<EmployeeWorkListingDetails> {
+    const res = await apiClient.get<ApiResponse<EmployeeWorkListingDetails>>(`${BASE_PATH}/listing-details`, {
+      params: params(filters),
     });
     return res.data.data;
   },

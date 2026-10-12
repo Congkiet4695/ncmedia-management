@@ -62,6 +62,18 @@ function build(overrides: Partial<Record<keyof PodDashboardRepository, jest.Mock
     returnStats: jest.fn().mockResolvedValue({ requests: 0, returnedOrders: 0, refundedOrders: 0, settledRefund: '0' }),
     financeTrend: jest.fn().mockResolvedValue([]),
     orderTrend: jest.fn().mockResolvedValue([]),
+    holdShops: jest.fn().mockResolvedValue({
+      items: [
+        { shopId: 'shop-1', shopName: 'Shop 1', accountName: 'Acc 1', amount: '12000.004' },
+        { shopId: 'shop-2', shopName: 'Shop 2', accountName: 'Acc 1', amount: '305.246' },
+      ],
+      total: 43,
+      totalAmount: '12305.25',
+    }),
+    shopsByStatus: jest.fn().mockResolvedValue({
+      items: [{ shopId: 'shop-9', shopName: 'Die shop', accountName: 'Acc 9', region: 'US' }],
+      total: 2,
+    }),
     ...overrides,
   };
   const config = { get: (_key: string, fallback: unknown) => fallback } as unknown as ConfigService;
@@ -205,10 +217,14 @@ describe('PodDashboardService.sellers', () => {
       sellerEmail: 't@x',
       active: true,
       orders: 95,
-      estRevenue: '6650.68',
-      revenue: '6564.44',
+      revenue: '6650.684',
+      revenueOrders: 90,
       baseCost: '35.46',
+      baseCostOrders: 3,
+      fulfilledOrders: 4,
+      label: '2',
       profit: '6615.22',
+      profitOrders: 3,
       paid: '475.19',
       processing: '0',
       hold: '5419.79',
@@ -235,20 +251,65 @@ describe('PodDashboardService.sellers', () => {
     expect(result.items[0]).toMatchObject({
       orders: 95,
       returns: null,
+      revenue: 6650.68,
+      revenueOrders: 90,
+      baseCost: 35.46,
+      label: 2,
+      fulfilledOrders: 4,
       profit: 6615.22,
+      profitOrders: 3,
       hold: 5419.79,
     });
+    // Cột "Doanh thu dự kiến" đã bỏ — API không còn trả field này.
+    expect(result.items[0]).not.toHaveProperty('estRevenue');
+    // Label truyền từ cấu hình (một nguồn với màn Order), không hard-code trong SQL.
+    expect((repo.sellerStats.mock.calls[0] as unknown[])[2]).toMatchObject({ label: { amount: 0.5, currency: 'USD' } });
     expect(result.meta).toEqual({ total: 41, page: 2, limit: 20, totalPages: 3 });
   });
 
   it('đã đồng bộ Return/Refund ⇒ cột Đơn hoàn là số đơn thật (0 vẫn là 0)', async () => {
-    const base = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 5, estRevenue: '0', revenue: '0', baseCost: '0', profit: null, paid: '0', processing: '0', hold: '0' };
+    const base = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 5, revenue: '0', revenueOrders: 0, baseCost: '0', baseCostOrders: 0, fulfilledOrders: 0, label: '0', profit: null, profitOrders: 0, paid: '0', processing: '0', hold: '0' };
     const { service } = build({
       returnsAvailable: jest.fn().mockResolvedValue(true),
       sellerStats: jest.fn().mockResolvedValue({ items: [{ ...base, returns: 2 }, { ...base, sellerId: 's2', returns: 0 }], total: 2 }),
     });
     const result = await service.sellers(ORG, ADMIN, { from: '2026-08-18', to: '2026-09-18', activeOnly: false, sort: 'orders', order: 'desc', page: 1, limit: 20 });
     expect(result.items.map((item) => item.returns)).toEqual([2, 0]);
+  });
+});
+
+describe('PodDashboardService — Profit Dự kiến / Label thiếu dữ kiện', () => {
+  it('Label khác đơn vị tiền ⇒ null ("—"), Profit không đơn nào tính được ⇒ null (không coi là 0)', async () => {
+    const row = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 3, revenue: '30', revenueOrders: 2, baseCost: '0', baseCostOrders: 0, fulfilledOrders: 1, label: null, profit: null, profitOrders: 0, paid: '0', processing: '0', hold: '0', returns: 0 };
+    const { service } = build({ sellerStats: jest.fn().mockResolvedValue({ items: [row], total: 1 }) });
+    const result = await service.sellers(ORG, ADMIN, { from: '2026-10-01', to: '2026-10-05' });
+    expect(result.items[0]).toMatchObject({ label: null, profit: null, profitOrders: 0, revenueOrders: 2, orders: 3 });
+  });
+});
+
+describe('PodDashboardService — popup thẻ tổng quan', () => {
+  it('Hold theo shop: cùng đơn vị tiền với thẻ; meta.total = số shop; totalAmount = số trên thẻ', async () => {
+    const { service, repo } = build();
+    const result = await service.holdShops(ORG, ADMIN, { page: 1, limit: 20 });
+    expect(filterOf(repo.holdShops)).toMatchObject({ organizationId: ORG, currency: 'USD', accountIds: null });
+    expect((repo.holdShops.mock.calls[0] as unknown[])[1]).toEqual({ page: 1, limit: 20 });
+    expect(result).toMatchObject({ currency: 'USD', totalAmount: 12305.25, meta: { total: 43, page: 1, limit: 20, totalPages: 3 } });
+    expect(result.items.map((item) => item.amount)).toEqual([12000, 305.25]);
+  });
+
+  it('Live / Die: truyền đúng trạng thái thật xuống DB, không tự map lại', async () => {
+    const { service, repo } = build();
+    const die = await service.shopsByStatus(ORG, ADMIN, { status: 'INACTIVE', page: 2, limit: 10 });
+    expect((repo.shopsByStatus.mock.calls[0] as unknown[]).slice(1)).toEqual(['INACTIVE', { page: 2, limit: 10 }]);
+    expect(die).toMatchObject({ status: 'INACTIVE', meta: { total: 2, page: 2, limit: 10, totalPages: 1 } });
+    await service.shopsByStatus(ORG, ADMIN, { status: 'ACTIVE' });
+    expect((repo.shopsByStatus.mock.calls[1] as unknown[]).slice(1)).toEqual(['ACTIVE', { page: 1, limit: 20 }]);
+  });
+
+  it('chọn đơn vị tiền khác ⇒ popup Hold lọc theo đơn vị đó (không trộn USD/GBP)', async () => {
+    const { service, repo } = build();
+    await service.holdShops(ORG, ADMIN, { currency: 'GBP' });
+    expect(filterOf(repo.holdShops).currency).toBe('GBP');
   });
 });
 
@@ -330,6 +391,16 @@ describe('Seller Dashboard — phạm vi dữ liệu ở BACKEND', () => {
       (s: PodDashboardService, scope: PodAccessScope) => s.trends(ORG, scope, RANGE),
       'financeTrend',
     ],
+    [
+      'hold-shops (popup Hold)',
+      (s: PodDashboardService, scope: PodAccessScope) => s.holdShops(ORG, scope, {}),
+      'holdShops',
+    ],
+    [
+      'shops (popup Live / Die)',
+      (s: PodDashboardService, scope: PodAccessScope) => s.shopsByStatus(ORG, scope, { status: 'ACTIVE' }),
+      'shopsByStatus',
+    ],
   ] as const)(
     '%s: Seller A chỉ account của A, Seller B chỉ của B, Admin toàn tổ chức',
     async (_name, call, query) => {
@@ -353,6 +424,14 @@ describe('Seller Dashboard — phạm vi dữ liệu ở BACKEND', () => {
       sellerId: 'seller-b',
       shopId: 'shop-b',
     });
+  });
+
+  it('🔴 popup: Seller A sửa shopId / sellerId sang của B ⇒ vẫn giới hạn ở account của A', async () => {
+    const { service, repo } = build();
+    await service.shopsByStatus(ORG, SELLER_A, { status: 'INACTIVE', shopId: 'shop-b', sellerId: 'seller-b' });
+    await service.holdShops(ORG, SELLER_A, { shopId: 'shop-b' });
+    expect(filterOf(repo.shopsByStatus)).toMatchObject({ accountIds: ['acc-a'], shopId: 'shop-b', sellerId: 'seller-b' });
+    expect(filterOf(repo.holdShops)).toMatchObject({ accountIds: ['acc-a'], shopId: 'shop-b' });
   });
 
   it('🔴 Seller chưa được gán account nào ⇒ accountIds RỖNG (trả 0), không phải "toàn tổ chức"', async () => {

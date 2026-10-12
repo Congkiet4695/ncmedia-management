@@ -54,9 +54,7 @@
     "role": "Vai trò",
     "session": "Phiên đăng nhập",
     "subtitle": "Tổng quan hoạt động kinh doanh.",
-    "title": "Dashboard",
-    "totalOrders": "Tổng Đơn hàng",
-    "totalRevenue": "Tổng Doanh thu"
+    "title": "Dashboard"
   },
   "date": {
     "from": "Từ ngày",

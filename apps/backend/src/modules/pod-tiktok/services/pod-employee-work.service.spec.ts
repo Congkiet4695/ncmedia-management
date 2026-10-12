@@ -33,6 +33,7 @@ const pair = (userId: string, shopId: string, extra: Partial<EmployeeWorkPairRow
   shopId,
   shopName: `Shop ${shopId}`,
   accountName: `Account ${shopId}`,
+  shopStatus: 'ACTIVE',
   listings: 0,
   assigned: false,
   orders: 0,
@@ -47,6 +48,15 @@ function setup(pairs: EmployeeWorkPairRow[], users: EmployeeWorkUserRow[]) {
     users: jest.fn().mockResolvedValue(users),
     listingActorIds: jest.fn().mockResolvedValue([]),
     shops: jest.fn().mockResolvedValue([]),
+    // Popup listing: tra cả người đã xoá (listing của họ vẫn nằm trong chỉ số thẻ).
+    listingUsers: jest.fn((_org: string, ids: string[]) =>
+      Promise.resolve(
+        ids.map((id) => {
+          const found = users.find((entry) => entry.userId === id);
+          return found ? { ...found, deleted: false } : { ...user(id, `Deleted ${id}`), active: false, deleted: true };
+        }),
+      ),
+    ),
   };
   const dashboard = { currencies: jest.fn().mockResolvedValue(['USD', 'GBP']) };
   const config = { get: jest.fn((_key: string, fallback: number) => fallback) };
@@ -151,6 +161,64 @@ describe('PodEmployeeWorkService', () => {
     const result = await service.page(ORG, { page: 2, limit: 2 });
     expect(result.items.map((row) => row.userId)).toEqual(['C']);
     expect(result.meta).toEqual({ total: 3, page: 2, limit: 2, totalPages: 2 });
+  });
+
+  it('popup "Nhân viên có listing": số người = thẻ, không trùng dù một người listing nhiều shop', async () => {
+    const twoShops = [...pairs, pair('B', 'S2', { listings: 1 })];
+    const { service } = setup(twoShops, users);
+    const [page, details] = await Promise.all([service.page(ORG, {}), service.listingDetails(ORG, {})]);
+
+    expect(details.employees).toHaveLength(page.summary.activeEmployees);
+    expect(new Set(details.employees.map((row) => row.userId)).size).toBe(details.employees.length);
+    expect(details.employees.find((row) => row.userId === 'B')).toMatchObject({ listings: 4, shops: 2, email: 'bình@example.test' });
+    // A chỉ PHỤ TRÁCH S1 (0 listing) ⇒ chỉ tính S2.
+    expect(details.employees.find((row) => row.userId === 'A')).toMatchObject({ listings: 2, shops: 1 });
+    // C không có listing ⇒ không nằm trong popup.
+    expect(details.employees.map((row) => row.userId)).not.toContain('C');
+  });
+
+  it('popup "Shop được listing": dòng theo cặp (shop × người listing); số shop DUY NHẤT = thẻ', async () => {
+    const shared = [...pairs, pair('B', 'S2', { listings: 1, shopStatus: 'INACTIVE' })];
+    const { service } = setup(shared, users);
+    const [page, details] = await Promise.all([service.page(ORG, {}), service.listingDetails(ORG, {})]);
+
+    // S2 do cả A và B listing ⇒ 2 dòng, nhưng thẻ vẫn đếm 2 shop (S1, S2).
+    expect(details.uniqueShops).toBe(page.summary.accountsListed);
+    expect(details.uniqueShops).toBe(2);
+    expect(details.shops.map((row) => `${row.shopId}:${row.userId}`).sort()).toEqual(['S1:B', 'S2:A', 'S2:B']);
+    // Quan hệ người phụ trách (A–S1, 0 listing) KHÔNG bị ghép thành "người listing".
+    expect(details.shops.some((row) => row.shopId === 'S1' && row.userId === 'A')).toBe(false);
+    expect(details.shops.find((row) => row.shopId === 'S2' && row.userId === 'B')).toMatchObject({
+      accountName: 'Account S2',
+      shopName: 'Shop S2',
+      shopStatus: 'INACTIVE',
+      userName: 'Bình',
+    });
+  });
+
+  it('popup listing: người đã bị xoá vẫn được liệt kê (thẻ có đếm) và được đánh dấu', async () => {
+    const { service } = setup([pair('X', 'S1', { listings: 1 })], users);
+    const [page, details] = await Promise.all([service.page(ORG, {}), service.listingDetails(ORG, {})]);
+    expect(page.summary.activeEmployees).toBe(1);
+    expect(details.employees).toEqual([expect.objectContaining({ userId: 'X', deleted: true, active: false })]);
+  });
+
+  it('popup listing dùng CÙNG bộ lọc (khoảng ngày / shop / người) với thẻ', async () => {
+    const { service, repo } = setup(pairs, users);
+    const details = await service.listingDetails(ORG, { from: '2026-10-06', userId: 'B', shopId: 'S1' });
+    expect(repo.pairs).toHaveBeenCalledWith(expect.objectContaining({ organizationId: ORG, shopId: 'S1' }));
+    expect(details.employees.map((row) => row.userId)).toEqual(['B']);
+    expect(details).toMatchObject({ from: '2026-10-06', to: '2026-10-06' });
+  });
+
+  it('bảng Theo nhân viên: mỗi shop mang trạng thái SHOP của chính dòng listing đó', async () => {
+    const { service } = setup([pair('A', 'S1', { listings: 1, shopStatus: 'ACTIVE' }), pair('A', 'S2', { listings: 1, shopStatus: 'DEAUTHORIZED' })], users);
+    const result = await service.page(ORG, {});
+    const details = result.items.find((row) => row.userId === 'A')?.accountDetails ?? [];
+    expect(Object.fromEntries(details.map((detail) => [detail.shopId, detail.shopStatus]))).toEqual({
+      S1: 'ACTIVE',
+      S2: 'DEAUTHORIZED',
+    });
   });
 
   it('xuất Excel: có file .xlsx theo khoảng ngày', async () => {

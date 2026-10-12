@@ -1,6 +1,13 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PodShopSyncType, PodSyncStatus, PodSyncTrigger, Prisma } from '@prisma/client';
+import {
+  PodShopSyncType,
+  PodSyncStatus,
+  PodSyncTrigger,
+  PodTiktokAccountStatus,
+  PodTiktokShopStatus,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { NotificationOutboxService } from '../../notification/services/notification-outbox.service';
 import type { NotificationEventInput } from '../../notification/types/notification-payload.types';
@@ -16,6 +23,7 @@ import { TiktokReturnRefundApiService } from '../../tiktok-sdk/tiktok-return-ref
 import type { TiktokShopContext } from '../../tiktok-sdk/types/tiktok-shop-context.type';
 import {
   POD_RETURN_ORDERS_PATH,
+  POD_RETURN_REQUIRED_SCOPE,
   POD_RETURN_SYNC_ERROR_CODES,
   POD_RETURN_SYNC_GLOBAL_LOCK,
   POD_RETURN_SYNC_SHOP_LOCK_PREFIX,
@@ -31,6 +39,11 @@ export interface ReturnSyncShop {
   accountId: string;
   name: string | null;
   lastReturnSyncCursor: bigint | null;
+  /**
+   * Kết nối có scope `seller.return_refund.basic` không, theo `granted_scopes` TikTok trả lúc uỷ quyền.
+   * `false` ⇒ biết chắc thiếu ⇒ KHÔNG gọi TikTok; `null`/không có ⇒ chưa biết ⇒ vẫn gọi (TikTok trả 105005 nếu thiếu).
+   */
+  scopeGranted?: boolean | null;
 }
 
 export interface ReturnShopSyncResult {
@@ -225,6 +238,17 @@ export class PodReturnSyncService {
     details: Record<string, unknown>,
   ): Promise<void> {
     const settings = this.settings();
+    if (shop.scopeGranted === false) {
+      // Biết chắc thiếu scope ⇒ không tiêu quota / không refresh token vô ích; ghi rõ lỗi cho giao diện.
+      const described = describeSyncError(
+        new TiktokClientError(TiktokErrorClass.AUTH, TIKTOK_ERROR_CODES.SCOPE_DENIED, 'scope not granted', 0),
+      );
+      result.status = PodSyncStatus.FAILED;
+      result.errorCode = described.code;
+      result.errorMessage = described.message;
+      details.scopeCheck = 'GRANTED_SCOPES';
+      return;
+    }
     const ctx = await this.shopContext.resolve(shop.organizationId, shop.id);
     const nowSec = Math.floor(startedAt.getTime() / 1000);
     const initial = shop.lastReturnSyncCursor === null;
@@ -522,21 +546,35 @@ export class PodReturnSyncService {
     return results;
   }
 
-  /** Shop đủ điều kiện: đang bật đồng bộ, không tạm dừng, kết nối ACTIVE. */
-  private findEligibleShops(organizationId?: string, shopIds?: string[]): Promise<ReturnSyncShop[]> {
+  /**
+   * Shop đủ điều kiện — CÙNG điều kiện với đồng bộ đơn POD (`listShopsForSync`): đang bật đồng bộ, không
+   * bị circuit breaker tạm dừng, kết nối ACTIVE; thêm: loại shop TikTok đã gỡ uỷ quyền (DEAUTHORIZED —
+   * gọi API chắc chắn lỗi). Shop INACTIVE ("Die") VẪN đồng bộ: TikTok vẫn cho gọi API và yêu cầu hoàn
+   * tiền của đơn cũ vẫn phát sinh / trừ vào quyết toán.
+   */
+  private async findEligibleShops(organizationId?: string, shopIds?: string[]): Promise<ReturnSyncShop[]> {
     const now = new Date();
-    return this.prisma.podTiktokShop.findMany({
+    const rows = await this.prisma.podTiktokShop.findMany({
       where: {
         deletedAt: null,
         syncEnabled: true,
         ...(organizationId ? { organizationId } : {}),
         ...(shopIds ? { id: { in: shopIds } } : {}),
         OR: [{ syncPausedUntil: null }, { syncPausedUntil: { lte: now } }],
-        account: { deletedAt: null, status: 'ACTIVE' },
+        status: { not: PodTiktokShopStatus.DEAUTHORIZED },
+        account: { deletedAt: null, status: PodTiktokAccountStatus.ACTIVE },
       },
-      select: { id: true, organizationId: true, accountId: true, name: true, lastReturnSyncCursor: true },
+      select: {
+        id: true,
+        organizationId: true,
+        accountId: true,
+        name: true,
+        lastReturnSyncCursor: true,
+        account: { select: { grantedScopes: true } },
+      },
       orderBy: [{ organizationId: 'asc' }, { createdAt: 'asc' }],
     });
+    return rows.map(({ account, ...shop }) => ({ ...shop, scopeGranted: hasReturnScope(account.grantedScopes) }));
   }
 
   private keepAlive(lock: Parameters<DistributedLockService['renew']>[0], ttl: number): NodeJS.Timeout {
@@ -597,6 +635,12 @@ export function describeSyncError(error: unknown): {
     }
   }
   return { code: POD_RETURN_SYNC_ERROR_CODES.UNKNOWN, message: error instanceof Error ? error.message : 'Lỗi không xác định' };
+}
+
+/** `granted_scopes` (JSON mảng) ⇒ có scope Return không; không phải mảng / rỗng ⇒ chưa biết (null). */
+export function hasReturnScope(grantedScopes: Prisma.JsonValue | null): boolean | null {
+  if (!Array.isArray(grantedScopes) || grantedScopes.length === 0) return null;
+  return grantedScopes.includes(POD_RETURN_REQUIRED_SCOPE);
 }
 
 function isUniqueViolation(error: unknown): boolean {

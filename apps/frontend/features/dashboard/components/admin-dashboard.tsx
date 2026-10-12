@@ -77,8 +77,8 @@ export function AdminDashboard() {
       )}
 
       <div className="grid gap-4 lg:grid-cols-3">
-        <HoldCard {...overviewState} />
-        <ShopStatusCard {...overviewState} />
+        <HoldCard {...overviewState} filters={filters} />
+        <ShopStatusCard {...overviewState} filters={filters} />
         <HoldBySellerCard {...overviewState} />
       </div>
 

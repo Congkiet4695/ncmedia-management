@@ -1,16 +1,13 @@
 import { DashboardHeading } from './_components/dashboard-heading';
 import { ProfileSummary } from './_components/profile-summary';
-import { DashboardSummary } from './_components/dashboard-summary';
 import { AdminDashboard } from '@/features/dashboard/components/admin-dashboard';
 
 /**
- * Trang Dashboard — tóm tắt phiên (Avatar/Fullname/Organization/Role) + Dashboard Summary
- * (Tổng Đơn hàng + Tổng Doanh thu, theo bộ lọc thời gian dùng chung). Summary chỉ hiển thị
- * với người có quyền `report.read`.
+ * Trang Dashboard — Dashboard POD + tóm tắt phiên (Avatar/Fullname/Organization/Role).
  *
  * `AdminDashboard` (Hold · shop · đơn theo kỳ · tài chính · seller · xu hướng của POD / TikTok Shop) —
  * `report.read` (Admin) hoặc `pod.dashboard.read` (Seller — chỉ số liệu của TikTok Account được gán);
- * phạm vi dữ liệu do backend giới hạn. Các khối cũ giữ nguyên.
+ * phạm vi dữ liệu do backend giới hạn.
  */
 export default function DashboardPage() {
   return (
@@ -18,8 +15,6 @@ export default function DashboardPage() {
       <DashboardHeading />
 
       <AdminDashboard />
-
-      <DashboardSummary />
 
       <ProfileSummary />
     </div>

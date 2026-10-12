@@ -78,24 +78,26 @@
       "name": "Seller",
       "orders": "Total orders",
       "returns": "Returns",
-      "estRevenue": "Est. revenue",
       "revenue": "Revenue",
       "baseCost": "Base cost",
-      "profit": "PF",
+      "label": "Label",
+      "profit": "Est. profit",
       "paid": "Paid",
       "processing": "Processing",
       "hold": "On hold"
     },
     "colHint": {
-      "estRevenue": "Order proceeds: settled amount, otherwise TikTok estimate.",
-      "revenue": "Amount paid by buyers (GMV), excluding cancelled orders.",
-      "baseCost": "Product cost confirmed by the fulfillment provider (current attempt).",
-      "profit": "PF = Est. revenue − Base cost. Orders without a confirmed base cost count as 0 cost.",
+      "revenue": "Per-order proceeds: the settled amount for settled orders, otherwise the TikTok estimate. Each order counts once.",
+      "baseCost": "Base cost confirmed by the fulfillment provider for the fulfillment currently holding the order (a resubmission replaces the old one).",
+      "label": "Label = fulfilled orders × label cost per order. Unfulfilled / cancelled fulfillments are excluded.",
+      "profit": "Est. profit = Revenue − Base cost − Label − Seller shipping fee (the part not already in proceeds), same formula as the Order screen. Only orders with complete data are summed — missing data is never treated as 0.",
       "paid": "Money TikTok paid out in the range.",
       "processing": "Settled but not paid out yet (payment PROCESSING).",
       "hold": "Money TikTok has not settled yet (current)."
     },
-    "returnsHint": "Orders with an open or completed return/refund request (cancelled / rejected requests excluded). — = not synced yet."
+    "returnsHint": "Orders with an open or completed return/refund request (cancelled / rejected requests excluded). — = not synced yet.",
+    "partial": "{{covered}}/{{total}} orders",
+    "partialHint": "Only these orders have complete data; the rest have no finance / cost data yet and are NOT summed (not treated as 0)."
   },
   "trend": {
     "title": "Trends",
@@ -109,5 +111,23 @@
     "delivered": "Delivered",
     "inProgress": "Processing / in transit",
     "cancelled": "Cancelled"
+  },
+  "dialog": {
+    "connection": "Connection name",
+    "shop": "Shop name"
+  },
+  "holdShops": {
+    "open": "View shops on hold",
+    "title": "Shops with money on hold",
+    "description": "Money TikTok has not settled yet, per shop — same source, scope and currency as the \"Total amount on hold\" card.",
+    "summary": "{{count}} shop(s) · total",
+    "amount": "Amount on hold ({{currency}})",
+    "empty": "No shop has money on hold."
+  },
+  "shopList": {
+    "open": "View {{status}} shops",
+    "title": "{{status}} shops",
+    "description": "Based on the TikTok shop status stored in the system, same scope as the \"Shop status\" card.",
+    "empty": "No shops in this status."
   }
 }

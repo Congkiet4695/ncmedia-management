@@ -54,9 +54,7 @@
     "role": "Role",
     "session": "Current session",
     "subtitle": "An overview of business activity.",
-    "title": "Dashboard",
-    "totalOrders": "Total orders",
-    "totalRevenue": "Total revenue"
+    "title": "Dashboard"
   },
   "date": {
     "from": "From date",

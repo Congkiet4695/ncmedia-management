@@ -14,7 +14,7 @@ import type { DashboardRange, DashboardSellerRow, SellerSortField } from '../typ
 import { WidgetCard, WidgetEmpty } from './widget-card';
 
 type MoneyColumn = Exclude<SellerSortField, 'name' | 'orders'>;
-const MONEY_COLUMNS: MoneyColumn[] = ['estRevenue', 'revenue', 'baseCost', 'profit', 'paid', 'processing', 'hold'];
+const MONEY_COLUMNS: MoneyColumn[] = ['revenue', 'baseCost', 'label', 'profit', 'paid', 'processing', 'hold'];
 
 /**
  * Thống kê seller — sắp xếp / tìm kiếm / phân trang đều ở BACKEND (SQL), không tải toàn bộ đơn về.
@@ -38,7 +38,7 @@ export function SellerStatsTable({ range, enabled }: { range: DashboardRange; en
     enabled,
   );
   const currency = query.data?.currency ?? null;
-  // `null` (PF khi không đơn nào tính được lợi nhuận) ⇒ "—", không hiện 0.
+  // `null` (Profit khi không đơn nào tính được / Label khác đơn vị tiền) ⇒ "—", không hiện 0.
   const money = (value: number | null) => (currency && value !== null ? formatCurrency(value, currency) : '—');
   const rows = query.data?.items ?? [];
 
@@ -88,7 +88,7 @@ export function SellerStatsTable({ range, enabled }: { range: DashboardRange; en
         <WidgetEmpty message={t('sellers.empty')} />
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1080px] text-sm">
+          <table className="w-full min-w-[1120px] text-sm">
             <thead className="bg-muted/40 text-xs text-muted-foreground">
               <tr>
                 <th className="px-3 py-2 text-left font-medium">#</th>
@@ -155,16 +155,50 @@ function SellerRow({ index, row, money }: { index: number; row: DashboardSellerR
       <td className={cn('px-3 py-2 text-right tabular-nums', row.returns === null && 'text-muted-foreground')}>
         {row.returns ?? '—'}
       </td>
-      <td className="px-3 py-2 text-right tabular-nums">{money(row.estRevenue)}</td>
-      <td className="px-3 py-2 text-right tabular-nums">{money(row.revenue)}</td>
-      <td className="px-3 py-2 text-right tabular-nums">{money(row.baseCost)}</td>
-      <td className={cn('px-3 py-2 text-right font-medium tabular-nums', row.profit !== null && row.profit < 0 && 'text-destructive')}>
-        {money(row.profit)}
-      </td>
+      <MoneyCell value={money(row.revenue)} covered={row.revenueOrders} total={row.orders} />
+      <MoneyCell value={money(row.baseCost)} covered={row.baseCostOrders} total={row.fulfilledOrders} />
+      <MoneyCell value={money(row.label)} />
+      <MoneyCell
+        value={money(row.profit)}
+        covered={row.profitOrders}
+        total={row.fulfilledOrders}
+        className={cn('font-medium', row.profit !== null && row.profit < 0 && 'text-destructive')}
+      />
       <td className="px-3 py-2 text-right tabular-nums">{money(row.paid)}</td>
       <td className="px-3 py-2 text-right tabular-nums">{money(row.processing)}</td>
       <td className="px-3 py-2 text-right font-medium tabular-nums text-primary">{money(row.hold)}</td>
     </tr>
+  );
+}
+
+/**
+ * Ô tiền + độ phủ dữ liệu: khi chỉ `covered`/`total` đơn có đủ dữ kiện, ghi rõ "x/y đơn" — phần còn lại
+ * CHƯA có dữ liệu (không được ngầm coi là 0).
+ */
+function MoneyCell({
+  value,
+  covered,
+  total,
+  className,
+}: {
+  value: string;
+  covered?: number;
+  total?: number;
+  className?: string;
+}) {
+  const { t } = useTranslation('dashboard');
+  const partial = covered !== undefined && total !== undefined && covered < total;
+  return (
+    <td className={cn('px-3 py-2 text-right tabular-nums', className)}>
+      <span className="block whitespace-nowrap">{value}</span>
+      {partial && (
+        <Tooltip content={t('sellers.partialHint')}>
+          <span className="block whitespace-nowrap text-[10px] font-normal text-amber-600 dark:text-amber-400">
+            {t('sellers.partial', { covered, total })}
+          </span>
+        </Tooltip>
+      )}
+    </td>
   );
 }
 

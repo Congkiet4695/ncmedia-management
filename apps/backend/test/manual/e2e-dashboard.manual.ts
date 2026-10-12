@@ -10,6 +10,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../src/database/prisma.service';
 import { PodDashboardRepository } from '../../src/modules/pod-tiktok/repositories/pod-dashboard.repository';
 import { PodDashboardService } from '../../src/modules/pod-tiktok/services/pod-dashboard.service';
+import { PodOrderFinanceService } from '../../src/modules/pod-tiktok/services/pod-order-finance.service';
 
 let pass = 0;
 let fail = 0;
@@ -29,6 +30,7 @@ async function main() {
   const config = { get: (key: string, fallback: unknown) => (key === 'timezoneOffsetMinutes' ? 420 : fallback) } as unknown as ConfigService;
   const repo = new PodDashboardRepository(prisma);
   const service = new PodDashboardService(repo, config);
+  const finance = new PodOrderFinanceService(prisma, config);
   const ALL = { allShops: true, accountIds: [], shopIds: [] };
 
   const org = await prisma.podOrder.groupBy({ by: ['organizationId'], _count: true, orderBy: { _count: { organizationId: 'desc' } } });
@@ -48,6 +50,51 @@ async function main() {
   const shops = await one(Prisma.sql`SELECT COUNT(*)::int AS n, COUNT(*) FILTER (WHERE status='ACTIVE')::int AS live
     FROM pod_tiktok_shops WHERE organization_id=${orgId}::uuid AND deleted_at IS NULL`);
   check('Shop: tổng / live', overview.shopStatus.total === shops.n && overview.shopStatus.live === shops.live, [overview.shopStatus, shops]);
+
+  console.log('\n▶ Popup thẻ tổng quan');
+  // Hold theo shop: đọc HẾT mọi trang ⇒ Σ = số trên thẻ, số shop = số trên thẻ, không shop nào lặp.
+  const holdRows: Array<{ shopId: string; amount: number; shopName: string | null; accountName: string | null }> = [];
+  for (let page = 1; ; page++) {
+    const res = await service.holdShops(orgId, ALL, { page, limit: 7 });
+    holdRows.push(...res.items);
+    check(`Popup Hold trang ${page}: totalAmount = thẻ`, near(res.totalAmount, overview.hold.amount), [res.totalAmount, overview.hold.amount]);
+    if (page >= res.meta.totalPages) break;
+  }
+  check('Popup Hold: số shop = số trên thẻ', holdRows.length === overview.hold.shopCount, [holdRows.length, overview.hold.shopCount]);
+  check('Popup Hold: không shop nào lặp', new Set(holdRows.map((r) => r.shopId)).size === holdRows.length);
+  check('Popup Hold: Σ từng shop = số trên thẻ (sai số làm tròn ≤ 0.005/shop)', Math.abs(holdRows.reduce((sum, r) => sum + r.amount, 0) - overview.hold.amount) <= 0.005 * holdRows.length + 0.011);
+  check('Popup Hold: shop nào cũng có tên kết nối + tên shop', holdRows.every((r) => r.shopName && r.accountName));
+  for (const [status, key] of [['ACTIVE', 'live'], ['INACTIVE', 'inactive'], ['DEAUTHORIZED', 'deauthorized']] as const) {
+    const ids: string[] = [];
+    for (let page = 1; ; page++) {
+      const res = await service.shopsByStatus(orgId, ALL, { status, page, limit: 10 });
+      ids.push(...res.items.map((r) => r.shopId));
+      if (page >= Math.max(1, res.meta.totalPages)) break;
+    }
+    const direct = await one(Prisma.sql`SELECT array_agg(id::text) AS ids FROM pod_tiktok_shops
+      WHERE organization_id=${orgId}::uuid AND deleted_at IS NULL AND status=${status}::"pod_tiktok_shop_status"`);
+    const directIds = ((direct.ids as string[] | null) ?? []).sort();
+    check(`Popup ${status}: số dòng = số trên thẻ (${overview.shopStatus[key]})`, ids.length === overview.shopStatus[key], [ids.length, overview.shopStatus[key]]);
+    check(`Popup ${status}: đúng tập shop có trạng thái này, không lặp`, JSON.stringify([...ids].sort()) === JSON.stringify(directIds) && new Set(ids).size === ids.length);
+  }
+  const anyAccount = await prisma.podTiktokAccount.findFirst({ where: { organizationId: orgId, deletedAt: null, shops: { some: { deletedAt: null } } }, select: { id: true } });
+  if (anyAccount) {
+    const sellerScope = { allShops: false, accountIds: [anyAccount.id], shopIds: [] };
+    const scoped = await service.shopsByStatus(orgId, sellerScope, { status: 'ACTIVE', limit: 100 });
+    const allowed = new Set((await prisma.podTiktokShop.findMany({ where: { accountId: anyAccount.id }, select: { id: true } })).map((r) => r.id));
+    check('Popup Live (Seller): chỉ shop thuộc account được gán', scoped.items.every((r) => allowed.has(r.shopId)));
+    const scopedHold = await service.holdShops(orgId, sellerScope, { limit: 100 });
+    check('Popup Hold (Seller): chỉ shop thuộc account được gán', scopedHold.items.every((r) => allowed.has(r.shopId)));
+    const otherShop = await prisma.podTiktokShop.findFirst({ where: { organizationId: orgId, deletedAt: null, accountId: { not: anyAccount.id } }, select: { id: true } });
+    if (otherShop) {
+      const leak = await service.holdShops(orgId, sellerScope, { shopId: otherShop.id });
+      const leak2 = await service.shopsByStatus(orgId, sellerScope, { status: 'ACTIVE', shopId: otherShop.id });
+      check('🔴 Seller sửa shopId sang shop ngoài phạm vi ⇒ popup rỗng', leak.meta.total === 0 && leak2.meta.total === 0);
+    }
+  }
+  const noneScope = { allShops: false, accountIds: [], shopIds: [] };
+  check('Popup: người không được gán account nào ⇒ rỗng',
+    (await service.holdShops(orgId, noneScope, {})).meta.total === 0 && (await service.shopsByStatus(orgId, noneScope, { status: 'ACTIVE' })).meta.total === 0);
   const month = await one(Prisma.sql`SELECT COUNT(*)::int AS n FROM pod_orders WHERE organization_id=${orgId}::uuid AND deleted_at IS NULL
     AND currency=${overview.currency}
     AND ordered_at >= date_trunc('month', now() AT TIME ZONE 'UTC' + interval '7 hours') - interval '7 hours'`);
@@ -79,19 +126,68 @@ async function main() {
   check('Seller: Σ đơn = tổng đơn của kỳ', sellers.items.reduce((s, r) => s + r.orders, 0) === s2.orders.total, [sellers.items.map((r) => r.orders), s2.orders.total]);
   check('Seller: Σ đã thanh toán = tài chính', near(sellers.items.reduce((s, r) => s + r.paid, 0), s2.finance.paid));
   check('Seller: Σ on hold = Hold', near(sellers.items.reduce((s, r) => s + r.hold, 0), overview.hold.amount));
-  check('PF = Σ lợi nhuận từng đơn theo công thức màn Order (null khi không đơn nào tính được; đối chiếu từng đơn: e2e-employee-work P1)', sellers.items.every((r) => r.profit === null || Number.isFinite(r.profit)));
-  const gmv = await one(Prisma.sql`SELECT COALESCE(SUM(total_amount),0)::float AS amt FROM pod_orders
-    WHERE organization_id=${orgId}::uuid AND deleted_at IS NULL AND currency=${overview.currency} AND status <> 'CANCELLED'
-      AND ordered_at >= (${yearAgo}::date - interval '7 hours')`);
-  check('Doanh thu (GMV) = Σ total_amount trừ đơn huỷ', near(sellers.items.reduce((s, r) => s + r.revenue, 0), Number(gmv.amt)), gmv);
-  const est = await one(Prisma.sql`
-    WITH o AS (SELECT tiktok_order_id FROM pod_orders WHERE organization_id=${orgId}::uuid AND deleted_at IS NULL
-                 AND currency=${overview.currency} AND ordered_at >= (${yearAgo}::date - interval '7 hours'))
-    SELECT COALESCE(SUM(COALESCE(
-      (SELECT SUM(settlement_amount) FROM pod_tiktok_statement_transactions t WHERE t.organization_id=${orgId}::uuid AND t.deleted_at IS NULL AND t.type='ORDER' AND t.tiktok_order_id=o.tiktok_order_id),
-      (SELECT SUM(est_settlement_amount) FROM pod_tiktok_unsettled_transactions u WHERE u.organization_id=${orgId}::uuid AND u.deleted_at IS NULL AND u.type='ORDER' AND u.tiktok_order_id=o.tiktok_order_id)
-    )),0)::float AS amt FROM o`);
-  check('Est. Revenue = Σ (settled ?? est_settlement) theo đơn', near(sellers.items.reduce((s, r) => s + r.estRevenue, 0), Number(est.amt)), est);
+  // --- Bảng seller: đối chiếu TỪNG ĐƠN với màn Order (calculateOrderFinancials qua PodOrderFinanceService) ---
+  const cur = String(overview.currency).toUpperCase();
+  const windowOrders = await prisma.$queryRaw<Array<{ id: string; tiktok_order_id: string; seller_id: string | null; fulfilled: boolean }>>(Prisma.sql`
+    SELECT po.id, po.tiktok_order_id, a.seller_id,
+           EXISTS (SELECT 1 FROM fulfillment_orders f WHERE f.pod_order_id = po.id AND f.deleted_at IS NULL
+                     AND f.organization_id = po.organization_id
+                     AND f.status::text NOT IN ('DRAFT','FAILED','CANCELLED','REJECTED')) AS fulfilled
+      FROM pod_orders po JOIN pod_tiktok_accounts a ON a.id = po.account_id
+     WHERE po.organization_id=${orgId}::uuid AND po.deleted_at IS NULL AND po.currency=${overview.currency}
+       AND po.ordered_at >= (${yearAgo}::date - interval '7 hours')`);
+  const fin = await finance.summarize(orgId, windowOrders.map((o) => ({ id: o.id, tiktokOrderId: o.tiktok_order_id })));
+  const label = finance.labelCost();
+  type Expected = { revenue: number; revenueOrders: number; baseCost: number; baseCostOrders: number; fulfilled: number; profit: number | null; profitOrders: number };
+  const expected = new Map<string | null, Expected>();
+  let settledOrders = 0;
+  let estimatedOrders = 0;
+  for (const o of windowOrders) {
+    const e = expected.get(o.seller_id) ?? { revenue: 0, revenueOrders: 0, baseCost: 0, baseCostOrders: 0, fulfilled: 0, profit: null, profitOrders: 0 };
+    const f = fin.get(o.id);
+    if (f?.proceeds && f.proceeds.currency.toUpperCase() === cur) {
+      e.revenue += f.proceeds.amount;
+      e.revenueOrders += 1;
+      if (f.proceeds.source === 'SETTLED') settledOrders += 1;
+      else estimatedOrders += 1;
+      if (f.profit !== null) {
+        e.profit = (e.profit ?? 0) + f.profit;
+        e.profitOrders += 1;
+      }
+    }
+    if (f && f.productCost !== null && f.productCostConfirmed && (f.costCurrency ?? '').toUpperCase() === cur) {
+      e.baseCost += f.productCost;
+      e.baseCostOrders += 1;
+    }
+    if (o.fulfilled) e.fulfilled += 1;
+    expected.set(o.seller_id, e);
+  }
+  console.log(`  (${windowOrders.length} đơn: ${settledOrders} đã quyết toán, ${estimatedOrders} ước tính; label ${label.amount} ${label.currency})`);
+  const mismatched = sellers.items.filter((r) => {
+    const e = expected.get(r.sellerId) ?? { revenue: 0, revenueOrders: 0, baseCost: 0, baseCostOrders: 0, fulfilled: 0, profit: null, profitOrders: 0 };
+    const labelExpected = label.currency.toUpperCase() === cur ? e.fulfilled * label.amount : null;
+    return !(
+      near(r.revenue, e.revenue) && r.revenueOrders === e.revenueOrders &&
+      near(r.baseCost, e.baseCost) && r.baseCostOrders === e.baseCostOrders &&
+      r.fulfilledOrders === e.fulfilled &&
+      (labelExpected === null ? r.label === null : r.label !== null && near(r.label, labelExpected)) &&
+      (e.profit === null ? r.profit === null : r.profit !== null && near(r.profit, e.profit)) && r.profitOrders === e.profitOrders
+    );
+  });
+  check('Doanh thu / Basecost / Label / Profit Dự kiến của MỌI seller = cộng từng đơn theo màn Order', mismatched.length === 0,
+    mismatched.map((r) => ({ r, e: expected.get(r.sellerId) })));
+  check('Doanh thu: mỗi đơn MỘT giá trị (settled ?? estimated) — số đơn có tiền thu về ≤ số đơn', sellers.items.every((r) => r.revenueOrders <= r.orders));
+  const both = await one(Prisma.sql`
+    SELECT COUNT(*)::int AS n FROM pod_orders po
+     WHERE po.organization_id=${orgId}::uuid AND po.deleted_at IS NULL AND po.currency=${overview.currency}
+       AND po.ordered_at >= (${yearAgo}::date - interval '7 hours')
+       AND EXISTS (SELECT 1 FROM pod_tiktok_statement_transactions t WHERE t.organization_id=po.organization_id AND t.deleted_at IS NULL AND t.type='ORDER' AND t.tiktok_order_id=po.tiktok_order_id)
+       AND EXISTS (SELECT 1 FROM pod_tiktok_unsettled_transactions u WHERE u.organization_id=po.organization_id AND u.deleted_at IS NULL AND u.type='ORDER' AND u.tiktok_order_id=po.tiktok_order_id)`);
+  console.log(`  (${Number(both.n)} đơn có CẢ giao dịch đã quyết toán lẫn chưa quyết toán — chỉ settled được cộng)`);
+  check('Label = số đơn đã fulfill × label/đơn (mỗi đơn một lần dù nhiều dòng / nhiều lần gửi)',
+    sellers.items.every((r) => r.label === null || near(r.label, r.fulfilledOrders * label.amount)));
+  check('Profit Dự kiến chỉ cộng đơn đủ dữ kiện (profitOrders ≤ đơn đã fulfill)', sellers.items.every((r) => r.profitOrders <= r.fulfilledOrders));
+  check('API không còn cột "Doanh thu dự kiến"', sellers.items.every((r) => !('estRevenue' in r)));
   const sortedByName = await service.sellers(orgId, ALL, { ...range, sort: 'name', order: 'asc', page: 1, limit: 5 });
   check('Sắp xếp / phân trang chạy được', Array.isArray(sortedByName.items) && sortedByName.meta.limit === 5);
   const active = await service.sellers(orgId, ALL, { ...range, activeOnly: true, page: 1, limit: 20 });

@@ -4,7 +4,6 @@ import { PrismaService } from '../../../database/prisma.service';
 import type { LabelCostConfig } from '../shared/order-financials';
 import { orderProfitCtes } from '../shared/order-profit.sql';
 import { settledRefundAmountSql } from '../shared/settled-refund.sql';
-import { NON_BLOCKING_FULFILLMENT_STATUSES } from '../../fulfillment/shared/fulfillment-lifecycle';
 import { ORDER_STATUS_GROUPS, type OrderStatusGroup } from '../shared/order-status-groups';
 
 /** Phạm vi + bộ lọc dùng chung cho MỌI truy vấn dashboard. */
@@ -28,9 +27,9 @@ export interface Window {
 export const SELLER_SORT_FIELDS = [
   'name',
   'orders',
-  'estRevenue',
   'revenue',
   'baseCost',
+  'label',
   'profit',
   'paid',
   'processing',
@@ -53,6 +52,23 @@ export interface ShopStatusRow {
   status: string;
   count: number;
 }
+/** Một shop trong popup Hold — CÙNG nguồn / phạm vi với `holdTotals` (một đơn vị tiền). */
+export interface HoldShopRow {
+  shopId: string;
+  shopName: string | null;
+  accountName: string | null;
+  amount: string;
+}
+/** Một shop trong popup Trạng thái shop — CÙNG điều kiện với `shopStatuses`. */
+export interface ShopListRow {
+  shopId: string;
+  shopName: string;
+  accountName: string | null;
+  region: string | null;
+}
+/** Trạng thái shop thật (`pod_tiktok_shops.status`) — Live = ACTIVE, Die = INACTIVE. */
+export const SHOP_STATUSES = ['ACTIVE', 'INACTIVE', 'DEAUTHORIZED'] as const;
+export type ShopStatus = (typeof SHOP_STATUSES)[number];
 export interface PeriodRow {
   orders: number;
   estRevenue: string;
@@ -69,11 +85,21 @@ export interface SellerStatRow {
   sellerEmail: string | null;
   active: boolean;
   orders: number;
-  estRevenue: string;
+  /** Σ tiền thu về từng đơn: đã quyết toán ?? ước tính (mỗi đơn MỘT giá trị). */
   revenue: string;
+  /** Số đơn có tiền thu về (phần còn lại chưa có dữ liệu tài chính — không coi là 0). */
+  revenueOrders: number;
+  /** Σ giá vốn đã xác nhận của lần fulfill đang giữ đơn. */
   baseCost: string;
+  baseCostOrders: number;
+  /** Số đơn đã fulfill (có lần fulfill đang giữ đơn) — mỗi đơn MỘT label. */
+  fulfilledOrders: number;
+  /** Σ label = số đơn đã fulfill × label/đơn; NULL khi label khác đơn vị tiền đang xem. */
+  label: string | null;
   /** NULL = không đơn nào của seller tính được lợi nhuận. */
   profit: string | null;
+  /** Số đơn tính được lợi nhuận (đủ dữ kiện). */
+  profitOrders: number;
   paid: string;
   processing: string;
   hold: string;
@@ -116,12 +142,12 @@ const dec = (value: Prisma.Decimal | string | number | null | undefined): string
  *   Đang xử lý    = Σ settlement_amount — pod_tiktok_statements payment PROCESSING (đã quyết toán, chưa chi)
  *   Est. Revenue  = tiền thu về của đơn: settlement (giao dịch ORDER đã quyết toán) ?? est_settlement
  *                   (chưa quyết toán) — cùng quy tắc với cột Giá (`order-financials.ts`)
- *   Doanh thu     = Σ pod_orders.total_amount, trừ đơn CANCELLED (GMV — tiền khách trả)
- *   Basecost      = Σ base_cost × quantity — dòng fulfillment ĐÃ được nhà cung cấp xác nhận giá, của
- *                   bản ghi đang hiệu lực (không tính lần gửi đã huỷ / lỗi), cùng đơn vị tiền
- *   PF (Profit)   = Σ lợi nhuận TỪNG ĐƠN theo CÙNG công thức màn Order (`orderProfitCtes`): tiền thu về −
- *                   giá vốn − phí ship Seller chưa trong tiền thu về − label mỗi đơn. Đơn thiếu dữ kiện không
- *                   cộng (không coi là 0); không đơn nào tính được ⇒ NULL ("—").
+ *   Bảng seller — MỌI cột tiền theo đơn lấy từ `orderProfitCtes` (CÙNG nguồn với màn Order):
+ *     Doanh thu      = Σ tiền thu về từng đơn (đã quyết toán ?? ước tính — mỗi đơn MỘT giá trị)
+ *     Basecost       = Σ giá vốn đã xác nhận của lần fulfill đang giữ đơn (lần gửi lại thay lần cũ)
+ *     Label          = số đơn đã fulfill × label/đơn (cấu hình ORDER_LABEL_COST — label không lưu theo đơn)
+ *     Profit Dự kiến = Σ lợi nhuận TỪNG ĐƠN: tiền thu về − giá vốn − label − phí ship Seller CHƯA nằm trong
+ *                      tiền thu về. Đơn thiếu dữ kiện không cộng (không coi là 0); không đơn nào ⇒ NULL ("—").
  *
  * 🔴 Phạm vi tổ chức + phạm vi Seller nằm trong MỌI câu WHERE (`scope()`), không lọc ở frontend.
  */
@@ -181,21 +207,91 @@ export class PodDashboardRepository {
     }));
   }
 
+  /**
+   * Popup "Tổng tiền đang hold": Hold theo TỪNG shop — CÙNG nguồn (`pod_tiktok_unsettled_transactions`),
+   * CÙNG phạm vi và CÙNG đơn vị tiền với `holdTotals` ⇒ Σ các dòng = số trên thẻ, số dòng = số shop trên thẻ.
+   * Gộp theo `shop_id` TRƯỚC khi nối tên ⇒ một shop một dòng dù có nhiều giao dịch.
+   */
+  async holdShops(
+    filter: DashboardFilter,
+    page: { page: number; limit: number },
+  ): Promise<{ items: HoldShopRow[]; total: number; totalAmount: string }> {
+    const rows = await this.prisma.$queryRaw<
+      Array<{
+        shop_id: string;
+        shop_name: string | null;
+        account_name: string | null;
+        amount: Prisma.Decimal | null;
+        total_rows: bigint;
+        total_amount: Prisma.Decimal | null;
+      }>
+    >(Prisma.sql`
+      WITH h AS (
+        SELECT u.shop_id, COALESCE(SUM(u.est_settlement_amount), 0) AS amount
+          FROM pod_tiktok_unsettled_transactions u
+         WHERE u.organization_id = ${filter.organizationId}::uuid
+           AND u.deleted_at IS NULL
+           AND ${this.scope(filter, 'u')}
+         GROUP BY u.shop_id
+      )
+      SELECT h.shop_id, s.name AS shop_name, a.account_name, h.amount,
+             COUNT(*) OVER ()::bigint AS total_rows,
+             SUM(h.amount) OVER ()    AS total_amount
+        FROM h
+        LEFT JOIN pod_tiktok_shops s    ON s.id = h.shop_id AND s.organization_id = ${filter.organizationId}::uuid
+        LEFT JOIN pod_tiktok_accounts a ON a.id = s.account_id
+       ORDER BY h.amount DESC, s.name ASC NULLS LAST, h.shop_id
+       LIMIT ${page.limit} OFFSET ${(page.page - 1) * page.limit}`);
+    return {
+      items: rows.map((row) => ({
+        shopId: row.shop_id,
+        shopName: row.shop_name,
+        accountName: row.account_name,
+        amount: dec(row.amount),
+      })),
+      total: Number(rows[0]?.total_rows ?? 0),
+      totalAmount: dec(rows[0]?.total_amount),
+    };
+  }
+
   /** Số shop theo trạng thái thật (`pod_tiktok_shops.status`). */
   async shopStatuses(filter: DashboardFilter): Promise<ShopStatusRow[]> {
-    const conds: Prisma.Sql[] = [
-      Prisma.sql`s.organization_id = ${filter.organizationId}::uuid`,
-      Prisma.sql`s.deleted_at IS NULL`,
-    ];
-    if (filter.accountIds) conds.push(this.inAccounts('s.account_id', filter.accountIds));
-    if (filter.shopId) conds.push(Prisma.sql`s.id = ${filter.shopId}::uuid`);
-    if (filter.sellerId) conds.push(this.ofSeller('s.account_id', filter));
     const rows = await this.prisma.$queryRaw<Array<{ status: string; count: bigint }>>(Prisma.sql`
       SELECT s.status::text AS status, COUNT(*)::bigint AS count
         FROM pod_tiktok_shops s
-       WHERE ${Prisma.join(conds, ' AND ')}
+       WHERE ${this.shopConds(filter)}
        GROUP BY s.status`);
     return rows.map((row) => ({ status: row.status, count: Number(row.count) }));
+  }
+
+  /**
+   * Popup "Trạng thái shop": các shop của MỘT trạng thái — CÙNG điều kiện `shopConds` với `shopStatuses`
+   * ⇒ số dòng = số trên thẻ. Mỗi dòng `pod_tiktok_shops` là một shop (UNIQUE tổ chức + tiktok_shop_id).
+   */
+  async shopsByStatus(
+    filter: DashboardFilter,
+    status: ShopStatus,
+    page: { page: number; limit: number },
+  ): Promise<{ items: ShopListRow[]; total: number }> {
+    const rows = await this.prisma.$queryRaw<
+      Array<{ id: string; name: string; account_name: string | null; region: string | null; total_rows: bigint }>
+    >(Prisma.sql`
+      SELECT s.id, s.name, a.account_name, s.region, COUNT(*) OVER ()::bigint AS total_rows
+        FROM pod_tiktok_shops s
+        LEFT JOIN pod_tiktok_accounts a ON a.id = s.account_id
+       WHERE ${this.shopConds(filter)}
+         AND s.status = ${status}::"pod_tiktok_shop_status"
+       ORDER BY a.account_name ASC NULLS LAST, s.name ASC, s.id
+       LIMIT ${page.limit} OFFSET ${(page.page - 1) * page.limit}`);
+    return {
+      items: rows.map((row) => ({
+        shopId: row.id,
+        shopName: row.name,
+        accountName: row.account_name,
+        region: row.region,
+      })),
+      total: Number(rows[0]?.total_rows ?? 0),
+    };
   }
 
   /** Đơn vị tiền xuất hiện trong dữ liệu của tổ chức (đơn + tài chính) — nguồn bộ chọn Currency. */
@@ -390,6 +486,9 @@ export class PodDashboardRepository {
     }
     // Nhóm "chưa gán seller" chỉ có nghĩa khi xem TOÀN tổ chức và không lọc theo seller / tìm kiếm.
     const includeUnassigned = !filter.accountIds && !filter.sellerId && !options.search;
+    const cur = Prisma.sql`UPPER(${filter.currency})`;
+    // Label chỉ cộng được trong CÙNG đơn vị tiền (không quy đổi) — khác ⇒ NULL, như lợi nhuận từng đơn.
+    const labelSameCurrency = Prisma.sql`UPPER(${options.label.currency}) = ${cur}`;
 
     const rows = await this.prisma.$queryRaw<
       Array<{
@@ -398,10 +497,14 @@ export class PodDashboardRepository {
         seller_email: string | null;
         active: boolean;
         orders: bigint;
-        est_revenue: Prisma.Decimal;
         revenue: Prisma.Decimal;
+        revenue_orders: bigint;
         base_cost: Prisma.Decimal;
+        base_cost_orders: bigint;
+        fulfilled_orders: bigint;
+        label: Prisma.Decimal | null;
         profit: Prisma.Decimal | null;
+        profit_orders: bigint;
         paid: Prisma.Decimal;
         processing: Prisma.Decimal;
         hold: Prisma.Decimal;
@@ -413,11 +516,14 @@ export class PodDashboardRepository {
       ${orderProfitCtes(filter.organizationId, options.label)},
       by_orders AS (
         SELECT a.seller_id,
-               COUNT(*)::bigint                                                         AS orders,
-               COALESCE(SUM(fin.proceeds), 0)                                           AS est_revenue,
-               COALESCE(SUM(fin.total_amount) FILTER (WHERE fin.grp <> 'CANCELLED'), 0) AS revenue,
-               COALESCE(SUM(fin.cost), 0)                                               AS base_cost,
-               SUM(op.profit)                                                           AS profit
+               COUNT(*)::bigint                                                             AS orders,
+               COALESCE(SUM(op.proceeds) FILTER (WHERE op.proceeds_currency = ${cur}), 0)   AS revenue,
+               COUNT(op.proceeds) FILTER (WHERE op.proceeds_currency = ${cur})::bigint      AS revenue_orders,
+               COALESCE(SUM(op.base_cost) FILTER (WHERE op.cost_currency = ${cur}), 0)      AS base_cost,
+               COUNT(op.base_cost) FILTER (WHERE op.cost_currency = ${cur})::bigint         AS base_cost_orders,
+               COUNT(*) FILTER (WHERE op.fulfilled)::bigint                                 AS fulfilled_orders,
+               SUM(op.profit) FILTER (WHERE op.proceeds_currency = ${cur})                  AS profit,
+               COUNT(op.profit) FILTER (WHERE op.proceeds_currency = ${cur})::bigint        AS profit_orders
           FROM fin
           JOIN pod_tiktok_accounts a ON a.id = fin.account_id
           LEFT JOIN order_profit op  ON op.id = fin.id
@@ -473,10 +579,15 @@ export class PodDashboardRepository {
       merged AS (
         SELECT s.seller_id, s.seller_name, s.seller_email, s.active,
                COALESCE(o.orders, 0)::bigint             AS orders,
-               COALESCE(o.est_revenue, 0)                AS est_revenue,
                COALESCE(o.revenue, 0)                    AS revenue,
+               COALESCE(o.revenue_orders, 0)::bigint     AS revenue_orders,
                COALESCE(o.base_cost, 0)                  AS base_cost,
+               COALESCE(o.base_cost_orders, 0)::bigint   AS base_cost_orders,
+               COALESCE(o.fulfilled_orders, 0)::bigint   AS fulfilled_orders,
+               CASE WHEN ${labelSameCurrency}
+                    THEN COALESCE(o.fulfilled_orders, 0) * ${options.label.amount}::numeric END AS label,
                o.profit                                  AS profit,
+               COALESCE(o.profit_orders, 0)::bigint      AS profit_orders,
                COALESCE(pa.amount, 0)                    AS paid,
                COALESCE(pr.amount, 0)                    AS processing,
                COALESCE(h.amount, 0)                     AS hold,
@@ -500,10 +611,14 @@ export class PodDashboardRepository {
         sellerEmail: row.seller_email,
         active: row.active,
         orders: Number(row.orders),
-        estRevenue: dec(row.est_revenue),
         revenue: dec(row.revenue),
+        revenueOrders: Number(row.revenue_orders),
         baseCost: dec(row.base_cost),
+        baseCostOrders: Number(row.base_cost_orders),
+        fulfilledOrders: Number(row.fulfilled_orders),
+        label: row.label === null ? null : dec(row.label),
         profit: row.profit === null ? null : dec(row.profit),
+        profitOrders: Number(row.profit_orders),
         paid: dec(row.paid),
         processing: dec(row.processing),
         hold: dec(row.hold),
@@ -600,8 +715,8 @@ export class PodDashboardRepository {
   // ---------------------------------------------------------------------------
 
   /**
-   * CTE `fin`: đơn trong khoảng + tiền thu về (đã quyết toán ?? ước tính) + giá vốn đã xác nhận.
-   * Ba nguồn tài chính được gộp theo ĐƠN trước khi join ⇒ không nhân bản dòng.
+   * CTE `fin`: đơn trong khoảng + tiền thu về (đã quyết toán ?? ước tính).
+   * Hai nguồn tài chính được gộp theo ĐƠN trước khi join ⇒ không nhân bản dòng.
    */
   private orderFinanceCte(filter: DashboardFilter, window: Window): Prisma.Sql {
     return Prisma.sql`
@@ -626,25 +741,12 @@ export class PodDashboardRepository {
            AND u.type = 'ORDER' AND u.currency = ${filter.currency}
          GROUP BY u.tiktok_order_id
       ),
-      cost AS (
-        SELECT f.pod_order_id, SUM(i.base_cost * i.quantity) AS amount
-          FROM fulfillment_orders f
-          JOIN o ON o.id = f.pod_order_id
-          JOIN fulfillment_order_items i ON i.fulfillment_order_id = f.id AND i.deleted_at IS NULL
-         WHERE f.organization_id = ${filter.organizationId}::uuid AND f.deleted_at IS NULL
-           AND f.status::text NOT IN (${Prisma.join([...NON_BLOCKING_FULFILLMENT_STATUSES])})
-           AND f.currency = ${filter.currency}
-           AND i.base_cost IS NOT NULL AND i.base_cost_confirmed_at IS NOT NULL
-         GROUP BY f.pod_order_id
-      ),
       fin AS (
-        SELECT o.*, ${this.statusGroup('o.status')} AS grp,
-               COALESCE(s.amount, un.amount) AS proceeds,
-               c.amount AS cost
+        SELECT o.*,
+               COALESCE(s.amount, un.amount) AS proceeds
           FROM o
           LEFT JOIN settled s    ON s.tiktok_order_id = o.tiktok_order_id
           LEFT JOIN unsettled un ON un.tiktok_order_id = o.tiktok_order_id
-          LEFT JOIN cost c       ON c.pod_order_id = o.id
       )`;
   }
 
@@ -670,6 +772,18 @@ export class PodDashboardRepository {
        AND st."paymentStatus" = 'PROCESSING'::"pod_payout_status"
        AND st.statement_at BETWEEN ${window.from} AND ${window.to}
        AND ${this.scope(filter, 'st')}`;
+  }
+
+  /** Điều kiện trên `pod_tiktok_shops s` — dùng chung cho thẻ Trạng thái shop và popup của nó. */
+  private shopConds(filter: DashboardFilter): Prisma.Sql {
+    const conds: Prisma.Sql[] = [
+      Prisma.sql`s.organization_id = ${filter.organizationId}::uuid`,
+      Prisma.sql`s.deleted_at IS NULL`,
+    ];
+    if (filter.accountIds) conds.push(this.inAccounts('s.account_id', filter.accountIds));
+    if (filter.shopId) conds.push(Prisma.sql`s.id = ${filter.shopId}::uuid`);
+    if (filter.sellerId) conds.push(this.ofSeller('s.account_id', filter));
+    return Prisma.join(conds, ' AND ');
   }
 
   /**
@@ -714,9 +828,9 @@ export class PodDashboardRepository {
     const column: Record<SellerSortField, string> = {
       name: 'seller_name',
       orders: 'orders',
-      estRevenue: 'est_revenue',
       revenue: 'revenue',
       baseCost: 'base_cost',
+      label: 'label',
       profit: 'profit',
       paid: 'paid',
       processing: 'processing',

@@ -8,6 +8,7 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import {
   EmployeeWorkFilterOptionsDto,
+  EmployeeWorkListingDetailsDto,
   EmployeeWorkPageDto,
   EmployeeWorkQueryDto,
 } from './dto/pod-employee-work.dto';
@@ -48,6 +49,22 @@ export class PodEmployeeWorkController {
   @ApiBadRequestResponse({ description: 'EMPLOYEE_WORK_RANGE_INVALID / lỗi validate' })
   page(@CurrentUser() user: AuthenticatedUser, @Query() query: EmployeeWorkQueryDto): Promise<EmployeeWorkPageDto> {
     return this.service.page(user.organizationId, query);
+  }
+
+  @Get('listing-details')
+  @ApiOperation({
+    summary: 'Popup "Nhân viên có listing" / "Shop được listing" — cùng bộ lọc với thẻ',
+    description:
+      'employees: mỗi người có listing MỘT dòng (= thẻ Nhân viên có listing). shops: mỗi cặp (shop × người listing) ' +
+      'MỘT dòng theo dữ liệu listing thật; uniqueShops = số shop duy nhất (= thẻ Shop được listing).',
+  })
+  @ApiOkResponse({ type: EmployeeWorkListingDetailsDto })
+  @ApiBadRequestResponse({ description: 'EMPLOYEE_WORK_RANGE_INVALID / lỗi validate' })
+  listingDetails(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: EmployeeWorkQueryDto,
+  ): Promise<EmployeeWorkListingDetailsDto> {
+    return this.service.listingDetails(user.organizationId, query);
   }
 
   @Get('export')

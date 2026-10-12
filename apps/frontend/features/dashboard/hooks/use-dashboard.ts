@@ -2,7 +2,13 @@
 
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
 import { dashboardService } from '../services/dashboard.service';
-import type { DashboardFilters, DashboardRange, DashboardSellerQuery } from '../types';
+import type {
+  DashboardFilters,
+  DashboardPageQuery,
+  DashboardRange,
+  DashboardSellerQuery,
+  DashboardShopStatus,
+} from '../types';
 
 const KEY = 'pod-dashboard';
 
@@ -23,6 +29,25 @@ export function useDashboardOverview(filters: DashboardFilters, enabled: boolean
   return useQuery({
     queryKey: [KEY, 'overview', filters],
     queryFn: () => dashboardService.overview(filters),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+/** Chỉ gọi khi popup MỞ (`enabled`) — không tải danh sách khi chỉ render Dashboard. */
+export function useDashboardHoldShops(query: DashboardPageQuery, enabled: boolean) {
+  return useQuery({
+    queryKey: [KEY, 'hold-shops', query],
+    queryFn: () => dashboardService.holdShops(query),
+    enabled,
+    placeholderData: keepPreviousData,
+  });
+}
+
+export function useDashboardShops(query: DashboardPageQuery & { status: DashboardShopStatus }, enabled: boolean) {
+  return useQuery({
+    queryKey: [KEY, 'shops', query],
+    queryFn: () => dashboardService.shops(query),
     enabled,
     placeholderData: keepPreviousData,
   });

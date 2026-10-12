@@ -2,14 +2,18 @@ import { BadRequestException, Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import {
   DashboardFilterOptionsDto,
+  DashboardHoldShopPageDto,
   DashboardOverviewDto,
   DashboardPeriodDto,
   DashboardSellerPageDto,
+  DashboardShopListPageDto,
   DashboardSummaryDto,
   DashboardTrendsDto,
   PodDashboardFilterDto,
+  PodDashboardPageQueryDto,
   PodDashboardRangeDto,
   PodDashboardSellerQueryDto,
+  PodDashboardShopListQueryDto,
 } from '../dto/pod-dashboard.dto';
 import {
   DashboardFilter,
@@ -104,6 +108,41 @@ export class PodDashboardService {
     };
   }
 
+  /** Popup "Tổng tiền đang hold": hold theo shop — cùng nguồn / phạm vi / đơn vị tiền với thẻ. */
+  async holdShops(
+    organizationId: string,
+    scope: PodAccessScope,
+    query: PodDashboardPageQueryDto,
+  ): Promise<DashboardHoldShopPageDto> {
+    const { filter } = await this.filterOf(organizationId, scope, query);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const result = await this.repo.holdShops(filter, { page, limit });
+    return {
+      currency: filter.currency || null,
+      totalAmount: money(result.totalAmount),
+      items: result.items.map((row) => ({ ...row, amount: money(row.amount) })),
+      meta: { total: result.total, page, limit, totalPages: Math.ceil(result.total / limit) },
+    };
+  }
+
+  /** Popup "Trạng thái shop": các shop Live / Die / Mất uỷ quyền — cùng điều kiện với thẻ. */
+  async shopsByStatus(
+    organizationId: string,
+    scope: PodAccessScope,
+    query: PodDashboardShopListQueryDto,
+  ): Promise<DashboardShopListPageDto> {
+    const { filter } = await this.filterOf(organizationId, scope, query);
+    const page = query.page ?? 1;
+    const limit = query.limit ?? 20;
+    const result = await this.repo.shopsByStatus(filter, query.status, { page, limit });
+    return {
+      status: query.status,
+      items: result.items,
+      meta: { total: result.total, page, limit, totalPages: Math.ceil(result.total / limit) },
+    };
+  }
+
   async summary(
     organizationId: string,
     scope: PodAccessScope,
@@ -174,9 +213,9 @@ export class PodDashboardService {
         ...row,
         // Chưa shop nào trong phạm vi đồng bộ Return/Refund ⇒ NULL ("chưa có dữ liệu"), không phải 0.
         returns: returnsAvailable ? row.returns : null,
-        estRevenue: money(row.estRevenue),
         revenue: money(row.revenue),
         baseCost: money(row.baseCost),
+        label: row.label === null ? null : money(row.label),
         profit: row.profit === null ? null : money(row.profit),
         paid: money(row.paid),
         processing: money(row.processing),

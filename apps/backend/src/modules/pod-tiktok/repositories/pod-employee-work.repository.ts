@@ -31,6 +31,8 @@ export interface EmployeeWorkPairRow {
   shopId: string;
   shopName: string;
   accountName: string;
+  /** Trạng thái thật của SHOP (`pod_tiktok_shops.status`) — không phải trạng thái TikTok Account. */
+  shopStatus: string;
   /** Số sản phẩm NGƯỜI NÀY đã đưa lên shop trong khoảng (đã chống đếm trùng). */
   listings: number;
   /** Shop thuộc TikTok Account được gán cho người này (seller). */
@@ -49,6 +51,11 @@ export interface EmployeeWorkUserRow {
   email: string;
   isEmployee: boolean;
   active: boolean;
+}
+
+/** Người có listing — GỒM cả người dùng đã bị xoá (listing của họ vẫn nằm trong chỉ số của thẻ). */
+export interface EmployeeWorkListingUserRow extends EmployeeWorkUserRow {
+  deleted: boolean;
 }
 
 /**
@@ -82,6 +89,7 @@ export class PodEmployeeWorkRepository {
         shop_id: string;
         shop_name: string;
         account_name: string;
+        shop_status: string;
         listings: bigint;
         assigned: boolean;
         orders: bigint | null;
@@ -145,7 +153,7 @@ export class PodEmployeeWorkRepository {
           FROM order_profit
          GROUP BY shop_id
       )
-      SELECT p.user_id, p.shop_id, s.name AS shop_name, a.account_name,
+      SELECT p.user_id, p.shop_id, s.name AS shop_name, a.account_name, s.status::text AS shop_status,
              p.listings, p.assigned, so.orders, so.profit_orders, so.profit
         FROM pairs p
         JOIN pod_tiktok_shops s    ON s.id = p.shop_id AND s.organization_id = ${org}::uuid
@@ -157,6 +165,7 @@ export class PodEmployeeWorkRepository {
       shopId: row.shop_id,
       shopName: row.shop_name,
       accountName: row.account_name,
+      shopStatus: row.shop_status,
       listings: Number(row.listings),
       assigned: row.assigned,
       orders: Number(row.orders ?? 0),
@@ -194,6 +203,39 @@ export class PodEmployeeWorkRepository {
             email: user.email,
             isEmployee: employee !== null,
             active: user.status === 'ACTIVE' && (!employee || employee.status === 'ACTIVE'),
+          };
+        }),
+      );
+  }
+
+  /**
+   * Thông tin người cho popup "Nhân viên có listing": KHÔNG lọc `deleted_at` — thẻ đếm mọi người có listing
+   * trong khoảng (kể cả tài khoản đã xoá sau đó), nên popup phải liệt kê đủ chính những người đó.
+   */
+  listingUsers(organizationId: string, userIds: string[]): Promise<EmployeeWorkListingUserRow[]> {
+    if (userIds.length === 0) return Promise.resolve([]);
+    return this.prisma.user
+      .findMany({
+        where: { organizationId, id: { in: userIds } },
+        select: {
+          id: true,
+          fullName: true,
+          email: true,
+          status: true,
+          deletedAt: true,
+          employee: { select: { status: true, deletedAt: true } },
+        },
+      })
+      .then((users) =>
+        users.map((user) => {
+          const employee = user.employee && !user.employee.deletedAt ? user.employee : null;
+          return {
+            userId: user.id,
+            name: user.fullName?.trim() || user.email,
+            email: user.email,
+            isEmployee: employee !== null,
+            active: user.deletedAt === null && user.status === 'ACTIVE' && (!employee || employee.status === 'ACTIVE'),
+            deleted: user.deletedAt !== null,
           };
         }),
       );

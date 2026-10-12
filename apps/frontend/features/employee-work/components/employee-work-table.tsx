@@ -20,6 +20,7 @@ import { useApiError } from '@/hooks/use-api-error';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { cn } from '@/lib/utils';
 import type { EmployeeWorkPage, EmployeeWorkRow, EmployeeWorkSortField } from '../types';
+import { ShopLiveBadge } from './shop-live-badge';
 
 const COLUMN_COUNT = 7;
 
@@ -286,16 +287,18 @@ function EmployeeRow({
               <TableBody>
                 {row.accountDetails.map((account) => (
                   <TableRow key={account.shopId}>
-                    <TableCell>
+                    <TableCell className="min-w-[220px]">
+                      <p className="text-xs text-muted-foreground">{account.accountName}</p>
                       <div className="flex flex-wrap items-center gap-1.5">
-                        <span>
-                          {account.shopName}{' '}
-                          <span className="text-muted-foreground">({account.accountName})</span>
-                        </span>
+                        <span className="font-medium">{account.shopName}</span>
                         {account.assigned && (
                           <Badge variant="success">{t('employeeWork.badge.assigned')}</Badge>
                         )}
                       </div>
+                      <p className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                        {t('employeeWork.shopStatus.label')}
+                        <ShopLiveBadge status={account.shopStatus} />
+                      </p>
                     </TableCell>
                     <TableCell className="text-right tabular-nums">
                       {formatNumber(account.listings)}

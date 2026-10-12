@@ -1,11 +1,13 @@
 'use client';
 
+import { useState } from 'react';
 import { Store, Users, Wallet } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Cell, Pie, PieChart, ResponsiveContainer, Tooltip as ChartTooltip } from 'recharts';
 import { Badge } from '@/components/ui/badge';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
-import type { DashboardOverview } from '../types';
+import type { DashboardFilters, DashboardOverview, DashboardShopStatus } from '../types';
+import { HoldShopsDialog, ShopStatusDialog } from './dashboard-shop-dialogs';
 import { WidgetCard, WidgetEmpty } from './widget-card';
 
 interface OverviewCardProps {
@@ -15,10 +17,16 @@ interface OverviewCardProps {
   onRetry: () => void;
 }
 
+/** Thẻ có popup chi tiết: popup gọi API với CÙNG bộ lọc chung của Dashboard. */
+interface DrillDownCardProps extends OverviewCardProps {
+  filters: DashboardFilters;
+}
+
 /** TỔNG TIỀN ĐANG HOLD — tiền TikTok CHƯA quyết toán, theo đơn vị tiền đang chọn. */
-export function HoldCard({ data, loading, error, onRetry }: OverviewCardProps) {
+export function HoldCard({ data, loading, error, onRetry, filters }: DrillDownCardProps) {
   const { t } = useTranslation('dashboard');
   const { formatCurrency } = useLocaleFormat();
+  const [open, setOpen] = useState(false);
   const hold = data?.hold;
 
   return (
@@ -32,10 +40,15 @@ export function HoldCard({ data, loading, error, onRetry }: OverviewCardProps) {
             <p className="text-3xl font-bold tabular-nums tracking-tight text-primary">
               {hold.currency ? formatCurrency(hold.amount, hold.currency) : '—'}
             </p>
-            <span className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground">
+            <button
+              type="button"
+              onClick={() => setOpen(true)}
+              title={t('holdShops.open')}
+              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-primary/10 hover:text-primary focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+            >
               <Store className="size-3.5" />
               <b className="tabular-nums text-foreground">{hold.shopCount}</b> {t('hold.shops')}
-            </span>
+            </button>
           </div>
           {/* Đơn vị tiền khác: liệt kê riêng, KHÔNG quy đổi (hệ thống không có nguồn tỷ giá). */}
           {hold.otherCurrencies.length > 0 && (
@@ -52,15 +65,23 @@ export function HoldCard({ data, loading, error, onRetry }: OverviewCardProps) {
           )}
         </div>
       )}
+      <HoldShopsDialog open={open} onClose={() => setOpen(false)} filters={{ ...filters, currency: hold?.currency ?? filters.currency }} />
     </WidgetCard>
   );
 }
 
+/** Mỗi lát của donut ⇒ trạng thái shop thật để mở popup. */
+const SHOP_STATUS_OF = { live: 'ACTIVE', inactive: 'INACTIVE', deauthorized: 'DEAUTHORIZED' } as const satisfies Record<
+  string,
+  DashboardShopStatus
+>;
+
 const SHOP_COLORS = { live: '#52c41a', inactive: '#ef4444', deauthorized: '#f59e0b' } as const;
 
 /** TRẠNG THÁI SHOP — donut theo trạng thái thật của shop (ACTIVE / INACTIVE / DEAUTHORIZED). */
-export function ShopStatusCard({ data, loading, error, onRetry }: OverviewCardProps) {
+export function ShopStatusCard({ data, loading, error, onRetry, filters }: DrillDownCardProps) {
   const { t } = useTranslation('dashboard');
+  const [selected, setSelected] = useState<DashboardShopStatus | null>(null);
   const status = data?.shopStatus;
   const slices = status
     ? (['live', 'inactive', 'deauthorized'] as const).map((key) => ({
@@ -107,9 +128,15 @@ export function ShopStatusCard({ data, loading, error, onRetry }: OverviewCardPr
                   <span className="size-2 rounded-full" style={{ background: slice.color }} />
                   {slice.name}
                 </span>
-                <span className="font-semibold tabular-nums" style={{ color: slice.value ? slice.color : undefined }}>
+                <button
+                  type="button"
+                  onClick={() => setSelected(SHOP_STATUS_OF[slice.key])}
+                  title={t('shopList.open', { status: slice.name })}
+                  className="rounded px-1.5 font-semibold tabular-nums underline-offset-4 hover:bg-muted hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  style={{ color: slice.value ? slice.color : undefined }}
+                >
                   {slice.value}
-                </span>
+                </button>
               </li>
             ))}
             <li className="flex items-center justify-between gap-3 border-t pt-2 text-muted-foreground">
@@ -119,6 +146,7 @@ export function ShopStatusCard({ data, loading, error, onRetry }: OverviewCardPr
           </ul>
         </div>
       )}
+      <ShopStatusDialog status={selected} onClose={() => setSelected(null)} filters={filters} />
     </WidgetCard>
   );
 }

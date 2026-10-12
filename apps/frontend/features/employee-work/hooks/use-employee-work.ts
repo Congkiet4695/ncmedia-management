@@ -25,6 +25,15 @@ export function useEmployeeWorkPage(query: EmployeeWorkQuery, enabled: boolean) 
   });
 }
 
+/** Chỉ gọi khi popup mở. Hai popup dùng chung MỘT query (cùng bộ lọc ⇒ cùng cache). */
+export function useEmployeeWorkListingDetails(filters: EmployeeWorkFilters, enabled: boolean) {
+  return useQuery({
+    queryKey: [KEY, 'listing-details', filters],
+    queryFn: () => employeeWorkService.listingDetails(filters),
+    enabled,
+  });
+}
+
 export function useExportEmployeeWork() {
   return useMutation({
     mutationFn: (filters: EmployeeWorkFilters) => employeeWorkService.exportExcel(filters),

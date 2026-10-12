@@ -1,7 +1,6 @@
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse } from '@/types/api';
 import type {
-  DashboardSummary,
   DateRangeParams,
   MetricParams,
   OverviewSeries,
@@ -26,7 +25,6 @@ async function get<T>(url: string, params: object): Promise<T> {
 }
 
 export const reportService = {
-  dashboardSummary: (p: DateRangeParams) => get<DashboardSummary>('/reports/dashboard-summary', p),
   overview: (p: TimeSeriesParams) => get<OverviewSeries>('/reports/overview', p),
   seller: (p: SellerTimeSeriesParams) => get<SellerReport>('/reports/seller', p),
   sellerChart: (p: MetricParams) => get<SellerChart>('/reports/seller-chart', p),

@@ -224,6 +224,7 @@ function EmployeeWorkView() {
         summary={data?.summary}
         currency={data?.currency ?? null}
         loading={pageQuery.isLoading}
+        filters={filters}
       />
       <p className="text-xs text-muted-foreground">{t('employeeWork.note')}</p>
 

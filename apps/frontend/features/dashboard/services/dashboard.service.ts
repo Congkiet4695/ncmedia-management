@@ -3,10 +3,14 @@ import type { ApiResponse } from '@/types/api';
 import type {
   DashboardFilterOptions,
   DashboardFilters,
+  DashboardHoldShopPage,
   DashboardOverview,
+  DashboardPageQuery,
   DashboardRange,
   DashboardSellerPage,
   DashboardSellerQuery,
+  DashboardShopListPage,
+  DashboardShopStatus,
   DashboardSummary,
   DashboardTrends,
 } from '../types';
@@ -28,6 +32,20 @@ export const dashboardService = {
   },
   async overview(query: DashboardFilters): Promise<DashboardOverview> {
     const res = await apiClient.get<ApiResponse<DashboardOverview>>(`${BASE_PATH}/overview`, {
+      params: params(query),
+    });
+    return res.data.data;
+  },
+  /** Popup "Tổng tiền đang hold" — hold theo shop, cùng phạm vi / đơn vị tiền với thẻ. */
+  async holdShops(query: DashboardPageQuery): Promise<DashboardHoldShopPage> {
+    const res = await apiClient.get<ApiResponse<DashboardHoldShopPage>>(`${BASE_PATH}/hold-shops`, {
+      params: params(query),
+    });
+    return res.data.data;
+  },
+  /** Popup "Trạng thái shop" — shop của MỘT trạng thái, cùng điều kiện với thẻ. */
+  async shops(query: DashboardPageQuery & { status: DashboardShopStatus }): Promise<DashboardShopListPage> {
+    const res = await apiClient.get<ApiResponse<DashboardShopListPage>>(`${BASE_PATH}/shops`, {
       params: params(query),
     });
     return res.data.data;

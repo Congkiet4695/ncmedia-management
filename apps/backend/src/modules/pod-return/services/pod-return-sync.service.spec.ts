@@ -2,7 +2,9 @@ import { PodSyncStatus, PodSyncTrigger, Prisma } from '@prisma/client';
 import { TiktokErrorClass } from '../../pod-tiktok/constants/tiktok-error-code.constants';
 import { TiktokClientError } from '../../pod-tiktok/exceptions/pod-tiktok.exceptions';
 import type { TiktokReturnOrder } from '../../tiktok-sdk/types/tiktok-return-refund.types';
-import { PodReturnSyncService, type ReturnSyncShop } from './pod-return-sync.service';
+import { PodReturnSyncJob } from '../schedulers/pod-return-sync.job';
+import configuration from '../../../config/configuration';
+import { hasReturnScope, PodReturnSyncService, type ReturnSyncShop } from './pod-return-sync.service';
 
 /**
  * PodReturnSyncService với TikTok giả + repository GIẢ LẬP TRONG BỘ NHỚ (giữ đúng khoá UNIQUE
@@ -37,7 +39,15 @@ function shop(over: Partial<ReturnSyncShop> = {}): ReturnSyncShop {
   };
 }
 
-function build(options: { pages?: TiktokReturnOrder[][]; notifyEnabled?: boolean | Error; shops?: ReturnSyncShop[] } = {}) {
+function build(
+  options: {
+    pages?: TiktokReturnOrder[][];
+    notifyEnabled?: boolean | Error;
+    shops?: ReturnSyncShop[];
+    /** `granted_scopes` của kết nối (mặc định: chưa biết ⇒ null). */
+    grantedScopes?: string[] | null;
+  } = {},
+) {
   const store = new Map<string, { id: string; organizationId: string; shopId: string; payloadHash: string; tiktokUpdateTime: bigint; orderId: string | null; data: Record<string, unknown> }>();
   const events: Array<{ entityId: string; eventType: string; payload: Record<string, unknown> }> = [];
   let seq = 0;
@@ -120,7 +130,12 @@ function build(options: { pages?: TiktokReturnOrder[][]; notifyEnabled?: boolean
     $transaction: jest.fn((fn: (tx: unknown) => Promise<unknown>) => fn({})),
     podTiktokShop: {
       updateMany: jest.fn(() => Promise.resolve({ count: 1 })),
-      findMany: jest.fn(() => Promise.resolve(options.shops ?? [shop()])),
+      // Như Prisma: shop kèm `account.grantedScopes` (select lồng).
+      findMany: jest.fn(() =>
+        Promise.resolve(
+          (options.shops ?? [shop()]).map((row) => ({ ...row, account: { grantedScopes: options.grantedScopes ?? null } })),
+        ),
+      ),
     },
   };
   const shopContext = {
@@ -135,7 +150,7 @@ function build(options: { pages?: TiktokReturnOrder[][]; notifyEnabled?: boolean
   };
   const locks = {
     acquire: jest.fn((key: string): Promise<{ key: string; token: string } | null> => Promise.resolve({ key, token: 't' })),
-    release: jest.fn(() => Promise.resolve()),
+    release: jest.fn((_lock: { key: string }) => Promise.resolve()),
     renew: jest.fn(() => Promise.resolve(true)),
   };
   const config = { get: jest.fn((_key: string, fallback: unknown) => fallback) };
@@ -269,6 +284,109 @@ describe('PodReturnSyncService.syncShop', () => {
     const result = await h.service.syncShop(shop(), PodSyncTrigger.MANUAL, null);
     expect(result).toMatchObject({ status: PodSyncStatus.SKIPPED, errorCode: 'ALREADY_RUNNING' });
     expect(h.api.searchReturns).not.toHaveBeenCalled();
+  });
+});
+
+describe('PodReturnSyncService — shop đủ điều kiện / quyền', () => {
+  it('biết chắc thiếu scope Return (granted_scopes) ⇒ FAILED + RETURN_SCOPE_MISSING, KHÔNG gọi TikTok / không refresh token', async () => {
+    const h = build();
+    const result = await h.service.syncShop(shop({ scopeGranted: false }), PodSyncTrigger.CRON, null);
+    expect(result).toMatchObject({ status: PodSyncStatus.FAILED, errorCode: 'RETURN_SCOPE_MISSING', fetched: 0 });
+    expect(h.shopContext.resolve).not.toHaveBeenCalled();
+    expect(h.api.searchReturns).not.toHaveBeenCalled();
+    expect(h.prisma.podTiktokShop.updateMany).not.toHaveBeenCalled();
+    // Lỗi vẫn được ghi vào trạng thái đồng bộ để giao diện cảnh báo.
+    expect(h.syncStatus.finish).toHaveBeenCalledWith(expect.anything(), expect.objectContaining({ errorCode: 'RETURN_SCOPE_MISSING' }));
+  });
+
+  it('lượt cron: kết nối có scope ⇒ đồng bộ; kết nối thiếu scope ⇒ bỏ qua không gọi TikTok', async () => {
+    const ok = build({ grantedScopes: ['seller.order.info', 'seller.return_refund.basic'] });
+    expect((await ok.service.runAll())?.[0]).toMatchObject({ status: PodSyncStatus.SUCCESS, created: 1 });
+
+    const missing = build({ grantedScopes: ['seller.order.info'] });
+    expect((await missing.service.runAll())?.[0]).toMatchObject({ errorCode: 'RETURN_SCOPE_MISSING' });
+    expect(missing.api.searchReturns).not.toHaveBeenCalled();
+  });
+
+  it('chỉ chọn shop như đồng bộ đơn POD: bật sync, không tạm dừng, kết nối ACTIVE, shop chưa mất uỷ quyền', async () => {
+    const h = build();
+    await h.service.runAll();
+    expect(h.prisma.podTiktokShop.findMany).toHaveBeenCalledWith(
+      expect.objectContaining({
+        // eslint-disable-next-line @typescript-eslint/no-unsafe-assignment -- asymmetric matcher của jest
+        where: expect.objectContaining({
+          deletedAt: null,
+          syncEnabled: true,
+          status: { not: 'DEAUTHORIZED' },
+          account: { deletedAt: null, status: 'ACTIVE' },
+        }),
+      }),
+    );
+  });
+
+  it('hasReturnScope: mảng có scope ⇒ true; thiếu ⇒ false; rỗng / không phải mảng ⇒ null (chưa biết, vẫn thử gọi)', () => {
+    expect(hasReturnScope(['seller.return_refund.basic'])).toBe(true);
+    expect(hasReturnScope(['seller.order.info'])).toBe(false);
+    expect(hasReturnScope([])).toBeNull();
+    expect(hasReturnScope(null)).toBeNull();
+    expect(hasReturnScope({ scope: 'x' })).toBeNull();
+  });
+});
+
+describe('PodReturnSyncService.runAll — nhiều instance', () => {
+  it('🔴 hai worker cùng chạy cron: chỉ worker giữ khoá toàn cục đồng bộ; không trùng yêu cầu / thông báo', async () => {
+    const h = build({ grantedScopes: ['seller.return_refund.basic'] });
+    const held = new Set<string>();
+    h.locks.acquire.mockImplementation((key: string) => {
+      if (held.has(key)) return Promise.resolve(null);
+      held.add(key);
+      return Promise.resolve({ key, token: 't' });
+    });
+    h.locks.release.mockImplementation((lock: { key: string }) => {
+      held.delete(lock.key);
+      return Promise.resolve();
+    });
+    const [first, second] = await Promise.all([h.service.runAll(), h.service.runAll()]);
+    expect([first, second].filter((run) => run === null)).toHaveLength(1);
+    expect(h.store.size).toBe(1);
+    expect(h.events).toHaveLength(1);
+    // Lượt sau (khoá đã nhả) đọc lại cùng yêu cầu ⇒ vẫn không trùng.
+    await h.service.runAll();
+    expect(h.store.size).toBe(1);
+    expect(h.events).toHaveLength(1);
+  });
+});
+
+describe('PodReturnSyncJob — lịch chạy', () => {
+  const ENV = 'TIKTOK_RETURN_SYNC_CRON';
+  it('mặc định MỖI 5 PHÚT (cùng nhịp đồng bộ đơn POD), vẫn ghi đè được qua env', () => {
+    const saved = process.env[ENV];
+    delete process.env[ENV];
+    expect(configuration().tiktok.returnSync.cron).toBe('*/5 * * * *');
+    expect(configuration().tiktok.returnSync.cron).toBe(configuration().tiktok.sync.cron);
+    process.env[ENV] = '*/10 * * * *';
+    expect(configuration().tiktok.returnSync.cron).toBe('*/10 * * * *');
+    if (saved === undefined) delete process.env[ENV];
+    else process.env[ENV] = saved;
+  });
+
+  it('bật ⇒ đăng ký đúng MỘT cron job với biểu thức cấu hình; tắt ⇒ không đăng ký', () => {
+    const registry = { addCronJob: jest.fn() };
+    const sync = { runAll: jest.fn(() => Promise.resolve([])) };
+    const configOf = (enabled: boolean) => ({
+      get: jest.fn((key: string, fallback: unknown) =>
+        key === 'tiktok.returnSync.enabled' ? enabled : key === 'tiktok.returnSync.cron' ? '*/5 * * * *' : fallback,
+      ),
+    });
+    new PodReturnSyncJob(configOf(false) as never, registry as never, sync as never).onModuleInit();
+    expect(registry.addCronJob).not.toHaveBeenCalled();
+
+    new PodReturnSyncJob(configOf(true) as never, registry as never, sync as never).onModuleInit();
+    expect(registry.addCronJob).toHaveBeenCalledTimes(1);
+    const [name, job] = registry.addCronJob.mock.calls[0] as [string, { cronTime: { source: string }; stop: () => void }];
+    expect(name).toBe(PodReturnSyncJob.JOB_NAME);
+    expect(job.cronTime.source).toBe('*/5 * * * *');
+    job.stop();
   });
 });
 
