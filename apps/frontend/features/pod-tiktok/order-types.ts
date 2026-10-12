@@ -21,7 +21,7 @@ export const POD_SYNC_TRIGGERS = ['CRON', 'MANUAL', 'BACKFILL'] as const;
 export type PodSyncTrigger = (typeof POD_SYNC_TRIGGERS)[number];
 
 /** Loại đồng bộ theo shop có trạng thái riêng (một dòng mỗi shop mỗi loại). */
-export type PodShopSyncType = 'ORDER' | 'PRODUCT';
+export type PodShopSyncType = 'ORDER' | 'PRODUCT' | 'RETURN';
 
 /** Vị trí in design. Backend hỗ trợ sẵn 5 vị trí; UI hiện dùng FRONT/BACK. */
 export const POD_DESIGN_PLACEMENTS = ['FRONT', 'BACK', 'LEFT', 'RIGHT', 'SLEEVE'] as const;

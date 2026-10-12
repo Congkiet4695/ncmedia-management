@@ -1,0 +1,132 @@
+{
+  "title": "Đơn hoàn / hoàn tiền",
+  "subtitle": "Yêu cầu Return / Refund của TikTok Shop, đồng bộ từ Return & Refund API.",
+  "noPermission": "Bạn không có quyền xem đơn hoàn / hoàn tiền.",
+  "lastSynced": "Đồng bộ gần nhất: {{time}}",
+  "neverSynced": "Chưa đồng bộ — bấm Đồng bộ ngay hoặc chờ lượt đồng bộ tự động.",
+  "searchPlaceholder": "Tìm theo Order ID hoặc Return ID…",
+  "empty": "Không có yêu cầu Return / Refund nào khớp bộ lọc.",
+  "requestId": "Yêu cầu",
+  "orderNotSynced": "Đơn này chưa được đồng bộ vào POD Orders.",
+  "noItems": "TikTok không trả dòng hàng cho yêu cầu này.",
+  "qty_one": "SL: {{count}}",
+  "qty_other": "SL: {{count}}",
+  "notAvailable": "N/A",
+  "paidUnavailable": "Chưa khớp được mọi dòng hàng của yêu cầu với dòng đơn đã đồng bộ nên không hiển thị số tiền (hệ thống không thay bằng tổng đơn).",
+  "arbitration": "Khiếu nại",
+  "viewHistory": "Lịch sử",
+  "col": {
+    "order": "Order ID",
+    "type": "Loại yêu cầu",
+    "reason": "Lý do",
+    "status": "Trạng thái hoàn tiền",
+    "item": "Sản phẩm",
+    "paid": "Khách đã trả",
+    "refund": "Số tiền hoàn",
+    "history": "Lịch sử hoàn tiền"
+  },
+  "amount": {
+    "requested": "Số tiền yêu cầu hoàn",
+    "partial": "Seller đề nghị hoàn một phần",
+    "requestedOnly": "Yêu cầu (chưa hoàn)",
+    "refundedByTiktok": "Đã hoàn (TikTok xác nhận)",
+    "settledOrder": "Doanh thu bị trừ trong quyết toán (cấp đơn)",
+    "settledShort": "Quyết toán: {{amount}} (đơn)",
+    "settledOrderHint": "Doanh thu của ĐƠN bị TikTok trừ lại trong statement đã quyết toán do hoàn tiền. Đã nằm sẵn trong Est. Revenue / Lợi nhuận.",
+    "notSettled": "Chưa quyết toán"
+  },
+  "summary": {
+    "total": "Tổng yêu cầu",
+    "rejectedCancelled": "Từ chối / Huỷ",
+    "refundAmount": "Số tiền hoàn",
+    "settledHint": "Doanh thu bị trừ trong statement đã quyết toán (mỗi đơn một lần)",
+    "refundedByRequest": "Đã hoàn (theo trạng thái TikTok)",
+    "requested": "Đã yêu cầu (đang mở + xong)",
+    "orders": "{{orders}} đơn có yêu cầu · {{refunded}} đơn đã hoàn tiền · {{quantity}} sản phẩm trong yêu cầu đang mở / đã xong"
+  },
+  "group": {
+    "PENDING": "Chờ xử lý",
+    "PROCESSING": "Đã duyệt / Đang xử lý",
+    "COMPLETED": "Hoàn tất",
+    "REJECTED": "Bị từ chối",
+    "CANCELLED": "Đã huỷ",
+    "OTHER": "Khác"
+  },
+  "type": {
+    "REFUND": "Chỉ hoàn tiền",
+    "RETURN_AND_REFUND": "Trả hàng & hoàn tiền",
+    "REPLACEMENT": "Đổi sản phẩm",
+    "EXCHANGE": "Trao đổi"
+  },
+  "status": {
+    "RETURN_OR_REFUND_REQUEST_PENDING": "Yêu cầu chờ duyệt",
+    "REFUND_OR_RETURN_REQUEST_REJECT": "Yêu cầu bị từ chối",
+    "AWAITING_BUYER_SHIP": "Chờ người mua gửi hàng",
+    "BUYER_SHIPPED_ITEM": "Người mua đã gửi hàng",
+    "REJECT_RECEIVE_PACKAGE": "Từ chối nhận hàng trả",
+    "RETURN_OR_REFUND_REQUEST_SUCCESS": "Đã duyệt — chờ hoàn tiền",
+    "RETURN_OR_REFUND_REQUEST_CANCEL": "Yêu cầu đã huỷ",
+    "RETURN_OR_REFUND_REQUEST_COMPLETE": "Đã hoàn tiền",
+    "REPLACEMENT_REQUEST_PENDING": "Yêu cầu đổi hàng chờ duyệt",
+    "REPLACEMENT_REQUEST_REJECT": "Từ chối đổi hàng",
+    "REPLACEMENT_REQUEST_REFUND_SUCCESS": "Đổi hàng → hoàn tiền",
+    "REPLACEMENT_REQUEST_CANCEL": "Huỷ yêu cầu đổi hàng",
+    "REPLACEMENT_REQUEST_COMPLETE": "Đổi hàng hoàn tất"
+  },
+  "role": {
+    "BUYER": "Người mua",
+    "SELLER": "Seller",
+    "OPERATOR": "Nhân viên TikTok",
+    "SYSTEM": "Hệ thống"
+  },
+  "filter": {
+    "allAccounts": "Tất cả tài khoản TikTok",
+    "allTypes": "Tất cả loại yêu cầu",
+    "allStatuses": "Tất cả nhóm trạng thái",
+    "allRawStatuses": "Tất cả trạng thái TikTok",
+    "allReasons": "Tất cả lý do",
+    "dateRequested": "Theo ngày yêu cầu",
+    "dateUpdated": "Theo lần cập nhật"
+  },
+  "sort": {
+    "requestedDesc": "Yêu cầu mới nhất",
+    "requestedAsc": "Yêu cầu cũ nhất",
+    "updatedDesc": "Cập nhật gần đây",
+    "amountDesc": "Tiền hoàn cao nhất"
+  },
+  "history": {
+    "title": "Lịch sử hoàn tiền",
+    "description": "Yêu cầu {{returnId}} · Đơn {{orderId}}",
+    "summary": "Yêu cầu",
+    "timeline": "Lịch sử xử lý (từ TikTok)",
+    "tracking": "Mã vận đơn trả hàng",
+    "empty": "TikTok không trả bản ghi lịch sử nào cho yêu cầu này.",
+    "noTime": "TikTok không cung cấp thời gian",
+    "attachments_one": "{{count}} tệp đính kèm",
+    "attachments_other": "{{count}} tệp đính kèm",
+    "fetchedNow": "Đọc từ TikTok lúc {{time}}",
+    "cachedAt": "Đang hiện lịch sử đã lưu lúc {{time}}",
+    "liveFailed": "Không đọc được lịch sử mới nhất từ TikTok — đang hiện bản đã lưu."
+  },
+  "sync": {
+    "doneTitle": "Đã đồng bộ Return / Refund",
+    "summary": "{{shops}} shop · {{created}} mới · {{updated}} cập nhật",
+    "partialTitle": "{{failed}}/{{total}} shop không đồng bộ được",
+    "failedTitle": "Đồng bộ Return / Refund thất bại",
+    "noShops": "Không có shop TikTok đang hoạt động nào trong phạm vi của bạn."
+  },
+  "syncError": {
+    "RETURN_SCOPE_MISSING": "ứng dụng chưa được cấp quyền Return & Refund (seller.return_refund.basic). Bật scope trong TikTok Partner Center rồi uỷ quyền lại kết nối TikTok.",
+    "REAUTH_REQUIRED": "uỷ quyền TikTok đã hết hạn — uỷ quyền lại kết nối ở màn TikTok Accounts.",
+    "SHOP_NOT_FOUND": "shop không còn được liên kết.",
+    "RATE_LIMITED": "TikTok giới hạn tần suất — sẽ thử lại ở lượt sau.",
+    "TIKTOK_UNAVAILABLE": "TikTok không phản hồi — sẽ thử lại ở lượt sau.",
+    "PAGE_LIMIT": "quá nhiều yêu cầu trong một lượt — phần còn lại đồng bộ ở lượt sau.",
+    "ALREADY_RUNNING": "shop đang có một lượt đồng bộ khác.",
+    "UNKNOWN": "lỗi không mong đợi — xem Trạng thái đồng bộ để biết chi tiết."
+  },
+  "scopeWarning": {
+    "title": "Một số shop không đồng bộ được dữ liệu Return / Refund",
+    "hint": "Yêu cầu của các shop này KHÔNG phải bằng 0 — chỉ là chưa đọc được. Sửa uỷ quyền rồi bấm Đồng bộ ngay."
+  }
+}

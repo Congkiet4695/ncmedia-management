@@ -105,7 +105,7 @@ function build(options: {
   };
   const preferences = {
     find: jest.fn((org: string) =>
-      Promise.resolve(options.preferences?.[org] ?? { newOrder: true, fulfillment: true }),
+      Promise.resolve(options.preferences?.[org] ?? { newOrder: true, fulfillment: true, returnRefund: true }),
     ),
   };
   const service = new NotificationDispatcherService(
@@ -361,7 +361,7 @@ describe('NotificationDispatcherService — tuỳ chọn loại thông báo (ki�
   it('New Order TẮT ⇒ sự kiện NEW ORDER đã ghi trước đó bị SKIPPED, không gọi Telegram; Fulfill vẫn gửi', async () => {
     const { service, telegram, finishCall } = build({
       claimed: [event('o1'), fulfillEvent('f1')],
-      preferences: { [ORG_A]: { newOrder: false, fulfillment: true } },
+      preferences: { [ORG_A]: { newOrder: false, fulfillment: true, returnRefund: true } },
     });
 
     await service.runOnce();
@@ -374,7 +374,7 @@ describe('NotificationDispatcherService — tuỳ chọn loại thông báo (ki�
   it('Fulfill TẮT ⇒ chỉ NEW ORDER được gửi', async () => {
     const { service, telegram, finishCall } = build({
       claimed: [event('o1'), fulfillEvent('f1')],
-      preferences: { [ORG_A]: { newOrder: true, fulfillment: false } },
+      preferences: { [ORG_A]: { newOrder: true, fulfillment: false, returnRefund: true } },
     });
     await service.runOnce();
     expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
@@ -385,7 +385,7 @@ describe('NotificationDispatcherService — tuỳ chọn loại thông báo (ki�
   it('Cả hai TẮT ⇒ không gọi Telegram', async () => {
     const { service, telegram } = build({
       claimed: [event('o1'), fulfillEvent('f1')],
-      preferences: { [ORG_A]: { newOrder: false, fulfillment: false } },
+      preferences: { [ORG_A]: { newOrder: false, fulfillment: false, returnRefund: true } },
     });
     await service.runOnce();
     expect(telegram.sendMessage).not.toHaveBeenCalled();
@@ -394,7 +394,7 @@ describe('NotificationDispatcherService — tuỳ chọn loại thông báo (ki�
   it('tuỳ chọn RIÊNG từng tổ chức: A tắt New Order không ảnh hưởng B', async () => {
     const { service, telegram } = build({
       claimed: [event('a1', ORG_A), event('b1', ORG_B)],
-      preferences: { [ORG_A]: { newOrder: false, fulfillment: true } },
+      preferences: { [ORG_A]: { newOrder: false, fulfillment: true, returnRefund: true } },
     });
     await service.runOnce();
     expect(telegram.sendMessage).toHaveBeenCalledTimes(1);

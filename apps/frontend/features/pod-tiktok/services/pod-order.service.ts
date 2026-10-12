@@ -16,6 +16,7 @@ const BASE_PATH = '/pod/tiktok';
 const SYNC_STATUS_PATH: Record<PodShopSyncType, string> = {
   ORDER: `${BASE_PATH}/sync-status`,
   PRODUCT: '/pod/products/sync-status',
+  RETURN: `${BASE_PATH}/returns/sync-status`,
 };
 
 function clean<T extends Record<string, unknown>>(obj: T): Partial<T> {

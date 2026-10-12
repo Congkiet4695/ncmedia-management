@@ -107,6 +107,7 @@
     "TELEGRAM_TEST_RATE_LIMITED": "Too many test messages. Please wait a minute.",
     "NOTIFICATION_EVENT_NOT_FOUND": "Notification not found.",
     "NOTIFICATION_EVENT_NOT_RETRYABLE": "Only failed or skipped notifications can be resent.",
-    "DASHBOARD_RANGE_INVALID": "Invalid date range (max 366 days, start ≤ end)."
+    "DASHBOARD_RANGE_INVALID": "Invalid date range (max 366 days, start ≤ end).",
+    "POD_RETURN_NOT_FOUND": "Return / refund request not found."
   }
 }

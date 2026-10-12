@@ -122,6 +122,8 @@ const PERMISSIONS: Array<{
   // Sprint 2: Scheduler + Get Orders + Sync Orders
   { code: 'pod.tiktok.order.read',     module: 'POD_TIKTOK', resource: 'pod.tiktok.order',   action: 'read',   description: 'Xem đơn TikTok đã đồng bộ + nhật ký đồng bộ' },
   { code: 'pod.tiktok.order.sync',     module: 'POD_TIKTOK', resource: 'pod.tiktok.order',   action: 'sync',   description: 'Kích hoạt đồng bộ đơn TikTok thủ công' },
+  { code: 'pod.tiktok.return.read',    module: 'POD_TIKTOK', resource: 'pod.tiktok.return',  action: 'read',   description: 'Xem yêu cầu Return/Refund TikTok + lịch sử xử lý' },
+  { code: 'pod.tiktok.return.sync',    module: 'POD_TIKTOK', resource: 'pod.tiktok.return',  action: 'sync',   description: 'Kích hoạt đồng bộ Return/Refund TikTok thủ công (trong phạm vi shop)' },
   // Seller Dashboard: cùng API `/pod/dashboard/*` với Dashboard quản trị, phạm vi do
   // PodAccessScopeService giới hạn ở backend. Tách khỏi `report.read` vì quyền đó còn mở
   // `/reports/*` — báo cáo cấp TỔ CHỨC, không lọc theo shop được gán.

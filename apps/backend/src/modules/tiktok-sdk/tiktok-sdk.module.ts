@@ -3,6 +3,7 @@ import { TiktokBrandCrawlerService } from './tiktok-brand-crawler.service';
 import { TiktokFulfillmentApiService } from './tiktok-fulfillment-api.service';
 import { TiktokProductApiService } from './tiktok-product-api.service';
 import { TiktokPromotionApiService } from './tiktok-promotion-api.service';
+import { TiktokReturnRefundApiService } from './tiktok-return-refund-api.service';
 import { TikTokSdkService } from './tiktok-sdk.service';
 
 /**
@@ -30,6 +31,7 @@ import { TikTokSdkService } from './tiktok-sdk.service';
     TiktokProductApiService,
     TiktokFulfillmentApiService,
     TiktokPromotionApiService,
+    TiktokReturnRefundApiService,
     TiktokBrandCrawlerService,
   ],
   exports: [
@@ -37,6 +39,7 @@ import { TikTokSdkService } from './tiktok-sdk.service';
     TiktokProductApiService,
     TiktokFulfillmentApiService,
     TiktokPromotionApiService,
+    TiktokReturnRefundApiService,
     TiktokBrandCrawlerService,
   ],
 })

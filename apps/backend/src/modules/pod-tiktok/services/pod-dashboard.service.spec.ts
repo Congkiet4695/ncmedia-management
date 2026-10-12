@@ -57,6 +57,9 @@ function build(overrides: Partial<Record<keyof PodDashboardRepository, jest.Mock
       { group: 'CANCELLED', count: 21, amount: '1078.77' },
     ]),
     sellerStats: jest.fn().mockResolvedValue({ items: [], total: 0 }),
+    // Mặc định: chưa shop nào đồng bộ Return/Refund ⇒ giữ "chưa có dữ liệu".
+    returnsAvailable: jest.fn().mockResolvedValue(false),
+    returnStats: jest.fn().mockResolvedValue({ requests: 0, returnedOrders: 0, refundedOrders: 0, settledRefund: '0' }),
     financeTrend: jest.fn().mockResolvedValue([]),
     orderTrend: jest.fn().mockResolvedValue([]),
     ...overrides,
@@ -165,6 +168,19 @@ describe('PodDashboardService.summary', () => {
       amount: 0,
     });
     expect(result.returnsAvailable).toBe(false);
+    expect(result.returns).toBeNull();
+  });
+
+  it('đã đồng bộ Return/Refund ⇒ số đơn hoàn + doanh thu bị trừ trong quyết toán (không đụng tới tài chính khác)', async () => {
+    const { service } = build({
+      returnsAvailable: jest.fn().mockResolvedValue(true),
+      returnStats: jest.fn().mockResolvedValue({ requests: 3, returnedOrders: 2, refundedOrders: 1, settledRefund: '11.6' }),
+    });
+    const result = await service.summary(ORG, ADMIN, {});
+    expect(result.returnsAvailable).toBe(true);
+    expect(result.returns).toEqual({ requests: 3, returnedOrders: 2, refundedOrders: 1, settledRefund: 11.6 });
+    // Paid / Processing giữ nguyên nguồn cũ — refund KHÔNG bị trừ thêm.
+    expect(result.finance).toEqual({ paid: 78.03, processing: 6.57 });
   });
 
   it('không có đơn ⇒ tỉ lệ null (không chia 0)', async () => {
@@ -223,6 +239,16 @@ describe('PodDashboardService.sellers', () => {
       hold: 5419.79,
     });
     expect(result.meta).toEqual({ total: 41, page: 2, limit: 20, totalPages: 3 });
+  });
+
+  it('đã đồng bộ Return/Refund ⇒ cột Đơn hoàn là số đơn thật (0 vẫn là 0)', async () => {
+    const base = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 5, estRevenue: '0', revenue: '0', baseCost: '0', profit: null, paid: '0', processing: '0', hold: '0' };
+    const { service } = build({
+      returnsAvailable: jest.fn().mockResolvedValue(true),
+      sellerStats: jest.fn().mockResolvedValue({ items: [{ ...base, returns: 2 }, { ...base, sellerId: 's2', returns: 0 }], total: 2 }),
+    });
+    const result = await service.sellers(ORG, ADMIN, { from: '2026-08-18', to: '2026-09-18', activeOnly: false, sort: 'orders', order: 'desc', page: 1, limit: 20 });
+    expect(result.items.map((item) => item.returns)).toEqual([2, 0]);
   });
 });
 

@@ -12,7 +12,7 @@ import { useApiError } from '@/hooks/use-api-error';
 import { useNotificationPreferences, useSaveNotificationPreferences, useTelegramConfig } from '../hooks/use-notification';
 import type { NotificationPreferences } from '../types';
 
-const OPTIONS: Array<keyof NotificationPreferences> = ['newOrder', 'fulfillment'];
+const OPTIONS: Array<keyof NotificationPreferences> = ['newOrder', 'fulfillment', 'returnRefund'];
 
 /**
  * Loại thông báo tổ chức muốn nhận (New Order / Fulfill).
@@ -36,7 +36,7 @@ export function NotificationPreferencesCard() {
   const dirty =
     draft !== null &&
     query.data !== undefined &&
-    (draft.newOrder !== query.data.newOrder || draft.fulfillment !== query.data.fulfillment);
+    OPTIONS.some((key) => draft[key] !== query.data?.[key]);
   const telegramReady = telegram.data?.configured === true && telegram.data.enabled;
 
   const handleSave = async () => {

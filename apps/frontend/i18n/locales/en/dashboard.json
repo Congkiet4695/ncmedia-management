@@ -53,7 +53,7 @@
     "count": "{{count}} orders",
     "delivered": "{{count}} delivered",
     "noData": "No data yet",
-    "returnsUnavailable": "TikTok Return & Refund is not synced yet, so there are no return figures.",
+    "returnsUnavailable": "No return data yet — no shop in this scope has synced TikTok Return & Refund successfully.",
     "group": {
       "UNPAID": "Awaiting payment",
       "TO_SHIP": "To ship",
@@ -63,7 +63,8 @@
       "CANCELLED": "Cancelled",
       "OTHER": "Other status",
       "RETURNED": "Returned"
-    }
+    },
+    "returnsHint": "{{requests}} return/refund request(s) · {{refunded}} order(s) refunded by TikTok. Amount = revenue reversed in settled statements (already included in Est. revenue / Profit)."
   },
   "sellers": {
     "title": "Seller statistics",
@@ -72,7 +73,7 @@
     "search": "Search seller…",
     "empty": "No sellers.",
     "inactive": "Inactive",
-    "returnsUnavailable": "No return data yet (requires TikTok Return & Refund integration).",
+    "returnsUnavailable": "No return data yet — no shop in this scope has synced TikTok Return & Refund successfully.",
     "col": {
       "name": "Seller",
       "orders": "Total orders",
@@ -93,7 +94,8 @@
       "paid": "Money TikTok paid out in the range.",
       "processing": "Settled but not paid out yet (payment PROCESSING).",
       "hold": "Money TikTok has not settled yet (current)."
-    }
+    },
+    "returnsHint": "Orders with an open or completed return/refund request (cancelled / rejected requests excluded). — = not synced yet."
   },
   "trend": {
     "title": "Trends",

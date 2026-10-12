@@ -67,8 +67,13 @@ export interface DashboardSummary {
     deliveredRate: number | null;
     groups: Array<{ group: OrderStatusGroup; count: number; amount: number }>;
   };
-  /** false: chưa đồng bộ TikTok Return & Refund — không có số đơn hoàn. */
+  /** false: chưa shop nào trong phạm vi đồng bộ TikTok Return & Refund thành công. */
   returnsAvailable: boolean;
+  /**
+   * Return/Refund của các đơn trong khoảng. `settledRefund` = doanh thu bị trừ trong statement đã quyết
+   * toán — ĐÃ nằm trong Est. Revenue / Profit (chỉ để xem, không trừ thêm). NULL khi chưa có dữ liệu.
+   */
+  returns: { requests: number; returnedOrders: number; refundedOrders: number; settledRefund: number } | null;
 }
 
 export const SELLER_SORT_FIELDS = [
@@ -100,7 +105,7 @@ export interface DashboardSellerRow {
   sellerEmail: string | null;
   active: boolean;
   orders: number;
-  /** null: chưa có dữ liệu hoàn hàng. */
+  /** Số đơn có yêu cầu Return/Refund còn hiệu lực. null: chưa có dữ liệu hoàn hàng. */
   returns: number | null;
   estRevenue: number;
   revenue: number;

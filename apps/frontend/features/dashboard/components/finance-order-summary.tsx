@@ -92,7 +92,25 @@ export function FinanceOrderSummary({
                   </li>
                 );
               })}
-              {/* Đơn hoàn: chưa đồng bộ TikTok Return & Refund ⇒ nói rõ, không hiện số đoán. */}
+              {/* Đơn hoàn: số ĐƠN có yêu cầu Return/Refund còn hiệu lực + doanh thu bị trừ trong quyết toán. */}
+              {data.returnsAvailable && data.returns && (
+                <li className="grid grid-cols-[1fr_auto_auto] items-center gap-4 rounded-md border-l-4 border-destructive/40 bg-muted/40 px-3 py-2">
+                  <Tooltip
+                    content={t('orders.returnsHint', {
+                      requests: data.returns.requests,
+                      refunded: data.returns.refundedOrders,
+                    })}
+                  >
+                    <span className="underline decoration-dotted">{t('orders.group.RETURNED')}</span>
+                  </Tooltip>
+                  <span className="w-10 text-right tabular-nums">{data.returns.returnedOrders}</span>
+                  <span className="w-24 text-right font-medium tabular-nums text-destructive">
+                    {data.returns.settledRefund > 0 ? '−' : ''}
+                    {money(data.returns.settledRefund)}
+                  </span>
+                </li>
+              )}
+              {/* Chưa đồng bộ TikTok Return & Refund ⇒ nói rõ, không hiện số đoán. */}
               {!data.returnsAvailable && (
                 <li className="grid grid-cols-[1fr_auto] items-center gap-4 rounded-md border-l-4 border-destructive/40 bg-muted/40 px-3 py-2 text-muted-foreground">
                   <span>{t('orders.group.RETURNED')}</span>

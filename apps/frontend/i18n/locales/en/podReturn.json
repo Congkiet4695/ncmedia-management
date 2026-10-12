@@ -1,0 +1,132 @@
+{
+  "title": "Return Orders",
+  "subtitle": "TikTok Shop return / refund requests synced from the Return & Refund API.",
+  "noPermission": "You do not have permission to view return orders.",
+  "lastSynced": "Last synced: {{time}}",
+  "neverSynced": "Not synced yet — press Sync Now or wait for the scheduled sync.",
+  "searchPlaceholder": "Search by Order ID or Return ID…",
+  "empty": "No return / refund requests match the current filters.",
+  "requestId": "Request",
+  "orderNotSynced": "This order has not been synced into POD Orders yet.",
+  "noItems": "TikTok returned no line items for this request.",
+  "qty_one": "Qty: {{count}}",
+  "qty_other": "Qty: {{count}}",
+  "notAvailable": "N/A",
+  "paidUnavailable": "Not every requested line could be matched to a synced order line, so the paid amount is not shown (the order total is never used instead).",
+  "arbitration": "Arbitration",
+  "viewHistory": "History",
+  "col": {
+    "order": "Order ID",
+    "type": "Request Type",
+    "reason": "Reason",
+    "status": "Refund Status",
+    "item": "Item",
+    "paid": "Paid Amount",
+    "refund": "Refund Amount",
+    "history": "History Refund"
+  },
+  "amount": {
+    "requested": "Requested refund",
+    "partial": "Seller-proposed partial refund",
+    "requestedOnly": "Requested (not refunded yet)",
+    "refundedByTiktok": "Refunded (confirmed by TikTok)",
+    "settledOrder": "Revenue reversed in settlement (order)",
+    "settledShort": "Settled: {{amount}} (order)",
+    "settledOrderHint": "Order-level revenue TikTok reversed in a settled statement because of refunds. It is already included in Est. Revenue / Profit.",
+    "notSettled": "Not settled yet"
+  },
+  "summary": {
+    "total": "Total requests",
+    "rejectedCancelled": "Rejected / Cancelled",
+    "refundAmount": "Refund amount",
+    "settledHint": "Revenue reversed in settled statements (each order once)",
+    "refundedByRequest": "Refunded (TikTok status)",
+    "requested": "Requested (open + done)",
+    "orders": "{{orders}} order(s) with requests · {{refunded}} order(s) refunded · {{quantity}} item(s) in open / completed requests"
+  },
+  "group": {
+    "PENDING": "Pending",
+    "PROCESSING": "Approved / Processing",
+    "COMPLETED": "Completed",
+    "REJECTED": "Rejected",
+    "CANCELLED": "Cancelled",
+    "OTHER": "Other"
+  },
+  "type": {
+    "REFUND": "Refund only",
+    "RETURN_AND_REFUND": "Return & refund",
+    "REPLACEMENT": "Replacement",
+    "EXCHANGE": "Exchange"
+  },
+  "status": {
+    "RETURN_OR_REFUND_REQUEST_PENDING": "Request pending review",
+    "REFUND_OR_RETURN_REQUEST_REJECT": "Request rejected",
+    "AWAITING_BUYER_SHIP": "Awaiting buyer shipment",
+    "BUYER_SHIPPED_ITEM": "Buyer shipped item",
+    "REJECT_RECEIVE_PACKAGE": "Returned package rejected",
+    "RETURN_OR_REFUND_REQUEST_SUCCESS": "Approved — refund pending",
+    "RETURN_OR_REFUND_REQUEST_CANCEL": "Request cancelled",
+    "RETURN_OR_REFUND_REQUEST_COMPLETE": "Refunded",
+    "REPLACEMENT_REQUEST_PENDING": "Replacement pending",
+    "REPLACEMENT_REQUEST_REJECT": "Replacement rejected",
+    "REPLACEMENT_REQUEST_REFUND_SUCCESS": "Replacement resolved by refund",
+    "REPLACEMENT_REQUEST_CANCEL": "Replacement cancelled",
+    "REPLACEMENT_REQUEST_COMPLETE": "Replacement completed"
+  },
+  "role": {
+    "BUYER": "Buyer",
+    "SELLER": "Seller",
+    "OPERATOR": "TikTok operator",
+    "SYSTEM": "System"
+  },
+  "filter": {
+    "allAccounts": "All TikTok accounts",
+    "allTypes": "All request types",
+    "allStatuses": "All status groups",
+    "allRawStatuses": "All TikTok statuses",
+    "allReasons": "All reasons",
+    "dateRequested": "By request date",
+    "dateUpdated": "By last update"
+  },
+  "sort": {
+    "requestedDesc": "Newest requests",
+    "requestedAsc": "Oldest requests",
+    "updatedDesc": "Recently updated",
+    "amountDesc": "Highest refund"
+  },
+  "history": {
+    "title": "Refund history",
+    "description": "Request {{returnId}} · Order {{orderId}}",
+    "summary": "Request",
+    "timeline": "Processing history (from TikTok)",
+    "tracking": "Return tracking",
+    "empty": "TikTok returned no history records for this request.",
+    "noTime": "Time not provided by TikTok",
+    "attachments_one": "{{count}} attachment",
+    "attachments_other": "{{count}} attachments",
+    "fetchedNow": "Loaded from TikTok at {{time}}",
+    "cachedAt": "Showing history saved at {{time}}",
+    "liveFailed": "Could not load the latest history from TikTok — showing the last saved copy."
+  },
+  "sync": {
+    "doneTitle": "Return / refund sync completed",
+    "summary": "{{shops}} shop(s) · {{created}} new · {{updated}} updated",
+    "partialTitle": "{{failed}}/{{total}} shop(s) could not be synced",
+    "failedTitle": "Return / refund sync failed",
+    "noShops": "No active TikTok shop in your scope to sync."
+  },
+  "syncError": {
+    "RETURN_SCOPE_MISSING": "the app is not authorized for Return & Refund (seller.return_refund.basic). Enable the scope in TikTok Partner Center, then re-authorize the TikTok connection.",
+    "REAUTH_REQUIRED": "the TikTok authorization expired — re-authorize the connection in TikTok Accounts.",
+    "SHOP_NOT_FOUND": "the shop is no longer linked.",
+    "RATE_LIMITED": "TikTok rate limit — will retry on the next sync.",
+    "TIKTOK_UNAVAILABLE": "TikTok did not respond — will retry on the next sync.",
+    "PAGE_LIMIT": "too many requests in one run — the rest syncs on the next run.",
+    "ALREADY_RUNNING": "a sync for this shop is already running.",
+    "UNKNOWN": "unexpected error — see Sync status for details."
+  },
+  "scopeWarning": {
+    "title": "Some shops cannot sync return / refund data",
+    "hint": "Their requests are NOT shown as zero — they simply could not be read. Fix the authorization, then press Sync Now."
+  }
+}

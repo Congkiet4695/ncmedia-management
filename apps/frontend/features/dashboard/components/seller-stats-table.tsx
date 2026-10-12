@@ -95,7 +95,7 @@ export function SellerStatsTable({ range, enabled }: { range: DashboardRange; en
                 <SortHeader field="name" label={t('sellers.col.name')} sort={sort} order={order} onSort={toggleSort} align="left" />
                 <SortHeader field="orders" label={t('sellers.col.orders')} sort={sort} order={order} onSort={toggleSort} />
                 <th className="px-3 py-2 text-right font-medium">
-                  <Tooltip content={t('sellers.returnsUnavailable')}>
+                  <Tooltip content={t('sellers.returnsHint')}>
                     <span>{t('sellers.col.returns')}</span>
                   </Tooltip>
                 </th>
@@ -152,7 +152,9 @@ function SellerRow({ index, row, money }: { index: number; row: DashboardSellerR
         {!row.active && <span className="ml-2 text-[10px] uppercase text-muted-foreground">{t('sellers.inactive')}</span>}
       </td>
       <td className="px-3 py-2 text-right tabular-nums">{row.orders}</td>
-      <td className="px-3 py-2 text-right text-muted-foreground">—</td>
+      <td className={cn('px-3 py-2 text-right tabular-nums', row.returns === null && 'text-muted-foreground')}>
+        {row.returns ?? '—'}
+      </td>
       <td className="px-3 py-2 text-right tabular-nums">{money(row.estRevenue)}</td>
       <td className="px-3 py-2 text-right tabular-nums">{money(row.revenue)}</td>
       <td className="px-3 py-2 text-right tabular-nums">{money(row.baseCost)}</td>

@@ -53,7 +53,7 @@
     "count": "{{count}} đơn",
     "delivered": "{{count}} giao thành công",
     "noData": "Chưa có dữ liệu",
-    "returnsUnavailable": "Hệ thống chưa đồng bộ TikTok Return & Refund nên chưa có số đơn hoàn.",
+    "returnsUnavailable": "Chưa có dữ liệu hoàn hàng — chưa shop nào trong phạm vi đồng bộ TikTok Return & Refund thành công.",
     "group": {
       "UNPAID": "Chờ thanh toán",
       "TO_SHIP": "Chờ gửi hàng",
@@ -63,7 +63,8 @@
       "CANCELLED": "Đã huỷ",
       "OTHER": "Trạng thái khác",
       "RETURNED": "Đơn hoàn"
-    }
+    },
+    "returnsHint": "{{requests}} yêu cầu Return/Refund · {{refunded}} đơn TikTok đã hoàn tiền. Số tiền = doanh thu bị trừ trong statement đã quyết toán (đã nằm trong Est. revenue / Lợi nhuận)."
   },
   "sellers": {
     "title": "Thống kê seller",
@@ -72,7 +73,7 @@
     "search": "Tìm seller…",
     "empty": "Không có seller nào.",
     "inactive": "Ngừng hoạt động",
-    "returnsUnavailable": "Chưa có dữ liệu hoàn hàng (cần tích hợp TikTok Return & Refund).",
+    "returnsUnavailable": "Chưa có dữ liệu hoàn hàng — chưa shop nào trong phạm vi đồng bộ TikTok Return & Refund thành công.",
     "col": {
       "name": "Tên seller",
       "orders": "Tổng đơn hàng",
@@ -93,7 +94,8 @@
       "paid": "Tiền TikTok đã chi trong khoảng.",
       "processing": "Đã quyết toán, chưa chi (payment PROCESSING).",
       "hold": "Tiền TikTok chưa quyết toán (hiện tại)."
-    }
+    },
+    "returnsHint": "Số đơn có yêu cầu Return/Refund đang mở hoặc đã xong (không tính yêu cầu huỷ / bị từ chối). — = chưa đồng bộ."
   },
   "trend": {
     "title": "Biểu đồ xu hướng",

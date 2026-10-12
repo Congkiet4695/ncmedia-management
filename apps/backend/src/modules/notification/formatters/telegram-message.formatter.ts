@@ -9,6 +9,7 @@ import type {
   NotificationOrderItem,
   NotificationPayloadMap,
   OrderCreatedPayload,
+  ReturnRefundRequestPayload,
 } from '../types/notification-payload.types';
 
 /** Ngữ cảnh hiển thị — không phải dữ liệu của sự kiện. */
@@ -40,6 +41,8 @@ export function formatTelegramMessage<K extends NotificationEventType>(
         return fulfillmentSubmittedLines(payload as FulfillmentSubmittedPayload, context);
       case 'FULFILLMENT_CANCELLED':
         return fulfillmentCancelledLines(payload as FulfillmentCancelledPayload, context);
+      case 'RETURN_REFUND_REQUEST':
+        return returnRefundRequestLines(payload as ReturnRefundRequestPayload, context);
       default:
         throw new Error(`Chưa có mẫu tin nhắn cho sự kiện ${String(eventType)}`);
     }
@@ -108,6 +111,29 @@ function fulfillmentCancelledLines(
     ...field('🙋', 'Cancelled by', payload.cancelledBy),
     ...field('📝', 'Reason', payload.reason),
     ...field('📅', 'Time', formatDateTime(payload.cancelledAt, context.timezoneOffsetMinutes)),
+  ];
+}
+
+/**
+ * NEW RETURN / REFUND REQUEST. Tiền hoàn THỰC TẾ không có ở đây: lúc yêu cầu vừa tạo TikTok chưa chi
+ * gì — chỉ hiện số tiền ĐƯỢC YÊU CẦU, đúng tên gọi.
+ */
+function returnRefundRequestLines(payload: ReturnRefundRequestPayload, context: MessageContext): string[] {
+  if (!payload?.tiktokReturnId) throw new Error('Payload RETURN_REFUND_REQUEST thiếu tiktokReturnId');
+  return [
+    '↩️ <b>NEW RETURN / REFUND REQUEST</b>',
+    '',
+    ...partyLines(payload),
+    ...field('🆔', 'Order ID', payload.tiktokOrderId, true),
+    ...field('🧾', 'Request ID', payload.tiktokReturnId, true),
+    ...field('🏷', 'Type', statusLabel(payload.returnType)),
+    ...field('📝', 'Reason', payload.reason),
+    ...field('📌', 'Status', statusLabel(payload.status)),
+    ...itemLines(payload.items, true),
+    ...field('💵', 'Paid Amount', formatMoney(payload.paidAmount, payload.currency)),
+    ...field('💸', 'Requested Refund', formatMoney(payload.requestedRefundAmount, payload.currency)),
+    ...field('📅', 'Requested at', formatDateTime(payload.requestedAt, context.timezoneOffsetMinutes)),
+    ...(payload.link ? [`🔗 <a href="${escapeHtml(payload.link)}">Open Return Orders</a>`] : []),
   ];
 }
 

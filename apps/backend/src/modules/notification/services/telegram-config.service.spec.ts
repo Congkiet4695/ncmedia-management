@@ -74,7 +74,7 @@ function build(existing: OrganizationTelegramConfig | null = saved()) {
   const redis = { client: { incr: jest.fn(() => Promise.resolve(++counter)), expire: jest.fn() } };
   const config = { get: (_key: string, fallback: unknown) => fallback } as unknown as ConfigService;
   const preferences = {
-    find: jest.fn().mockResolvedValue({ newOrder: true, fulfillment: true }),
+    find: jest.fn().mockResolvedValue({ newOrder: true, fulfillment: true, returnRefund: false }),
     save: jest.fn((_org: string, _actor: string, value: unknown) => Promise.resolve(value)),
   };
   const service = new TelegramConfigService(
@@ -191,8 +191,15 @@ describe('TelegramConfigService — tuỳ chọn loại thông báo', () => {
     expect(preferences.find).toHaveBeenCalledWith(ORG);
 
     const saved = await service.savePreferences(ORG, 'admin', { newOrder: false, fulfillment: true });
-    expect(preferences.save).toHaveBeenCalledWith(ORG, 'admin', { newOrder: false, fulfillment: true });
-    expect(saved).toEqual({ newOrder: false, fulfillment: true });
+    // Client cũ không gửi returnRefund ⇒ GIỮ giá trị đang lưu (false), không tự bật lại.
+    expect(preferences.save).toHaveBeenCalledWith(ORG, 'admin', { newOrder: false, fulfillment: true, returnRefund: false });
+    expect(saved).toEqual({ newOrder: false, fulfillment: true, returnRefund: false });
+  });
+
+  it('gửi returnRefund tường minh ⇒ lưu đúng giá trị đó', async () => {
+    const { service, preferences } = build();
+    await service.savePreferences(ORG, 'admin', { newOrder: true, fulfillment: true, returnRefund: true });
+    expect(preferences.save).toHaveBeenCalledWith(ORG, 'admin', { newOrder: true, fulfillment: true, returnRefund: true });
   });
 
   it('lưu được cả khi tổ chức CHƯA cấu hình Telegram', async () => {
@@ -200,6 +207,7 @@ describe('TelegramConfigService — tuỳ chọn loại thông báo', () => {
     await expect(service.savePreferences(ORG, 'admin', { newOrder: true, fulfillment: false })).resolves.toEqual({
       newOrder: true,
       fulfillment: false,
+      returnRefund: false,
     });
     expect(preferences.save).toHaveBeenCalled();
   });

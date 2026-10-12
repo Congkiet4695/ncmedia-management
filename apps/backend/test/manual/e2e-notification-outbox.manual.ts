@@ -258,7 +258,7 @@ async function main(): Promise<void> {
     console.log('\n[5b] Tuỳ chọn loại thông báo (DB thật)');
     const outbox = new NotificationOutboxService(events, configs, dispatcher(), preferences);
     check('chưa lưu tuỳ chọn ⇒ NEW ORDER + FULFILL đều bật', (await outbox.isEnabled(orgA.id, 'ORDER_CREATED')) && (await outbox.isEnabled(orgA.id, 'FULFILLMENT_SUBMITTED')));
-    await preferences.save(orgA.id, orgA.id, { newOrder: false, fulfillment: true });
+    await preferences.save(orgA.id, orgA.id, { newOrder: false, fulfillment: true, returnRefund: true });
     check('A tắt New Order ⇒ không ghi ORDER_CREATED; FULFILL vẫn ghi', !(await outbox.isEnabled(orgA.id, 'ORDER_CREATED')) && (await outbox.isEnabled(orgA.id, 'FULFILLMENT_CANCELLED')));
     check('tuỳ chọn của A KHÔNG ảnh hưởng B', await outbox.isEnabled(orgB.id, 'ORDER_CREATED'));
     // Sự kiện đã ghi TRƯỚC khi tắt ⇒ worker bỏ qua lúc gửi.
@@ -268,11 +268,11 @@ async function main(): Promise<void> {
     await dispatcher().runOnce();
     row = await prisma.notificationEvent.findFirst({ where: { entityId: queuedBefore.entityId } });
     check('sự kiện NEW ORDER ghi trước khi tắt ⇒ SKIPPED lúc gửi, không gọi Telegram', row?.status === 'SKIPPED' && row.lastErrorCode === 'NOTIFICATION_CATEGORY_DISABLED' && received.length === 0, row);
-    await preferences.save(orgA.id, orgA.id, { newOrder: false, fulfillment: false });
+    await preferences.save(orgA.id, orgA.id, { newOrder: false, fulfillment: false, returnRefund: true });
     await prisma.organizationTelegramConfig.update({ where: { organizationId: orgB.id }, data: { enabled: true } });
     check('A tắt cả hai ⇒ không ghi loại nào', !(await outbox.isEnabled(orgA.id, 'ORDER_CREATED')) && !(await outbox.isEnabled(orgA.id, 'FULFILLMENT_SUBMITTED')));
     await prisma.organizationTelegramConfig.update({ where: { organizationId: orgA.id }, data: { enabled: false } });
-    await preferences.save(orgA.id, orgA.id, { newOrder: true, fulfillment: true });
+    await preferences.save(orgA.id, orgA.id, { newOrder: true, fulfillment: true, returnRefund: true });
     check('chưa bật / chưa cấu hình bot ⇒ không ghi dù tuỳ chọn bật', !(await outbox.isEnabled(orgA.id, 'ORDER_CREATED')));
     await prisma.organizationTelegramConfig.update({ where: { organizationId: orgA.id }, data: { enabled: true } });
 

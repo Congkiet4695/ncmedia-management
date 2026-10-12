@@ -202,6 +202,13 @@ export const envValidationSchema = Joi.object({
   TIKTOK_PAYOUT_WINDOW_DAYS: Joi.number().integer().min(1).max(3650).default(90),
   TIKTOK_PAYOUT_MAX_PAGES: Joi.number().integer().min(1).max(1000).default(100),
   TIKTOK_PAYOUT_STATEMENTS_PER_RUN: Joi.number().integer().min(1).max(500).default(50),
+  TIKTOK_RETURN_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  TIKTOK_RETURN_SYNC_CRON: Joi.string().default('*/15 * * * *'),
+  TIKTOK_RETURN_SYNC_INITIAL_LOOKBACK_DAYS: Joi.number().integer().min(1).max(365).default(90),
+  TIKTOK_RETURN_SYNC_OVERLAP_SECONDS: Joi.number().integer().min(0).max(86400).default(600),
+  TIKTOK_RETURN_SYNC_MAX_PAGES: Joi.number().integer().min(1).max(1000).default(40),
+  TIKTOK_RETURN_SYNC_MAX_CONCURRENCY: Joi.number().integer().min(1).max(10).default(3),
+  TIKTOK_RETURN_SYNC_LOCK_TTL_MS: Joi.number().integer().min(60000).max(3600000).default(600000),
 
   // --- Module Fulfillment (xưởng in) ---
   // Base URL công khai của hệ thống, dùng dựng URL webhook cho nhà cung cấp.

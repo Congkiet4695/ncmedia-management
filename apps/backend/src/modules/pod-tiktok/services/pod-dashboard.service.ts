@@ -112,9 +112,11 @@ export class PodDashboardService {
     const range = this.range(query);
     const { filter } = await this.filterOf(organizationId, scope, query);
     const window = this.window(range);
-    const [finance, groups] = await Promise.all([
+    const [finance, groups, returnsAvailable, returnStats] = await Promise.all([
       this.repo.finance(filter, window),
       this.repo.orderGroups(filter, window),
+      this.repo.returnsAvailable(filter),
+      this.repo.returnStats(filter, window),
     ]);
     const total = groups.reduce((sum, row) => sum + row.count, 0);
     const delivered = groups.find((row) => row.group === 'DELIVERED')?.count ?? 0;
@@ -133,7 +135,15 @@ export class PodDashboardService {
           return { group, count: row?.count ?? 0, amount: money(row?.amount ?? '0') };
         }),
       },
-      returnsAvailable: false,
+      returnsAvailable,
+      returns: returnsAvailable
+        ? {
+            requests: returnStats.requests,
+            returnedOrders: returnStats.returnedOrders,
+            refundedOrders: returnStats.refundedOrders,
+            settledRefund: money(returnStats.settledRefund),
+          }
+        : null,
     };
   }
 
@@ -146,7 +156,9 @@ export class PodDashboardService {
     const { filter } = await this.filterOf(organizationId, scope, query);
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const result = await this.repo.sellerStats(filter, this.window(range), {
+    const [returnsAvailable, result] = await Promise.all([
+      this.repo.returnsAvailable(filter),
+      this.repo.sellerStats(filter, this.window(range), {
       activeOnly: query.activeOnly ?? false,
       search: query.search,
       sort: query.sort ?? 'orders',
@@ -154,12 +166,14 @@ export class PodDashboardService {
       page,
       limit,
       label: labelCostOf(this.config),
-    });
+      }),
+    ]);
     return {
       currency: filter.currency || null,
       items: result.items.map((row) => ({
         ...row,
-        returns: null,
+        // Chưa shop nào trong phạm vi đồng bộ Return/Refund ⇒ NULL ("chưa có dữ liệu"), không phải 0.
+        returns: returnsAvailable ? row.returns : null,
         estRevenue: money(row.estRevenue),
         revenue: money(row.revenue),
         baseCost: money(row.baseCost),

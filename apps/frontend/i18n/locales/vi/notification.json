@@ -56,7 +56,8 @@
     "type": {
       "ORDER_CREATED": "Đơn mới",
       "FULFILLMENT_SUBMITTED": "Fulfill thành công",
-      "FULFILLMENT_CANCELLED": "Huỷ fulfill"
+      "FULFILLMENT_CANCELLED": "Huỷ fulfill",
+      "RETURN_REFUND_REQUEST": "Yêu cầu hoàn / hoàn tiền"
     },
     "status": {
       "PENDING": "Chờ gửi",
@@ -95,6 +96,10 @@
     "fulfillment": {
       "label": "Fulfill",
       "hint": "Nhận thông báo khi fulfill đơn thành công hoặc huỷ fulfillment thành công."
+    },
+    "returnRefund": {
+      "label": "Return / Refund",
+      "hint": "Nhận thông báo khi phát hiện yêu cầu Return / Refund mới trên TikTok (một lần cho mỗi yêu cầu — không gửi lại khi đổi trạng thái)."
     }
   }
 }

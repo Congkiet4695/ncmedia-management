@@ -171,8 +171,17 @@ export class DashboardSummaryDto {
     deliveredRate: number | null;
     groups: DashboardOrderGroupDto[];
   };
-  @ApiProperty({ description: 'false: hệ thống chưa đồng bộ TikTok Return & Refund — không có số đơn hoàn.' })
+  @ApiProperty({ description: 'false: chưa shop nào trong phạm vi đồng bộ TikTok Return & Refund thành công.' })
   returnsAvailable!: boolean;
+  @ApiPropertyOptional({
+    nullable: true,
+    type: Object,
+    description:
+      'Return/Refund của các đơn trong khoảng. requests = số YÊU CẦU; returnedOrders = số đơn có yêu cầu còn hiệu lực; ' +
+      'refundedOrders = số đơn TikTok xác nhận đã hoàn; settledRefund = doanh thu bị trừ lại trong statement đã quyết toán ' +
+      '(ĐÃ nằm trong Est. Revenue / Profit — không trừ lần hai). NULL khi returnsAvailable = false.',
+  })
+  returns!: { requests: number; returnedOrders: number; refundedOrders: number; settledRefund: number } | null;
 }
 
 export class DashboardSellerRowDto {
@@ -181,7 +190,11 @@ export class DashboardSellerRowDto {
   @ApiPropertyOptional({ nullable: true, type: String }) sellerEmail!: string | null;
   @ApiProperty() active!: boolean;
   @ApiProperty() orders!: number;
-  @ApiPropertyOptional({ nullable: true, type: Number, description: 'NULL: chưa có dữ liệu hoàn hàng.' })
+  @ApiPropertyOptional({
+    nullable: true,
+    type: Number,
+    description: 'Số đơn có yêu cầu Return/Refund còn hiệu lực. NULL: chưa shop nào trong phạm vi đồng bộ Return/Refund.',
+  })
   returns!: number | null;
   @ApiProperty() estRevenue!: number;
   @ApiProperty() revenue!: number;

@@ -41,5 +41,7 @@
   "settings": "Settings",
   "settingsNotifications": "Notifications",
   "settingsAutoFlashSale": "Auto Flash Sale Scheduler",
-  "employeeWorkStatistics": "Employee Work Statistics"
+  "employeeWorkStatistics": "Employee Work Statistics",
+  "orderGroup": "Order",
+  "podReturns": "Return Orders"
 }

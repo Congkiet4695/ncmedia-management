@@ -8,6 +8,7 @@ import type {
   FulfillmentCancelledPayload,
   FulfillmentSubmittedPayload,
   OrderCreatedPayload,
+  ReturnRefundRequestPayload,
 } from '../types/notification-payload.types';
 
 const CTX = { organizationName: 'HN Media', timezoneOffsetMinutes: 420 };
@@ -248,5 +249,48 @@ describe('helpers', () => {
 
   it('escapeHtml', () => {
     expect(escapeHtml('a<b>&c')).toBe('a&lt;b&gt;&amp;c');
+  });
+});
+
+describe('formatTelegramMessage — RETURN_REFUND_REQUEST', () => {
+  const RETURN: ReturnRefundRequestPayload = {
+    tiktokReturnId: '4035123456789',
+    tiktokOrderId: '577593225638089493',
+    sellerName: 'Seller A',
+    accountName: 'AZ_VTR_31',
+    shopName: 'Sunday Crew',
+    returnType: 'RETURN_AND_REFUND',
+    reason: 'Damaged item',
+    status: 'RETURN_OR_REFUND_REQUEST_PENDING',
+    items: [{ productName: 'Tee <b>', sku: 'TEE-M', variant: 'M / Black', quantity: 2 }],
+    currency: 'USD',
+    paidAmount: '25.98',
+    requestedRefundAmount: '25.98',
+    requestedAt: '2026-10-01T03:00:00.000Z',
+    link: 'https://app.example.com/dashboard/pod/returns?search=577593225638089493',
+  };
+
+  it('đủ các dòng: Order ID, Request ID, Type, Reason, Status, Item, Paid, Requested Refund, thời điểm, link', () => {
+    const text = formatTelegramMessage('RETURN_REFUND_REQUEST', RETURN, CTX);
+    expect(text).toContain('NEW RETURN / REFUND REQUEST');
+    expect(text).toContain('<b>Seller:</b> Seller A');
+    expect(text).toContain('<b>Order ID:</b> <code>577593225638089493</code>');
+    expect(text).toContain('<b>Request ID:</b> <code>4035123456789</code>');
+    expect(text).toContain('<b>Type:</b> Return and refund');
+    expect(text).toContain('<b>Reason:</b> Damaged item');
+    expect(text).toContain('<b>Quantity:</b> 2');
+    expect(text).toContain('<b>Paid Amount:</b> $25.98');
+    expect(text).toContain('<b>Requested Refund:</b> $25.98');
+    expect(text).toContain('01/10/2026 10:00 (UTC+7)');
+    expect(text).toContain('href="https://app.example.com/dashboard/pod/returns?search=577593225638089493"');
+    expect(text).toContain('Tee &lt;b&gt;');
+  });
+
+  it('thiếu Paid Amount / số tiền / link ⇒ bỏ dòng, không in N/A giả; không có dòng tiền hoàn thực tế', () => {
+    const text = formatTelegramMessage('RETURN_REFUND_REQUEST', { ...RETURN, paidAmount: null, requestedRefundAmount: null, link: null }, CTX);
+    expect(text).not.toContain('Paid Amount');
+    expect(text).not.toContain('Requested Refund');
+    expect(text).not.toContain('href=');
+    expect(text).not.toMatch(/Actual Refund|null|undefined/);
   });
 });

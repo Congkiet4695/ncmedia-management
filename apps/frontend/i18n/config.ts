@@ -37,6 +37,7 @@ export const NAMESPACES = [
   'superAdmin',
   'notification',
   'dashboard',
+  'podReturn',
 ] as const;
 
 export type Namespace = (typeof NAMESPACES)[number];

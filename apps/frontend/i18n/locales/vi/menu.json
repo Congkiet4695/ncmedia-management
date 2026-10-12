@@ -41,5 +41,7 @@
   "settings": "Cài đặt",
   "settingsNotifications": "Thông báo",
   "settingsAutoFlashSale": "Auto Flash Sale Scheduler",
-  "employeeWorkStatistics": "Thống kê công việc nhân viên"
+  "employeeWorkStatistics": "Thống kê công việc nhân viên",
+  "orderGroup": "Đơn hàng",
+  "podReturns": "Đơn hoàn / hoàn tiền"
 }

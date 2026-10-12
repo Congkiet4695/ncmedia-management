@@ -1963,6 +1963,7 @@
     "created": "Created",
     "descriptionOrder": "Latest order sync of each shop (scheduled or Sync Now).",
     "descriptionProduct": "Latest product sync of each shop (scheduled or Sync Now).",
+    "descriptionReturn": "Latest Return/Refund sync of each shop (scheduled or Sync Now).",
     "duration": "Duration",
     "empty": "No shop has been synced yet.",
     "endedAt": "Ended",

@@ -28,6 +28,8 @@ export interface TelegramConfig {
 export interface NotificationPreferences {
   newOrder: boolean;
   fulfillment: boolean;
+  /** Yêu cầu Return/Refund mới từ TikTok. */
+  returnRefund: boolean;
 }
 
 export interface SaveTelegramConfigInput {
@@ -49,13 +51,18 @@ export interface TelegramTestResult {
   botUsername: string | null;
 }
 
-export type NotificationEventType = 'ORDER_CREATED' | 'FULFILLMENT_SUBMITTED' | 'FULFILLMENT_CANCELLED';
+export type NotificationEventType =
+  | 'ORDER_CREATED'
+  | 'FULFILLMENT_SUBMITTED'
+  | 'FULFILLMENT_CANCELLED'
+  | 'RETURN_REFUND_REQUEST';
 export type NotificationEventStatus = 'PENDING' | 'PROCESSING' | 'SENT' | 'FAILED' | 'SKIPPED';
 
 export const NOTIFICATION_EVENT_TYPES: NotificationEventType[] = [
   'ORDER_CREATED',
   'FULFILLMENT_SUBMITTED',
   'FULFILLMENT_CANCELLED',
+  'RETURN_REFUND_REQUEST',
 ];
 export const NOTIFICATION_EVENT_STATUSES: NotificationEventStatus[] = [
   'PENDING',
@@ -68,7 +75,7 @@ export const NOTIFICATION_EVENT_STATUSES: NotificationEventStatus[] = [
 export interface NotificationEvent {
   id: string;
   eventType: NotificationEventType;
-  entityType: 'POD_ORDER' | 'FULFILLMENT_ORDER';
+  entityType: 'POD_ORDER' | 'FULFILLMENT_ORDER' | 'POD_RETURN_REQUEST';
   entityId: string;
   tiktokOrderId: string | null;
   status: NotificationEventStatus;

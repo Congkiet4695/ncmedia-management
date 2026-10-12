@@ -460,5 +460,22 @@ export default () => ({
       /** Số statement được kéo giao dịch cấp đơn mỗi lượt (phần dư chạy ở lượt sau). */
       statementsPerRun: parseInt(process.env.TIKTOK_PAYOUT_STATEMENTS_PER_RUN ?? '50', 10),
     },
+    /**
+     * Đồng bộ Return & Refund (scope `seller.return_refund.basic`) — tăng dần theo `update_time`.
+     * Lượt đầu của shop nhập lịch sử `initialLookbackDays` ngày và KHÔNG gửi thông báo.
+     */
+    returnSync: {
+      enabled: (process.env.TIKTOK_RETURN_SYNC_ENABLED ?? 'false') === 'true',
+      cron: process.env.TIKTOK_RETURN_SYNC_CRON ?? '*/15 * * * *',
+      initialLookbackDays: parseInt(process.env.TIKTOK_RETURN_SYNC_INITIAL_LOOKBACK_DAYS ?? '90', 10),
+      /** Quét lùi lại bấy nhiêu giây trước watermark — bù độ trễ ghi `update_time` của TikTok. */
+      overlapSeconds: parseInt(process.env.TIKTOK_RETURN_SYNC_OVERLAP_SECONDS ?? '600', 10),
+      /** Trần số trang (50 yêu cầu/trang) của MỘT shop trong một lượt — phần dư chạy lượt sau. */
+      maxPagesPerRun: parseInt(process.env.TIKTOK_RETURN_SYNC_MAX_PAGES ?? '40', 10),
+      /** Số shop đồng bộ song song (quota TikTok tính theo App × Shop). */
+      maxConcurrency: parseInt(process.env.TIKTOK_RETURN_SYNC_MAX_CONCURRENCY ?? '3', 10),
+      /** TTL khoá của MỘT shop (gia hạn định kỳ khi còn chạy). */
+      lockTtlMs: parseInt(process.env.TIKTOK_RETURN_SYNC_LOCK_TTL_MS ?? '600000', 10),
+    },
   },
 });

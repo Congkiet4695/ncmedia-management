@@ -3,7 +3,7 @@ import { NotificationEventType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 
 /** Nhóm tuỳ chọn mà người dùng bật / tắt trên màn hình Cài đặt thông báo. */
-export type NotificationCategory = 'NEW_ORDER' | 'FULFILL';
+export type NotificationCategory = 'NEW_ORDER' | 'FULFILL' | 'RETURN_REFUND';
 
 /**
  * Loại sự kiện (enum DB hiện có — KHÔNG thêm enum trùng) → nhóm tuỳ chọn.
@@ -13,23 +13,37 @@ export const NOTIFICATION_CATEGORY_OF_EVENT: Readonly<Record<NotificationEventTy
   ORDER_CREATED: 'NEW_ORDER',
   FULFILLMENT_SUBMITTED: 'FULFILL',
   FULFILLMENT_CANCELLED: 'FULFILL',
+  RETURN_REFUND_REQUEST: 'RETURN_REFUND',
 };
 
 export interface NotificationPreferences {
   newOrder: boolean;
   fulfillment: boolean;
+  returnRefund: boolean;
 }
 
-/** Chưa có dòng ⇒ bật cả hai — đúng hành vi trước khi có tuỳ chọn. */
+/** Chưa có dòng ⇒ bật tất cả — đúng hành vi trước khi có tuỳ chọn. */
 export const DEFAULT_NOTIFICATION_PREFERENCES: Readonly<NotificationPreferences> = {
   newOrder: true,
   fulfillment: true,
+  returnRefund: true,
 };
 
 export function allowsEvent(preferences: NotificationPreferences, eventType: NotificationEventType): boolean {
-  return NOTIFICATION_CATEGORY_OF_EVENT[eventType] === 'NEW_ORDER'
-    ? preferences.newOrder
-    : preferences.fulfillment;
+  switch (NOTIFICATION_CATEGORY_OF_EVENT[eventType]) {
+    case 'NEW_ORDER':
+      return preferences.newOrder;
+    case 'RETURN_REFUND':
+      return preferences.returnRefund;
+    default:
+      return preferences.fulfillment;
+  }
+}
+
+const SELECT = { notifyNewOrder: true, notifyFulfillment: true, notifyReturnRefund: true } as const;
+
+function toPreferences(row: { notifyNewOrder: boolean; notifyFulfillment: boolean; notifyReturnRefund: boolean }): NotificationPreferences {
+  return { newOrder: row.notifyNewOrder, fulfillment: row.notifyFulfillment, returnRefund: row.notifyReturnRefund };
 }
 
 /**
@@ -45,11 +59,9 @@ export class NotificationPreferenceRepository {
   ): Promise<NotificationPreferences> {
     const row = await client.organizationNotificationPreference.findFirst({
       where: { organizationId, deletedAt: null },
-      select: { notifyNewOrder: true, notifyFulfillment: true },
+      select: SELECT,
     });
-    return row
-      ? { newOrder: row.notifyNewOrder, fulfillment: row.notifyFulfillment }
-      : { ...DEFAULT_NOTIFICATION_PREFERENCES };
+    return row ? toPreferences(row) : { ...DEFAULT_NOTIFICATION_PREFERENCES };
   }
 
   async save(
@@ -57,13 +69,17 @@ export class NotificationPreferenceRepository {
     actorUserId: string,
     preferences: NotificationPreferences,
   ): Promise<NotificationPreferences> {
-    const data = { notifyNewOrder: preferences.newOrder, notifyFulfillment: preferences.fulfillment };
+    const data = {
+      notifyNewOrder: preferences.newOrder,
+      notifyFulfillment: preferences.fulfillment,
+      notifyReturnRefund: preferences.returnRefund,
+    };
     const row = await this.prisma.organizationNotificationPreference.upsert({
       where: { organizationId },
       create: { ...data, organizationId, createdBy: actorUserId, updatedBy: actorUserId },
       update: { ...data, deletedAt: null, updatedBy: actorUserId },
-      select: { notifyNewOrder: true, notifyFulfillment: true },
+      select: SELECT,
     });
-    return { newOrder: row.notifyNewOrder, fulfillment: row.notifyFulfillment };
+    return toPreferences(row);
   }
 }

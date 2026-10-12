@@ -17,6 +17,12 @@ import { useLatestSyncStatus } from '../hooks/use-pod-orders';
 import type { PodShopSyncType } from '../order-types';
 import { PodSyncStatusBadge } from './pod-order-status-badge';
 
+const SYNC_DESCRIPTION_KEY: Record<PodShopSyncType, string> = {
+  ORDER: 'latestSync.descriptionOrder',
+  PRODUCT: 'latestSync.descriptionProduct',
+  RETURN: 'latestSync.descriptionReturn',
+};
+
 interface LatestSyncStatusDialogProps {
   open: boolean;
   onClose: () => void;
@@ -45,9 +51,7 @@ export function LatestSyncStatusDialog({ open, onClose, syncType }: LatestSyncSt
       open={open}
       onClose={onClose}
       title={t('latestSync.title')}
-      description={t(
-        syncType === 'ORDER' ? 'latestSync.descriptionOrder' : 'latestSync.descriptionProduct',
-      )}
+      description={t(SYNC_DESCRIPTION_KEY[syncType])}
       className="max-w-6xl"
     >
       {statusQuery.isLoading ? (

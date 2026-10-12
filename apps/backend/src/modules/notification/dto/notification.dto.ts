@@ -185,4 +185,11 @@ export class NotificationPreferencesDto {
   @ApiProperty({ description: 'FULFILL — fulfill thành công và huỷ fulfillment thành công.' })
   @IsBoolean()
   fulfillment!: boolean;
+
+  @ApiPropertyOptional({
+    description: 'RETURN / REFUND — yêu cầu Return/Refund mới từ TikTok. Bỏ trống ⇒ giữ giá trị đang lưu.',
+  })
+  @IsOptional()
+  @IsBoolean()
+  returnRefund?: boolean;
 }

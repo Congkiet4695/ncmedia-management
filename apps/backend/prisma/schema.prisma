@@ -1004,6 +1004,7 @@ model PodTiktokAccount {
   unsettledTransactions PodTiktokUnsettledTransaction[]
   flashSales            PodFlashSale[]
   flashSaleTemplates    PodFlashSaleTemplate[]
+  returnRequests        PodReturnRequest[]
 
   // Không link trùng cùng một seller (open_id) trong CÙNG Organization.
   // Uỷ quyền lại (reauthorize) → UPDATE bản ghi cũ, không tạo mới.
@@ -1055,13 +1056,16 @@ model PodTiktokShop {
   /// và đây là chỗ người vận hành khai báo lựa chọn của từng shop.
   defaultWarehouseId String? @map("default_warehouse_id") @db.Uuid
 
-  syncEnabled         Boolean   @default(true) @map("sync_enabled")
+  syncEnabled          Boolean   @default(true) @map("sync_enabled")
   /// Watermark `update_time` (Unix seconds) đã đồng bộ xong (Sprint 3).
-  lastOrderSyncCursor BigInt?   @map("last_order_sync_cursor")
+  lastOrderSyncCursor  BigInt?   @map("last_order_sync_cursor")
   /// Lần đồng bộ đơn gần nhất của shop (Sprint 3).
-  lastOrderSyncAt     DateTime? @map("last_order_sync_at") @db.Timestamptz(6)
+  lastOrderSyncAt      DateTime? @map("last_order_sync_at") @db.Timestamptz(6)
+  /// Watermark `update_time` (Unix seconds) của Return/Refund đã đồng bộ xong. NULL = chưa từng đồng bộ
+  /// (lượt đầu nhập lịch sử theo `TIKTOK_RETURN_SYNC_INITIAL_LOOKBACK_DAYS`, KHÔNG gửi thông báo).
+  lastReturnSyncCursor BigInt?   @map("last_return_sync_cursor")
   /// Thời điểm đăng ký webhook cho shop (Sprint 4 — Webhook).
-  webhookRegisteredAt DateTime? @map("webhook_registered_at") @db.Timestamptz(6)
+  webhookRegisteredAt  DateTime? @map("webhook_registered_at") @db.Timestamptz(6)
 
   /// Số lượt sync thất bại LIÊN TIẾP — circuit breaker theo shop (Sprint 2).
   syncFailureCount        Int       @default(0) @map("sync_failure_count")
@@ -1118,6 +1122,7 @@ model PodTiktokShop {
   listingSessionShops   PodListingSessionShop[]
   flashSales            PodFlashSale[]
   flashSaleTemplates    PodFlashSaleTemplate[]
+  returnRequests        PodReturnRequest[]
 
   // Chống link trùng Shop trong cùng Organization (hàng rào ở tầng DB).
   syncStatuses PodShopSyncStatus[]
@@ -1411,6 +1416,8 @@ model PodOrder {
   packages          PodOrderPackage[]
   /// Các lần gửi đơn sang xưởng in (mỗi nhà cung cấp tối đa một bản ghi).
   fulfillmentOrders FulfillmentOrder[]
+  /// Yêu cầu Return/Refund của đơn (TikTok Return & Refund API).
+  returnRequests    PodReturnRequest[]
 
   /// Hàng rào chống trùng đơn ở tầng DB (không chỉ ở tầng code).
   @@unique([organizationId, tiktokOrderId])
@@ -5682,12 +5689,12 @@ model PodFlashSaleItem {
   /// thực sự vào được đợt sale.
   providerSkuId     String? @map("provider_sku_id") @db.VarChar(64)
 
-  status    PodFlashSaleItemStatus @default(PENDING)
+  status       PodFlashSaleItemStatus @default(PENDING)
   /// Lô (1-based) của lượt publish GẦN NHẤT đã gửi dòng này — để màn hình chỉ ra "SKU lỗi ở lô nào".
-  publishBatch Int? @map("publish_batch")
+  publishBatch Int?                   @map("publish_batch")
   /// Mã lỗi TikTok riêng của dòng này.
-  errorCode String?                @map("error_code") @db.VarChar(32)
-  error     String?                @db.VarChar(2000)
+  errorCode    String?                @map("error_code") @db.VarChar(32)
+  error        String?                @db.VarChar(2000)
 
   /// Thứ tự hiển thị trong bảng — giữ đúng thứ tự người dùng đã thêm.
   sortOrder Int @default(0) @map("sort_order")
@@ -5812,6 +5819,8 @@ enum NotificationEventType {
   FULFILLMENT_SUBMITTED
   /// Nhà cung cấp đã XÁC NHẬN huỷ đơn fulfillment.
   FULFILLMENT_CANCELLED
+  /// Yêu cầu Return/Refund mới trên TikTok, được ghi nhận LẦN ĐẦU khi đồng bộ (không gồm lượt nhập lịch sử).
+  RETURN_REFUND_REQUEST
 
   @@map("notification_event_type")
 }
@@ -5820,6 +5829,7 @@ enum NotificationEventType {
 enum NotificationEntityType {
   POD_ORDER
   FULFILLMENT_ORDER
+  POD_RETURN_REQUEST
 
   @@map("notification_entity_type")
 }
@@ -5946,9 +5956,11 @@ model OrganizationNotificationPreference {
   organizationId String @unique @map("organization_id") @db.Uuid
 
   /// NEW ORDER — đơn TikTok mới được tạo khi đồng bộ.
-  notifyNewOrder    Boolean @default(true) @map("notify_new_order")
+  notifyNewOrder     Boolean @default(true) @map("notify_new_order")
   /// FULFILL — fulfill thành công và huỷ fulfillment thành công.
-  notifyFulfillment Boolean @default(true) @map("notify_fulfillment")
+  notifyFulfillment  Boolean @default(true) @map("notify_fulfillment")
+  /// RETURN / REFUND — yêu cầu Return/Refund mới từ TikTok.
+  notifyReturnRefund Boolean @default(true) @map("notify_return_refund")
 
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -5967,6 +5979,8 @@ enum PodShopSyncType {
   ORDER
   /// Đồng bộ sản phẩm TikTok (cron / thủ công).
   PRODUCT
+  /// Đồng bộ yêu cầu Return/Refund TikTok (cron / thủ công).
+  RETURN
 
   @@map("pod_shop_sync_type")
 }
@@ -6024,4 +6038,157 @@ model PodShopSyncStatus {
   @@index([organizationId, syncType])
   @@index([status, startedAt])
   @@map("pod_shop_sync_statuses")
+}
+
+// ===========================================================================
+// RETURN & REFUND — TikTok Shop (scope `seller.return_refund.basic`)
+//
+// Nguồn: POST /return_refund/202602/returns/search (danh sách) và
+//        GET  /return_refund/202309/returns/{return_id}/records (lịch sử, đọc theo yêu cầu).
+//
+// 🔴 Yêu cầu Return/Refund KHÔNG phải giao dịch hoàn tiền. Tiền hoàn THỰC TẾ của báo cáo lấy từ
+// statement transactions đã đồng bộ (`pod_tiktok_statement_transactions.revenue_breakdown`) —
+// bảng này chỉ lưu số tiền TikTok báo trên yêu cầu (đề nghị / được duyệt).
+// ===========================================================================
+
+/// Nhóm hiển thị nội bộ của `return_status` TikTok (raw status luôn được giữ nguyên).
+enum PodReturnStatusGroup {
+  /// Chờ seller / platform xem xét.
+  PENDING
+  /// Đã duyệt, đang chờ người mua gửi hàng / seller nhận hàng / chờ hoàn tiền.
+  PROCESSING
+  /// Đã xử lý xong (hoàn tiền xong, hoặc đổi hàng xong).
+  COMPLETED
+  /// Bị từ chối (yêu cầu hoặc kiện hàng trả về).
+  REJECTED
+  /// Người mua / hệ thống huỷ yêu cầu.
+  CANCELLED
+  /// Trạng thái TikTok chưa có trong bảng ánh xạ — giữ raw để đối chiếu.
+  OTHER
+
+  @@map("pod_return_status_group")
+}
+
+/// MỘT yêu cầu Return/Refund của TikTok (`return_orders[]`).
+model PodReturnRequest {
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  accountId      String  @map("account_id") @db.Uuid
+  shopId         String  @map("shop_id") @db.Uuid
+  /// Đơn POD tương ứng nếu đã đồng bộ (`pod_orders.tiktok_order_id` khớp). NULL = đơn chưa có trong hệ thống.
+  orderId        String? @map("order_id") @db.Uuid
+
+  /// `return_id` — định danh ổn định của yêu cầu.
+  tiktokReturnId String @map("tiktok_return_id") @db.VarChar(64)
+  /// `order_id`.
+  tiktokOrderId  String @map("tiktok_order_id") @db.VarChar(64)
+
+  /// `return_type` nguyên văn: REFUND | RETURN_AND_REFUND | REPLACEMENT | EXCHANGE …
+  returnType      String               @map("return_type") @db.VarChar(40)
+  /// `return_status` nguyên văn.
+  returnStatus    String               @map("return_status") @db.VarChar(64)
+  statusGroup     PodReturnStatusGroup @map("status_group")
+  /// TikTok xác nhận ĐÃ hoàn tiền cho người mua (RETURN_OR_REFUND_REQUEST_COMPLETE /
+  /// REPLACEMENT_REQUEST_REFUND_SUCCESS). Chỉ những yêu cầu này được cộng vào "đã hoàn".
+  refundCompleted Boolean              @default(false) @map("refund_completed")
+
+  /// `return_reason` (mã) và `return_reason_text` (nhãn TikTok, theo locale request).
+  returnReason               String?  @map("return_reason") @db.VarChar(255)
+  returnReasonText           String?  @map("return_reason_text") @db.VarChar(500)
+  /// Ai khởi tạo: BUYER | SELLER | OPERATOR | SYSTEM.
+  role                       String?  @db.VarChar(20)
+  arbitrationStatus          String?  @map("arbitration_status") @db.VarChar(40)
+  sellerProposedReturnType   String?  @map("seller_proposed_return_type") @db.VarChar(40)
+  /// `partial_refund.amount` — chỉ có khi seller đề nghị hoàn một phần.
+  partialRefundAmount        Decimal? @map("partial_refund_amount") @db.Decimal(18, 4)
+  buyerRejectedPartialRefund Boolean? @map("buyer_rejected_partial_refund")
+
+  /// `refund_amount.*` cấp yêu cầu — số tiền TikTok báo trên yêu cầu (KHÔNG phải tiền đã chi).
+  currency          String?  @db.VarChar(10)
+  refundTotal       Decimal? @map("refund_total") @db.Decimal(18, 4)
+  refundSubtotal    Decimal? @map("refund_subtotal") @db.Decimal(18, 4)
+  refundShippingFee Decimal? @map("refund_shipping_fee") @db.Decimal(18, 4)
+  refundTax         Decimal? @map("refund_tax") @db.Decimal(18, 4)
+  /// Σ `sale_price` của các order line item được yêu cầu (từ `pod_order_items`). NULL khi chưa
+  /// khớp được ĐỦ mọi dòng — không đoán bằng tổng đơn.
+  paidAmount        Decimal? @map("paid_amount") @db.Decimal(18, 4)
+  /// Số đơn vị hàng trong yêu cầu (TikTok tách mỗi đơn vị thành một line item).
+  itemQuantity      Int      @default(0) @map("item_quantity")
+
+  returnTrackingNumber String? @map("return_tracking_number") @db.VarChar(100)
+  returnProviderName   String? @map("return_provider_name") @db.VarChar(100)
+
+  /// `create_time` / `update_time` (Unix seconds) + bản DateTime để lọc / sắp xếp.
+  tiktokCreateTime BigInt   @map("tiktok_create_time")
+  tiktokUpdateTime BigInt   @map("tiktok_update_time")
+  requestedAt      DateTime @map("requested_at") @db.Timestamptz(6)
+  tiktokUpdatedAt  DateTime @map("tiktok_updated_at") @db.Timestamptz(6)
+
+  /// Lịch sử từ GetReturnRecords (đã rút gọn: thời gian, sự kiện, vai trò, mô tả, ghi chú, lý do).
+  /// Đọc theo yêu cầu khi người dùng mở lịch sử, làm mới khi `update_time` đổi.
+  history           Json?     @map("history")
+  historySyncedAt   DateTime? @map("history_synced_at") @db.Timestamptz(6)
+  /// `update_time` của yêu cầu tại lần đọc lịch sử — khác hiện tại ⇒ lịch sử đã cũ.
+  historyUpdateTime BigInt?   @map("history_update_time")
+
+  /// Bản ghi TikTok đã lọc (bỏ địa chỉ kho) để đối chiếu — ghi đè mỗi lần cập nhật, không tích luỹ.
+  rawPayload   Json?    @map("raw_payload")
+  payloadHash  String   @map("payload_hash") @db.VarChar(64)
+  lastSyncedAt DateTime @map("last_synced_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  account PodTiktokAccount       @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  shop    PodTiktokShop          @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  order   PodOrder?              @relation(fields: [orderId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  items   PodReturnRequestItem[]
+
+  /// Hàng rào chống trùng ở tầng DB: một `return_id` ⇒ đúng một dòng trong tổ chức.
+  @@unique([organizationId, tiktokReturnId])
+  @@index([organizationId, tiktokOrderId])
+  @@index([organizationId, requestedAt])
+  @@index([organizationId, statusGroup])
+  @@index([shopId, tiktokUpdateTime])
+  @@index([orderId])
+  @@map("pod_return_requests")
+}
+
+/// Một dòng hàng của yêu cầu (`return_line_items[]`).
+model PodReturnRequestItem {
+  id              String @id @default(uuid()) @db.Uuid
+  organizationId  String @map("organization_id") @db.Uuid
+  returnRequestId String @map("return_request_id") @db.Uuid
+
+  /// `return_line_item_id`.
+  returnLineItemId String  @map("return_line_item_id") @db.VarChar(64)
+  /// `order_line_item_id` — khoá nối sang `pod_order_items.tiktok_line_item_id`.
+  orderLineItemId  String? @map("order_line_item_id") @db.VarChar(64)
+  productName      String? @map("product_name") @db.VarChar(500)
+  skuId            String? @map("sku_id") @db.VarChar(64)
+  skuName          String? @map("sku_name") @db.VarChar(255)
+  sellerSku        String? @map("seller_sku") @db.VarChar(255)
+  productImageUrl  String? @map("product_image_url") @db.VarChar(1000)
+
+  currency       String?  @db.VarChar(10)
+  /// `refund_amount.refund_total` / `refund_subtotal` của dòng.
+  refundTotal    Decimal? @map("refund_total") @db.Decimal(18, 4)
+  refundSubtotal Decimal? @map("refund_subtotal") @db.Decimal(18, 4)
+  /// `sale_price` của order line item tương ứng (người mua thực trả). NULL = chưa khớp.
+  paidAmount     Decimal? @map("paid_amount") @db.Decimal(18, 4)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  returnRequest PodReturnRequest @relation(fields: [returnRequestId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([returnRequestId, returnLineItemId])
+  @@index([organizationId, orderLineItemId])
+  @@map("pod_return_request_items")
 }

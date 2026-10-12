@@ -1963,6 +1963,7 @@
     "created": "Tạo",
     "descriptionOrder": "Lần đồng bộ đơn gần nhất của từng shop (theo lịch hoặc Sync Now).",
     "descriptionProduct": "Lần đồng bộ sản phẩm gần nhất của từng shop (theo lịch hoặc Sync Now).",
+    "descriptionReturn": "Lần đồng bộ Return/Refund gần nhất của từng shop (theo lịch hoặc Đồng bộ ngay).",
     "duration": "Thời lượng",
     "empty": "Chưa có shop nào được đồng bộ.",
     "endedAt": "Kết thúc",

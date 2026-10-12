@@ -62,11 +62,14 @@ export class TelegramConfigService {
   async savePreferences(
     organizationId: string,
     actorUserId: string,
-    dto: NotificationPreferences,
+    dto: Omit<NotificationPreferences, 'returnRefund'> & { returnRefund?: boolean },
   ): Promise<NotificationPreferences> {
+    // Client cũ không gửi `returnRefund` ⇒ giữ giá trị đang lưu, không tự tắt.
+    const current = dto.returnRefund === undefined ? await this.preferences.find(organizationId) : null;
     const saved = await this.preferences.save(organizationId, actorUserId, {
       newOrder: dto.newOrder,
       fulfillment: dto.fulfillment,
+      returnRefund: dto.returnRefund ?? current?.returnRefund ?? true,
     });
     this.logger.log({
       module: 'notification',

@@ -16,8 +16,9 @@ import type { TiktokOrderStatus } from '../constants/tiktok.constants';
  * | CANCELLED            | CANCELLED                               |
  * | OTHER                | giá trị TikTok mới chưa được ánh xạ     |
  *
- * 🔴 KHÔNG có nhóm "Đơn hoàn": `pod_orders` không mang thông tin trả hàng/hoàn tiền — hệ thống chưa
- * đồng bộ TikTok Return & Refund API (quyết định PO: hiển thị "chưa có dữ liệu", không suy đoán).
+ * 🔴 KHÔNG có nhóm "Đơn hoàn" ở đây: trạng thái ĐƠN của TikTok không nói gì về trả hàng / hoàn tiền.
+ * Số đơn hoàn lấy từ `pod_return_requests` (TikTok Return & Refund API — module `pod-return`), xem
+ * `PodDashboardRepository.returnStats`; chưa shop nào đồng bộ thành công ⇒ vẫn hiện "chưa có dữ liệu".
  */
 export const ORDER_STATUS_GROUPS = {
   UNPAID: ['UNPAID'],

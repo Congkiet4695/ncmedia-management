@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import type { LabelCostConfig } from '../shared/order-financials';
 import { orderProfitCtes } from '../shared/order-profit.sql';
+import { settledRefundAmountSql } from '../shared/settled-refund.sql';
 import { NON_BLOCKING_FULFILLMENT_STATUSES } from '../../fulfillment/shared/fulfillment-lifecycle';
 import { ORDER_STATUS_GROUPS, type OrderStatusGroup } from '../shared/order-status-groups';
 
@@ -76,6 +77,16 @@ export interface SellerStatRow {
   paid: string;
   processing: string;
   hold: string;
+  /** Số đơn (trong khoảng) có yêu cầu Return/Refund còn hiệu lực (không huỷ / không bị từ chối). */
+  returns: number;
+}
+/** Chỉ số Return/Refund của các đơn trong khoảng. */
+export interface ReturnStatsRow {
+  requests: number;
+  returnedOrders: number;
+  refundedOrders: number;
+  /** Doanh thu bị TikTok trừ lại do hoàn tiền (statement đã quyết toán) — xem `settledRefundAmountSql`. */
+  settledRefund: string;
 }
 export interface FinanceTrendRow {
   day: string;
@@ -277,6 +288,58 @@ export class PodDashboardRepository {
     return { paid: dec(paid?.amount), processing: dec(processing?.amount) };
   }
 
+  /**
+   * Đã có dữ liệu Return/Refund cho phạm vi chưa: ít nhất một shop trong phạm vi đã đồng bộ RETURN
+   * thành công. Chưa ⇒ giao diện giữ "chưa có dữ liệu" thay vì hiện 0 gây hiểu nhầm.
+   */
+  async returnsAvailable(filter: DashboardFilter): Promise<boolean> {
+    const [row] = await this.prisma.$queryRaw<Array<{ ok: boolean }>>(Prisma.sql`
+      SELECT EXISTS (
+        SELECT 1 FROM pod_shop_sync_statuses ss
+         WHERE ss.organization_id = ${filter.organizationId}::uuid
+           AND ss.sync_type = 'RETURN'::"pod_shop_sync_type"
+           AND ss.status IN ('SUCCESS'::"pod_sync_status", 'PARTIAL'::"pod_sync_status")
+           AND ${this.scope(filter, 'ss', { currency: false })}
+      ) AS ok`);
+    return row?.ok === true;
+  }
+
+  /**
+   * Return/Refund của các ĐƠN trong khoảng (cùng tập đơn với nhóm trạng thái):
+   *  - requests       : số YÊU CẦU (một đơn có thể có nhiều yêu cầu);
+   *  - returnedOrders : số đơn có yêu cầu còn hiệu lực (không CANCELLED / REJECTED);
+   *  - refundedOrders : số đơn TikTok xác nhận đã hoàn tiền (`refund_completed`);
+   *  - settledRefund  : doanh thu bị trừ lại trong statement đã quyết toán, cùng đơn vị tiền tệ.
+   * 🔴 Không cộng refund_total của yêu cầu vào tiền: yêu cầu ≠ giao dịch hoàn tiền.
+   */
+  async returnStats(filter: DashboardFilter, window: Window): Promise<ReturnStatsRow> {
+    const [row] = await this.prisma.$queryRaw<
+      Array<{ requests: bigint; returned: bigint; refunded: bigint; settled: Prisma.Decimal | null }>
+    >(Prisma.sql`
+      WITH o AS (
+        SELECT po.tiktok_order_id FROM pod_orders po WHERE ${this.ordersWhere(filter, window)}
+      ),
+      r AS (
+        SELECT rr.tiktok_order_id, rr.status_group, rr.refund_completed
+          FROM pod_return_requests rr JOIN o ON o.tiktok_order_id = rr.tiktok_order_id
+         WHERE rr.organization_id = ${filter.organizationId}::uuid AND rr.deleted_at IS NULL
+      )
+      SELECT (SELECT COUNT(*) FROM r)::bigint AS requests,
+             (SELECT COUNT(DISTINCT tiktok_order_id) FROM r
+               WHERE status_group NOT IN ('CANCELLED'::"pod_return_status_group", 'REJECTED'::"pod_return_status_group"))::bigint AS returned,
+             (SELECT COUNT(DISTINCT tiktok_order_id) FROM r WHERE refund_completed)::bigint AS refunded,
+             (SELECT SUM(${settledRefundAmountSql('t')})
+                FROM pod_tiktok_statement_transactions t JOIN o ON o.tiktok_order_id = t.tiktok_order_id
+               WHERE t.organization_id = ${filter.organizationId}::uuid AND t.deleted_at IS NULL
+                 AND t.revenue_breakdown IS NOT NULL AND t.currency = ${filter.currency}) AS settled`);
+    return {
+      requests: Number(row?.requests ?? 0),
+      returnedOrders: Number(row?.returned ?? 0),
+      refundedOrders: Number(row?.refunded ?? 0),
+      settledRefund: dec(row?.settled),
+    };
+  }
+
   /** Số đơn + tổng tiền theo nhóm trạng thái trong khoảng. */
   async orderGroups(filter: DashboardFilter, window: Window): Promise<OrderGroupRow[]> {
     const rows = await this.prisma.$queryRaw<
@@ -342,6 +405,7 @@ export class PodDashboardRepository {
         paid: Prisma.Decimal;
         processing: Prisma.Decimal;
         hold: Prisma.Decimal;
+        returns: bigint;
         total_rows: bigint;
       }>
     >(Prisma.sql`
@@ -369,6 +433,16 @@ export class PodDashboardRepository {
         SELECT a.seller_id, SUM(st.settlement_amount) AS amount
           FROM pod_tiktok_statements st JOIN pod_tiktok_accounts a ON a.id = st.account_id
          WHERE ${this.processingStatementsWhere(filter, window)}
+         GROUP BY a.seller_id
+      ),
+      by_returns AS (
+        SELECT a.seller_id, COUNT(DISTINCT fin.tiktok_order_id)::bigint AS orders
+          FROM fin
+          JOIN pod_tiktok_accounts a ON a.id = fin.account_id
+          JOIN pod_return_requests rr
+            ON rr.organization_id = ${filter.organizationId}::uuid AND rr.deleted_at IS NULL
+           AND rr.tiktok_order_id = fin.tiktok_order_id
+           AND rr.status_group NOT IN ('CANCELLED'::"pod_return_status_group", 'REJECTED'::"pod_return_status_group")
          GROUP BY a.seller_id
       ),
       by_hold AS (
@@ -405,12 +479,14 @@ export class PodDashboardRepository {
                o.profit                                  AS profit,
                COALESCE(pa.amount, 0)                    AS paid,
                COALESCE(pr.amount, 0)                    AS processing,
-               COALESCE(h.amount, 0)                     AS hold
+               COALESCE(h.amount, 0)                     AS hold,
+               COALESCE(rt.orders, 0)::bigint            AS returns
           FROM sellers s
           LEFT JOIN by_orders o      ON o.seller_id  IS NOT DISTINCT FROM s.seller_id
           LEFT JOIN by_paid pa       ON pa.seller_id IS NOT DISTINCT FROM s.seller_id
           LEFT JOIN by_processing pr ON pr.seller_id IS NOT DISTINCT FROM s.seller_id
           LEFT JOIN by_hold h        ON h.seller_id  IS NOT DISTINCT FROM s.seller_id
+          LEFT JOIN by_returns rt    ON rt.seller_id IS NOT DISTINCT FROM s.seller_id
       )
       SELECT merged.*, COUNT(*) OVER ()::bigint AS total_rows
         FROM merged
@@ -431,6 +507,7 @@ export class PodDashboardRepository {
         paid: dec(row.paid),
         processing: dec(row.processing),
         hold: dec(row.hold),
+        returns: Number(row.returns),
       })),
       total: Number(rows[0]?.total_rows ?? 0),
     };

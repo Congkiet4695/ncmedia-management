@@ -20,6 +20,7 @@ import viMenu from './locales/vi/menu.json';
 import viNotification from './locales/vi/notification.json';
 import viOrder from './locales/vi/order.json';
 import viPod from './locales/vi/pod.json';
+import viPodReturn from './locales/vi/podReturn.json';
 import viProfile from './locales/vi/profile.json';
 import viReport from './locales/vi/report.json';
 import viSuperAdmin from './locales/vi/superAdmin.json';
@@ -35,6 +36,7 @@ import enMenu from './locales/en/menu.json';
 import enNotification from './locales/en/notification.json';
 import enOrder from './locales/en/order.json';
 import enPod from './locales/en/pod.json';
+import enPodReturn from './locales/en/podReturn.json';
 import enProfile from './locales/en/profile.json';
 import enReport from './locales/en/report.json';
 import enSuperAdmin from './locales/en/superAdmin.json';
@@ -63,6 +65,7 @@ export const resources = {
     superAdmin: viSuperAdmin,
     notification: viNotification,
     dashboard: viDashboard,
+    podReturn: viPodReturn,
   },
   en: {
     common: enCommon,
@@ -79,5 +82,6 @@ export const resources = {
     superAdmin: enSuperAdmin,
     notification: enNotification,
     dashboard: enDashboard,
+    podReturn: enPodReturn,
   },
 } satisfies Record<Locale, Record<Namespace, unknown>>;

@@ -23,6 +23,7 @@ import {
   LayoutDashboard,
   Package,
   RefreshCw,
+  RotateCcw,
   Rocket,
   Send,
   Settings,
@@ -39,6 +40,7 @@ import {
 } from 'lucide-react';
 import type { Namespace } from '@/i18n/config';
 import { AUTO_FLASH_SALE_SETTINGS_PATH } from '@/features/pod-flash-sale/routes';
+import { POD_RETURNS_PATH } from '@/features/pod-return/routes';
 
 export interface NavItemConfig {
   /** Khoá dịch trong namespace `menu` (vd `menu:employees`). */
@@ -260,12 +262,6 @@ export const NAVIGATION: NavItemConfig[] = [
         permission: 'pod.flashsale.read',
       },
       {
-        labelKey: 'podOrders',
-        href: '/dashboard/pod/orders',
-        icon: ClipboardList,
-        permission: 'pod.tiktok.order.read',
-      },
-      {
         labelKey: 'podFulfillmentProviders',
         href: '/dashboard/pod/fulfillment-providers',
         icon: Factory,
@@ -276,6 +272,28 @@ export const NAVIGATION: NavItemConfig[] = [
         href: '/dashboard/pod/product-mapping',
         icon: Link2,
         permission: 'fulfillment.config',
+      },
+    ],
+  },
+
+  // Order — đơn TikTok và yêu cầu Return/Refund. URL của POD Orders GIỮ NGUYÊN (`/dashboard/pod/orders`,
+  // cùng quyền `pod.tiktok.order.read`) — chỉ đổi vị trí trong menu, không gãy link / bookmark.
+  {
+    labelKey: 'orderGroup',
+    href: '/dashboard/pod/orders',
+    icon: ShoppingBag,
+    children: [
+      {
+        labelKey: 'podOrders',
+        href: '/dashboard/pod/orders',
+        icon: ClipboardList,
+        permission: 'pod.tiktok.order.read',
+      },
+      {
+        labelKey: 'podReturns',
+        href: POD_RETURNS_PATH,
+        icon: RotateCcw,
+        permission: 'pod.tiktok.return.read',
       },
     ],
   },

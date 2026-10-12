@@ -156,6 +156,10 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   'pod.listing.publish',
   // POD Orders + Design (công việc của Designer).
   'pod.tiktok.order.read',
+  // Return Orders: xem + đồng bộ thủ công shop của mình. An toàn vì MỌI endpoint đi qua
+  // `PodAccessScopeService` (đồng bộ chỉ chạm shop trong phạm vi, khoá Redis theo shop bảo vệ quota).
+  'pod.tiktok.return.read',
+  'pod.tiktok.return.sync',
   'pod.tiktok.design.upload',
   'pod.tiktok.design.delete',
   // Flash Sale: Seller tự chạy khuyến mãi cho shop được gán — cùng mức tin cậy đã trao ở

@@ -78,11 +78,48 @@ export interface FulfillmentCancelledPayload extends FulfillmentPayloadBase {
   cancelledBy?: string | null;
 }
 
+/** Một dòng hàng của yêu cầu Return/Refund (đã gộp theo SKU). */
+export interface NotificationReturnItem {
+  productName: string | null;
+  sku: string | null;
+  variant: string | null;
+  quantity: number;
+}
+
+/**
+ * RETURN / REFUND REQUEST — yêu cầu Return/Refund mới, ghi nhận LẦN ĐẦU khi đồng bộ.
+ * Số tiền dạng chuỗi; field nào TikTok không trả thì `null` (tin nhắn bỏ dòng đó).
+ */
+export interface ReturnRefundRequestPayload {
+  tiktokReturnId: string;
+  tiktokOrderId: string;
+  sellerName: string | null;
+  accountName: string | null;
+  shopName: string | null;
+  /** `return_type` nguyên văn (REFUND, RETURN_AND_REFUND …). */
+  returnType: string;
+  /** Nhãn lý do của TikTok, thiếu thì mã lý do. */
+  reason: string | null;
+  /** `return_status` nguyên văn. */
+  status: string;
+  items: NotificationReturnItem[];
+  currency: string | null;
+  /** Σ giá người mua trả cho các dòng được yêu cầu — `null` khi chưa xác định chính xác. */
+  paidAmount: string | null;
+  /** `refund_amount.refund_total` TikTok báo trên yêu cầu. */
+  requestedRefundAmount: string | null;
+  /** `create_time` của yêu cầu (ISO). */
+  requestedAt: string | null;
+  /** Đường dẫn tương đối tới màn Return Orders (frontend tự ghép domain nếu cấu hình). */
+  link: string | null;
+}
+
 /** Payload theo từng loại sự kiện — formatter dựa vào đây để dựng tin nhắn. */
 export interface NotificationPayloadMap {
   ORDER_CREATED: OrderCreatedPayload;
   FULFILLMENT_SUBMITTED: FulfillmentSubmittedPayload;
   FULFILLMENT_CANCELLED: FulfillmentCancelledPayload;
+  RETURN_REFUND_REQUEST: ReturnRefundRequestPayload;
 }
 
 /** Một sự kiện cần phát — đầu vào của `NotificationOutboxService`. */

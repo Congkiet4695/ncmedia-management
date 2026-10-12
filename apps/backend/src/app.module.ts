@@ -28,6 +28,7 @@ import { PodProductSyncBridgeModule } from './modules/pod-product/pod-product-sy
 import { PodListingSessionModule } from './modules/pod-listing-session/pod-listing-session.module';
 import { PodListingModule } from './modules/pod-listing/pod-listing.module';
 import { PodFlashSaleModule } from './modules/pod-flash-sale/pod-flash-sale.module';
+import { PodReturnModule } from './modules/pod-return/pod-return.module';
 import { PodMasterDataModule } from './modules/pod-master-data/pod-master-data.module';
 import { PodResourceModule } from './modules/pod-resource/pod-resource.module';
 import { TikTokSdkModule } from './modules/tiktok-sdk/tiktok-sdk.module';
@@ -143,6 +144,7 @@ import { NotificationModule } from './modules/notification/notification.module';
     PodResourceModule,
     // Module POD — Flash Sale (Promotion Activity `FLASHSALE` của TikTok Shop)
     PodFlashSaleModule,
+    PodReturnModule,
     // Gửi đơn POD sang xưởng in (MangoTeePrints)
     FulfillmentModule,
     // Thông báo Telegram theo Organization (đơn mới / fulfill / huỷ fulfill)

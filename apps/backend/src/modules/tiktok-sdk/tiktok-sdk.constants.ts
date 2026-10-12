@@ -258,3 +258,29 @@ export const TIKTOK_ACTIVITY_MAX_QUANTITY = 99;
 
 /** Độ dài tối đa của `title` (tên hoạt động) — TikTok từ chối thẳng nếu vượt. */
 export const TIKTOK_ACTIVITY_MAX_TITLE_LENGTH = 50;
+
+// ---------------------------------------------------------------------------
+// Return & Refund API (scope `seller.return_refund.basic`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Version SDK cho nhóm **Return & Refund**.
+ *
+ * - Search Returns: bản MỚI NHẤT của chính capability này là 202602 (202309 cùng hợp đồng, cũ hơn).
+ *   `rma/search` (202603/202604) là cấp GÓI HÀNG trả về (RMA), không phải danh sách yêu cầu.
+ * - Get Return Records (lịch sử): SDK chỉ có 202309.
+ */
+export const TIKTOK_RETURN_REFUND_API_VERSIONS = {
+  searchReturns: 'ReturnRefundV202602Api',
+  returnRecords: 'ReturnRefundV202309Api',
+} as const;
+
+/** Cỡ trang Search Returns — TikTok cho phép [10, 50]; lấy trần để ít lời gọi nhất. */
+export const TIKTOK_RETURN_SEARCH_PAGE_SIZE = 50;
+
+/** Thời gian chờ / số lần thử lại của MỘT lời gọi đọc Return & Refund. */
+export const TIKTOK_RETURN_REFUND_TIMEOUT_MS = 20_000;
+export const TIKTOK_RETURN_REFUND_MAX_RETRY = 2;
+
+/** Locale cho `return_reason_text` — nhãn lý do do TikTok dịch, hệ thống không tự dịch mã lý do. */
+export const TIKTOK_RETURN_REASON_LOCALE = 'en-US';
