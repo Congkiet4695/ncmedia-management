@@ -1980,7 +1980,26 @@
       "CRON": "Scheduled (cron)",
       "MANUAL": "Manual"
     },
-    "updated": "Updated"
+    "updated": "Updated",
+    "failedProducts": {
+      "toggle": "Show {{count}} failed products",
+      "title": "Products that failed to sync in this run",
+      "product": "Product",
+      "step": "Failed step",
+      "error": "Cause",
+      "kind": "Error type",
+      "steps": {
+        "FETCH_DETAIL": "Fetch detail from TikTok",
+        "MAP": "Map data",
+        "SAVE": "Save to database"
+      },
+      "attempts_one": "{{count}} attempt",
+      "attempts_other": "{{count}} attempts",
+      "retryable": "Temporary — retried next run",
+      "permanent": "Needs action",
+      "omitted": "{{count}} more failed products not shown.",
+      "notRecorded": "This run happened before per-product failure details were recorded ({{count}} products). Run the sync again to see the causes."
+    }
   },
   "syncStatus": {
     "FAILED": "Failed",

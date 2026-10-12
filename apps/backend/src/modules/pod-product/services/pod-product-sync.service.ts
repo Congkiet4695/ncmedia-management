@@ -18,6 +18,7 @@ import {
   PodShopSyncStatusRepository,
   type SyncRunHandle,
 } from '../../pod-tiktok/repositories/pod-shop-sync-status.repository';
+import { RETRYABLE_ERROR_CLASSES } from '../../pod-tiktok/constants/tiktok-error-code.constants';
 import { TiktokClientError } from '../../pod-tiktok/exceptions/pod-tiktok.exceptions';
 import { PodTiktokTokenService } from '../../pod-tiktok/services/pod-tiktok-token.service';
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
@@ -37,6 +38,10 @@ import {
   POD_PRODUCT_SYNC_LOCK_PREFIX,
   POD_PRODUCT_SYNC_LOCK_TTL_MS,
   POD_PRODUCT_SYNC_OVERLAP_SECONDS,
+  POD_PRODUCT_SAVE_MAX_ATTEMPTS,
+  POD_PRODUCT_SAVE_RETRY_DELAY_MS,
+  POD_PRODUCT_SYNC_FAILURE_DETAIL_LIMIT,
+  POD_PRODUCT_TRANSIENT_DB_ERROR_CODES,
 } from '../constants/pod-product.constants';
 import { PodProductSyncQueue } from './pod-product-sync.queue';
 import { PodProductMapper } from '../mappers/pod-product.mapper';
@@ -58,7 +63,40 @@ export type ProductSyncSkipReason =
   | 'SHOP_INACTIVE'
   | 'SHOP_DEAUTHORIZED'
   | 'PRODUCT_SYNC_DISABLED'
+  /** Shop / kết nối bị xoá giữa lúc lượt theo lịch đang chạy (kiểm lại ngay trước khi gọi TikTok). */
+  | 'SHOP_NOT_FOUND'
   | `ACCOUNT_${Exclude<PodTiktokAccountStatus, 'ACTIVE'>}`;
+
+/** Bước xử lý MỘT sản phẩm bị lỗi — đọc được "chết ở đâu" mà không phải đoán. */
+export type ProductSyncFailureStep =
+  /** Get Product (TikTok) — đã qua retry của `TikTokSdkService`. */
+  | 'FETCH_DETAIL'
+  /** Ánh xạ payload TikTok sang dữ liệu ghi. */
+  | 'MAP'
+  /** Ghi database (transaction `upsertAggregate` / payload gốc). */
+  | 'SAVE';
+
+/**
+ * Một sản phẩm KHÔNG đồng bộ được — lưu vào `details.failedProducts` của dòng Latest Sync Status
+ * để tra từ màn hình. KHÔNG chứa token / shop cipher.
+ */
+export interface ProductSyncFailure {
+  tiktokProductId: string;
+  /** Id nội bộ nếu sản phẩm đã từng đồng bộ về; `null` = sản phẩm mới chưa có trong hệ thống. */
+  productId: string | null;
+  title: string | null;
+  step: ProductSyncFailureStep;
+  /** Mã lỗi TikTok (vd `12052700`) hoặc mã Prisma (vd `P2028`); `null` = lỗi không mang mã. */
+  errorCode: string | null;
+  errorMessage: string | null;
+  httpStatus: number | null;
+  tiktokRequestId: string | null;
+  /** Lỗi tạm thời (lượt sau có thể tự hết) hay lỗi cần người xử lý. */
+  retryable: boolean;
+  /** Số lần đã thử ở bước lỗi (bước SAVE thử lại khi lỗi DB tạm thời). */
+  attempts: number;
+  failedAt: string;
+}
 
 /** Mã lỗi khi lượt đồng bộ THỦ CÔNG hết ngân sách thời gian — phần còn lại chạy ở nền. */
 export const PRODUCT_SYNC_DEADLINE_CODE = 'SYNC_DEADLINE_EXCEEDED';
@@ -102,6 +140,17 @@ export interface ProductSyncOutcome {
   deactivated: number;
   errorCode?: string;
   errorMessage?: string;
+  /**
+   * Chỉ có nghĩa khi `status = FAILED`: lỗi tạm thời (mạng, rate limit, 5xx, DB) ⇒ hàng đợi nền được
+   * hẹn lại; lỗi nghiệp vụ / uỷ quyền của TikTok (vd 12052700 "seller inactive") ⇒ KHÔNG hẹn lại.
+   */
+  retryable?: boolean;
+  /**
+   * Sản phẩm lỗi của lượt (bước + mã + thông điệp) — cùng nội dung với `details.failedProducts`.
+   * Lượt SINGLE ("Đồng bộ lại sản phẩm này") KHÔNG ghi dòng trạng thái shop, nên đây là nơi DUY NHẤT
+   * nơi gọi đọc được vì sao sản phẩm không ghi được.
+   */
+  failures?: ProductSyncFailure[];
 }
 
 export interface SyncOptions {
@@ -136,6 +185,41 @@ interface RunCounters {
   deactivated: number;
   /** Lượt dừng giữa chừng vì hết ngân sách thời gian (chỉ lượt thủ công). */
   deadlineHit: boolean;
+  /** Sản phẩm lỗi của lượt — MỖI sản phẩm một dòng (thử lại không sinh thêm dòng). */
+  failures: ProductSyncFailure[];
+}
+
+/** Lỗi đã chuẩn hoá để ghi log / trạng thái. */
+interface DescribedError {
+  errorCode: string | null;
+  errorMessage: string | null;
+  tiktokRequestId: string | null;
+  httpStatus: number | null;
+  retryable: boolean;
+}
+
+/** Kết quả xử lý MỘT sản phẩm. */
+interface IngestResult {
+  tiktokProductId: string;
+  productId: string | null;
+  action: PodProductSyncAction;
+  apiCalls: number;
+  failure?: ProductSyncFailure;
+}
+
+/** Lỗi DB tạm thời (transaction hết giờ, xung đột ghi, mất kết nối) — xem POD_PRODUCT_TRANSIENT_DB_ERROR_CODES. */
+function isTransientDbError(error: unknown): boolean {
+  return (
+    (error instanceof Prisma.PrismaClientKnownRequestError &&
+      POD_PRODUCT_TRANSIENT_DB_ERROR_CODES.includes(error.code)) ||
+    error instanceof Prisma.PrismaClientInitializationError
+  );
+}
+
+/** Thông điệp lỗi một dòng, có trần — lỗi Prisma nhiều dòng và rất dài. */
+function compactMessage(message: string, max = 1000): string {
+  const flat = message.replace(/\s+/g, ' ').trim();
+  return flat.length > max ? `${flat.slice(0, max - 1)}…` : flat;
 }
 
 /**
@@ -206,6 +290,20 @@ export class PodProductSyncService {
    */
   async scheduleShopSync(shopId: string): Promise<Date | null> {
     try {
+      // 🔴 Shop không đủ điều kiện (INACTIVE / mất uỷ quyền / kết nối hỏng / tắt đồng bộ) KHÔNG
+      // vào hàng đợi tự động. Worker vẫn kiểm lại lúc chạy (shop có thể đổi trạng thái sau khi hẹn).
+      const skipReason = await this.currentSkipReason(shopId);
+      if (skipReason) {
+        this.logger.log({
+          module: 'pod-product',
+          operation: 'sync.schedule.skip',
+          shopId,
+          skipReason,
+          msg: 'Shop không đủ điều kiện đồng bộ tự động — không hẹn đồng bộ sản phẩm',
+        });
+        return null;
+      }
+
       const dueAt = await this.queue.schedule(
         shopId,
         POD_PRODUCT_SYNC_PUBLISH_DELAY_MS,
@@ -250,9 +348,17 @@ export class PodProductSyncService {
           { shopId },
           { trigger: PodProductSyncTrigger.SCHEDULER },
         );
-        if (outcomes.some((outcome) => outcome.status === PodProductSyncStatus.FAILED)) {
+        const failedOutcomes = outcomes.filter(
+          (outcome) => outcome.status === PodProductSyncStatus.FAILED,
+        );
+        if (failedOutcomes.length > 0) {
           failed += 1;
-          await this.queue.requeue(shopId, POD_PRODUCT_SYNC_REQUEUE_DELAY_MS);
+          // 🔴 Chỉ hẹn lại khi lỗi TẠM THỜI. Lỗi nghiệp vụ / uỷ quyền (vd 12052700 seller inactive)
+          // thử lại 5 phút một lần mãi cũng hỏng — để lượt theo lịch (và Shop Sync) xử lý.
+          // Shop bị BỎ QUA (INACTIVE…) có status SKIPPED nên không bao giờ tới đây.
+          if (failedOutcomes.some((outcome) => outcome.retryable !== false)) {
+            await this.queue.requeue(shopId, POD_PRODUCT_SYNC_REQUEUE_DELAY_MS);
+          }
         }
       } catch (error) {
         failed += 1;
@@ -295,13 +401,16 @@ export class PodProductSyncService {
       {
         limit: this.settings.shopConcurrency,
         deadlineAt: options.deadlineAt,
-        onDeadline: (candidate) =>
-          this.skipReasonOf(candidate)
-            ? this.skippedOutcome(candidate)
-            : this.defer(candidate, 'queued'),
+        onDeadline: (candidate) => {
+          const skipReason = this.skipReasonOf(candidate);
+          return skipReason
+            ? this.skippedOutcome(candidate, skipReason)
+            : this.defer(candidate, 'queued');
+        },
       },
       async (candidate) => {
-        if (this.skipReasonOf(candidate)) return this.skippedOutcome(candidate);
+        const skipReason = this.skipReasonOf(candidate);
+        if (skipReason) return this.skippedOutcome(candidate, skipReason);
         const outcome = await this.syncShop(candidate, options);
         return outcome.status === 'DEFERRED' ? this.defer(candidate, 'partial', outcome) : outcome;
       },
@@ -324,6 +433,16 @@ export class PodProductSyncService {
     if (candidate.status === PodTiktokShopStatus.DEAUTHORIZED) return 'SHOP_DEAUTHORIZED';
     if (!candidate.productSyncEnabled) return 'PRODUCT_SYNC_DISABLED';
     return null;
+  }
+
+  /**
+   * Đọc LẠI trạng thái shop + kết nối từ database ngay lúc này và trả lý do bỏ qua (`null` = đủ
+   * điều kiện). Dùng cho đường TỰ ĐỘNG: danh sách shop của một tick được chụp lúc đầu tick, mà một
+   * tick nhiều shop kéo dài nhiều phút — shop có thể chuyển INACTIVE (Shop Sync) trong lúc chờ.
+   */
+  private async currentSkipReason(shopId: string): Promise<ProductSyncSkipReason | null> {
+    const [fresh] = await this.syncRepo.findSyncCandidates({ shopId });
+    return fresh ? this.skipReasonOf(fresh) : 'SHOP_NOT_FOUND';
   }
 
   /**
@@ -383,6 +502,14 @@ export class PodProductSyncService {
     }
 
     try {
+      // 🔴 Lượt TỰ ĐỘNG kiểm lại trạng thái shop ngay trước khi gọi TikTok (sau khi giữ khoá): shop
+      // chuyển INACTIVE sau lúc chọn shop / lúc hẹn hàng đợi ⇒ BỎ QUA — không gọi API, không ghi dòng
+      // trạng thái, không tăng bộ đếm lỗi, không hẹn lại. Lượt THỦ CÔNG giữ nguyên hành vi (đã được
+      // phân loại ở `syncShops` / chọn bằng `findSyncTargets`).
+      if (options.trigger === PodProductSyncTrigger.SCHEDULER) {
+        const skipReason = await this.currentSkipReason(target.id);
+        if (skipReason) return this.skippedOutcome(target, skipReason);
+      }
       return await this.runSync(target, options);
     } finally {
       await this.lock.release(handle);
@@ -427,6 +554,7 @@ export class PodProductSyncService {
       apiCalls: 0,
       deactivated: 0,
       deadlineHit: false,
+      failures: [],
     };
 
     this.logger.log({
@@ -454,7 +582,11 @@ export class PodProductSyncService {
       // Đối soát hai chiều (danh sách tóm tắt đã ĐẦY ĐỦ kể cả khi phần ghi dừng vì hết giờ):
       //   1. Có mặt trong danh sách của một trạng thái được quản lý ⇒ gỡ dấu "rời tập".
       //   2. Vắng mặt ở lượt FULL ⇒ đánh dấu "rời tập" (DRAFT / DELETED / ngoài bảng ánh xạ).
-      await this.reconcileActive(target, scope, summaries, counters);
+      // 🔴 Lượt SINGLE không có danh sách từ TikTok (`summaries` tự dựng từ id) — chỉ đối soát khi sản
+      // phẩm thực sự lấy + ghi được; lỗi thì KHÔNG được đổi trạng thái sản phẩm.
+      if (scope !== PodProductSyncScope.SINGLE || counters.failed === 0) {
+        await this.reconcileActive(target, scope, summaries, counters);
+      }
 
       const status =
         counters.failed > 0 || counters.deadlineHit
@@ -534,6 +666,7 @@ export class PodProductSyncService {
         status: PodProductSyncStatus.FAILED,
         errorCode: described.errorCode ?? undefined,
         errorMessage: described.errorMessage ?? undefined,
+        retryable: described.retryable,
       };
     }
   }
@@ -664,6 +797,7 @@ export class PodProductSyncService {
     deadlineAt?: number,
   ): Promise<void> {
     const ids = summaries.map((summary) => summary.id).filter((id): id is string => Boolean(id));
+    const titles = new Map(summaries.map((summary) => [summary.id, summary.title ?? null]));
     const knownHashes = await this.repo.findHashes(target.organizationId, target.id, ids);
 
     for (let index = 0; index < ids.length; index += POD_PRODUCT_DETAIL_CONCURRENCY) {
@@ -686,37 +820,81 @@ export class PodProductSyncService {
       const batch = ids.slice(index, index + POD_PRODUCT_DETAIL_CONCURRENCY);
       const results = await Promise.all(
         batch.map((productId) =>
-          this.ingestOne(ctx, target, productId, knownHashes.get(productId)),
+          this.ingestOne(ctx, target, productId, titles.get(productId) ?? null, knownHashes.get(productId)),
         ),
       );
 
+      // 🔴 MỖI sản phẩm đúng MỘT kết cục (thử lại nằm TRONG `ingestOne`) ⇒ created + updated +
+      // skipped + failed = số sản phẩm đã xử lý, không đếm trùng.
       for (const result of results) {
         counters.apiCalls += result.apiCalls;
         if (result.action === PodProductSyncAction.CREATED) counters.created += 1;
         if (result.action === PodProductSyncAction.UPDATED) counters.updated += 1;
         if (result.action === PodProductSyncAction.SKIPPED) counters.skipped += 1;
-        if (result.action === PodProductSyncAction.FAILED) counters.failed += 1;
+        if (result.action === PodProductSyncAction.FAILED) {
+          counters.failed += 1;
+          if (result.failure) counters.failures.push(result.failure);
+        }
       }
+    }
+
+    await this.attachLocalIds(target, counters.failures);
+  }
+
+  /**
+   * Gắn id nội bộ cho các sản phẩm lỗi đã từng đồng bộ về (một truy vấn cho cả lượt). Lỗi đọc ở đây
+   * KHÔNG được làm hỏng lượt — chỉ mất phần thông tin phụ.
+   */
+  private async attachLocalIds(
+    target: ProductSyncTarget,
+    failures: ProductSyncFailure[],
+  ): Promise<void> {
+    if (failures.length === 0) return;
+    try {
+      const localIds = await this.repo.findIdsByTiktokIds(
+        target.organizationId,
+        target.id,
+        failures.map((failure) => failure.tiktokProductId),
+      );
+      for (const failure of failures) {
+        failure.productId = localIds.get(failure.tiktokProductId) ?? null;
+      }
+    } catch (error) {
+      this.logger.warn({
+        module: 'pod-product',
+        operation: 'sync.product.fail.lookup',
+        organizationId: target.organizationId,
+        shopId: target.id,
+        msg: error instanceof Error ? error.message : 'Lỗi không xác định',
+      });
     }
   }
 
-  /** Đọc chi tiết và ghi MỘT sản phẩm. Lỗi được nuốt và biến thành log — fail-soft. */
+  /**
+   * Đọc chi tiết và ghi MỘT sản phẩm. Lỗi được nuốt và biến thành `failure` — fail-soft: một sản
+   * phẩm lỗi không dừng các sản phẩm còn lại.
+   *
+   * 🔴 Lượt này CHỈ ĐỌC TikTok (Get Product) — không tạo / sửa gì trên sàn, nên thử lại không thể
+   * sinh listing trùng. Ghi DB là `upsert` theo (tổ chức, shop, tiktok_product_id) trong MỘT
+   * transaction: lỗi giữa chừng ⇒ rollback, không có bản ghi dở dang; watermark không tiến nên
+   * lượt sau tự lấy lại đúng sản phẩm đó (đối soát tự nhiên).
+   */
   private async ingestOne(
     ctx: TiktokShopContext,
     target: ProductSyncTarget,
     tiktokProductId: string,
+    summaryTitle: string | null,
     knownHash?: string,
-  ): Promise<{
-    tiktokProductId: string;
-    productId: string | null;
-    action: PodProductSyncAction;
-    apiCalls: number;
-    message?: string | null;
-    errorCode?: string | null;
-    tiktokRequestId?: string | null;
-  }> {
+  ): Promise<IngestResult> {
+    let step: ProductSyncFailureStep = 'FETCH_DETAIL';
+    let title = summaryTitle;
+    const attempts = { count: 1 };
+
     try {
       const { data: detail, requestId } = await this.productApi.getProduct(ctx, tiktokProductId);
+      title = detail.title ?? title;
+
+      step = 'MAP';
       const mapped = this.mapper.toWriteData(detail, detail);
 
       // 🔴 Trạng thái ngoài bảng ánh xạ (TikTok thêm giá trị mới, hoặc sản phẩm vừa chuyển sang
@@ -735,42 +913,34 @@ export class PodProductSyncService {
       }
 
       if (knownHash && knownHash === mapped.product.payloadHash) {
-        return {
-          tiktokProductId,
-          productId: null,
-          action: PodProductSyncAction.SKIPPED,
-          apiCalls: 1,
-          message: 'Payload không đổi',
-        };
+        return { tiktokProductId, productId: null, action: PodProductSyncAction.SKIPPED, apiCalls: 1 };
       }
 
-      const { id, created } = await this.repo.upsertAggregate(
-        target.organizationId,
-        target.accountId,
-        target.id,
-        mapped,
-        null,
+      step = 'SAVE';
+      const { id, created } = await this.withDbRetry(target, tiktokProductId, attempts, () =>
+        this.repo.upsertAggregate(target.organizationId, target.accountId, target.id, mapped, null),
       );
 
       // Lưu payload gốc SAU khi ghi thành công để có `productId` gắn kèm.
-      await this.repo.saveRawData({
-        organizationId: target.organizationId,
-        shopId: target.id,
-        productId: id,
-        tiktokProductId,
-        source: PodProductRawSource.DETAIL,
-        apiVersion: TIKTOK_PRODUCT_API_VERSIONS.getProduct,
-        payload: detail as unknown as Prisma.InputJsonValue,
-        payloadHash: mapped.product.payloadHash,
-        tiktokRequestId: requestId,
-      });
+      await this.withDbRetry(target, tiktokProductId, attempts, () =>
+        this.repo.saveRawData({
+          organizationId: target.organizationId,
+          shopId: target.id,
+          productId: id,
+          tiktokProductId,
+          source: PodProductRawSource.DETAIL,
+          apiVersion: TIKTOK_PRODUCT_API_VERSIONS.getProduct,
+          payload: detail as unknown as Prisma.InputJsonValue,
+          payloadHash: mapped.product.payloadHash,
+          tiktokRequestId: requestId,
+        }),
+      );
 
       return {
         tiktokProductId,
         productId: id,
         action: created ? PodProductSyncAction.CREATED : PodProductSyncAction.UPDATED,
         apiCalls: 1,
-        tiktokRequestId: requestId,
       };
     } catch (error) {
       const described = this.describeError(error);
@@ -780,7 +950,11 @@ export class PodProductSyncService {
         organizationId: target.organizationId,
         shopId: target.id,
         tiktokProductId,
+        step,
+        attempts: attempts.count,
         errorCode: described.errorCode,
+        httpStatus: described.httpStatus,
+        retryable: described.retryable,
         tiktokRequestId: described.tiktokRequestId,
         msg: described.errorMessage,
       });
@@ -789,11 +963,57 @@ export class PodProductSyncService {
         productId: null,
         action: PodProductSyncAction.FAILED,
         apiCalls: 1,
-        message: described.errorMessage,
-        errorCode: described.errorCode,
-        tiktokRequestId: described.tiktokRequestId,
+        failure: {
+          tiktokProductId,
+          productId: null,
+          title,
+          step,
+          errorCode: described.errorCode,
+          errorMessage: described.errorMessage,
+          httpStatus: described.httpStatus,
+          tiktokRequestId: described.tiktokRequestId,
+          retryable: described.retryable,
+          attempts: attempts.count,
+          failedAt: new Date().toISOString(),
+        },
       };
     }
+  }
+
+  /**
+   * Chạy một thao tác GHI, thử lại khi lỗi DB TẠM THỜI (có giới hạn + giãn cách). Lỗi dữ liệu ném ra
+   * ngay. `attempts` đếm lần thử để ghi vào `failure` — không đổi bộ đếm của lượt.
+   */
+  private async withDbRetry<T>(
+    target: ProductSyncTarget,
+    tiktokProductId: string,
+    attempts: { count: number },
+    operation: () => Promise<T>,
+  ): Promise<T> {
+    for (let attempt = 1; ; attempt += 1) {
+      attempts.count = attempt;
+      try {
+        return await operation();
+      } catch (error) {
+        if (attempt >= POD_PRODUCT_SAVE_MAX_ATTEMPTS || !isTransientDbError(error)) throw error;
+        this.logger.warn({
+          module: 'pod-product',
+          operation: 'sync.product.save.retry',
+          organizationId: target.organizationId,
+          shopId: target.id,
+          tiktokProductId,
+          attempt,
+          errorCode: error instanceof Prisma.PrismaClientKnownRequestError ? error.code : null,
+          msg: 'Lỗi DB tạm thời khi ghi sản phẩm — thử lại',
+        });
+        await this.sleep(POD_PRODUCT_SAVE_RETRY_DELAY_MS * attempt);
+      }
+    }
+  }
+
+  /** Tách riêng để test thay được (không chờ thật). */
+  protected sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   // ---------------------------------------------------------------------------
@@ -861,7 +1081,20 @@ export class PodProductSyncService {
         ...(watermark.from === null ? {} : { watermarkFrom: watermark.from.toString() }),
         watermarkTo: watermark.to.toString(),
         ...(error.tiktokRequestId ? { tiktokRequestId: error.tiktokRequestId } : {}),
-      },
+        // Từng sản phẩm lỗi + nguyên nhân — màn hình Latest Sync Status đọc trực tiếp. Có trần để
+        // cột JSON không phình; phần vượt chỉ được đếm. `failedCount` vẫn là số ĐẦY ĐỦ.
+        ...(counters.failures.length > 0
+          ? {
+              failedProducts: counters.failures.slice(0, POD_PRODUCT_SYNC_FAILURE_DETAIL_LIMIT),
+              ...(counters.failures.length > POD_PRODUCT_SYNC_FAILURE_DETAIL_LIMIT
+                ? {
+                    failedProductsOmitted:
+                      counters.failures.length - POD_PRODUCT_SYNC_FAILURE_DETAIL_LIMIT,
+                  }
+                : {}),
+            }
+          : {}),
+      } as unknown as Prisma.InputJsonValue,
     });
   }
 
@@ -882,22 +1115,29 @@ export class PodProductSyncService {
       pagesFetched: counters.pages,
       apiCalls: counters.apiCalls,
       deactivated: counters.deactivated,
+      failures: counters.failures,
     };
   }
 
-  /** Shop không đủ điều kiện — KHÔNG gọi TikTok, không ghi trạng thái. */
-  private skippedOutcome(candidate: ProductSyncCandidate): ProductSyncOutcome {
-    const skipReason = this.skipReasonOf(candidate) ?? undefined;
-    this.logger.log({
+  /**
+   * Shop không đủ điều kiện — KHÔNG gọi TikTok, không ghi trạng thái. Mức log `debug`: bỏ qua là
+   * CÓ CHỦ ĐÍCH, mỗi tick lặp lại cho mọi shop INACTIVE — không được thành hàng loạt log cảnh báo.
+   * Tổng số shop bị bỏ qua theo lý do nằm ở log tổng kết của tick.
+   */
+  private skippedOutcome(
+    target: ProductSyncTarget,
+    skipReason: ProductSyncSkipReason,
+  ): ProductSyncOutcome {
+    this.logger.debug({
       module: 'pod-product',
       operation: 'sync.skip',
-      organizationId: candidate.organizationId,
-      accountId: candidate.accountId,
-      shopId: candidate.id,
+      organizationId: target.organizationId,
+      accountId: target.accountId,
+      shopId: target.id,
       skipReason,
       msg: 'Bỏ qua shop không đủ điều kiện đồng bộ sản phẩm',
     });
-    return { ...this.emptyOutcome(candidate), status: 'SKIPPED', skipReason };
+    return { ...this.emptyOutcome(target), status: 'SKIPPED', skipReason };
   }
 
   /** Shop đang có lượt đồng bộ khác chạy (khoá Redis). */
@@ -921,22 +1161,36 @@ export class PodProductSyncService {
     };
   }
 
-  private describeError(error: unknown): {
-    errorCode: string | null;
-    errorMessage: string | null;
-    tiktokRequestId: string | null;
-  } {
+  /**
+   * Chuẩn hoá lỗi. `retryable`: lỗi TikTok theo lớp lỗi (mạng / rate limit / 5xx mới thử lại);
+   * lỗi Prisma theo mã (tạm thời mới thử lại); lỗi khác (không rõ nguồn) giữ hành vi cũ là thử lại.
+   * Thông điệp KHÔNG bao giờ chứa token / cipher — chỉ mã + thông điệp do TikTok / Prisma trả về.
+   */
+  private describeError(error: unknown): DescribedError {
     if (error instanceof TiktokClientError) {
       return {
         errorCode: String(error.tiktokCode),
         errorMessage: error.tiktokMessage,
         tiktokRequestId: error.requestId ?? null,
+        httpStatus: error.httpStatus || null,
+        retryable: RETRYABLE_ERROR_CLASSES.includes(error.errorClass),
+      };
+    }
+    if (error instanceof Prisma.PrismaClientKnownRequestError) {
+      return {
+        errorCode: error.code,
+        errorMessage: compactMessage(error.message),
+        tiktokRequestId: null,
+        httpStatus: null,
+        retryable: isTransientDbError(error),
       };
     }
     return {
       errorCode: null,
-      errorMessage: error instanceof Error ? error.message : 'Lỗi không xác định',
+      errorMessage: error instanceof Error ? compactMessage(error.message) : 'Lỗi không xác định',
       tiktokRequestId: null,
+      httpStatus: null,
+      retryable: true,
     };
   }
 }

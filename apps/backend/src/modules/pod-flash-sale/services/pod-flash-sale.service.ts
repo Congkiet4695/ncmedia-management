@@ -62,6 +62,7 @@ import {
 } from '../mappers/pod-flash-sale.mapper';
 import { PodFlashSaleValidatorService } from './pod-flash-sale-validator.service';
 import { parseBatchResults, summarizeBatchResults } from './pod-flash-sale-batch-results';
+import { capLogPayload } from './pod-flash-sale-log-payload';
 
 /** Đủ để dựng phần đầu của một đợt sale mới — dùng chung cho Create, Duplicate và Apply Template. */
 export interface FlashSaleHeaderInput {
@@ -925,8 +926,9 @@ export class PodFlashSaleService {
           action: entry.action,
           level: entry.level ?? PodFlashSaleLogLevel.INFO,
           message: entry.message.slice(0, 2000),
-          ...(entry.request === undefined ? {} : { request: entry.request }),
-          ...(entry.response === undefined ? {} : { response: entry.response }),
+          // Trần kích thước mỗi trường JSON — xem FLASH_SALE_LOG_PAYLOAD_MAX_BYTES.
+          ...(entry.request === undefined ? {} : { request: capLogPayload(entry.request) }),
+          ...(entry.response === undefined ? {} : { response: capLogPayload(entry.response) }),
           errorCode: entry.errorCode ?? null,
           errorMessage: entry.errorMessage?.slice(0, 2000) ?? null,
           requestId: entry.requestId ?? null,

@@ -1,5 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { PodListingPayloadStatus, PodListingReviewStatus, Prisma } from '@prisma/client';
+import {
+  PodListingPayloadStatus,
+  PodListingReviewStatus,
+  PodTiktokAccountStatus,
+  PodTiktokShopStatus,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import type { PodAccessScope } from '../../pod-tiktok/services/pod-access-scope.service';
 import { TiktokProductApiService } from '../../tiktok-sdk/tiktok-product-api.service';
@@ -67,6 +73,12 @@ export class PodListingReviewService {
       draftIds?: string[];
       limit?: number;
       scope?: PodAccessScope;
+      /**
+       * Chỉ listing của shop ĐANG HOẠT ĐỘNG (shop ACTIVE + kết nối ACTIVE, chưa xoá). Bật bởi lượt
+       * THEO LỊCH (`tick`): shop INACTIVE / mất uỷ quyền không được gọi Get Product tự động. Nút
+       * "Đồng bộ" thủ công không bật cờ này — giữ nguyên hành vi.
+       */
+      activeShopsOnly?: boolean;
     } = {},
   ): Promise<ReviewSyncResult> {
     const now = Date.now();
@@ -82,6 +94,15 @@ export class PodListingReviewService {
       ...(!options.scope || options.scope.allShops
         ? {}
         : { shopId: { in: options.scope.shopIds } }),
+      ...(options.activeShopsOnly
+        ? {
+            shop: {
+              deletedAt: null,
+              status: PodTiktokShopStatus.ACTIVE,
+              account: { deletedAt: null, status: PodTiktokAccountStatus.ACTIVE },
+            },
+          }
+        : {}),
       ...(explicit
         ? { id: { in: explicit } }
         : {
@@ -219,7 +240,7 @@ export class PodListingReviewService {
 
     this.running = true;
     try {
-      return await this.sync();
+      return await this.sync({ activeShopsOnly: true });
     } catch (error) {
       this.logger.error({
         module: 'pod-listing',

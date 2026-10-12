@@ -105,6 +105,11 @@ export function useResyncPodProduct() {
       queryClient.setQueryData([POD_PRODUCT_KEY, 'detail', product.id], product);
       void queryClient.invalidateQueries({ queryKey: [POD_PRODUCT_KEY, 'list'] });
     },
+    // Lỗi (502/500/409 kèm nguyên nhân) ⇒ đọc lại chi tiết từ DB: màn hình hiện đúng trạng thái đang
+    // lưu, không giữ bản cache cũ. Backend không đổi "Last synced" khi đồng bộ thất bại.
+    onError: (_error, id) => {
+      void queryClient.invalidateQueries({ queryKey: [POD_PRODUCT_KEY, 'detail', id] });
+    },
   });
 }
 

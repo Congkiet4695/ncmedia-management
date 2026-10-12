@@ -171,6 +171,17 @@ export const envValidationSchema = Joi.object({
   // --- Trạng thái Flash Sale trên sàn (Sprint Flash Sale) ---
   TIKTOK_FLASH_SALE_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),
   TIKTOK_FLASH_SALE_SYNC_CRON: Joi.string().default('*/5 * * * *'),
+  // Retention Flash Sale — mặc định TẮT + DRY-RUN; số ngày để trống = hạng mục không bị dọn.
+  FLASH_SALE_RETENTION_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  FLASH_SALE_RETENTION_CRON: Joi.string().default('30 3 * * *'),
+  FLASH_SALE_RETENTION_DRY_RUN: Joi.boolean().truthy('true').falsy('false').default(true),
+  FLASH_SALE_RETENTION_BATCH_SIZE: Joi.number().integer().min(100).max(10000).default(1000),
+  FLASH_SALE_RETENTION_MAX_BATCHES: Joi.number().integer().min(1).max(100000).default(500),
+  FLASH_SALE_RETENTION_PAUSE_MS: Joi.number().integer().min(0).max(60000).default(200),
+  FLASH_SALE_RETENTION_SYNC_LOG_DAYS: Joi.number().integer().min(1).max(3650).empty('').optional(),
+  FLASH_SALE_RETENTION_LOG_DAYS: Joi.number().integer().min(1).max(3650).empty('').optional(),
+  FLASH_SALE_RETENTION_DELETED_ITEM_DAYS: Joi.number().integer().min(1).max(3650).empty('').optional(),
+  FLASH_SALE_RETENTION_CLOSED_ITEM_DAYS: Joi.number().integer().min(1).max(3650).empty('').optional(),
 
   // --- Auto Flash Sale: nhịp quét (giờ chạy do Admin cấu hình theo tổ chức) ---
   TIKTOK_FLASH_SALE_AUTO_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),

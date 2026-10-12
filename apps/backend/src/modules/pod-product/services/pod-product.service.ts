@@ -1,5 +1,8 @@
 import {
   BadRequestException,
+  ConflictException,
+  HttpException,
+  HttpStatus,
   Injectable,
   Logger,
   NotFoundException,
@@ -41,7 +44,8 @@ import { PodProductResponseMapper } from '../mappers/pod-product-response.mapper
 import { PodProductRepository, type PodProductFindManyParams } from '../repositories/pod-product.repository';
 import { PodProductSyncRepository } from '../repositories/pod-product-sync.repository';
 import { PodProductCatalogService } from './pod-product-catalog.service';
-import { PodProductSyncService } from './pod-product-sync.service';
+import { PodTiktokSyncInProgressException } from '../../pod-tiktok/exceptions/pod-tiktok.exceptions';
+import { PodProductSyncService, type ProductSyncOutcome } from './pod-product-sync.service';
 
 /**
  * Phân biệt UUID nội bộ với mã danh mục của TikTok.
@@ -62,6 +66,53 @@ const CATEGORY_ATTRIBUTE_FETCH_LOCK_MS = 30_000;
 export class PodProductNotFoundException extends NotFoundException {
   constructor() {
     super({ code: 'POD_PRODUCT_NOT_FOUND', message: 'Không tìm thấy sản phẩm' });
+  }
+}
+
+/**
+ * Shop của sản phẩm không đủ điều kiện gọi TikTok (shop INACTIVE / mất uỷ quyền, kết nối cần cấp quyền
+ * lại, hoặc tắt đồng bộ). Trước đây trả `POD_PRODUCT_NOT_FOUND` — sai sự thật: sản phẩm vẫn tồn tại.
+ */
+export class PodProductShopNotSyncableException extends ConflictException {
+  constructor() {
+    super({
+      code: 'POD_PRODUCT_SHOP_NOT_SYNCABLE',
+      message:
+        'Shop của sản phẩm không đủ điều kiện đồng bộ (shop ngừng hoạt động / mất uỷ quyền, kết nối TikTok cần cấp quyền lại, hoặc đã tắt đồng bộ sản phẩm).',
+    });
+  }
+}
+
+/**
+ * "Đồng bộ lại sản phẩm này" KHÔNG ghi được dữ liệu mới. Thông điệp mang bước lỗi + mã + nguyên nhân
+ * (TikTok hoặc database) để người dùng / vận hành xử lý — không còn trả 200 kèm dữ liệu cũ.
+ * Lỗi lấy dữ liệu từ TikTok ⇒ 502; lỗi xử lý / ghi trong hệ thống ⇒ 500.
+ */
+export class PodProductSyncFailedException extends HttpException {
+  constructor(outcome: ProductSyncOutcome) {
+    const failure = outcome.failures?.[0];
+    const step = failure?.step ?? 'SHOP';
+    const code = failure?.errorCode ?? outcome.errorCode ?? null;
+    const reason = failure?.errorMessage ?? outcome.errorMessage ?? 'Lỗi không xác định';
+    const stepLabel: Record<string, string> = {
+      FETCH_DETAIL: 'lấy dữ liệu từ TikTok',
+      MAP: 'chuyển đổi dữ liệu TikTok',
+      SAVE: 'ghi dữ liệu vào hệ thống',
+      SHOP: 'kết nối TikTok của shop',
+    };
+    super(
+      {
+        code: 'POD_PRODUCT_SYNC_FAILED',
+        message: `Đồng bộ thất bại ở bước ${stepLabel[step] ?? step}${code ? ` (mã ${code})` : ''}: ${reason}. Dữ liệu và thời điểm đồng bộ cũ được giữ nguyên.`,
+        details: {
+          step,
+          errorCode: code,
+          retryable: failure?.retryable ?? outcome.retryable ?? null,
+          tiktokRequestId: failure?.tiktokRequestId ?? null,
+        },
+      },
+      step === 'FETCH_DETAIL' || step === 'SHOP' ? HttpStatus.BAD_GATEWAY : HttpStatus.INTERNAL_SERVER_ERROR,
+    );
   }
 }
 
@@ -275,16 +326,28 @@ export class PodProductService {
   ): Promise<PodProductDetailDto> {
     const product = await this.repo.findById(organizationId, id);
     if (!product) throw new PodProductNotFoundException();
+    // 🔴 Kiểm phạm vi shop TRƯỚC khi gọi TikTok / ghi DB. Trước đây chỉ `findOne` ở cuối kiểm ⇒ Seller
+    // đồng bộ được sản phẩm của shop không thuộc mình rồi mới nhận 403.
+    this.accessScope.assertShopAllowed(scope, product.shopId);
 
+    // Đúng shop + kết nối CỦA CHÍNH sản phẩm (khoá theo id shop nội bộ, không theo tiktok id).
     const targets = await this.syncRepo.findSyncTargets({ organizationId, shopId: product.shopId });
     const target = targets[0];
-    if (!target) throw new PodProductNotFoundException();
+    if (!target) throw new PodProductShopNotSyncableException();
 
-    await this.syncService.syncShop(target, {
+    const outcome = await this.syncService.syncShop(target, {
       trigger: PodProductSyncTrigger.MANUAL,
       triggeredBy: userId,
       tiktokProductId: product.tiktokProductId,
     });
+
+    // 🔴 Trước đây kết quả bị BỎ QUA: lấy TikTok / ghi DB lỗi vẫn trả 200 kèm dữ liệu CŨ và giao diện
+    // báo "thành công" — chính là triệu chứng "bấm Re-sync mà không đổi gì". Lượt SINGLE đồng bộ (chờ
+    // xong mới trả) nên kết quả ở đây là kết quả cuối cùng.
+    if (outcome.status === 'LOCKED') throw new PodTiktokSyncInProgressException();
+    if (outcome.status === PodProductSyncStatus.FAILED || outcome.failed > 0) {
+      throw new PodProductSyncFailedException(outcome);
+    }
 
     return this.findOne(organizationId, id, scope);
   }

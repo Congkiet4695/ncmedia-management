@@ -173,6 +173,14 @@ export class PodProductSyncJob implements OnModuleInit {
         operation: 'scheduler.tick',
         shops: outcomes.length,
         skippedShops: outcomes.filter((item) => item.status === 'SKIPPED').length,
+        // Shop INACTIVE / mất uỷ quyền… bị bỏ qua CÓ CHỦ ĐÍCH — đếm theo lý do ở MỘT dòng tổng kết
+        // thay vì mỗi shop một dòng log mỗi tick.
+        skippedByReason: outcomes.reduce<Record<string, number>>((acc, item) => {
+          if (item.status === 'SKIPPED' && item.skipReason) {
+            acc[item.skipReason] = (acc[item.skipReason] ?? 0) + 1;
+          }
+          return acc;
+        }, {}),
         failedShops: outcomes.filter((item) => item.status === 'FAILED').length,
         created: outcomes.reduce((sum, item) => sum + item.created, 0),
         updated: outcomes.reduce((sum, item) => sum + item.updated, 0),

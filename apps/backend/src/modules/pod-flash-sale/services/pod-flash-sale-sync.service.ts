@@ -71,6 +71,8 @@ export class PodFlashSaleSyncService {
         providerFlashSaleId: true,
         status: true,
         endAt: true,
+        // Để `syncStatus` biết lượt này có đổi trạng thái TikTok không (chỉ ghi log khi có đổi).
+        providerStatus: true,
       },
     });
 
@@ -153,7 +155,7 @@ export class PodFlashSaleSyncService {
     scope: PodAccessScope,
   ): Promise<PodFlashSaleDetailDto> {
     const flashSale = await this.flashSales.get(organizationId, id, scope);
-    await this.publisher.syncStatus(flashSale);
+    await this.publisher.syncStatus(flashSale, { manual: true });
     return this.flashSales.getDetail(organizationId, id, scope);
   }
 

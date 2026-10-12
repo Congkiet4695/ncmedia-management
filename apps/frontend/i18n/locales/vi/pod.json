@@ -1980,7 +1980,26 @@
       "CRON": "Tự động (lịch)",
       "MANUAL": "Thủ công"
     },
-    "updated": "Cập nhật"
+    "updated": "Cập nhật",
+    "failedProducts": {
+      "toggle": "Xem {{count}} sản phẩm lỗi",
+      "title": "Sản phẩm không đồng bộ được ở lượt này",
+      "product": "Sản phẩm",
+      "step": "Bước lỗi",
+      "error": "Nguyên nhân",
+      "kind": "Loại lỗi",
+      "steps": {
+        "FETCH_DETAIL": "Lấy chi tiết từ TikTok",
+        "MAP": "Chuyển đổi dữ liệu",
+        "SAVE": "Ghi database"
+      },
+      "attempts_one": "{{count}} lần thử",
+      "attempts_other": "{{count}} lần thử",
+      "retryable": "Tạm thời — lượt sau tự thử lại",
+      "permanent": "Cần xử lý",
+      "omitted": "Còn {{count}} sản phẩm lỗi khác không hiển thị.",
+      "notRecorded": "Lượt này chạy trước khi hệ thống lưu chi tiết từng sản phẩm lỗi ({{count}} sản phẩm). Chạy lại đồng bộ để xem nguyên nhân."
+    }
   },
   "syncStatus": {
     "FAILED": "Thất bại",

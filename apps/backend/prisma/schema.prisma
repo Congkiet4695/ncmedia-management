@@ -5716,6 +5716,11 @@ model PodFlashSaleItem {
   @@index([organizationId])
   @@index([flashSaleId, sortOrder])
   @@index([productId])
+  /// 🔴 Bắt buộc cho FK `variant_id → pod_product_variants ON DELETE SET NULL`: mỗi biến thể bị
+  /// xoá (đồng bộ sản phẩm khi người bán bớt SKU) Postgres phải tìm dòng tham chiếu. Thiếu index ⇒
+  /// Seq Scan toàn bảng (~2 triệu dòng) cho TỪNG biến thể ⇒ transaction ghi sản phẩm vượt timeout
+  /// và sản phẩm FAILED mãi ở mọi lượt (docs/pod-product/07-product-sync-partial-fix.md).
+  @@index([variantId])
   @@map("pod_flash_sale_items")
 }
 

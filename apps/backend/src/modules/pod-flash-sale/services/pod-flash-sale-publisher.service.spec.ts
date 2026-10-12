@@ -596,3 +596,128 @@ describe('PodFlashSalePublisherService.publish', () => {
     });
   });
 });
+
+// ===========================================================================
+// Log đồng bộ trạng thái — GỌN và CHỈ KHI CÓ ĐỔI (docs/reports/database-storage-audit.md)
+// ===========================================================================
+describe('syncStatus — nhật ký gọn', () => {
+  const base = {
+    id: 'fs-1',
+    organizationId: 'org-1',
+    shopId: 'shop-1',
+    providerFlashSaleId: 'TT-ACT-1',
+    status: PodFlashSaleStatus.RUNNING,
+    providerStatus: 'ONGOING' as string | null,
+    endAt: new Date('2999-01-01T00:00:00.000Z'),
+  };
+  /** Activity "lớn": 60 sản phẩm × 30 SKU — đúng thứ trước đây bị chép nguyên vào log. */
+  const bigActivity = (status: string) => ({
+    activityId: 'TT-ACT-1',
+    status,
+    productLevel: 'VARIATION',
+    beginTime: 1_790_000_000,
+    endTime: 1_790_200_000,
+    updateTime: 1_790_100_000,
+    products: Array.from({ length: 60 }, (_p, p) => ({
+      id: `TT-P-${p}`,
+      skus: Array.from({ length: 30 }, (_s, s) => ({ id: `TT-SKU-${p}-${s}`, activityPriceAmount: '9.99' })),
+    })),
+  });
+  type LogEntry = { action: string; level?: string; message: string; response?: Record<string, unknown>; requestId?: string | null; errorCode?: string | null; errorMessage?: string | null };
+  const logs = (flashSales: { writeLog: jest.Mock }) =>
+    flashSales.writeLog.mock.calls.map((call: unknown[]) => call[0] as LogEntry);
+
+  it('🔴 TC2 trạng thái ĐỔI ⇒ ghi MỘT log gọn: trạng thái trước/sau, số sản phẩm/SKU, request id — KHÔNG chép danh sách sản phẩm', async () => {
+    const { service, promotionApi, flashSales } = buildService();
+    promotionApi.getActivity.mockResolvedValue({ data: bigActivity('DEACTIVATED'), requestId: 'req-sync' });
+
+    await expect(service.syncStatus(base)).resolves.toBe(PodFlashSaleStatus.CANCELLED);
+
+    const [entry] = logs(flashSales);
+    expect(logs(flashSales)).toHaveLength(1);
+    expect(entry.response).toMatchObject({
+      activityId: 'TT-ACT-1',
+      status: 'DEACTIVATED',
+      previousStatus: PodFlashSaleStatus.RUNNING,
+      nextStatus: PodFlashSaleStatus.CANCELLED,
+      previousProviderStatus: 'ONGOING',
+      productCount: 60,
+      skuCount: 1800,
+      trigger: 'SCHEDULER',
+    });
+    expect(entry.response).not.toHaveProperty('products');
+    expect(entry.requestId).toBe('req-sync');
+    // TC1: gọn — vài trăm byte thay vì hàng chục KB của activity gốc.
+    expect(JSON.stringify(entry.response).length).toBeLessThan(600);
+    expect(JSON.stringify(bigActivity('DEACTIVATED')).length).toBeGreaterThan(50_000);
+  });
+
+  it('🔴 lượt theo lịch KHÔNG đổi gì (cùng trạng thái hệ thống + TikTok, không dòng nào bị gỡ) ⇒ KHÔNG ghi log', async () => {
+    const { service, promotionApi, flashSales, prisma } = buildService();
+    promotionApi.getActivity.mockResolvedValue({ data: bigActivity('ONGOING'), requestId: 'r' });
+
+    await expect(service.syncStatus(base)).resolves.toBe(PodFlashSaleStatus.RUNNING);
+
+    expect(flashSales.writeLog).not.toHaveBeenCalled();
+    // Đồng bộ vẫn chạy đủ: thời điểm hỏi gần nhất vẫn được ghi lên đợt sale.
+    const updates = prisma.podFlashSale.update.mock.calls.map(
+      (call: unknown[]) => (call[0] as { data: { lastSyncedAt?: unknown } }).data,
+    );
+    expect(updates.some((data) => data.lastSyncedAt instanceof Date)).toBe(true);
+  });
+
+  it('trạng thái TikTok đổi dù trạng thái hệ thống giữ nguyên ⇒ có log', async () => {
+    const { service, promotionApi, flashSales } = buildService();
+    promotionApi.getActivity.mockResolvedValue({ data: bigActivity('ONGOING'), requestId: 'r' });
+
+    await service.syncStatus({ ...base, providerStatus: 'NOT_START' });
+
+    expect(logs(flashSales)[0].response).toMatchObject({ previousProviderStatus: 'NOT_START', status: 'ONGOING' });
+  });
+
+  it('có dòng bị TikTok gỡ ⇒ có log kèm số dòng', async () => {
+    const { service, promotionApi, flashSales, prisma } = buildService();
+    promotionApi.getActivity.mockResolvedValue({
+      data: { status: 'ONGOING', products: [{ id: 'TT-P-1', skus: [{ id: 'TT-SKU-1' }] }] },
+      requestId: 'r',
+    });
+    prisma.podFlashSaleItem.findMany.mockResolvedValue([
+      { id: 'item-1', providerProductId: 'TT-P-1', providerVariantId: 'TT-SKU-1' },
+      { id: 'item-2', providerProductId: 'TT-P-1', providerVariantId: 'TT-SKU-GONE' },
+    ]);
+
+    await service.syncStatus(base);
+
+    expect(logs(flashSales)[0]).toMatchObject({ response: expect.objectContaining({ itemsRemoved: 1 }) as unknown });
+    expect(logs(flashSales)[0].message).toContain('1 dòng bị TikTok gỡ');
+  });
+
+  it('người dùng bấm Refresh ⇒ luôn ghi log (thao tác của người dùng), vẫn gọn', async () => {
+    const { service, promotionApi, flashSales } = buildService();
+    promotionApi.getActivity.mockResolvedValue({ data: bigActivity('ONGOING'), requestId: 'r' });
+
+    await service.syncStatus(base, { manual: true });
+
+    expect(logs(flashSales)).toHaveLength(1);
+    expect(logs(flashSales)[0].response).toMatchObject({ trigger: 'MANUAL', productCount: 60 });
+    expect(logs(flashSales)[0].response).not.toHaveProperty('products');
+  });
+
+  it('🔴 TC3 lỗi đọc TikTok ⇒ vẫn ghi WARN kèm mã lỗi, thông điệp và request id', async () => {
+    const { service, promotionApi, flashSales } = buildService();
+    promotionApi.getActivity.mockRejectedValueOnce(
+      new TiktokClientError(TiktokErrorClass.SERVER, 36009003, 'Internal error', 500, 'req-err'),
+    );
+
+    await service.syncStatus(base);
+
+    expect(logs(flashSales)).toEqual([
+      expect.objectContaining({
+        level: 'WARN',
+        errorCode: '36009003',
+        errorMessage: 'Internal error',
+        requestId: 'req-err',
+      }),
+    ]);
+  });
+});

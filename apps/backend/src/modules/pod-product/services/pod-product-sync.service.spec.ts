@@ -1,4 +1,5 @@
 import {
+  Prisma,
   PodProductSyncScope,
   PodProductSyncStatus,
   PodProductSyncTrigger,
@@ -104,6 +105,7 @@ describe('PodProductSyncService', () => {
     saveRawData: jest.Mock;
     deactivateMissing: jest.Mock;
     reactivateSeen: jest.Mock;
+    findIdsByTiktokIds: jest.Mock;
   };
   let syncRepo: {
     findSyncTargets: jest.Mock;
@@ -125,6 +127,7 @@ describe('PodProductSyncService', () => {
       saveRawData: jest.fn().mockResolvedValue(undefined),
       deactivateMissing: jest.fn().mockResolvedValue(0),
       reactivateSeen: jest.fn().mockResolvedValue(0),
+      findIdsByTiktokIds: jest.fn().mockResolvedValue(new Map()),
     };
     syncRepo = {
       findSyncTargets: jest.fn().mockResolvedValue([TARGET]),
@@ -534,13 +537,22 @@ describe('PodProductSyncService', () => {
 
     it('🔴 nhiều shop đến hạn ⇒ mỗi shop MỘT lượt riêng, không gom chung', async () => {
       queue.claimDue.mockResolvedValue(['shop-a', 'shop-b']);
+      syncRepo.findSyncCandidates.mockImplementation((params: { shopId: string }) =>
+        Promise.resolve([candidate({ id: params.shopId })]),
+      );
 
       const result = await service.runDueShopSyncs();
 
       expect(result.shops).toBe(2);
-      expect(syncRepo.findSyncCandidates).toHaveBeenCalledTimes(2);
-      expect(callArg(syncRepo.findSyncCandidates, 0, 0)).toEqual({ shopId: 'shop-a' });
-      expect(callArg(syncRepo.findSyncCandidates, 1, 0)).toEqual({ shopId: 'shop-b' });
+      // Mỗi shop: một lần chọn shop + một lần KIỂM LẠI trạng thái ngay trước khi gọi TikTok — mọi lần
+      // đọc đều đúng MỘT shop, không bao giờ toàn cục.
+      const scopes = syncRepo.findSyncCandidates.mock.calls.map((call: unknown[]) => call[0]);
+      expect(scopes).toEqual([
+        { shopId: 'shop-a' },
+        { shopId: 'shop-a' },
+        { shopId: 'shop-b' },
+        { shopId: 'shop-b' },
+      ]);
     });
 
     it('hàng đợi rỗng ⇒ không gọi TikTok, không tạo lịch sử đồng bộ nào', async () => {
@@ -717,6 +729,465 @@ describe('PodProductSyncService', () => {
       expect(productApi.getProduct).toHaveBeenCalledTimes(5);
       expect(outcomes[0].status).toBe(PodProductSyncStatus.SUCCESS);
       expect(queue.schedule).not.toHaveBeenCalled();
+    });
+  });
+  // ===========================================================================
+  // PARTIAL — ghi nhận lỗi TỪNG sản phẩm, retry bước ghi, bộ đếm đúng
+  // (docs/pod-product/07-product-sync-partial-fix.md)
+  // ===========================================================================
+  describe('Partial — lỗi từng sản phẩm (Latest Sync Status)', () => {
+    /** `details` của lần `finish` đầu tiên. */
+    const finishedDetails = () =>
+      callArg<{
+        details: {
+          failedProducts?: Array<Record<string, unknown>>;
+          failedProductsOmitted?: number;
+        };
+      }>(syncStatus.finish, 0, 1).details;
+    const finished = () =>
+      callArg<{
+        status: string;
+        totalCount: number;
+        createdCount: number;
+        updatedCount: number;
+        skippedCount: number;
+        failedCount: number;
+      }>(syncStatus.finish, 0, 1);
+
+    const prismaError = (code: string) =>
+      new Prisma.PrismaClientKnownRequestError(`Lỗi Prisma ${code}\n   dòng hai`, {
+        code,
+        clientVersion: 'test',
+      });
+
+    beforeEach(() => {
+      jest.spyOn(service as unknown as { sleep: () => Promise<void> }, 'sleep').mockResolvedValue();
+      // Danh sách của từng trạng thái TikTok: `mockResolvedValueOnce` = trạng thái ĐẦU (ACTIVATE),
+      // các trạng thái còn lại rỗng — mỗi sản phẩm xuất hiện đúng một lần như dữ liệu thật.
+      productApi.searchAllProducts.mockResolvedValue([]);
+    });
+
+    it('🔴 TC1/TC2 lô có cả thành công lẫn thất bại ⇒ PARTIAL, sản phẩm lỗi KHÔNG dừng các sản phẩm còn lại', async () => {
+      productApi.searchAllProducts.mockResolvedValueOnce(
+        ['p1', 'p2', 'p3', 'p4', 'p5'].map((id) => ({ id, title: `SP ${id}` })),
+      );
+      productApi.getProduct.mockImplementation((_ctx: unknown, id: string) =>
+        id === 'p2'
+          ? Promise.reject(
+              new TiktokClientError(TiktokErrorClass.BUSINESS, 12019001, 'Product not found', 200, 'req-p2'),
+            )
+          : Promise.resolve({ data: detail(id), requestId: `req-${id}` }),
+      );
+
+      const outcome = await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(outcome.status).toBe(PodProductSyncStatus.PARTIAL);
+      // p1, p3 cùng lô với p2; p4, p5 ở lô SAU — vẫn được ghi.
+      expect(repo.upsertAggregate).toHaveBeenCalledTimes(4);
+      expect(finished()).toMatchObject({ status: 'PARTIAL', totalCount: 5, createdCount: 4, failedCount: 1 });
+      // Còn sản phẩm lỗi ⇒ watermark KHÔNG tiến, lượt sau lấy lại.
+      expect(syncRepo.updateWatermark).not.toHaveBeenCalled();
+    });
+
+    it('🔴 TC4/TC10 lỗi TikTok được lưu ĐỦ theo từng sản phẩm (mã, thông điệp, HTTP, request id, bước, id nội bộ, tên)', async () => {
+      productApi.searchAllProducts.mockResolvedValueOnce([{ id: 'p1', title: 'Áo thun A' }, { id: 'p2' }]);
+      productApi.getProduct.mockImplementation((_ctx: unknown, id: string) =>
+        id === 'p1'
+          ? Promise.reject(
+              new TiktokClientError(TiktokErrorClass.BUSINESS, 12052700, 'seller inactive', 428, 'req-abc'),
+            )
+          : Promise.resolve({ data: detail(id), requestId: `req-${id}` }),
+      );
+      repo.findIdsByTiktokIds.mockResolvedValue(new Map([['p1', 'local-uuid-p1']]));
+
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(finishedDetails().failedProducts).toEqual([
+        expect.objectContaining({
+          tiktokProductId: 'p1',
+          productId: 'local-uuid-p1',
+          title: 'Áo thun A',
+          step: 'FETCH_DETAIL',
+          errorCode: '12052700',
+          errorMessage: 'seller inactive',
+          httpStatus: 428,
+          tiktokRequestId: 'req-abc',
+          retryable: false,
+          attempts: 1,
+        }),
+      ]);
+      expect(repo.findIdsByTiktokIds).toHaveBeenCalledWith(ORG, SHOP, ['p1']);
+    });
+
+    it('🔴 TC3/TC9 ánh xạ (mapping) lỗi ⇒ bước MAP được ghi rõ, không gọi ghi DB cho sản phẩm đó', async () => {
+      productApi.searchAllProducts.mockResolvedValueOnce([{ id: 'p1' }, { id: 'p2' }]);
+      const mapper = service['mapper'];
+      const original = mapper.toWriteData.bind(mapper);
+      jest.spyOn(mapper, 'toWriteData').mockImplementation((d, raw) => {
+        if ((d as { id: string }).id === 'p2') throw new Error('SKU thiếu id — payload không hợp lệ');
+        return original(d, raw);
+      });
+
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(repo.upsertAggregate).toHaveBeenCalledTimes(1);
+      expect(finishedDetails().failedProducts).toEqual([
+        expect.objectContaining({
+          tiktokProductId: 'p2',
+          title: 'SP p2',
+          step: 'MAP',
+          errorCode: null,
+          errorMessage: 'SKU thiếu id — payload không hợp lệ',
+        }),
+      ]);
+    });
+
+    it('🔴 TC5/TC6/TC7 transaction hết giờ (P2028) rồi thử lại thành công ⇒ ghi MỘT lần, không đếm trùng, SUCCESS', async () => {
+      productApi.searchAllProducts.mockResolvedValueOnce([{ id: 'p1' }, { id: 'p2' }]);
+      repo.upsertAggregate
+        .mockRejectedValueOnce(prismaError('P2028'))
+        .mockResolvedValue({ id: 'product-uuid', created: false });
+
+      const outcome = await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      // Lần thử thứ hai là upsert theo khoá (tổ chức, shop, tiktok_product_id) ⇒ không sinh bản ghi trùng.
+      expect(repo.upsertAggregate).toHaveBeenCalledTimes(3);
+      expect(productApi.getProduct).toHaveBeenCalledTimes(2); // KHÔNG gọi lại TikTok khi thử lại bước ghi
+      expect(outcome.status).toBe(PodProductSyncStatus.SUCCESS);
+      const row = finished();
+      expect(row).toMatchObject({ status: 'SUCCESS', totalCount: 2, updatedCount: 2, failedCount: 0 });
+      expect(row.createdCount + row.updatedCount + row.skippedCount + row.failedCount).toBe(row.totalCount);
+      expect(finishedDetails().failedProducts).toBeUndefined();
+      expect(syncRepo.updateWatermark).toHaveBeenCalledTimes(1);
+    });
+
+    it('🔴 TC8 lỗi DB tạm thời lặp lại ⇒ dừng sau số lần thử tối đa, FAILED một lần, retryable, watermark giữ nguyên', async () => {
+      productApi.searchAllProducts.mockResolvedValueOnce([{ id: 'p1' }]);
+      repo.upsertAggregate.mockRejectedValue(prismaError('P2028'));
+
+      const outcome = await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(repo.upsertAggregate).toHaveBeenCalledTimes(2); // POD_PRODUCT_SAVE_MAX_ATTEMPTS
+      expect(outcome.status).toBe(PodProductSyncStatus.PARTIAL);
+      expect(finished()).toMatchObject({ totalCount: 1, failedCount: 1 });
+      expect(finishedDetails().failedProducts).toEqual([
+        expect.objectContaining({
+          step: 'SAVE',
+          errorCode: 'P2028',
+          errorMessage: 'Lỗi Prisma P2028 dòng hai',
+          retryable: true,
+          attempts: 2,
+        }),
+      ]);
+      expect(syncRepo.updateWatermark).not.toHaveBeenCalled();
+    });
+
+    it('🔴 TC8 lỗi DB do DỮ LIỆU (P2002) ⇒ KHÔNG thử lại, ghi lỗi cần xử lý', async () => {
+      productApi.searchAllProducts.mockResolvedValueOnce([{ id: 'p1' }]);
+      repo.upsertAggregate.mockRejectedValue(prismaError('P2002'));
+
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(repo.upsertAggregate).toHaveBeenCalledTimes(1);
+      expect(finishedDetails().failedProducts).toEqual([
+        expect.objectContaining({ step: 'SAVE', errorCode: 'P2002', retryable: false, attempts: 1 }),
+      ]);
+    });
+
+    it('chi tiết có trần 100 sản phẩm — phần vượt chỉ được đếm, `failedCount` vẫn ĐỦ', async () => {
+      const ids = Array.from({ length: 103 }, (_v, index) => `p${index}`);
+      productApi.searchAllProducts.mockResolvedValueOnce(ids.map((id) => ({ id })));
+      productApi.getProduct.mockRejectedValue(
+        new TiktokClientError(TiktokErrorClass.SERVER, 36009003, 'Internal error', 500, 'req'),
+      );
+
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(finished().failedCount).toBe(103);
+      expect(finishedDetails().failedProducts).toHaveLength(100);
+      expect(finishedDetails().failedProductsOmitted).toBe(3);
+    });
+
+    it('lượt không có sản phẩm lỗi ⇒ không có `failedProducts` (xoá danh sách của lượt trước)', async () => {
+      productApi.searchAllProducts.mockResolvedValueOnce([{ id: 'p1' }]);
+      await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(finished().status).toBe('SUCCESS');
+      expect(finishedDetails().failedProducts).toBeUndefined();
+    });
+  });
+
+  // ===========================================================================
+  // SHOP INACTIVE — không đồng bộ sản phẩm TỰ ĐỘNG
+  // ===========================================================================
+  describe('Shop INACTIVE — đồng bộ tự động', () => {
+    /** Kho shop giả: `findSyncCandidates({ shopId })` trả đúng shop đó (như truy vấn thật). */
+    function shopStore(initial: ReturnType<typeof candidate>[]) {
+      const shops = new Map(initial.map((shop) => [shop.id, shop]));
+      syncRepo.findSyncCandidates.mockImplementation((params: { shopId?: string }) =>
+        Promise.resolve(
+          params.shopId ? [shops.get(params.shopId)].filter(Boolean) : [...shops.values()],
+        ),
+      );
+      return {
+        setStatus: (id: string, status: 'ACTIVE' | 'INACTIVE' | 'DEAUTHORIZED') => {
+          const shop = shops.get(id);
+          if (shop) shops.set(id, { ...shop, status });
+        },
+        remove: (id: string) => shops.delete(id),
+      };
+    }
+
+    const searchedShops = () =>
+      productApi.searchAllProducts.mock.calls.map(
+        (_call, index) => callArg<{ shopId: string }>(productApi.searchAllProducts, index, 0).shopId,
+      );
+
+    it('🔴 TC11/TC13 scheduler chỉ đồng bộ shop ACTIVE — shop INACTIVE không phát sinh lời gọi TikTok, không ghi trạng thái', async () => {
+      shopStore([candidate({ id: 'shop-a' }), candidate({ id: 'shop-b', status: 'INACTIVE' })]);
+
+      const outcomes = await service.syncShops({}, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(outcomes.map((o) => [o.shopId, o.status, o.skipReason])).toEqual([
+        ['shop-a', PodProductSyncStatus.SUCCESS, undefined],
+        ['shop-b', 'SKIPPED', 'SHOP_INACTIVE'],
+      ]);
+      expect(searchedShops()).toEqual(MANAGED_TIKTOK_STATUSES.map(() => 'shop-a'));
+      expect(productApi.getProduct.mock.calls.every((call: unknown[]) => (call[0] as { shopId: string }).shopId === 'shop-a')).toBe(true);
+      expect(syncStatus.start).toHaveBeenCalledTimes(1);
+      expect(syncRepo.incrementFailure).not.toHaveBeenCalled();
+    });
+
+    it('🔴 TC12 shop INACTIVE KHÔNG được đưa vào hàng đợi đồng bộ tự động', async () => {
+      shopStore([candidate({ id: 'shop-b', status: 'INACTIVE' })]);
+
+      await expect(service.scheduleShopSync('shop-b')).resolves.toBeNull();
+      expect(queue.schedule).not.toHaveBeenCalled();
+    });
+
+    it('shop ACTIVE vẫn được hẹn đồng bộ sau publish như cũ', async () => {
+      shopStore([candidate({ id: 'shop-a' })]);
+
+      await expect(service.scheduleShopSync('shop-a')).resolves.toBeInstanceOf(Date);
+      expect(queue.schedule).toHaveBeenCalledWith('shop-a', expect.any(Number), expect.any(Number));
+    });
+
+    it('🔴 TC14 shop chuyển INACTIVE SAU lúc chọn shop, TRƯỚC khi worker chạy ⇒ bỏ qua, không gọi TikTok, không ghi lịch sử', async () => {
+      const store = shopStore([candidate({ id: 'shop-a' }), candidate({ id: 'shop-b' })]);
+      // Shop A đang chạy thì Shop Sync đánh dấu shop B INACTIVE.
+      productApi.searchAllProducts.mockImplementation((ctx: { shopId: string }) => {
+        if (ctx.shopId === 'shop-a') store.setStatus('shop-b', 'INACTIVE');
+        return Promise.resolve([]);
+      });
+      service['settings'].shopConcurrency = 1;
+
+      const outcomes = await service.syncShops({}, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(outcomes.map((o) => [o.shopId, o.status, o.skipReason])).toEqual([
+        ['shop-a', PodProductSyncStatus.SUCCESS, undefined],
+        ['shop-b', 'SKIPPED', 'SHOP_INACTIVE'],
+      ]);
+      expect(new Set(searchedShops())).toEqual(new Set(['shop-a']));
+      expect(syncStatus.start).toHaveBeenCalledTimes(1);
+      expect(syncRepo.incrementFailure).not.toHaveBeenCalled();
+    });
+
+    it('🔴 TC14 worker hàng đợi: shop đã INACTIVE lúc tới hạn ⇒ bỏ qua và KHÔNG hẹn lại (TC15)', async () => {
+      shopStore([candidate({ id: 'shop-b', status: 'INACTIVE' })]);
+      queue.claimDue.mockResolvedValue(['shop-b']);
+
+      const result = await service.runDueShopSyncs();
+
+      expect(result).toEqual({ shops: 1, failed: 0 });
+      expect(productApi.searchAllProducts).not.toHaveBeenCalled();
+      expect(queue.requeue).not.toHaveBeenCalled();
+    });
+
+    it('🔴 TC15 lỗi KHÔNG tạm thời (12052700 seller inactive) ⇒ worker KHÔNG hẹn lại vô hạn', async () => {
+      shopStore([candidate({ id: SHOP })]);
+      queue.claimDue.mockResolvedValue([SHOP]);
+      productApi.searchAllProducts.mockRejectedValue(
+        new TiktokClientError(TiktokErrorClass.BUSINESS, 12052700, 'seller inactive', 428, 'req'),
+      );
+
+      const result = await service.runDueShopSyncs();
+
+      expect(result.failed).toBe(1);
+      expect(queue.requeue).not.toHaveBeenCalled();
+    });
+
+    it('lỗi TẠM THỜI (mạng) ⇒ worker vẫn hẹn lại như cũ', async () => {
+      shopStore([candidate({ id: SHOP })]);
+      queue.claimDue.mockResolvedValue([SHOP]);
+      productApi.searchAllProducts.mockRejectedValue(
+        new TiktokClientError(TiktokErrorClass.NETWORK, 0, 'Request timeout', 0, undefined),
+      );
+
+      await service.runDueShopSyncs();
+
+      expect(queue.requeue).toHaveBeenCalledWith(SHOP, 5 * 60 * 1000);
+    });
+
+    it('🔴 TC16 shop chuyển lại ACTIVE ⇒ đồng bộ ở chu kỳ kế tiếp', async () => {
+      const store = shopStore([candidate({ id: 'shop-b', status: 'INACTIVE' })]);
+
+      const first = await service.syncShops({}, { trigger: PodProductSyncTrigger.SCHEDULER });
+      store.setStatus('shop-b', 'ACTIVE');
+      const second = await service.syncShops({}, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(first[0].status).toBe('SKIPPED');
+      expect(second[0].status).toBe(PodProductSyncStatus.SUCCESS);
+      expect(new Set(searchedShops())).toEqual(new Set(['shop-b']));
+    });
+
+    it('shop bị xoá giữa lượt theo lịch ⇒ SHOP_NOT_FOUND, không gọi TikTok', async () => {
+      const store = shopStore([candidate({ id: SHOP })]);
+      store.remove(SHOP);
+
+      const outcome = await service.syncShop(TARGET, { trigger: PodProductSyncTrigger.SCHEDULER });
+
+      expect(outcome).toMatchObject({ status: 'SKIPPED', skipReason: 'SHOP_NOT_FOUND' });
+      expect(productApi.searchAllProducts).not.toHaveBeenCalled();
+    });
+
+    it('🔴 TC17 đồng bộ THỦ CÔNG giữ nguyên hành vi: không kiểm lại trạng thái trong `syncShop`', async () => {
+      shopStore([candidate({ id: SHOP, status: 'INACTIVE' })]);
+
+      // Đường "đồng bộ lại 1 sản phẩm" / sửa sản phẩm gọi thẳng syncShop với target đã chọn sẵn.
+      const outcome = await service.syncShop(TARGET, {
+        trigger: PodProductSyncTrigger.MANUAL,
+        tiktokProductId: 'p9',
+      });
+
+      expect(outcome.status).toBe(PodProductSyncStatus.SUCCESS);
+      expect(syncRepo.findSyncCandidates).not.toHaveBeenCalled();
+      expect(productApi.getProduct).toHaveBeenCalledTimes(1);
+    });
+
+    it('🔴 TC17 "Sync Products" thủ công vẫn phân loại như trước (INACTIVE ⇒ SKIPPED kèm lý do)', async () => {
+      shopStore([candidate({ id: 'shop-a' }), candidate({ id: 'shop-b', status: 'INACTIVE' })]);
+
+      const outcomes = await service.syncShops(
+        { organizationId: ORG },
+        { trigger: PodProductSyncTrigger.MANUAL },
+      );
+
+      expect(outcomes.map((o) => [o.shopId, o.status, o.skipReason])).toEqual([
+        ['shop-a', PodProductSyncStatus.SUCCESS, undefined],
+        ['shop-b', 'SKIPPED', 'SHOP_INACTIVE'],
+      ]);
+      // Thủ công: chỉ MỘT lần đọc danh sách (không có lần kiểm lại riêng từng shop).
+      expect(syncRepo.findSyncCandidates).toHaveBeenCalledTimes(1);
+    });
+
+    it('🔴 TC18 shop lỗi + shop INACTIVE không ảnh hưởng shop ACTIVE khác (lượt theo lịch)', async () => {
+      shopStore([
+        candidate({ id: 'shop-a' }),
+        candidate({ id: 'shop-b', status: 'INACTIVE' }),
+        candidate({ id: 'shop-c' }),
+      ]);
+      productApi.searchAllProducts.mockImplementation((ctx: { shopId: string }) =>
+        ctx.shopId === 'shop-a'
+          ? Promise.reject(new TiktokClientError(TiktokErrorClass.SERVER, 36009003, 'boom', 500, 'r'))
+          : Promise.resolve([{ id: `${ctx.shopId}-p1` }]),
+      );
+
+      const outcomes = await service.syncShops({}, { trigger: PodProductSyncTrigger.SCHEDULER });
+      const byShop = Object.fromEntries(outcomes.map((o) => [o.shopId, o.status]));
+
+      expect(byShop).toEqual({
+        'shop-a': PodProductSyncStatus.FAILED,
+        'shop-b': 'SKIPPED',
+        'shop-c': PodProductSyncStatus.SUCCESS,
+      });
+    });
+  });
+  // ===========================================================================
+  // Lượt SINGLE — "Re-sync this product"
+  // ===========================================================================
+  describe('lượt SINGLE (đồng bộ lại một sản phẩm)', () => {
+    const SINGLE = { trigger: PodProductSyncTrigger.MANUAL, tiktokProductId: 'p-single' };
+    const prismaTimeout = () =>
+      new Prisma.PrismaClientKnownRequestError('Transaction already closed', {
+        code: 'P2028',
+        clientVersion: 'test',
+      });
+
+    beforeEach(() => {
+      jest.spyOn(service as unknown as { sleep: () => Promise<void> }, 'sleep').mockResolvedValue();
+    });
+
+    it('🔴 TC1/TC2 gọi Get Product cho ĐÚNG sản phẩm, ghi vào ĐÚNG shop / kết nối, không quét danh sách shop', async () => {
+      const outcome = await service.syncShop(TARGET, SINGLE);
+
+      expect(productApi.searchAllProducts).not.toHaveBeenCalled();
+      expect(productApi.getProduct).toHaveBeenCalledWith(expect.objectContaining({ shopId: SHOP }), 'p-single');
+      expect(repo.upsertAggregate).toHaveBeenCalledTimes(1);
+      expect([0, 1, 2, 4].map((index) => callArg<unknown>(repo.upsertAggregate, 0, index))).toEqual([
+        ORG,
+        ACCOUNT,
+        SHOP,
+        null,
+      ]);
+      const mapped = callArg<{ product: { tiktokProductId: string; title: string } }>(repo.upsertAggregate, 0, 3);
+      expect(mapped.product).toMatchObject({ tiktokProductId: 'p-single', title: 'SP p-single' });
+      expect(outcome).toMatchObject({ status: PodProductSyncStatus.SUCCESS, created: 1, failed: 0, failures: [] });
+      // SINGLE không ghi đè dòng trạng thái của SHOP và không đẩy watermark của shop.
+      expect(syncStatus.start).not.toHaveBeenCalled();
+      expect(syncRepo.updateWatermark).not.toHaveBeenCalled();
+    });
+
+    it('🔴 TC4 TikTok lỗi ⇒ KHÔNG ghi gì (lastSyncedAt chỉ ghi trong upsert), không đổi trạng thái "ngừng bán", trả chi tiết lỗi', async () => {
+      productApi.getProduct.mockRejectedValue(
+        new TiktokClientError(TiktokErrorClass.BUSINESS, 12019001, 'Product not found', 200, 'req-x'),
+      );
+
+      const outcome = await service.syncShop(TARGET, SINGLE);
+
+      expect(repo.upsertAggregate).not.toHaveBeenCalled();
+      expect(repo.reactivateSeen).not.toHaveBeenCalled();
+      expect(outcome.status).toBe(PodProductSyncStatus.PARTIAL);
+      expect(outcome.failures).toEqual([
+        expect.objectContaining({ step: 'FETCH_DETAIL', errorCode: '12019001', tiktokRequestId: 'req-x' }),
+      ]);
+    });
+
+    it('🔴 TC5/TC10 ghi DB lỗi (transaction hết giờ, kể cả sau khi thử lại) ⇒ báo lỗi bước SAVE, không báo thành công', async () => {
+      repo.upsertAggregate.mockRejectedValue(prismaTimeout());
+
+      const outcome = await service.syncShop(TARGET, SINGLE);
+
+      expect(outcome).toMatchObject({ failed: 1, updated: 0, created: 0 });
+      expect(outcome.failures?.[0]).toMatchObject({ step: 'SAVE', errorCode: 'P2028', attempts: 2 });
+      expect(repo.saveRawData).not.toHaveBeenCalled();
+      expect(repo.reactivateSeen).not.toHaveBeenCalled();
+    });
+
+    it('🔴 TC8/TC9 sản phẩm từng lỗi, nguyên nhân đã hết ⇒ lần sau thành công, ghi theo CÙNG khoá (không tạo bản ghi mới)', async () => {
+      repo.upsertAggregate.mockRejectedValue(prismaTimeout());
+      const first = await service.syncShop(TARGET, SINGLE);
+
+      repo.upsertAggregate.mockReset().mockResolvedValue({ id: 'product-uuid', created: false });
+      const second = await service.syncShop(TARGET, SINGLE);
+      const third = await service.syncShop(TARGET, SINGLE);
+
+      expect(first.failed).toBe(1);
+      expect(second).toMatchObject({ status: PodProductSyncStatus.SUCCESS, updated: 1, failed: 0 });
+      expect(third).toMatchObject({ updated: 1, created: 0 });
+      // Mọi lần ghi cùng (tổ chức, shop, tiktok_product_id) — upsert, không nhân bản.
+      const keys = repo.upsertAggregate.mock.calls.map(
+        (call: unknown[]) => `${call[0] as string}|${call[2] as string}|${(call[3] as { product: { tiktokProductId: string } }).product.tiktokProductId}`,
+      );
+      expect(new Set(keys)).toEqual(new Set([`${ORG}|${SHOP}|p-single`]));
+    });
+
+    it('🔴 TC12 đang có lượt khác của shop (cron / Sync Now) ⇒ LOCKED, không gọi TikTok', async () => {
+      lock.acquire.mockResolvedValue(null);
+
+      const outcome = await service.syncShop(TARGET, SINGLE);
+
+      expect(outcome.status).toBe('LOCKED');
+      expect(productApi.getProduct).not.toHaveBeenCalled();
     });
   });
 });

@@ -79,6 +79,7 @@ import {
 } from '../exceptions/pod-flash-sale.exceptions';
 import type { FlashSaleDetailRow, FlashSaleItemRow } from '../mappers/pod-flash-sale.mapper';
 import { formatPriceForProvider } from './pod-flash-sale-pricing';
+import { summarizeActivity } from './pod-flash-sale-log-payload';
 import { PodFlashSaleService } from './pod-flash-sale.service';
 
 /**
@@ -1161,14 +1162,20 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
    * Dùng bởi scheduler và bởi nút "Refresh" ở màn hình chi tiết. Đợt chưa từng lên sàn thì
    * không có gì để hỏi — trả về nguyên trạng.
    */
-  async syncStatus(flashSale: {
-    id: string;
-    organizationId: string;
-    shopId: string;
-    providerFlashSaleId: string | null;
-    status: PodFlashSaleStatus;
-    endAt: Date;
-  }): Promise<PodFlashSaleStatus> {
+  async syncStatus(
+    flashSale: {
+      id: string;
+      organizationId: string;
+      shopId: string;
+      providerFlashSaleId: string | null;
+      status: PodFlashSaleStatus;
+      endAt: Date;
+      /** Trạng thái TikTok đã lưu (để biết lượt này có ĐỔI gì không). `undefined` = nơi gọi không biết. */
+      providerStatus?: string | null;
+    },
+    /** `manual` = người dùng bấm Refresh ⇒ luôn ghi một dòng log (thao tác của người dùng). */
+    options: { manual?: boolean } = {},
+  ): Promise<PodFlashSaleStatus> {
     if (!flashSale.providerFlashSaleId) return flashSale.status;
 
     try {
@@ -1201,16 +1208,38 @@ export class PodFlashSalePublisherService implements OnModuleDestroy {
         },
       });
 
-      await this.reconcileItemsWithActivity(flashSale.id, result.data);
+      const itemsRemoved = await this.reconcileItemsWithActivity(flashSale.id, result.data);
 
-      await this.flashSales.writeLog({
-        organizationId: flashSale.organizationId,
-        flashSaleId: flashSale.id,
-        action: PodFlashSaleLogAction.SYNC_STATUS,
-        message: `Trạng thái TikTok: ${result.data.status ?? 'không rõ'} ⇒ ${next}.`,
-        response: result.data as unknown as Prisma.InputJsonValue,
-        requestId: result.requestId ?? null,
-      });
+      // 🔴 Log đồng bộ trạng thái: GỌN và CHỈ KHI CÓ ĐỔI (docs/reports/database-storage-audit.md).
+      // Trước đây mỗi lượt 5 phút ghi NGUYÊN response Get Activity (mọi sản phẩm/SKU, ~25 KB) dù không
+      // có gì đổi ⇒ ~15 nghìn dòng / ~400 MB mỗi ngày. Trạng thái hiện tại + thời điểm hỏi gần nhất đã
+      // nằm trên chính đợt sale (`status`, `providerStatus`, `lastSyncedAt`); log chỉ cần giữ các lần
+      // CHUYỂN trạng thái, dòng bị TikTok gỡ, và thao tác Refresh của người dùng.
+      const providerStatus = result.data.status ?? null;
+      const statusChanged = next !== flashSale.status;
+      const providerStatusChanged =
+        flashSale.providerStatus !== undefined && (flashSale.providerStatus ?? null) !== providerStatus;
+      if (options.manual || statusChanged || providerStatusChanged || itemsRemoved > 0) {
+        await this.flashSales.writeLog({
+          organizationId: flashSale.organizationId,
+          flashSaleId: flashSale.id,
+          action: PodFlashSaleLogAction.SYNC_STATUS,
+          message:
+            `Trạng thái TikTok: ${providerStatus ?? 'không rõ'} ⇒ ${next}` +
+            (statusChanged ? ` (trước: ${flashSale.status})` : '') +
+            (itemsRemoved > 0 ? ` · ${itemsRemoved} dòng bị TikTok gỡ` : '') +
+            '.',
+          response: {
+            ...summarizeActivity(result.data),
+            previousStatus: flashSale.status,
+            nextStatus: next,
+            previousProviderStatus: flashSale.providerStatus ?? null,
+            itemsRemoved,
+            trigger: options.manual ? 'MANUAL' : 'SCHEDULER',
+          },
+          requestId: result.requestId ?? null,
+        });
+      }
 
       return next;
     } catch (error) {

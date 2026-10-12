@@ -108,6 +108,30 @@ export interface MappedProduct {
   attributes: PodProductAttributeWriteData[];
 }
 
+/** Khoá chứa URL ảnh CDN của TikTok — đổi ở MỖI lần Get Product dù ảnh không đổi. */
+const VOLATILE_IMAGE_URL_KEYS = new Set(['urls', 'thumbUrls']);
+
+/**
+ * Bản sao payload để tính `payloadHash`: bỏ `urls` / `thumbUrls` ở mọi cấp (ảnh chính, ảnh SKU, bảng size).
+ *
+ * 🔴 Vì sao (docs/reports/database-storage-audit.md): so payload đã lưu với payload lấy lại từ TikTok
+ * (test/manual/probe-product-payload-diff.manual.ts), phần khác nhau DUY NHẤT là các URL này — cùng file ảnh
+ * (cùng path / `uri`), chỉ khác shard CDN (`p16-…` ↔ `p19-…`) và giá trị query. Hash cũ vì thế đổi ở mọi
+ * lượt ⇒ MỌI sản phẩm trong cửa sổ đồng bộ bị ghi lại toàn bộ (biến thể, xoá–tạo lại ảnh / thuộc tính, payload
+ * gốc). Danh tính ảnh là `uri` (vẫn được hash); payload / URL vẫn được LƯU đầy đủ khi sản phẩm thật sự đổi.
+ */
+export function stableForHash(payload: unknown): unknown {
+  if (Array.isArray(payload)) return payload.map(stableForHash);
+  if (payload && typeof payload === 'object') {
+    return Object.fromEntries(
+      Object.entries(payload as Record<string, unknown>)
+        .filter(([key]) => !VOLATILE_IMAGE_URL_KEYS.has(key))
+        .map(([key, value]) => [key, stableForHash(value)]),
+    );
+  }
+  return payload;
+}
+
 /**
  * PodProductMapper — Anti-Corruption Layer giữa dữ liệu TikTok và schema NCMedia.
  *
@@ -117,7 +141,8 @@ export interface MappedProduct {
  *    cả lượt đồng bộ.
  *  - **Cắt độ dài** theo đúng giới hạn cột: một tiêu đề dài bất thường không được phép
  *    làm fail cả transaction.
- *  - `payloadHash` tính trên payload GỐC ⇒ payload không đổi thì bỏ qua mọi lệnh ghi.
+ *  - `payloadHash` tính trên payload GỐC (trừ URL ảnh CDN — xem `stableForHash`) ⇒ payload không đổi
+ *    thì bỏ qua mọi lệnh ghi.
  */
 @Injectable()
 export class PodProductMapper {
@@ -177,7 +202,7 @@ export class PodProductMapper {
         tiktokUpdateTime: this.toBigInt(detail.updateTime),
         tiktokCreatedAt: this.unixToDate(detail.createTime),
         tiktokUpdatedAt: this.unixToDate(detail.updateTime),
-        payloadHash: this.hash(rawPayload),
+        payloadHash: this.hash(stableForHash(rawPayload)),
       },
       variants,
       images: this.toImages(detail),

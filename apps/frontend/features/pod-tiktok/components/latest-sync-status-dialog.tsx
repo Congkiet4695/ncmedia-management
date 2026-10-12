@@ -1,6 +1,7 @@
 'use client';
 
-import { History, Loader2 } from 'lucide-react';
+import { Fragment, useState } from 'react';
+import { ChevronDown, ChevronRight, History, Loader2 } from 'lucide-react';
 import { Modal } from '@/components/ui/modal';
 import {
   Table,
@@ -16,6 +17,7 @@ import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { useLatestSyncStatus } from '../hooks/use-pod-orders';
 import type { PodShopSyncType } from '../order-types';
 import { PodSyncStatusBadge } from './pod-order-status-badge';
+import { ProductSyncFailures, readProductSyncFailures } from './product-sync-failures';
 
 const SYNC_DESCRIPTION_KEY: Record<PodShopSyncType, string> = {
   ORDER: 'latestSync.descriptionOrder',
@@ -45,6 +47,8 @@ export function LatestSyncStatusDialog({ open, onClose, syncType }: LatestSyncSt
   const { formatDateTime } = useLocaleFormat();
   const statusQuery = useLatestSyncStatus(syncType, open);
   const items = statusQuery.data ?? [];
+  // Dòng đang mở danh sách sản phẩm lỗi (chỉ đồng bộ SẢN PHẨM có chi tiết theo từng sản phẩm).
+  const [expanded, setExpanded] = useState<string | null>(null);
 
   return (
     <Modal
@@ -86,49 +90,90 @@ export function LatestSyncStatusDialog({ open, onClose, syncType }: LatestSyncSt
               </TableRow>
             </TableHeader>
             <TableBody>
-              {items.map((item) => (
-                <TableRow key={`${item.syncType}-${item.shopId}`}>
-                  <TableCell className="max-w-[180px]">
-                    <p className="truncate font-medium">{item.shopName ?? '—'}</p>
-                    {item.accountName && item.accountName !== item.shopName && (
-                      <p className="truncate text-xs text-muted-foreground">{item.accountName}</p>
+              {items.map((item) => {
+                const rowKey = `${item.syncType}-${item.shopId}`;
+                const canExpand = item.syncType === 'PRODUCT' && item.failed > 0;
+                const isOpen = canExpand && expanded === rowKey;
+                const failures = readProductSyncFailures(item.details);
+                return (
+                  <Fragment key={rowKey}>
+                    <TableRow>
+                      <TableCell className="max-w-[180px]">
+                        <p className="truncate font-medium">{item.shopName ?? '—'}</p>
+                        {item.accountName && item.accountName !== item.shopName && (
+                          <p className="truncate text-xs text-muted-foreground">
+                            {item.accountName}
+                          </p>
+                        )}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-xs">
+                        {t(`latestSync.triggers.${item.trigger}`)}
+                      </TableCell>
+                      <TableCell>
+                        <PodSyncStatusBadge status={item.status} />
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {formatDateTime(item.startedAt)}
+                      </TableCell>
+                      <TableCell className="whitespace-nowrap text-muted-foreground">
+                        {item.finishedAt ? formatDateTime(item.finishedAt) : '—'}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">
+                        {formatDuration(item.durationMs)}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{item.total}</TableCell>
+                      <TableCell className="text-right tabular-nums text-emerald-600">
+                        {item.created}
+                      </TableCell>
+                      <TableCell className="text-right tabular-nums">{item.updated}</TableCell>
+                      <TableCell className="text-right tabular-nums text-destructive">
+                        {canExpand ? (
+                          <button
+                            type="button"
+                            className="inline-flex items-center gap-1 underline-offset-2 hover:underline"
+                            aria-expanded={isOpen}
+                            title={t('latestSync.failedProducts.toggle', { count: item.failed })}
+                            onClick={() => setExpanded(isOpen ? null : rowKey)}
+                          >
+                            {isOpen ? (
+                              <ChevronDown className="size-3" />
+                            ) : (
+                              <ChevronRight className="size-3" />
+                            )}
+                            {item.failed}
+                          </button>
+                        ) : (
+                          item.failed
+                        )}
+                      </TableCell>
+                      <TableCell className="max-w-[260px]">
+                        {item.errorMessage ? (
+                          <p
+                            className="truncate text-xs text-destructive"
+                            title={item.errorMessage}
+                          >
+                            {item.errorCode ? `${item.errorCode}: ` : ''}
+                            {item.errorMessage}
+                          </p>
+                        ) : (
+                          <span className="text-xs text-muted-foreground">—</span>
+                        )}
+                      </TableCell>
+                    </TableRow>
+                    {isOpen && (
+                      <TableRow className="hover:bg-transparent">
+                        <TableCell colSpan={11} className="bg-muted/20 p-0">
+                          <ProductSyncFailures
+                            items={failures.items}
+                            omitted={failures.omitted}
+                            failedCount={item.failed}
+                          />
+                        </TableCell>
+                      </TableRow>
                     )}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-xs">
-                    {t(`latestSync.triggers.${item.trigger}`)}
-                  </TableCell>
-                  <TableCell>
-                    <PodSyncStatusBadge status={item.status} />
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {formatDateTime(item.startedAt)}
-                  </TableCell>
-                  <TableCell className="whitespace-nowrap text-muted-foreground">
-                    {item.finishedAt ? formatDateTime(item.finishedAt) : '—'}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">
-                    {formatDuration(item.durationMs)}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{item.total}</TableCell>
-                  <TableCell className="text-right tabular-nums text-emerald-600">
-                    {item.created}
-                  </TableCell>
-                  <TableCell className="text-right tabular-nums">{item.updated}</TableCell>
-                  <TableCell className="text-right tabular-nums text-destructive">
-                    {item.failed}
-                  </TableCell>
-                  <TableCell className="max-w-[260px]">
-                    {item.errorMessage ? (
-                      <p className="truncate text-xs text-destructive" title={item.errorMessage}>
-                        {item.errorCode ? `${item.errorCode}: ` : ''}
-                        {item.errorMessage}
-                      </p>
-                    ) : (
-                      <span className="text-xs text-muted-foreground">—</span>
-                    )}
-                  </TableCell>
-                </TableRow>
-              ))}
+                  </Fragment>
+                );
+              })}
             </TableBody>
           </Table>
         </div>

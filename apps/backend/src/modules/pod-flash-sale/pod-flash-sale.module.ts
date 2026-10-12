@@ -6,11 +6,13 @@ import { PodFlashSaleAutoController } from './pod-flash-sale-auto.controller';
 import { PodFlashSaleController } from './pod-flash-sale.controller';
 import { PodFlashSaleTemplateController } from './pod-flash-sale-template.controller';
 import { PodFlashSaleAutoJob } from './schedulers/pod-flash-sale-auto.job';
+import { PodFlashSaleRetentionJob } from './schedulers/pod-flash-sale-retention.job';
 import { PodFlashSaleSyncJob } from './schedulers/pod-flash-sale-sync.job';
 import { PodFlashSaleAutoService } from './services/pod-flash-sale-auto.service';
 import { PodFlashSaleImportService } from './services/pod-flash-sale-import.service';
 import { PodFlashSaleItemService } from './services/pod-flash-sale-item.service';
 import { PodFlashSalePublisherService } from './services/pod-flash-sale-publisher.service';
+import { PodFlashSaleRetentionService } from './services/pod-flash-sale-retention.service';
 import { PodFlashSaleSyncService } from './services/pod-flash-sale-sync.service';
 import { PodFlashSaleTemplateService } from './services/pod-flash-sale-template.service';
 import { PodFlashSaleValidatorService } from './services/pod-flash-sale-validator.service';
@@ -51,6 +53,8 @@ import { PodFlashSaleService } from './services/pod-flash-sale.service';
     PodFlashSaleAutoService,
     PodFlashSaleSyncJob,
     PodFlashSaleAutoJob,
+    PodFlashSaleRetentionService,
+    PodFlashSaleRetentionJob,
   ],
   exports: [
     // Sprint Promotion (sau này) dùng lại đúng hai thứ: bộ kiểm tra và cửa ra sàn.

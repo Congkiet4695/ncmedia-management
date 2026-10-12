@@ -478,4 +478,32 @@ export default () => ({
       lockTtlMs: parseInt(process.env.TIKTOK_RETURN_SYNC_LOCK_TTL_MS ?? '600000', 10),
     },
   },
+
+  /**
+   * Retention `pod_flash_sale_logs` / `pod_flash_sale_items` (docs/pod-flash-sale/retention.md).
+   *
+   * 🔴 An toàn mặc định: scheduler TẮT, chế độ DRY-RUN, và MỌI thời hạn lưu để trống (= hạng mục không bị
+   * đụng tới). Thời hạn lưu là quyết định nghiệp vụ — chỉ đặt sau khi PO duyệt. Không có gì chạy khi
+   * khởi động / deploy.
+   */
+  flashSaleRetention: {
+    enabled: (process.env.FLASH_SALE_RETENTION_ENABLED ?? 'false') === 'true',
+    cron: process.env.FLASH_SALE_RETENTION_CRON ?? '30 3 * * *',
+    dryRun: (process.env.FLASH_SALE_RETENTION_DRY_RUN ?? 'true') !== 'false',
+    batchSize: parseInt(process.env.FLASH_SALE_RETENTION_BATCH_SIZE ?? '1000', 10),
+    maxBatchesPerRun: parseInt(process.env.FLASH_SALE_RETENTION_MAX_BATCHES ?? '500', 10),
+    pauseMs: parseInt(process.env.FLASH_SALE_RETENTION_PAUSE_MS ?? '200', 10),
+    /** Số ngày giữ — để trống ⇒ `null` ⇒ hạng mục TẮT. */
+    syncLogDays: optionalDays(process.env.FLASH_SALE_RETENTION_SYNC_LOG_DAYS),
+    logDays: optionalDays(process.env.FLASH_SALE_RETENTION_LOG_DAYS),
+    deletedItemDays: optionalDays(process.env.FLASH_SALE_RETENTION_DELETED_ITEM_DAYS),
+    closedItemDays: optionalDays(process.env.FLASH_SALE_RETENTION_CLOSED_ITEM_DAYS),
+  },
 });
+
+/** Số ngày (nguyên dương) hoặc `null` khi biến môi trường để trống / không có. */
+function optionalDays(value: string | undefined): number | null {
+  if (value === undefined || value.trim() === '') return null;
+  const days = parseInt(value, 10);
+  return Number.isFinite(days) && days > 0 ? days : null;
+}

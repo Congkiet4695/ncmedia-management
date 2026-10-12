@@ -368,6 +368,24 @@ export interface PodShopSyncStatus {
   updatedAt: string;
 }
 
+/**
+ * MỘT sản phẩm không đồng bộ được ở lượt gần nhất — `details.failedProducts` của dòng Latest Sync
+ * Status loại PRODUCT (tối đa 100 dòng; phần vượt đếm ở `details.failedProductsOmitted`).
+ */
+export interface PodProductSyncFailure {
+  tiktokProductId: string;
+  productId: string | null;
+  title: string | null;
+  step: 'FETCH_DETAIL' | 'MAP' | 'SAVE';
+  errorCode: string | null;
+  errorMessage: string | null;
+  httpStatus: number | null;
+  tiktokRequestId: string | null;
+  retryable: boolean;
+  attempts: number;
+  failedAt: string;
+}
+
 /** Payload kích hoạt đồng bộ thủ công. */
 export interface TriggerSyncPayload {
   shopId?: string;

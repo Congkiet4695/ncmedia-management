@@ -1,7 +1,11 @@
 import { Injectable } from '@nestjs/common';
 import { PodMasterDataProvider, PodProductRawSource, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
-import { tiktokStatusesOf } from '../constants/pod-product.constants';
+import {
+  POD_PRODUCT_UPSERT_TX_MAX_WAIT_MS,
+  POD_PRODUCT_UPSERT_TX_TIMEOUT_MS,
+  tiktokStatusesOf,
+} from '../constants/pod-product.constants';
 import { TIKTOK_PRODUCT_STATUS } from '../../tiktok-sdk/tiktok-sdk.constants';
 import type {
   PodProductFlashSaleFilter,
@@ -191,6 +195,20 @@ export class PodProductRepository {
     return new Map(rows.map((row) => [row.tiktokProductId, row.payloadHash]));
   }
 
+  /** Id nội bộ theo `tiktok_product_id` trong MỘT shop — gắn vào danh sách sản phẩm đồng bộ lỗi. */
+  async findIdsByTiktokIds(
+    organizationId: string,
+    shopId: string,
+    tiktokProductIds: string[],
+  ): Promise<Map<string, string>> {
+    if (tiktokProductIds.length === 0) return new Map();
+    const rows = await this.prisma.podProduct.findMany({
+      where: { organizationId, shopId, tiktokProductId: { in: tiktokProductIds } },
+      select: { id: true, tiktokProductId: true },
+    });
+    return new Map(rows.map((row) => [row.tiktokProductId, row.id]));
+  }
+
   /**
    * Ghi (tạo hoặc cập nhật) TRỌN VẸN một sản phẩm trong MỘT transaction.
    *
@@ -337,6 +355,10 @@ export class PodProductRepository {
       await this.linkCatalogReferences(tx, product.id, shopId, mapped);
 
       return { id: product.id, created: !existing };
+    }, {
+      // Xem POD_PRODUCT_UPSERT_TX_TIMEOUT_MS — mặc định 5 s của Prisma làm sản phẩm nhiều SKU FAILED.
+      timeout: POD_PRODUCT_UPSERT_TX_TIMEOUT_MS,
+      maxWait: POD_PRODUCT_UPSERT_TX_MAX_WAIT_MS,
     });
   }
 

@@ -44,6 +44,46 @@ export const POD_PRODUCT_SYNC_LOCK_TTL_MS = 10 * 60 * 1000;
 /** Số lượt lỗi liên tiếp thì tạm ngưng đồng bộ shop (circuit breaker). */
 export const POD_PRODUCT_SYNC_FAILURE_THRESHOLD = 5;
 
+/**
+ * Giới hạn của transaction ghi MỘT sản phẩm (`upsertAggregate`).
+ *
+ * 🔴 Mặc định của Prisma (timeout 5 s, chờ kết nối 2 s) là quá chật: transaction chạy TUẦN TỰ
+ * khoảng (số SKU + 10) câu lệnh — sản phẩm POD có tới ~200 SKU, nên DB ở xa (~60 ms/lệnh) đã cần
+ * ~12 s, và cron lúc phút 0 (nhiều job cùng chạy) còn phải chờ kết nối. Hết giờ ⇒ Prisma rollback ⇒
+ * sản phẩm FAILED dù TikTok trả dữ liệu bình thường. Transaction vẫn nguyên tử: hoặc ghi đủ, hoặc
+ * không ghi gì.
+ */
+export const POD_PRODUCT_UPSERT_TX_TIMEOUT_MS = 60_000;
+export const POD_PRODUCT_UPSERT_TX_MAX_WAIT_MS = 10_000;
+
+/**
+ * Số lần THỬ ghi một sản phẩm khi lỗi DB là TẠM THỜI (transaction hết giờ, xung đột ghi / deadlock,
+ * hết kết nối) — gồm cả lần đầu. Chỉ thử lại bước GHI, KHÔNG gọi lại TikTok (lời gọi Get Product đã
+ * có retry riêng ở `TikTokSdkService`). Lỗi dữ liệu (ràng buộc, kiểu) không thử lại.
+ */
+export const POD_PRODUCT_SAVE_MAX_ATTEMPTS = 2;
+export const POD_PRODUCT_SAVE_RETRY_DELAY_MS = 1_000;
+
+/**
+ * Mã lỗi Prisma được coi là TẠM THỜI ở bước ghi sản phẩm.
+ * P2028 transaction hết giờ / đã đóng · P2034 xung đột ghi hoặc deadlock · P2024 hết giờ chờ kết nối
+ * · P1001 / P1008 / P1017 mất kết nối hoặc hết giờ thao tác.
+ */
+export const POD_PRODUCT_TRANSIENT_DB_ERROR_CODES: readonly string[] = [
+  'P2028',
+  'P2034',
+  'P2024',
+  'P1001',
+  'P1008',
+  'P1017',
+];
+
+/**
+ * Số sản phẩm lỗi tối đa lưu vào `details.failedProducts` của dòng Latest Sync Status. Phần vượt
+ * chỉ được đếm (`failedProductsOmitted`) — cột JSON không được phình theo shop hỏng hàng nghìn sản phẩm.
+ */
+export const POD_PRODUCT_SYNC_FAILURE_DETAIL_LIMIT = 100;
+
 // ---------------------------------------------------------------------------
 // Hàng đợi đồng bộ HOÃN theo shop (sau khi publish listing)
 // ---------------------------------------------------------------------------
