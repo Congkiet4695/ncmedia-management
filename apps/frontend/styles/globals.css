@@ -6,35 +6,42 @@
    Design tokens — NGUỒN SỰ THẬT DUY NHẤT cho màu / bo góc / đổ bóng (docs/frontend-design-system.md).
    HSL không bọc hsl() (chuẩn shadcn) ⇒ dùng được alpha: `bg-primary/10`.
 
-   Định hướng: nền sáng mát, bề mặt trắng, màu nhấn indigo tiết chế; màu trạng thái có ngữ nghĩa
-   (success / warning / info / destructive). Mỗi màu "đặc" đi kèm `-foreground` đạt tương phản AA
-   khi dùng làm nền nút; chính màu đó cũng đủ đậm để làm CHỮ trên nền sáng (`text-success`…).
+   Định hướng (2026-10-14, theo ảnh tham khảo `docs/dashboard/6.jpg` + logo `public/logo.jpg`):
+   - Khung điều hướng NAVY ĐÁ (tối có sắc xanh, không đen thuần) — nhấn VÀNG ĐỒNG của logo cho menu active.
+   - Vùng nội dung SÁNG, 3 lớp: canvas xám-xanh → khung nội dung (content) sáng hơn, bo góc, viền + bóng
+     nhẹ → card trắng viền mảnh, bóng nhẹ.
+   - Màu hành động chính XANH ROYAL (số liệu / nút / link / focus). Vàng chỉ là nhấn thương hiệu,
+     không làm chữ trên nền sáng (tương phản thấp).
+   - Màu trạng thái có ngữ nghĩa (success / warning / info / destructive). Mỗi màu "đặc" đi kèm
+     `-foreground` đạt tương phản AA khi làm nền nút; chính màu đó đủ đậm để làm CHỮ trên nền sáng.
    --------------------------------------------------------------------------- */
 @layer base {
   :root {
-    /* Nền trang (canvas) tách khỏi bề mặt nội dung (card / popover / input). */
-    --canvas: 225 33% 97%;
+    /* Ba lớp nền, sáng dần vào trong: canvas (nền ứng dụng, lộ ra ở rìa quanh khung nội dung)
+       → content (khung nội dung chính) → card / popover / input (trắng). */
+    --canvas: 222 24% 92.5%;
+    --content: 222 33% 97%;
     --background: 0 0% 100%;
-    --foreground: 224 39% 12%;
+    --foreground: 222 40% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 224 39% 12%;
+    --card-foreground: 222 40% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 224 39% 12%;
+    --popover-foreground: 222 40% 12%;
 
-    /* Màu nhấn chính — indigo. Trắng trên primary ≈ 6.3:1. */
-    --primary: 243 75% 59%;
+    /* Màu nhấn chính — xanh royal. Trắng trên primary ≈ 6.4:1. */
+    --primary: 226 71% 50%;
     --primary-foreground: 0 0% 100%;
 
-    --secondary: 228 60% 95.5%;
-    --secondary-foreground: 243 50% 36%;
+    --secondary: 224 60% 95.5%;
+    --secondary-foreground: 226 60% 34%;
 
-    --muted: 225 27% 95.5%;
-    --muted-foreground: 222 12% 43%;
+    --muted: 220 22% 95.5%;
+    --muted-foreground: 220 11% 42%;
 
-    --accent: 230 70% 96%;
-    --accent-foreground: 243 55% 38%;
+    --accent: 224 70% 96%;
+    --accent-foreground: 226 60% 36%;
 
     --destructive: 0 72% 51%;
     --destructive-foreground: 0 0% 100%;
@@ -48,45 +55,56 @@
     --info: 201 96% 32%;
     --info-foreground: 0 0% 100%;
 
-    --border: 224 22% 90%;
-    --input: 224 20% 85%;
-    --ring: 243 75% 59%;
+    /* Nhấn THƯƠNG HIỆU — vàng đồng của logo. Trang trí / nền đậm; KHÔNG làm chữ trên nền sáng. */
+    --brand: 38 60% 52%;
+    --brand-foreground: 30 45% 10%;
 
-    /* Sidebar — bề mặt riêng để khung điều hướng tách khỏi vùng nội dung. */
-    --sidebar: 0 0% 100%;
-    --sidebar-foreground: 224 25% 30%;
-    --sidebar-border: 224 22% 91%;
-    --sidebar-accent: 230 70% 96%;
-    --sidebar-active: 243 75% 59%;
+    --border: 220 18% 90%;
+    --input: 220 16% 84%;
+    --ring: 226 71% 50%;
+
+    /* Sidebar — NAVY ĐÁ (slate-navy) thay cho đen: vẫn đủ tối để logo nền than chì và nhấn vàng đồng
+       nổi bật, nhưng có sắc xanh hợp màu primary ⇒ nhẹ mắt, hài hoà với vùng nội dung sáng.
+       Tương phản trên nền: chữ ≈ 10:1, icon ≈ 7:1, chữ phụ (menu con) ≈ 6:1 — đều đạt AA. */
+    --sidebar: 222 34% 17%;
+    --sidebar-foreground: 220 22% 84%;
+    --sidebar-muted: 220 16% 66%;
+    --sidebar-icon: 220 24% 72%;
+    --sidebar-border: 222 26% 24%;
+    --sidebar-accent: 222 28% 23.5%;
+    --sidebar-accent-foreground: 0 0% 100%;
+    --sidebar-active: 40 72% 62%;
+    --sidebar-active-foreground: 40 60% 97%;
 
     /* Màu bóng (pha vào box-shadow ở tailwind.config.ts) — bóng hơi xanh, không xám chì. */
-    --shadow-color: 228 40% 30%;
+    --shadow-color: 222 40% 30%;
 
     --radius: 0.625rem;
   }
 
   .dark {
-    --canvas: 228 32% 6%;
-    --background: 228 28% 9%;
+    --canvas: 225 25% 5%;
+    --content: 225 22% 7.5%;
+    --background: 225 22% 9%;
     --foreground: 220 25% 95%;
 
-    --card: 228 26% 11%;
+    --card: 225 20% 11%;
     --card-foreground: 220 25% 95%;
 
-    --popover: 228 26% 12%;
+    --popover: 225 20% 12%;
     --popover-foreground: 220 25% 95%;
 
-    --primary: 239 84% 70%;
-    --primary-foreground: 243 50% 12%;
+    --primary: 224 90% 70%;
+    --primary-foreground: 226 60% 10%;
 
-    --secondary: 230 26% 19%;
-    --secondary-foreground: 228 70% 88%;
+    --secondary: 225 22% 19%;
+    --secondary-foreground: 224 70% 88%;
 
-    --muted: 228 22% 16%;
-    --muted-foreground: 222 14% 66%;
+    --muted: 225 18% 16%;
+    --muted-foreground: 220 14% 66%;
 
-    --accent: 235 30% 20%;
-    --accent-foreground: 230 80% 88%;
+    --accent: 226 26% 20%;
+    --accent-foreground: 224 80% 88%;
 
     --destructive: 0 84% 64%;
     --destructive-foreground: 0 60% 10%;
@@ -100,17 +118,24 @@
     --info: 199 89% 62%;
     --info-foreground: 204 80% 10%;
 
-    --border: 228 20% 20%;
-    --input: 228 18% 26%;
-    --ring: 239 84% 70%;
+    --brand: 40 65% 60%;
+    --brand-foreground: 30 45% 10%;
 
-    --sidebar: 228 28% 9%;
-    --sidebar-foreground: 222 18% 75%;
-    --sidebar-border: 228 20% 17%;
-    --sidebar-accent: 235 30% 17%;
-    --sidebar-active: 239 84% 70%;
+    --border: 225 16% 20%;
+    --input: 225 14% 26%;
+    --ring: 224 90% 70%;
 
-    --shadow-color: 228 60% 2%;
+    --sidebar: 224 30% 9.5%;
+    --sidebar-foreground: 220 18% 78%;
+    --sidebar-muted: 220 12% 58%;
+    --sidebar-icon: 220 18% 64%;
+    --sidebar-border: 224 24% 16%;
+    --sidebar-accent: 224 24% 15%;
+    --sidebar-accent-foreground: 0 0% 98%;
+    --sidebar-active: 40 65% 60%;
+    --sidebar-active-foreground: 40 60% 96%;
+
+    --shadow-color: 225 60% 2%;
   }
 }
 
@@ -120,6 +145,21 @@
   }
   body {
     @apply bg-background text-foreground;
+  }
+  /* Control gốc của trình duyệt (date picker, select, thanh cuộn) theo đúng theme. */
+  :root {
+    color-scheme: light;
+  }
+  .dark {
+    color-scheme: dark;
+  }
+}
+
+@layer components {
+  /* Thanh cuộn mảnh, cùng tông của menu trong khung điều hướng tối (thanh xám sáng mặc định nổi lên chói). */
+  .sidebar-scroll {
+    scrollbar-width: thin;
+    scrollbar-color: hsl(var(--sidebar-border)) transparent;
   }
 }
 

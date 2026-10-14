@@ -4,7 +4,8 @@ import { useCallback, useEffect, useId, useRef, useState, type PointerEvent, typ
 import { createPortal } from 'react-dom';
 import { cn } from '@/lib/utils';
 
-type Side = 'top' | 'bottom';
+/** `right`: nhãn của icon trong sidebar thu gọn — hiện ngang hàng, không che menu kế bên. */
+type Side = 'top' | 'bottom' | 'right';
 
 interface TooltipProps {
   /** Nội dung tooltip. Rỗng/undefined ⇒ không gắn gì, trả về nguyên trigger. */
@@ -43,10 +44,11 @@ export function Tooltip({ content, children, side = 'top', className }: TooltipP
     range.selectNodeContents(trigger);
     const rect = range.getBoundingClientRect();
     if (rect.width === 0 && rect.height === 0) return;
-    setBox({
-      top: side === 'top' ? rect.top - OFFSET : rect.bottom + OFFSET,
-      left: rect.left + rect.width / 2,
-    });
+    setBox(
+      side === 'right'
+        ? { top: rect.top + rect.height / 2, left: rect.right + OFFSET }
+        : { top: side === 'top' ? rect.top - OFFSET : rect.bottom + OFFSET, left: rect.left + rect.width / 2 },
+    );
   }, [side]);
 
   const hide = useCallback(() => setBox(null), []);
@@ -104,7 +106,7 @@ export function Tooltip({ content, children, side = 'top', className }: TooltipP
             style={{
               top: box.top,
               left: box.left,
-              transform: `translate(-50%, ${side === 'top' ? '-100%' : '0'})`,
+              transform: side === 'right' ? 'translate(0, -50%)' : `translate(-50%, ${side === 'top' ? '-100%' : '0'})`,
             }}
             className={cn(
               'pointer-events-none fixed z-[60] max-w-xs rounded-md bg-foreground px-2.5 py-1.5',

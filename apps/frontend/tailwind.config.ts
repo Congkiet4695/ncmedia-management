@@ -54,12 +54,28 @@ const config: Config = {
           foreground: 'hsl(var(--info-foreground))',
         },
         canvas: 'hsl(var(--canvas))',
+        // Khung nội dung chính (giữa canvas và card) — chỉ dùng ở shell `app/(dashboard)/layout.tsx`.
+        content: 'hsl(var(--content))',
+        // Nhấn thương hiệu (vàng đồng của logo) — trang trí / nền đậm, không làm chữ trên nền sáng.
+        brand: {
+          DEFAULT: 'hsl(var(--brand))',
+          foreground: 'hsl(var(--brand-foreground))',
+        },
+        // Khung điều hướng TỐI — chỉ dùng bên trong sidebar / drawer menu.
         sidebar: {
           DEFAULT: 'hsl(var(--sidebar))',
           foreground: 'hsl(var(--sidebar-foreground))',
+          muted: 'hsl(var(--sidebar-muted))',
+          icon: 'hsl(var(--sidebar-icon))',
           border: 'hsl(var(--sidebar-border))',
-          accent: 'hsl(var(--sidebar-accent))',
-          active: 'hsl(var(--sidebar-active))',
+          accent: {
+            DEFAULT: 'hsl(var(--sidebar-accent))',
+            foreground: 'hsl(var(--sidebar-accent-foreground))',
+          },
+          active: {
+            DEFAULT: 'hsl(var(--sidebar-active))',
+            foreground: 'hsl(var(--sidebar-active-foreground))',
+          },
         },
         muted: {
           DEFAULT: 'hsl(var(--muted))',

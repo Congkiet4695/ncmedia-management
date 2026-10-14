@@ -68,7 +68,8 @@ export function Drawer({
   if (!open) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end" role="dialog" aria-modal="true">
+    // `!m-0`: như Modal — margin-top của khối `space-y-*` cha không được đẩy lớp phủ lệch khỏi mép trên.
+    <div className="fixed inset-0 z-50 !m-0 flex justify-end" role="dialog" aria-modal="true">
       <button
         type="button"
         aria-label={t('action.close')}
@@ -94,7 +95,7 @@ export function Drawer({
             type="button"
             onClick={onClose}
             aria-label={t('action.close')}
-            className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground"
+            className="shrink-0 rounded-md p-1 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           >
             <X className="size-4" />
           </button>

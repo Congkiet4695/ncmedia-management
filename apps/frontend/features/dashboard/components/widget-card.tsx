@@ -47,14 +47,14 @@ export function WidgetCard({
 
   return (
     <Card className={cn('flex flex-col', className)}>
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3">
+      <div className="flex flex-wrap items-center justify-between gap-2 border-b px-5 py-3.5">
         <div className="flex min-w-0 items-center gap-2">
           {Icon && (
-            <span className="flex size-7 shrink-0 items-center justify-center rounded-md bg-primary/10 text-primary">
+            <span className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-inset ring-primary/15">
               <Icon className="size-4" />
             </span>
           )}
-          <h3 className="truncate text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+          <h3 className="truncate text-xs font-bold uppercase tracking-wider text-foreground/80">
             {title}
           </h3>
           {hint && (

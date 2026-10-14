@@ -46,5 +46,7 @@
   "syncsMasterData": "Syncs Master Data",
   "settingFulfillment": "Setting Fulfillment",
   "toggleGroup": "Mở / thu gọn menu con {{label}}",
-  "mainNavigation": "Điều hướng chính"
+  "mainNavigation": "Điều hướng chính",
+  "collapseSidebar": "Thu gọn menu",
+  "expandSidebar": "Mở rộng menu"
 }

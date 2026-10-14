@@ -3,6 +3,7 @@
 import { useEffect, type ReactNode } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
+import { BrandLogo } from '@/components/brand-logo';
 import { hasSession } from '@/lib/auth-cookies';
 import { useMounted } from '@/hooks/use-mounted';
 import { useAuthStore } from '@/stores/auth.store';
@@ -65,8 +66,12 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   if (resolving) {
     return (
-      <div className="flex min-h-screen items-center justify-center bg-background">
-        <Loader2 className="size-6 animate-spin text-muted-foreground" />
+      <div
+        className="flex min-h-screen flex-col items-center justify-center gap-4 bg-canvas"
+        role="status"
+      >
+        <BrandLogo variant="mark" size="splash" priority />
+        <Loader2 className="size-5 animate-spin text-primary" aria-hidden />
         <span className="sr-only">Đang tải phiên đăng nhập…</span>
       </div>
     );

@@ -73,7 +73,9 @@ export function Modal({
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      // `!m-0`: modal thường nằm trong khối `space-y-*` của trang — margin-top của khối đó đẩy lớp
+      // `fixed inset-0` lệch xuống, hở một dải không bị phủ ở mép trên màn hình.
+      className="fixed inset-0 z-50 !m-0 flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
     >
@@ -88,7 +90,7 @@ export function Modal({
           // `max-h-[calc(100vh-4rem)]` chừa đúng phần padding 1rem của khung ngoài ở cả hai
           // phía cộng một khoảng thở — dialog không bao giờ chạm mép màn hình.
           'relative z-10 flex max-h-[calc(100vh-4rem)] w-full max-w-lg flex-col',
-          'overflow-hidden rounded-xl border bg-card shadow-xl',
+          'overflow-hidden rounded-2xl border bg-card shadow-xl',
           className,
         )}
       >
@@ -96,7 +98,7 @@ export function Modal({
           type="button"
           onClick={onClose}
           aria-label={t('action.close')}
-          className="absolute right-4 top-4 z-10 text-muted-foreground hover:text-foreground"
+          className="absolute right-4 top-4 z-10 rounded-md p-1 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         >
           <X className="size-4" />
         </button>

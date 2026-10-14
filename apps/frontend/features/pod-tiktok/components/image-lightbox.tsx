@@ -141,7 +141,7 @@ export function ImageLightbox({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+      className="fixed inset-0 z-[60] !m-0 flex items-center justify-center p-4"
       role="dialog"
       aria-modal="true"
       aria-label={current.label ?? alt ?? t('image.viewLarge')}

@@ -98,7 +98,7 @@ export function DropdownMenu({ trigger, children, align = 'end', className }: Dr
             role="menu"
             style={{ top: box.top, left: box.left, width: MENU_WIDTH }}
             className={cn(
-              'fixed z-50 overflow-hidden rounded-lg border bg-popover p-1 shadow-lg',
+              'fixed z-50 overflow-hidden rounded-xl border bg-popover p-1.5 shadow-lg',
               className,
             )}
             // Chọn xong là đóng — không có mục nào của màn hình này cần giữ menu mở.
@@ -135,7 +135,7 @@ export function DropdownMenuItem({
       disabled={disabled}
       onClick={onSelect}
       className={cn(
-        'flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-left text-sm',
+        'flex w-full items-center gap-2 rounded-md px-2.5 py-2 text-left text-sm focus-visible:bg-accent focus-visible:outline-none',
         'hover:bg-accent hover:text-accent-foreground',
         'disabled:pointer-events-none disabled:opacity-50',
         destructive && 'text-destructive hover:bg-destructive/10 hover:text-destructive',

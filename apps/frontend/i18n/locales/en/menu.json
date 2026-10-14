@@ -46,5 +46,7 @@
   "syncsMasterData": "Syncs Master Data",
   "settingFulfillment": "Setting Fulfillment",
   "toggleGroup": "Show or hide the {{label}} submenu",
-  "mainNavigation": "Main navigation"
+  "mainNavigation": "Main navigation",
+  "collapseSidebar": "Collapse menu",
+  "expandSidebar": "Expand menu"
 }

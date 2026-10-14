@@ -76,7 +76,13 @@ const SHOP_STATUS_OF = { live: 'ACTIVE', inactive: 'INACTIVE', deauthorized: 'DE
   DashboardShopStatus
 >;
 
-const SHOP_COLORS = { live: '#52c41a', inactive: '#ef4444', deauthorized: '#f59e0b' } as const;
+const SHOP_COLORS = {
+  live: 'hsl(var(--success))',
+  inactive: 'hsl(var(--destructive))',
+  deauthorized: 'hsl(var(--warning))',
+} as const;
+/** Vòng rỗng khi chưa có shop. */
+const EMPTY_SLICE_COLOR = 'hsl(var(--muted))';
 
 /** TRẠNG THÁI SHOP — donut theo trạng thái thật của shop (ACTIVE / INACTIVE / DEAUTHORIZED). */
 export function ShopStatusCard({ data, loading, error, onRetry, filters }: DrillDownCardProps) {
@@ -101,7 +107,7 @@ export function ShopStatusCard({ data, loading, error, onRetry, filters }: Drill
             <ResponsiveContainer width="100%" height="100%">
               <PieChart>
                 <Pie
-                  data={visible.length ? visible : [{ key: 'empty', name: '', value: 1, color: '#e5e7eb' }]}
+                  data={visible.length ? visible : [{ key: 'empty', name: '', value: 1, color: EMPTY_SLICE_COLOR }]}
                   dataKey="value"
                   nameKey="name"
                   innerRadius="68%"
@@ -109,7 +115,7 @@ export function ShopStatusCard({ data, loading, error, onRetry, filters }: Drill
                   stroke="none"
                   isAnimationActive={false}
                 >
-                  {(visible.length ? visible : [{ key: 'empty', color: '#e5e7eb' }]).map((slice) => (
+                  {(visible.length ? visible : [{ key: 'empty', color: EMPTY_SLICE_COLOR }]).map((slice) => (
                     <Cell key={slice.key} fill={slice.color} />
                   ))}
                 </Pie>

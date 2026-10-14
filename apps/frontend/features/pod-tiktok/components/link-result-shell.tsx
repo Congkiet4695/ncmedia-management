@@ -3,6 +3,7 @@
 import { useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import i18n from '@/i18n';
+import { BrandLogo } from '@/components/brand-logo';
 import { Card } from '@/components/ui/card';
 
 /** Đường về sau khi kết thúc luồng uỷ quyền (trang quản lý kết nối TikTok). */
@@ -39,7 +40,8 @@ export function useLinkErrorMessage(): (errorCode?: string | null) => string {
  */
 export function LinkResultShell({ children }: { children: React.ReactNode }) {
   return (
-    <div className="flex min-h-screen items-center justify-center bg-muted/40 px-4 py-10">
+    <div className="flex min-h-screen flex-col items-center justify-center gap-6 bg-canvas px-4 py-10">
+      <BrandLogo variant="full" size="page" priority />
       <Card className="w-full max-w-lg">{children}</Card>
     </div>
   );
