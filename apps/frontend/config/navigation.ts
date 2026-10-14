@@ -15,11 +15,11 @@ import {
   Bell,
   ClipboardList,
   Copy,
+  Database,
   Factory,
   FileStack,
   Globe,
   History,
-  Link2,
   LayoutDashboard,
   Package,
   RefreshCw,
@@ -67,6 +67,12 @@ export interface NavItemConfig {
    * Xoá dòng này là menu hiện lại ngay.
    */
   hidden?: boolean;
+  /**
+   * Chỉ cho nhóm (có `children`): bấm tên nhóm ⇒ điều hướng tới menu con ĐẦU TIÊN còn lại sau khi lọc
+   * quyền (`resolveNavigation`) — không bao giờ dẫn tới trang bị từ chối. Mũi tên bên phải vẫn chỉ
+   * mở / thu gọn. Bỏ trống ⇒ bấm tên nhóm chỉ mở / thu gọn như cũ.
+   */
+  navigateToFirstChild?: boolean;
   children?: NavItemConfig[];
 }
 
@@ -154,22 +160,39 @@ export const NAVIGATION: NavItemConfig[] = [
     ],
   },
 
+  // ---------------------------------------------------------------------------------------------
+  // Khu POD / TikTok Shop — mỗi chức năng là menu CẤP MỘT (nhóm POD cũ đã bỏ). 🔴 URL GIỮ NGUYÊN
+  // `/dashboard/pod/*`: chỉ đổi vị trí trong menu, không gãy bookmark / link nội bộ; quyền giữ nguyên.
+  // ---------------------------------------------------------------------------------------------
   {
-    labelKey: 'pod',
-    href: '/dashboard/pod',
+    labelKey: 'podTiktokAccounts',
+    href: '/dashboard/pod/tiktok-accounts',
+    icon: Store,
+    permission: 'pod.tiktok.account.read',
+  },
+  {
+    labelKey: 'podProducts',
+    href: '/dashboard/pod/products',
     icon: Package,
+    permission: 'pod.product.read',
+  },
+
+  // Listing — luồng đưa sản phẩm lên sàn, theo đúng thứ tự thao tác. Bấm "Listing" mở thẳng menu con
+  // ĐẦU TIÊN người dùng được phép vào (Auto Listing, hoặc mục kế tiếp nếu thiếu quyền) — xem
+  // `navigateToFirstChild`. `href` của nhóm chỉ là khoá định danh, KHÔNG phải route.
+  {
+    labelKey: 'listing',
+    href: '/dashboard/listing',
+    icon: Rocket,
+    navigateToFirstChild: true,
     children: [
+      // Auto Listing = danh sách LƯỢT ĐĂNG (Listing Session). Import Product và Draft Product không có
+      // menu riêng: chúng là các bước BÊN TRONG một lượt đăng.
       {
-        labelKey: 'podTiktokAccounts',
-        href: '/dashboard/pod/tiktok-accounts',
-        icon: Store,
-        permission: 'pod.tiktok.account.read',
-      },
-      {
-        labelKey: 'podProducts',
-        href: '/dashboard/pod/products',
-        icon: Package,
-        permission: 'pod.product.read',
+        labelKey: 'podAutoListing',
+        href: '/dashboard/pod/auto-listing',
+        icon: Rocket,
+        permission: 'pod.session.read',
       },
       // Clone Products: sản phẩm đang được nhân bản + lịch sử các lượt (Seller thấy của mình,
       // Admin thấy cả tổ chức). Cùng quyền với nút Nhân bản ở màn Sản phẩm.
@@ -179,6 +202,78 @@ export const NAVIGATION: NavItemConfig[] = [
         icon: Copy,
         permission: 'pod.product.clone',
       },
+      // Draft Listing = danh sách listing ĐÃ DỰNG XONG, chờ đưa lên sàn. Đây là nơi bấm
+      // Publish; Auto Listing chỉ dừng ở việc tạo Draft trên TikTok.
+      {
+        labelKey: 'podDraftListings',
+        href: '/dashboard/pod/draft-listings',
+        icon: Send,
+        permission: 'pod.draft.read',
+      },
+      {
+        labelKey: 'podPublishHistory',
+        href: '/dashboard/pod/publish-history',
+        icon: History,
+        permission: 'pod.listing.read',
+      },
+    ],
+  },
+
+  // Sáu loại template điều hướng bằng THANH TAB trong chính màn hình
+  // (`app/(dashboard)/dashboard/pod/templates/layout.tsx`), không phải bằng menu con — đừng thêm `children`.
+  {
+    labelKey: 'podTemplates',
+    href: '/dashboard/pod/templates',
+    icon: FileStack,
+    permission: 'pod.template.read',
+  },
+  // Flash Sale — khuyến mãi giới hạn thời gian (Promotion Activity của TikTok).
+  // 🔴 Gate bằng `pod.flashsale.read`: Seller được cấp quyền này theo mặc định nhưng
+  // vẫn chỉ thấy shop được Admin gán (PodAccessScopeService), giống mọi màn hình POD.
+  {
+    labelKey: 'podFlashSales',
+    href: '/dashboard/pod/flash-sales',
+    icon: Zap,
+    permission: 'pod.flashsale.read',
+  },
+
+  // Order — đơn TikTok và yêu cầu Return/Refund. URL của POD Orders GIỮ NGUYÊN (`/dashboard/pod/orders`,
+  // cùng quyền `pod.tiktok.order.read`) — chỉ đổi vị trí trong menu, không gãy link / bookmark.
+  {
+    labelKey: 'orderGroup',
+    href: '/dashboard/pod/orders',
+    icon: ShoppingBag,
+    children: [
+      {
+        labelKey: 'podOrders',
+        href: '/dashboard/pod/orders',
+        icon: ClipboardList,
+        permission: 'pod.tiktok.order.read',
+      },
+      {
+        labelKey: 'podReturns',
+        href: POD_RETURNS_PATH,
+        icon: RotateCcw,
+        permission: 'pod.tiktok.return.read',
+      },
+    ],
+  },
+
+  // TikTok Payout — menu CHÍNH. Route giữ nguyên `/dashboard/pod/payout` để không gãy link / bookmark.
+  {
+    labelKey: 'podPayout',
+    href: '/dashboard/pod/payout',
+    icon: Wallet,
+    permission: 'pod.tiktok.payout.read',
+  },
+
+  // Syncs Master Data — dữ liệu master dùng khi dựng listing (danh mục, thương hiệu, kho, master data
+  // TikTok toàn cục, tài nguyên của tổ chức). Chỉ gom MENU — mỗi trang giữ nguyên chức năng đồng bộ của nó.
+  {
+    labelKey: 'syncsMasterData',
+    href: '/dashboard/master-data',
+    icon: Database,
+    children: [
       {
         labelKey: 'podCategories',
         href: '/dashboard/pod/categories',
@@ -210,102 +305,31 @@ export const NAVIGATION: NavItemConfig[] = [
         icon: Globe,
         anyPermission: ['pod.product.read', 'platform.masterdata.read'],
       },
-      // Tài nguyên của TỔ CHỨC (kho hàng) — đặt ngay trên Templates vì phải chạy trước.
+      // Tài nguyên của TỔ CHỨC (kho hàng…) — phải chạy trước khi dựng Templates.
       {
         labelKey: 'podResources',
         href: '/dashboard/pod/resources',
         icon: RefreshCw,
         permission: 'pod.product.sync',
       },
-      // Sáu loại template điều hướng bằng THANH TAB trong chính màn hình
-      // (`app/(dashboard)/dashboard/pod/templates/layout.tsx`), không phải bằng menu con.
-      //
-      // 🔴 Đừng thêm `children` ở đây: sidebar chỉ mở menu con cho nhóm CẤP MỘT
-      // (`NavGroup`), còn mục nằm trong nhóm được vẽ bằng `NavLink` — vốn bỏ qua `children`.
-      // Thêm vào chỉ tạo cấu hình chết, và làm người sau tưởng menu con đang hoạt động.
-      {
-        labelKey: 'podTemplates',
-        href: '/dashboard/pod/templates',
-        icon: FileStack,
-        permission: 'pod.template.read',
-      },
-      // Auto Listing = danh sách LƯỢT ĐĂNG (Listing Session). Import Product và Draft
-      // Product không có menu riêng: chúng là các bước BÊN TRONG một lượt đăng.
-      {
-        labelKey: 'podAutoListing',
-        href: '/dashboard/pod/auto-listing',
-        icon: Rocket,
-        permission: 'pod.session.read',
-      },
-      // Draft Listing = danh sách listing ĐÃ DỰNG XONG, chờ đưa lên sàn. Đây là nơi bấm
-      // Publish; Auto Listing chỉ dừng ở việc tạo Draft trên TikTok.
-      {
-        labelKey: 'podDraftListings',
-        href: '/dashboard/pod/draft-listings',
-        icon: Send,
-        permission: 'pod.draft.read',
-      },
-      {
-        labelKey: 'podPublishHistory',
-        href: '/dashboard/pod/publish-history',
-        icon: History,
-        permission: 'pod.listing.read',
-      },
-      // Flash Sale — khuyến mãi giới hạn thời gian (Promotion Activity của TikTok).
-      // 🔴 Gate bằng `pod.flashsale.read`: Seller được cấp quyền này theo mặc định nhưng
-      // vẫn chỉ thấy shop được Admin gán (PodAccessScopeService), giống mọi màn hình POD.
-      // Chưa có menu Promotion — sprint này chỉ làm Flash Sale.
-      {
-        labelKey: 'podFlashSales',
-        href: '/dashboard/pod/flash-sales',
-        icon: Zap,
-        permission: 'pod.flashsale.read',
-      },
+    ],
+  },
+
+  // Setting Fulfillment — cấu hình nhà cung cấp fulfillment của TỔ CHỨC (credentials do backend giữ,
+  // giao diện không hiển thị lại secret). Product Mapping KHÔNG còn trên menu; route
+  // `/dashboard/pod/product-mapping` và API vẫn giữ nguyên.
+  {
+    labelKey: 'settingFulfillment',
+    href: '/dashboard/fulfillment-settings',
+    icon: Factory,
+    children: [
       {
         labelKey: 'podFulfillmentProviders',
         href: '/dashboard/pod/fulfillment-providers',
         icon: Factory,
         permission: 'fulfillment.config',
       },
-      {
-        labelKey: 'podProductMapping',
-        href: '/dashboard/pod/product-mapping',
-        icon: Link2,
-        permission: 'fulfillment.config',
-      },
     ],
-  },
-
-  // Order — đơn TikTok và yêu cầu Return/Refund. URL của POD Orders GIỮ NGUYÊN (`/dashboard/pod/orders`,
-  // cùng quyền `pod.tiktok.order.read`) — chỉ đổi vị trí trong menu, không gãy link / bookmark.
-  {
-    labelKey: 'orderGroup',
-    href: '/dashboard/pod/orders',
-    icon: ShoppingBag,
-    children: [
-      {
-        labelKey: 'podOrders',
-        href: '/dashboard/pod/orders',
-        icon: ClipboardList,
-        permission: 'pod.tiktok.order.read',
-      },
-      {
-        labelKey: 'podReturns',
-        href: POD_RETURNS_PATH,
-        icon: RotateCcw,
-        permission: 'pod.tiktok.return.read',
-      },
-    ],
-  },
-
-  // TikTok Payout — menu CHÍNH (không còn nằm trong POD). Route giữ nguyên `/dashboard/pod/payout` để
-  // không gãy link / bookmark; nhóm POD sáng theo MENU CON đang mở (không theo tiền tố URL), nên vào
-  // Payout không làm nhóm POD sáng theo.
-  {
-    labelKey: 'podPayout',
-    href: '/dashboard/pod/payout',
-    icon: Wallet,
-    permission: 'pod.tiktok.payout.read',
   },
 
   // Cài đặt của TỔ CHỨC: Thông báo (Telegram — Bot Token là secret, chỉ `notification.config`) và

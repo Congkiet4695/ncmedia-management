@@ -506,14 +506,14 @@ const QUALITY_STEPS = ['POOR', 'FAIR', 'GOOD'] as const;
 
 const QUALITY_BAR_COLOR: Record<string, string> = {
   POOR: 'bg-destructive',
-  FAIR: 'bg-amber-500',
-  GOOD: 'bg-emerald-500',
+  FAIR: 'bg-warning',
+  GOOD: 'bg-success',
 };
 
 const QUALITY_TEXT_COLOR: Record<string, string> = {
   POOR: 'text-destructive',
-  FAIR: 'text-amber-600 dark:text-amber-400',
-  GOOD: 'text-emerald-600 dark:text-emerald-400',
+  FAIR: 'text-warning',
+  GOOD: 'text-success',
 };
 
 /**

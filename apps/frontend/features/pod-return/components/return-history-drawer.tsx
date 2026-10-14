@@ -85,7 +85,7 @@ export function ReturnHistoryDrawer({ request, onClose }: ReturnHistoryDrawerPro
             ) : (
               <div className="space-y-3">
                 {history?.errorCode && (
-                  <p className="flex items-start gap-2 rounded-md bg-amber-500/10 p-2 text-xs text-amber-700 dark:text-amber-400">
+                  <p className="flex items-start gap-2 rounded-md bg-warning/10 p-2 text-xs text-warning">
                     <AlertTriangle className="mt-0.5 size-3.5 shrink-0" />
                     {t(`syncError.${history.errorCode}`, { defaultValue: t('history.liveFailed') })}
                   </p>

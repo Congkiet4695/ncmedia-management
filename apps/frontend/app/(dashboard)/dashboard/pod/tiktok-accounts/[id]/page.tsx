@@ -130,7 +130,7 @@ function DetailView({ id }: { id: string }) {
               {formatDate(account.refreshTokenExpiresAt)}
             </InfoRow>
             <InfoRow label={t('account.remaining')}>
-              <span className={account.daysUntilReauthorize <= 30 ? 'text-amber-600' : undefined}>
+              <span className={account.daysUntilReauthorize <= 30 ? 'text-warning' : undefined}>
                 {t('account.daysLeft', { count: account.daysUntilReauthorize })}
               </span>
             </InfoRow>

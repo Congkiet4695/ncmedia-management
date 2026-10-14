@@ -21,9 +21,9 @@ import type {
 /** Màu của từng trạng thái lô — dùng chung cho ô lô và chú thích. */
 const BATCH_TONE: Record<PodFlashSaleBatchStatus, string> = {
   PENDING: 'border-muted-foreground/30 bg-muted text-muted-foreground',
-  PROCESSING: 'border-amber-400 bg-amber-400/20 text-amber-700 animate-pulse dark:text-amber-300',
-  SUCCEEDED: 'border-emerald-500/50 bg-emerald-500/15 text-emerald-700 dark:text-emerald-300',
-  PARTIAL: 'border-amber-500/60 bg-amber-500/15 text-amber-700 dark:text-amber-300',
+  PROCESSING: 'border-warning/40 bg-warning/20 text-warning animate-pulse',
+  SUCCEEDED: 'border-success/50 bg-success/15 text-success',
+  PARTIAL: 'border-warning/60 bg-warning/15 text-warning',
   FAILED: 'border-destructive/60 bg-destructive/15 text-destructive',
   SKIPPED: 'border-dashed border-muted-foreground/40 bg-transparent text-muted-foreground',
 };
@@ -73,7 +73,7 @@ export function PublishProgressCard({
     outcome === 'FAILED'
       ? 'border-destructive/40 bg-destructive/5'
       : outcome === 'PARTIAL'
-        ? 'border-amber-500/40 bg-amber-500/5'
+        ? 'border-warning/40 bg-warning/5'
         : 'bg-muted/40';
 
   return (
@@ -85,9 +85,9 @@ export function PublishProgressCard({
           ) : outcome === 'FAILED' ? (
             <XCircle className="size-4 text-destructive" />
           ) : outcome === 'PARTIAL' ? (
-            <AlertTriangle className="size-4 text-amber-600" />
+            <AlertTriangle className="size-4 text-warning" />
           ) : (
-            <CheckCircle2 className="size-4 text-emerald-600" />
+            <CheckCircle2 className="size-4 text-success" />
           )}
           {t(`flashSale.publish.outcome.${outcome}`)}
         </div>
@@ -108,19 +108,19 @@ export function PublishProgressCard({
             outcome === 'FAILED'
               ? 'bg-destructive'
               : outcome === 'PARTIAL'
-                ? 'bg-amber-500'
-                : 'bg-emerald-500',
+                ? 'bg-warning'
+                : 'bg-success',
           )}
           style={{ width: `${percent}%` }}
         />
-        {publishing && <div className="flex-1 animate-pulse bg-amber-400/60" />}
+        {publishing && <div className="flex-1 animate-pulse bg-warning/60" />}
       </div>
 
       <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:grid-cols-4">
         <Counter
           label={t('flashSale.publish.counter.succeeded')}
           value={status.publishedItems}
-          className="text-emerald-700 dark:text-emerald-300"
+          className="text-success"
         />
         <Counter
           label={t('flashSale.publish.counter.failed')}
@@ -174,7 +174,7 @@ export function PublishProgressCard({
         <p
           className={cn(
             'mt-2 text-xs',
-            outcome === 'FAILED' ? 'text-destructive' : 'text-amber-700 dark:text-amber-300',
+            outcome === 'FAILED' ? 'text-destructive' : 'text-warning',
           )}
         >
           {status.errorMessage}

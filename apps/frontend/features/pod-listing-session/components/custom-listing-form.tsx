@@ -594,7 +594,7 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
   return (
     <div className="space-y-4 pb-24">
       {sessionLocked && (
-        <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
+        <div className="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm">
           {t('listing.custom.locked')}
         </div>
       )}

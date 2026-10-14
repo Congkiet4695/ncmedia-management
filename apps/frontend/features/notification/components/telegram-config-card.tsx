@@ -151,7 +151,7 @@ export function TelegramConfigCard() {
 
       <CardContent className="space-y-5">
         {!config.encryptionReady && (
-          <div className="flex gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-700 dark:text-amber-400">
+          <div className="flex gap-2 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm text-warning">
             <AlertTriangle className="mt-0.5 size-4 shrink-0" />
             <span>{t('telegram.encryptionMissing')}</span>
           </div>
@@ -214,7 +214,7 @@ export function TelegramConfigCard() {
           <div
             className={
               testResult.success
-                ? 'flex gap-2 rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-700 dark:text-emerald-400'
+                ? 'flex gap-2 rounded-md border border-success/40 bg-success/10 p-3 text-sm text-success'
                 : 'flex gap-2 rounded-md border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive'
             }
           >

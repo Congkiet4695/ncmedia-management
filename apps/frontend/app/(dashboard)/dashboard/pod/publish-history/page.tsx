@@ -183,7 +183,7 @@ function PublishHistoryView() {
                   </span>
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{job.totalItems}</TableCell>
-                <TableCell className="text-right tabular-nums text-emerald-600">
+                <TableCell className="text-right tabular-nums text-success">
                   {job.successItems}
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-destructive">

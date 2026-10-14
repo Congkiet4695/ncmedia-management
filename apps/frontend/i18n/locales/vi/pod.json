@@ -95,6 +95,17 @@
         "SKIPPED": "Bỏ qua",
         "FAILED": "Lỗi"
       }
+    },
+    "totalShops": "Tổng số shop",
+    "totalShopsLoading": "Đang tải tổng số shop",
+    "filter": {
+      "allShopStatuses": "Tất cả (Active / Inactive)",
+      "shopStatus": {
+        "ACTIVE": "Active",
+        "INACTIVE": "Inactive"
+      },
+      "allSellers": "Tất cả seller",
+      "unassigned": "Chưa assign"
     }
   },
   "design": {

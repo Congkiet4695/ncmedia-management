@@ -159,8 +159,9 @@ async function main(): Promise<void> {
     check('Đơn chưa có dữ liệu tài chính (O5) không được tính 0 vào doanh thu — revenueOrders 6/7', row.revenueOrders === 6 && row.orders === 7);
     check('Basecost = 19: chỉ giá đã xác nhận của lần fulfill đang giữ (O4 bỏ lần huỷ 100; O3 chưa xác nhận không cộng)', near(row.baseCost, 19) && row.baseCostOrders === 4, row);
     check('Label = 5 đơn đã fulfill × 0.50 = 2.50 (O1 hai dòng vẫn MỘT label; O4 gửi lại vẫn MỘT; O6 huỷ ⇒ 0)', row.fulfilledOrders === 5 && near(row.label, 2.5), row);
-    check('Profit Dự kiến = 32 = Σ (Doanh thu − Base − Label − Ship Seller chưa trong proceeds) của 3 đơn đủ dữ kiện', near(row.profit, 32) && row.profitOrders === 3, row);
-    check('O3 (chưa xác nhận giá) & O7 (phí ship chưa xác định) KHÔNG bị tính profit với 0', row.profitOrders === 3);
+    // Est. profit (2026-10-14) = Doanh thu − Basecost − Label − (Shipping Fee − phần đã nằm trong Doanh thu), trên các tổng của dòng.
+    check('Est. profit = 84 − 19 − 2.5 − (Shipping Fee − phần đã trong Doanh thu)', near(row.profit, 84 - 19 - 2.5 - (row.shippingFee - row.shippingIncluded)), row);
+    check('Lợi nhuận TỪNG ĐƠN đủ dữ kiện (tham khảo) vẫn 3 đơn: O3 (chưa xác nhận giá) & O7 (phí ship chưa xác định) không tính', row.profitOrders === 3);
 
     // Đối chiếu TỪNG ĐƠN với màn Order.
     const orders = await prisma.podOrder.findMany({ where: { id: { in: created.orders } }, select: { id: true, tiktokOrderId: true } });

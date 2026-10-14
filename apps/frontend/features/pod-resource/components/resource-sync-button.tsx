@@ -11,7 +11,7 @@ interface ResourceSyncButtonProps {
   /** Nhãn riêng ("Sync Categories"). Bỏ trống dùng nhãn chung. */
   label?: string;
   size?: 'sm' | 'default';
-  variant?: 'default' | 'outline';
+  variant?: 'default' | 'outline' | 'info';
   disabled?: boolean;
   onDone?: () => void;
 }
@@ -31,7 +31,7 @@ export function ResourceSyncButton({
   resource,
   label,
   size = 'default',
-  variant = 'outline',
+  variant = 'info',
   disabled,
   onDone,
 }: ResourceSyncButtonProps) {

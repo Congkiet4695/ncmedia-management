@@ -7,15 +7,21 @@ import {
   IsOptional,
   IsString,
   IsUUID,
+  Matches,
   Max,
   MaxLength,
   Min,
 } from 'class-validator';
-import { PodTiktokAccountStatus } from '@prisma/client';
+import { PodTiktokAccountStatus, PodTiktokShopStatus } from '@prisma/client';
 import { POD_TIKTOK_SORT_FIELDS, type PodTiktokSortField } from '../constants/tiktok.constants';
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
+
+/** Giá trị `sellerId` để lọc kết nối CHƯA được phân công Seller (`seller_id IS NULL`). */
+export const POD_UNASSIGNED_SELLER = 'UNASSIGNED';
+const UUID_OR_UNASSIGNED =
+  /^(UNASSIGNED|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$/i;
 
 /** Query danh sách kết nối TikTok Shop — pagination page/limit (ADR-023). */
 export class PodTiktokAccountQueryDto {
@@ -45,6 +51,25 @@ export class PodTiktokAccountQueryDto {
   @IsOptional()
   @IsEnum(PodTiktokAccountStatus)
   status?: PodTiktokAccountStatus;
+
+  @ApiPropertyOptional({
+    enum: PodTiktokShopStatus,
+    description:
+      'Trạng thái SHOP phía TikTok (Sync Shops) — Active = ACTIVE, Inactive = INACTIVE (cùng định nghĩa Live / Die ' +
+      'của Dashboard). Kết nối khớp khi có ít nhất MỘT shop ở trạng thái này. Bỏ trống = tất cả.',
+  })
+  @IsOptional()
+  @IsEnum(PodTiktokShopStatus)
+  shopStatus?: PodTiktokShopStatus;
+
+  @ApiPropertyOptional({
+    description:
+      'Seller phụ trách: Employee id (`pod_tiktok_accounts.seller_id`) hoặc `UNASSIGNED` = chưa phân công. ' +
+      'Bỏ trống = tất cả. Vẫn chỉ trong phạm vi người xem.',
+  })
+  @IsOptional()
+  @Matches(UUID_OR_UNASSIGNED, { message: 'sellerId phải là UUID hoặc UNASSIGNED' })
+  sellerId?: string;
 
   @ApiPropertyOptional({ enum: POD_TIKTOK_SORT_FIELDS, default: 'createdAt' })
   @IsOptional()

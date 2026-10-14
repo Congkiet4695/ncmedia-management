@@ -95,7 +95,7 @@ export function CredentialsDialog({
           onCopy={() => copy(password, t('auth:login.password'))}
         />
 
-        <p className="text-xs text-amber-600 dark:text-amber-400">{t('passwordOnce')}</p>
+        <p className="text-xs text-warning">{t('passwordOnce')}</p>
 
         <div className="flex justify-end gap-2">
           {email && (

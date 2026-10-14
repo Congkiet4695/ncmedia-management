@@ -96,7 +96,7 @@ export function ShopWarehouseSelect({
       {mutation.isPending ? (
         <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
       ) : (
-        saved && <Check className="size-4 shrink-0 text-emerald-600" />
+        saved && <Check className="size-4 shrink-0 text-success" />
       )}
     </div>
   );

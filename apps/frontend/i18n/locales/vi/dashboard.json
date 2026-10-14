@@ -8,7 +8,16 @@
     "shop": "Shop",
     "seller": "Seller",
     "allShops": "Tất cả shop",
-    "allSellers": "Tất cả seller"
+    "allSellers": "Tất cả seller",
+    "period": "Thời gian",
+    "preset": {
+      "TODAY": "Ngày hôm nay",
+      "YESTERDAY": "Ngày hôm qua",
+      "THIS_MONTH": "Tháng này",
+      "LAST_MONTH": "Tháng trước",
+      "ALL": "Tất cả thời gian",
+      "CUSTOM": "Tuỳ chỉnh"
+    }
   },
   "hold": {
     "title": "Tổng tiền đang hold",
@@ -80,8 +89,10 @@
       "returns": "Đơn hoàn",
       "revenue": "Doanh thu",
       "baseCost": "Basecost",
+      "shippingFee": "Shipping Fee",
       "label": "Label",
       "profit": "Profit Dự kiến",
+      "currentProfit": "Current Profit",
       "paid": "Đã thanh toán",
       "processing": "Đang xử lý",
       "hold": "On hold"
@@ -89,12 +100,15 @@
     "colHint": {
       "revenue": "Tiền thu về của từng đơn: đơn đã quyết toán dùng số đã quyết toán, chưa quyết toán dùng số ước tính của TikTok. Mỗi đơn chỉ một giá trị.",
       "baseCost": "Giá vốn đã được nhà cung cấp fulfillment xác nhận của lần fulfill đang giữ đơn (gửi lại thay lần cũ).",
+      "shippingFee": "Σ Phí ship Seller của từng đơn — phần phí vận chuyển Seller thực sự chịu (cùng giá trị màn Order): đơn đã quyết toán dùng phí ship TikTok đã trừ, chưa quyết toán dùng phí TikTok đã tính hoặc khoản free ship Seller tài trợ. Mỗi đơn một lần; đơn chưa xác định được phí ship không được cộng (không coi là 0).",
       "label": "Label = số đơn đã fulfill × phí label mỗi đơn. Đơn chưa fulfill / đã huỷ fulfill không tính.",
-      "profit": "Profit Dự kiến = Doanh thu − Base Cost − Label − Phí ship Seller (phần chưa nằm trong tiền thu về), cùng công thức màn Order. Chỉ cộng đơn đủ dữ kiện — không coi dữ liệu thiếu là 0.",
+      "profit": "Profit Dự kiến = Doanh thu − Basecost − Shipping Fee − Label, tính trên các tổng của dòng. Không trừ hai lần phí ship: phần Shipping Fee mà TikTok ĐÃ trừ trong Doanh thu (đơn đã quyết toán / ước tính đã tính phí ship) không bị trừ lại. Base cost chưa xác nhận đóng góp 0 (như cột Basecost).",
+      "currentProfit": "Current Profit = Paid − Basecost − Label − Seller Shipping Fee, tính trên tổng của seller trong khoảng ngày (Paid theo ngày TikTok chi, các cột khác theo ngày đặt đơn). Lưu ý: Paid là tiền TikTok đã chi, đã trừ sẵn phí ship TikTok tính.",
       "paid": "Tiền TikTok đã chi trong khoảng.",
       "processing": "Đã quyết toán, chưa chi (payment PROCESSING).",
       "hold": "Tiền TikTok chưa quyết toán (hiện tại)."
     },
+    "formula": "Công thức: {{column}}",
     "returnsHint": "Số đơn có yêu cầu Return/Refund đang mở hoặc đã xong (không tính yêu cầu huỷ / bị từ chối). — = chưa đồng bộ.",
     "partial": "{{covered}}/{{total}} đơn",
     "partialHint": "Chỉ số đơn này có đủ dữ liệu; các đơn còn lại chưa có dữ liệu tài chính / giá vốn nên KHÔNG được cộng (không coi là 0)."
@@ -114,7 +128,8 @@
   },
   "dialog": {
     "connection": "Tên kết nối",
-    "shop": "Tên shop"
+    "shop": "Tên shop",
+    "sellerEmployee": "Seller Employee"
   },
   "holdShops": {
     "open": "Xem danh sách shop đang hold",

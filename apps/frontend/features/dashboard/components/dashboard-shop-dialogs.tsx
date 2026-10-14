@@ -10,7 +10,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@
 import { useApiError } from '@/hooks/use-api-error';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { useDashboardHoldShops, useDashboardShops } from '../hooks/use-dashboard';
-import type { DashboardFilters, DashboardShopStatus } from '../types';
+import type { DashboardFilters, DashboardShopSeller, DashboardShopStatus } from '../types';
 
 const PAGE_SIZE = 20;
 
@@ -28,6 +28,24 @@ interface ListStateProps {
   emptyMessage: string;
   onRetry: () => void;
   children: ReactNode;
+}
+
+/**
+ * Ô "Seller Employee" — Employee phụ trách shop (gán ở TikTok Account của shop), cùng quy tắc cho hai popup.
+ * Chưa gán ⇒ "—". Không bao giờ thay bằng tên seller TikTok hay tên kết nối.
+ */
+function SellerEmployeeCell({ row }: { row: DashboardShopSeller }) {
+  return (
+    <TableCell className="text-sm">
+      {row.sellerId ? (
+        <span className="block max-w-[200px] truncate" title={row.sellerEmail ?? undefined}>
+          {row.sellerName ?? row.sellerEmail ?? '—'}
+        </span>
+      ) : (
+        <span className="text-muted-foreground">—</span>
+      )}
+    </TableCell>
+  );
 }
 
 /** Loading / Error (có thử lại) / Empty dùng chung cho các popup danh sách của Dashboard. */
@@ -106,6 +124,7 @@ export function HoldShopsDialog({
               <TableRow>
                 <TableHead>{t('dialog.connection')}</TableHead>
                 <TableHead>{t('dialog.shop')}</TableHead>
+                <TableHead>{t('dialog.sellerEmployee')}</TableHead>
                 <TableHead className="text-right">{t('holdShops.amount', { currency: currency ?? '—' })}</TableHead>
               </TableRow>
             </TableHeader>
@@ -114,6 +133,7 @@ export function HoldShopsDialog({
                 <TableRow key={row.shopId}>
                   <TableCell className="text-sm">{row.accountName ?? '—'}</TableCell>
                   <TableCell className="text-sm font-medium">{row.shopName ?? '—'}</TableCell>
+                  <SellerEmployeeCell row={row} />
                   <TableCell className="whitespace-nowrap text-right font-semibold tabular-nums text-primary">
                     {currency ? formatCurrency(row.amount, currency) : '—'}
                   </TableCell>
@@ -155,7 +175,7 @@ export function ShopStatusDialog({
     <Modal
       open={open}
       onClose={close}
-      className="max-w-2xl"
+      className="max-w-3xl"
       title={t('shopList.title', { status: status ? t(SHOP_STATUS_LABEL_KEY[status]) : '' })}
       description={t('shopList.description')}
     >
@@ -172,6 +192,7 @@ export function ShopStatusDialog({
               <TableRow>
                 <TableHead>{t('dialog.connection')}</TableHead>
                 <TableHead>{t('dialog.shop')}</TableHead>
+                <TableHead>{t('dialog.sellerEmployee')}</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
@@ -182,6 +203,7 @@ export function ShopStatusDialog({
                     {row.shopName}
                     {row.region && <span className="ml-2 text-xs text-muted-foreground">{row.region}</span>}
                   </TableCell>
+                  <SellerEmployeeCell row={row} />
                 </TableRow>
               ))}
             </TableBody>

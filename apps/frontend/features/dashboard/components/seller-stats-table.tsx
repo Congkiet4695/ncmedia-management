@@ -1,7 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3 } from 'lucide-react';
+import { useState } from 'react';
+import { ArrowDown, ArrowUp, ArrowUpDown, BarChart3, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Checkbox } from '@/components/ui/checkbox';
 import { DataPagination } from '@/components/ui/data-pagination';
@@ -14,7 +14,19 @@ import type { DashboardRange, DashboardSellerRow, SellerSortField } from '../typ
 import { WidgetCard, WidgetEmpty } from './widget-card';
 
 type MoneyColumn = Exclude<SellerSortField, 'name' | 'orders'>;
-const MONEY_COLUMNS: MoneyColumn[] = ['revenue', 'baseCost', 'label', 'profit', 'paid', 'processing', 'hold'];
+const MONEY_COLUMNS: MoneyColumn[] = [
+  'revenue',
+  'baseCost',
+  'shippingFee',
+  'label',
+  'profit',
+  'currentProfit',
+  'paid',
+  'processing',
+  'hold',
+];
+/** Cột lợi nhuận: công thức hiện qua nút ⓘ riêng (bấm / Tab / chạm được), không chỉ hover tiêu đề. */
+const FORMULA_COLUMNS: ReadonlySet<MoneyColumn> = new Set(['profit', 'currentProfit']);
 
 /**
  * Thống kê seller — sắp xếp / tìm kiếm / phân trang đều ở BACKEND (SQL), không tải toàn bộ đơn về.
@@ -27,11 +39,13 @@ export function SellerStatsTable({ range, enabled }: { range: DashboardRange; en
   const [search, setSearch] = useState('');
   const [sort, setSort] = useState<SellerSortField>('orders');
   const [order, setOrder] = useState<'asc' | 'desc'>('desc');
-  const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
-  // Đổi bộ lọc chung (khoảng ngày / tiền / shop / seller) ⇒ về trang 1.
+  // Đổi bộ lọc chung (khoảng ngày / tiền / shop / seller) ⇒ về trang 1 NGAY trong lần render đó (trang gắn với
+  // khoá bộ lọc) — không bắn trước một request "trang cũ + bộ lọc mới" rồi mới về trang 1 như khi reset bằng effect.
   const rangeKey = JSON.stringify(range);
-  useEffect(() => setPage(1), [rangeKey]);
+  const [paging, setPaging] = useState({ key: rangeKey, page: 1 });
+  const page = paging.key === rangeKey ? paging.page : 1;
+  const setPage = (next: number) => setPaging({ key: rangeKey, page: next });
 
   const query = useDashboardSellers(
     { ...range, activeOnly, search: search.trim() || undefined, sort, order, page, limit },
@@ -88,7 +102,7 @@ export function SellerStatsTable({ range, enabled }: { range: DashboardRange; en
         <WidgetEmpty message={t('sellers.empty')} />
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1120px] text-sm">
+          <table className="w-full min-w-[1360px] text-sm">
             <thead className="bg-muted/40 text-xs text-muted-foreground">
               <tr>
                 <th className="px-3 py-2 text-left font-medium">#</th>
@@ -105,6 +119,7 @@ export function SellerStatsTable({ range, enabled }: { range: DashboardRange; en
                     field={field}
                     label={t(`sellers.col.${field}`)}
                     hint={t(`sellers.colHint.${field}`)}
+                    formula={FORMULA_COLUMNS.has(field)}
                     sort={sort}
                     order={order}
                     onSort={toggleSort}
@@ -157,12 +172,16 @@ function SellerRow({ index, row, money }: { index: number; row: DashboardSellerR
       </td>
       <MoneyCell value={money(row.revenue)} covered={row.revenueOrders} total={row.orders} />
       <MoneyCell value={money(row.baseCost)} covered={row.baseCostOrders} total={row.fulfilledOrders} />
+      <MoneyCell value={money(row.shippingFee)} covered={row.shippingFeeOrders} total={row.orders} />
       <MoneyCell value={money(row.label)} />
+      {/* Est. profit tính trên CÁC TỔNG của dòng (không còn chỉ cộng đơn đủ dữ kiện) ⇒ không ghi "x/y đơn". */}
       <MoneyCell
         value={money(row.profit)}
-        covered={row.profitOrders}
-        total={row.fulfilledOrders}
         className={cn('font-medium', row.profit !== null && row.profit < 0 && 'text-destructive')}
+      />
+      <MoneyCell
+        value={money(row.currentProfit)}
+        className={cn('font-medium', row.currentProfit !== null && row.currentProfit < 0 && 'text-destructive')}
       />
       <td className="px-3 py-2 text-right tabular-nums">{money(row.paid)}</td>
       <td className="px-3 py-2 text-right tabular-nums">{money(row.processing)}</td>
@@ -193,7 +212,7 @@ function MoneyCell({
       <span className="block whitespace-nowrap">{value}</span>
       {partial && (
         <Tooltip content={t('sellers.partialHint')}>
-          <span className="block whitespace-nowrap text-[10px] font-normal text-amber-600 dark:text-amber-400">
+          <span className="block whitespace-nowrap text-[10px] font-normal text-warning">
             {t('sellers.partial', { covered, total })}
           </span>
         </Tooltip>
@@ -206,6 +225,7 @@ function SortHeader({
   field,
   label,
   hint,
+  formula,
   sort,
   order,
   onSort,
@@ -214,6 +234,8 @@ function SortHeader({
   field: SellerSortField;
   label: string;
   hint?: string;
+  /** `true` ⇒ `hint` là công thức: hiện bằng nút ⓘ riêng cạnh tiêu đề thay vì hover cả nút sắp xếp. */
+  formula?: boolean;
   sort: SellerSortField;
   order: 'asc' | 'desc';
   onSort: (field: SellerSortField) => void;
@@ -236,7 +258,35 @@ function SortHeader({
       className={cn('whitespace-nowrap px-3 py-2', align === 'left' ? 'text-left' : 'text-right')}
       aria-sort={active ? (order === 'asc' ? 'ascending' : 'descending') : 'none'}
     >
-      {hint ? <Tooltip content={hint}>{button}</Tooltip> : button}
+      {hint && formula ? (
+        <span className="inline-flex items-center gap-1">
+          {button}
+          <FormulaHint column={label} formula={hint} />
+        </span>
+      ) : hint ? (
+        <Tooltip content={hint}>{button}</Tooltip>
+      ) : (
+        button
+      )}
     </th>
+  );
+}
+
+/**
+ * Nút ⓘ công thức của cột lợi nhuận. Là `<button>` thật nên Tab tới được; tooltip mở khi hover,
+ * focus bàn phím và khi chạm (thiết bị cảm ứng); Esc / chạm ra ngoài để đóng.
+ */
+function FormulaHint({ column, formula }: { column: string; formula: string }) {
+  const { t } = useTranslation('dashboard');
+  return (
+    <Tooltip content={formula} className="max-w-sm whitespace-normal text-left font-normal normal-case">
+      <button
+        type="button"
+        aria-label={t('sellers.formula', { column })}
+        className="inline-flex size-5 items-center justify-center rounded-full text-muted-foreground transition-colors hover:bg-info/10 hover:text-info focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      >
+        <Info className="size-3.5" aria-hidden />
+      </button>
+    </Tooltip>
   );
 }

@@ -61,7 +61,7 @@ function RunResultCell({ stats }: { stats: PodFlashSaleItemStats }) {
       title={t('flashSale.stats.tooltip', { total: stats.totalItems })}
     >
       <div className="flex flex-wrap gap-x-2">
-        <span className="font-medium text-emerald-600">
+        <span className="font-medium text-success">
           {t('flashSale.stats.success', { count: stats.publishedItems })}
         </span>
         {stats.failedItems > 0 && (
@@ -75,7 +75,7 @@ function RunResultCell({ stats }: { stats: PodFlashSaleItemStats }) {
           </span>
         )}
         {stats.removedItems > 0 && (
-          <span className="text-amber-600">
+          <span className="text-warning">
             {t('flashSale.stats.removed', { count: stats.removedItems })}
           </span>
         )}

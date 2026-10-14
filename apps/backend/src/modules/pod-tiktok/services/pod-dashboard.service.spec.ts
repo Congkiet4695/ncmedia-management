@@ -62,16 +62,17 @@ function build(overrides: Partial<Record<keyof PodDashboardRepository, jest.Mock
     returnStats: jest.fn().mockResolvedValue({ requests: 0, returnedOrders: 0, refundedOrders: 0, settledRefund: '0' }),
     financeTrend: jest.fn().mockResolvedValue([]),
     orderTrend: jest.fn().mockResolvedValue([]),
+    earliestActivityDay: jest.fn().mockResolvedValue('2025-01-23'),
     holdShops: jest.fn().mockResolvedValue({
       items: [
-        { shopId: 'shop-1', shopName: 'Shop 1', accountName: 'Acc 1', amount: '12000.004' },
-        { shopId: 'shop-2', shopName: 'Shop 2', accountName: 'Acc 1', amount: '305.246' },
+        { shopId: 'shop-1', shopName: 'Shop 1', accountName: 'Acc 1', amount: '12000.004', sellerId: 'e-1', sellerName: 'Trang', sellerEmail: 't@x' },
+        { shopId: 'shop-2', shopName: 'Shop 2', accountName: 'Acc 1', amount: '305.246', sellerId: null, sellerName: null, sellerEmail: null },
       ],
       total: 43,
       totalAmount: '12305.25',
     }),
     shopsByStatus: jest.fn().mockResolvedValue({
-      items: [{ shopId: 'shop-9', shopName: 'Die shop', accountName: 'Acc 9', region: 'US' }],
+      items: [{ shopId: 'shop-9', shopName: 'Die shop', accountName: 'Acc 9', region: 'US', sellerId: null, sellerName: null, sellerEmail: null }],
       total: 2,
     }),
     ...overrides,
@@ -221,9 +222,12 @@ describe('PodDashboardService.sellers', () => {
       revenueOrders: 90,
       baseCost: '35.46',
       baseCostOrders: 3,
+      shippingFee: '12.344',
+      shippingFeeOrders: 88,
+      shippingIncluded: '10',
       fulfilledOrders: 4,
       label: '2',
-      profit: '6615.22',
+      profit: '6610.88',
       profitOrders: 3,
       paid: '475.19',
       processing: '0',
@@ -256,9 +260,15 @@ describe('PodDashboardService.sellers', () => {
       baseCost: 35.46,
       label: 2,
       fulfilledOrders: 4,
-      profit: 6615.22,
+      // 6650.684 − 35.46 − 2 − (12.344 − 10 đã nằm trong Doanh thu) = 6610.88
+      profit: 6610.88,
       profitOrders: 3,
       hold: 5419.79,
+      shippingFee: 12.34,
+      shippingFeeOrders: 88,
+      shippingIncluded: 10,
+      // 475.19 − 35.46 − 2 − 12.344 = 425.386 ⇒ 425.39
+      currentProfit: 425.39,
     });
     // Cột "Doanh thu dự kiến" đã bỏ — API không còn trả field này.
     expect(result.items[0]).not.toHaveProperty('estRevenue');
@@ -268,7 +278,7 @@ describe('PodDashboardService.sellers', () => {
   });
 
   it('đã đồng bộ Return/Refund ⇒ cột Đơn hoàn là số đơn thật (0 vẫn là 0)', async () => {
-    const base = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 5, revenue: '0', revenueOrders: 0, baseCost: '0', baseCostOrders: 0, fulfilledOrders: 0, label: '0', profit: null, profitOrders: 0, paid: '0', processing: '0', hold: '0' };
+    const base = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 5, revenue: '0', revenueOrders: 0, baseCost: '0', baseCostOrders: 0, shippingFee: '0', shippingFeeOrders: 0, shippingIncluded: '0', fulfilledOrders: 0, label: '0', profit: null, profitOrders: 0, paid: '0', processing: '0', hold: '0' };
     const { service } = build({
       returnsAvailable: jest.fn().mockResolvedValue(true),
       sellerStats: jest.fn().mockResolvedValue({ items: [{ ...base, returns: 2 }, { ...base, sellerId: 's2', returns: 0 }], total: 2 }),
@@ -279,15 +289,143 @@ describe('PodDashboardService.sellers', () => {
 });
 
 describe('PodDashboardService — Profit Dự kiến / Label thiếu dữ kiện', () => {
-  it('Label khác đơn vị tiền ⇒ null ("—"), Profit không đơn nào tính được ⇒ null (không coi là 0)', async () => {
-    const row = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 3, revenue: '30', revenueOrders: 2, baseCost: '0', baseCostOrders: 0, fulfilledOrders: 1, label: null, profit: null, profitOrders: 0, paid: '0', processing: '0', hold: '0', returns: 0 };
+  it('Label khác đơn vị tiền ⇒ Profit Dự kiến null ("—"), không coi Label là 0', async () => {
+    const row = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 3, revenue: '30', revenueOrders: 2, baseCost: '0', baseCostOrders: 0, shippingFee: '0', shippingFeeOrders: 0, shippingIncluded: '0', fulfilledOrders: 1, label: null, profit: null, profitOrders: 0, paid: '0', processing: '0', hold: '0', returns: 0 };
     const { service } = build({ sellerStats: jest.fn().mockResolvedValue({ items: [row], total: 1 }) });
     const result = await service.sellers(ORG, ADMIN, { from: '2026-10-01', to: '2026-10-05' });
     expect(result.items[0]).toMatchObject({ label: null, profit: null, profitOrders: 0, revenueOrders: 2, orders: 3 });
   });
 });
 
+describe('PodDashboardService — Shipping Fee / Current Profit', () => {
+  const base = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 4, revenue: '100', revenueOrders: 4, baseCost: '40', baseCostOrders: 4, shippingFee: '6.5', shippingFeeOrders: 4, shippingIncluded: '2.5', fulfilledOrders: 4, label: '2', profit: '54', profitOrders: 4, paid: '80', processing: '0', hold: '0', returns: 0 };
+  const sellersOf = async (rows: Array<Record<string, unknown>>) => {
+    const { service, repo } = build({ sellerStats: jest.fn().mockResolvedValue({ items: rows, total: rows.length }) });
+    return { result: await service.sellers(ORG, ADMIN, { from: '2026-10-01', to: '2026-10-14' }), repo };
+  };
+
+  it('Current Profit = Paid − Basecost − Label − Shipping Fee (trừ TRỌN Shipping Fee)', async () => {
+    const { result } = await sellersOf([base]);
+    // 80 − 40 − 2 − 6.5 = 31.5; Est. profit = 100 − 40 − 2 − (6.5 − 2.5) = 54
+    expect(result.items[0]).toMatchObject({ shippingFee: 6.5, shippingFeeOrders: 4, currentProfit: 31.5, profit: 54 });
+  });
+
+  it('Shipping Fee = 0 ⇒ Current Profit chỉ trừ Basecost + Label', async () => {
+    const { result } = await sellersOf([{ ...base, shippingFee: '0', shippingFeeOrders: 4 }]);
+    expect(result.items[0]).toMatchObject({ shippingFee: 0, currentProfit: 38 });
+  });
+
+  it('Paid chưa có (0) ⇒ Current Profit âm, không bị chặn về 0', async () => {
+    const { result } = await sellersOf([{ ...base, paid: '0' }]);
+    expect(result.items[0].currentProfit).toBe(-48.5);
+  });
+
+  it('Label khác đơn vị tiền (null) ⇒ Current Profit null ("—"), Shipping Fee vẫn hiện', async () => {
+    const { result } = await sellersOf([{ ...base, label: null }]);
+    expect(result.items[0]).toMatchObject({ label: null, currentProfit: null, shippingFee: 6.5 });
+  });
+
+  it('mỗi seller tính trên tổng CỦA CHÍNH seller đó', async () => {
+    const { result } = await sellersOf([base, { ...base, sellerId: 's2', paid: '10', baseCost: '1', label: '0.5', shippingFee: '0.25', shippingIncluded: '0' }]);
+    expect(result.items.map((item) => item.currentProfit)).toEqual([31.5, 8.25]);
+  });
+
+  it('sắp xếp theo shippingFee / currentProfit truyền nguyên xuống DB (whitelist)', async () => {
+    const { service, repo } = build();
+    await service.sellers(ORG, ADMIN, { sort: 'currentProfit', order: 'asc' });
+    await service.sellers(ORG, ADMIN, { sort: 'shippingFee', order: 'desc' });
+    expect((repo.sellerStats.mock.calls[0] as unknown[])[2]).toMatchObject({ sort: 'currentProfit', order: 'asc' });
+    expect((repo.sellerStats.mock.calls[1] as unknown[])[2]).toMatchObject({ sort: 'shippingFee', order: 'desc' });
+  });
+});
+
+describe('PodDashboardService — Est. profit = Revenue − Base cost − Shipping Fee − Label (2026-10-14)', () => {
+  const base = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 10, revenue: '500', revenueOrders: 10, baseCost: '120', baseCostOrders: 6, shippingFee: '40', shippingFeeOrders: 10, shippingIncluded: '0', fulfilledOrders: 6, label: '3', profit: '0', profitOrders: 6, paid: '0', processing: '0', hold: '0', returns: 0 };
+  const profitOf = async (patch: Record<string, unknown>) => {
+    const { service } = build({ sellerStats: jest.fn().mockResolvedValue({ items: [{ ...base, ...patch }], total: 1 }) });
+    return (await service.sellers(ORG, ADMIN, { from: '2026-10-01', to: '2026-10-14' })).items[0].profit;
+  };
+
+  it('Phí ship CHƯA nằm trong Revenue ⇒ trừ trọn Shipping Fee: 500 − 120 − 40 − 3 = 337', async () => {
+    expect(await profitOf({})).toBe(337);
+  });
+
+  it('Phí ship ĐÃ nằm trọn trong Revenue (đơn đã quyết toán) ⇒ KHÔNG trừ lần hai: 500 − 120 − 3 = 377', async () => {
+    expect(await profitOf({ shippingIncluded: '40' })).toBe(377);
+  });
+
+  it('Một phần đã nằm trong Revenue ⇒ chỉ trừ phần còn lại: 500 − 120 − (40 − 25) − 3 = 362', async () => {
+    expect(await profitOf({ shippingIncluded: '25' })).toBe(362);
+  });
+
+  it('Không đơn nào có Base cost xác nhận ⇒ vẫn tính (Basecost = 0 như cột hiển thị), không còn "—"', async () => {
+    expect(await profitOf({ baseCost: '0', baseCostOrders: 0, fulfilledOrders: 0, label: '0' })).toBe(460);
+  });
+
+  it('Âm vẫn hiển thị âm (không chặn về 0)', async () => {
+    expect(await profitOf({ revenue: '10' })).toBe(-153);
+  });
+
+  it('Label khác đơn vị tiền ⇒ null ("—")', async () => {
+    expect(await profitOf({ label: null })).toBeNull();
+  });
+
+  it('Tính bằng Decimal trên tổng chưa làm tròn rồi mới làm tròn 2 số', async () => {
+    // 0.3 − 0.1 − (0.105 − 0.1) − 0.1 = 0.095 ⇒ 0.1 (cộng trừ số thực JS sẽ ra 0.0949999…)
+    expect(await profitOf({ revenue: '0.3', baseCost: '0.1', shippingFee: '0.105', shippingIncluded: '0.1', label: '0.1' })).toBe(0.1);
+  });
+
+  it('Trả shippingIncluded để đối chiếu với cột Shipping Fee', async () => {
+    const { service } = build({ sellerStats: jest.fn().mockResolvedValue({ items: [{ ...base, shippingIncluded: '12.345' }], total: 1 }) });
+    const row = (await service.sellers(ORG, ADMIN, {})).items[0];
+    expect(row).toMatchObject({ shippingFee: 40, shippingIncluded: 12.35 });
+  });
+});
+
+describe('PodDashboardService — "Tất cả thời gian" (allTime)', () => {
+  const todayVn = () => new Date(Date.now() + 420 * 60_000).toISOString().slice(0, 10);
+
+  it('bỏ qua from / to, lấy từ ngày có dữ liệu sớm nhất (trong phạm vi) đến hôm nay — không giới hạn 366 ngày', async () => {
+    const { service, repo } = build();
+    const result = await service.summary(ORG, SELLER, { allTime: true, from: '2026-10-01', to: '2026-10-02' });
+    expect(result).toMatchObject({ from: '2025-01-23', to: todayVn() });
+    // Phạm vi người xem đi xuống truy vấn ngày sớm nhất (Seller không kéo mốc của shop khác).
+    expect(filterOf(repo.earliestActivityDay)).toMatchObject({ organizationId: ORG, accountIds: ['acc-1'] });
+    const window = (repo.finance.mock.calls[0] as unknown[])[1] as { from: Date; to: Date };
+    expect(window.from.toISOString()).toBe('2025-01-22T17:00:00.000Z');
+  });
+
+  it('chưa có dữ liệu ⇒ chỉ hôm nay', async () => {
+    const { service } = build({ earliestActivityDay: jest.fn().mockResolvedValue(null) });
+    const result = await service.trends(ORG, ADMIN, { allTime: true });
+    expect(result).toMatchObject({ from: todayVn(), to: todayVn() });
+  });
+
+  it('allTime dùng chung cho Thống kê seller và Xu hướng', async () => {
+    const { service, repo } = build();
+    await service.sellers(ORG, ADMIN, { allTime: true });
+    await service.trends(ORG, ADMIN, { allTime: true });
+    const sellerWindow = (repo.sellerStats.mock.calls[0] as unknown[])[1] as { from: Date };
+    expect(sellerWindow.from.toISOString()).toBe('2025-01-22T17:00:00.000Z');
+    expect((repo.financeTrend.mock.calls[0] as unknown[])[2]).toMatchObject({ fromDay: '2025-01-23', toDay: todayVn() });
+  });
+
+  it('không có allTime ⇒ giữ nguyên from / to và giới hạn 366 ngày như cũ', async () => {
+    const { service, repo } = build();
+    await expect(service.summary(ORG, ADMIN, { from: '2024-01-01', to: '2026-01-01' })).rejects.toBeInstanceOf(BadRequestException);
+    expect(repo.earliestActivityDay).not.toHaveBeenCalled();
+  });
+});
+
 describe('PodDashboardService — popup thẻ tổng quan', () => {
+  it('Seller Employee đi kèm từng shop ở cả hai popup; chưa gán ⇒ null', async () => {
+    const { service } = build();
+    const hold = await service.holdShops(ORG, ADMIN, {});
+    expect(hold.items.map((item) => [item.sellerId, item.sellerName])).toEqual([['e-1', 'Trang'], [null, null]]);
+    const die = await service.shopsByStatus(ORG, ADMIN, { status: 'INACTIVE' });
+    expect(die.items[0]).toMatchObject({ sellerId: null, sellerName: null, sellerEmail: null });
+  });
+
   it('Hold theo shop: cùng đơn vị tiền với thẻ; meta.total = số shop; totalAmount = số trên thẻ', async () => {
     const { service, repo } = build();
     const result = await service.holdShops(ORG, ADMIN, { page: 1, limit: 20 });

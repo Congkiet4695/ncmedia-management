@@ -13,6 +13,8 @@ import {
   ELLIPSIS,
   buildPageRange,
   clampPage,
+  createPageScrollGate,
+  shouldScrollToTableTop,
   getShowingRange,
   type PageRangeItem,
 } from '../lib/pagination.ts';
@@ -121,6 +123,40 @@ check('NaN ⇒ 1', clampPage(Number.NaN, 10), 1);
 
 // ---------------------------------------------------------------------------
 console.log('');
+// --- Cuộn về đầu bảng khi chuyển trang (màn Order) ---
+{
+  // Chuyển trang bằng phân trang (số trang / Next / Previous đều gọi onPageChange(next)) ⇒ cuộn đúng một lần.
+  const gate = createPageScrollGate();
+  gate.arm(2);
+  check('Next: cuộn khi trang 2 đã render', gate.consume(2), true);
+  check('Không cuộn lại ở lần render kế (cùng trang)', gate.consume(2), false);
+  gate.arm(1);
+  check('Previous: cuộn khi về trang 1', gate.consume(1), true);
+  gate.arm(7);
+  check('Chọn số trang 7: cuộn', gate.consume(7), true);
+
+  // Trang đổi vì lý do KHÁC (bộ lọc / cỡ trang về trang 1, useClampedPage lùi trang) ⇒ không cuộn.
+  const other = createPageScrollGate();
+  check('Đổi bộ lọc / cỡ trang về trang 1: không cuộn', other.consume(1), false);
+  other.arm(5);
+  check('Đã arm trang 5 nhưng clamp lùi về 4: không cuộn', other.consume(4), false);
+  check('…và vẫn cuộn khi trang 5 thực sự render', other.consume(5), true);
+
+  // Bấm Next liên tiếp khi trang trước đang tải: chỉ trang CUỐI cùng được cuộn.
+  const fast = createPageScrollGate();
+  fast.arm(2);
+  fast.arm(3);
+  check('Bấm nhanh 2 → 3: không cuộn ở trang 2', fast.consume(2), false);
+  check('Bấm nhanh 2 → 3: cuộn ở trang 3', fast.consume(3), true);
+
+  // Vị trí: header sticky 64px + margin ⇒ scroll-margin 80px, màn hình cao 800px.
+  check('Đầu bảng đã khuất phía trên ⇒ cuộn', shouldScrollToTableTop(-1200, 80, 800), true);
+  check('Đầu bảng bị header che ⇒ cuộn', shouldScrollToTableTop(40, 80, 800), true);
+  check('Đầu bảng đã ngay dưới header ⇒ không cuộn', shouldScrollToTableTop(80, 80, 800), false);
+  check('Đầu bảng ở 1/4 trên màn hình ⇒ không cuộn', shouldScrollToTableTop(250, 80, 800), false);
+  check('Đầu bảng ở nửa dưới màn hình ⇒ cuộn', shouldScrollToTableTop(600, 80, 800), true);
+}
+
 if (failed > 0) {
   console.error(`✗ ${failed} case sai / ${passed + failed} case`);
   process.exit(1);

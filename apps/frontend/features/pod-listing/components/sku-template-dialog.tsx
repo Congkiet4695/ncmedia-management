@@ -380,8 +380,8 @@ export function SkuTemplateDialog({ open, template, onClose }: SkuTemplateDialog
         </div>
 
         {needsRegenerate && items.length > 0 && (
-          <div className="flex items-center gap-2 rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
-            <AlertTriangle className="size-4 shrink-0 text-amber-600" />
+          <div className="flex items-center gap-2 rounded-md border border-warning/50 bg-warning/10 p-3 text-sm">
+            <AlertTriangle className="size-4 shrink-0 text-warning" />
             <span>{t('listing.skuTemplates.staleWarning')}</span>
           </div>
         )}

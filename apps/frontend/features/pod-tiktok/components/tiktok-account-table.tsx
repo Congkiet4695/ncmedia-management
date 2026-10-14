@@ -104,7 +104,7 @@ export function TiktokAccountTable({
                 <div className="mt-1 flex flex-wrap items-center gap-1">
                   {account.shopStatus && <ShopStatusBadge status={account.shopStatus} />}
                   {account.shopCount > 1 && account.inactiveShopCount > 0 && (
-                    <span className="text-xs text-amber-600 dark:text-amber-400">
+                    <span className="text-xs text-warning">
                       {t('account.inactiveShopCount', { count: account.inactiveShopCount })}
                     </span>
                   )}

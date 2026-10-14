@@ -108,11 +108,24 @@ export interface PodTiktokAccountListItem {
   createdAt: string;
 }
 
-export type PodTiktokAccountListResult = Paginated<PodTiktokAccountListItem>;
+export interface PodTiktokAccountListResult extends Paginated<PodTiktokAccountListItem> {
+  /** Tổng số SHOP (không trùng) của MỌI kết nối khớp bộ lọc — mọi trang, không chỉ trang đang mở. */
+  totalShops: number;
+}
+
+/** Giá trị `sellerId` lọc kết nối CHƯA phân công Seller (khớp `POD_UNASSIGNED_SELLER` của backend). */
+export const POD_UNASSIGNED_SELLER = 'UNASSIGNED';
+
+/** Bộ lọc Active / Inactive của màn TikTok Accounts = trạng thái SHOP (Live / Die của Dashboard). */
+export const POD_ACCOUNT_SHOP_STATUS_FILTERS = ['ACTIVE', 'INACTIVE'] as const;
 
 export interface PodTiktokAccountQuery extends PaginationParams {
   search?: string;
   status?: PodTiktokStatus;
+  /** Kết nối có ít nhất MỘT shop ở trạng thái này. */
+  shopStatus?: (typeof POD_ACCOUNT_SHOP_STATUS_FILTERS)[number];
+  /** Employee id của Seller phụ trách, hoặc `POD_UNASSIGNED_SELLER`. */
+  sellerId?: string;
   sortBy?:
     | 'createdAt'
     | 'accountName'
@@ -187,6 +200,13 @@ export interface PodSellerOption {
   id: string;
   fullName: string;
   email: string;
+}
+
+/** Lựa chọn cho bộ lọc "Seller được assign" — Seller đang đứng tên ≥ 1 kết nối trong phạm vi người xem. */
+export interface PodAssignedSellerOptions {
+  sellers: PodSellerOption[];
+  /** Số kết nối chưa phân công (> 0 ⇒ hiện lựa chọn "Chưa assign"). */
+  unassignedAccounts: number;
 }
 
 /** Kết quả đối chiếu MỘT shop trong lượt Sync Shops. */

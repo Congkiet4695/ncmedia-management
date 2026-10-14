@@ -43,7 +43,7 @@ export function RegisterPanel() {
   return (
     <AuthCard titleKey="register.pendingTitle" descriptionKey="register.pendingBody">
       <div className="space-y-4 text-center">
-        <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-emerald-500/10 text-emerald-600">
+        <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-success/10 text-success">
           <MailCheck className="size-6" />
         </div>
 
@@ -55,7 +55,7 @@ export function RegisterPanel() {
               {t('register.pendingEmailSent', { email: outcome.email })}
             </p>
           ) : (
-            <p className="text-amber-600">{t('register.pendingEmailFailed')}</p>
+            <p className="text-warning">{t('register.pendingEmailFailed')}</p>
           )}
         </div>
 

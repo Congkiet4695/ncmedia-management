@@ -99,7 +99,7 @@ export function SessionProductDialog({
     >
       <div className="max-h-[74vh] space-y-4 overflow-y-auto pr-1">
         {readOnly && (
-          <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3 text-sm">
+          <div className="rounded-md border border-warning/50 bg-warning/10 p-3 text-sm">
             {t('listing.products.readOnly')}
           </div>
         )}
@@ -109,7 +109,7 @@ export function SessionProductDialog({
             {product.issues.map((issue, index) => (
               <li
                 key={index}
-                className={issue.level === 'ERROR' ? 'text-destructive' : 'text-amber-600'}
+                className={issue.level === 'ERROR' ? 'text-destructive' : 'text-warning'}
               >
                 [{issue.level}] {issue.message}
               </li>

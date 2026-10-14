@@ -10,11 +10,13 @@ import {
   AssignFulfillmentProviderDto,
   AssignPodSellerDto,
   PodSellerOptionQueryDto,
+  POD_UNASSIGNED_SELLER,
   PodTiktokAccountQueryDto,
   SetShopWarehouseDto,
 } from '../dto/pod-tiktok-query.dto';
 import {
   PaginatedPodTiktokAccountResponseDto,
+  PodAssignedSellerOptionsDto,
   PodSellerOptionDto,
   PodTiktokAccountResponseDto,
 } from '../dto/pod-tiktok-response.dto';
@@ -149,19 +151,40 @@ export class PodTiktokAccountService {
   ): Promise<PaginatedPodTiktokAccountResponseDto> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
-    const { items, total } = await this.repo.findMany(organizationId, {
+    const { items, total, totalShops } = await this.repo.findMany(organizationId, {
       // 🔴 Seller chỉ thấy kết nối Admin đã gán cho mình.
       accountScope: scope.allShops ? undefined : scope.accountIds,
       page,
       limit,
       search: query.search,
       status: query.status,
+      shopStatus: query.shopStatus,
+      sellerId: query.sellerId === POD_UNASSIGNED_SELLER ? null : query.sellerId,
       sortBy: query.sortBy ?? 'createdAt',
       sortOrder: query.sortOrder ?? 'desc',
     });
     return {
       items: items.map((item) => this.mapper.toListItem(item)),
       meta: { total, page, limit, totalPages: total === 0 ? 0 : Math.ceil(total / limit) },
+      totalShops,
+    };
+  }
+
+  /**
+   * Lựa chọn cho bộ lọc "Seller được assign": Employee đang đứng tên ít nhất một kết nối TRONG PHẠM VI người xem
+   * (Seller chỉ thấy chính mình) + số kết nối chưa phân công. Chỉ họ tên / email — không có dữ liệu nhạy cảm.
+   */
+  async findAssignedSellerOptions(
+    organizationId: string,
+    scope: PodAccessScope,
+  ): Promise<PodAssignedSellerOptionsDto> {
+    const { sellers, unassignedAccounts } = await this.repo.findAssignedSellers(
+      organizationId,
+      scope.allShops ? undefined : scope.accountIds,
+    );
+    return {
+      sellers: sellers.map((row) => ({ id: row.id, fullName: row.user.fullName, email: row.user.email })),
+      unassignedAccounts,
     };
   }
 

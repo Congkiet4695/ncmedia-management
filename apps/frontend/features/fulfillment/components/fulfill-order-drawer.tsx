@@ -591,7 +591,7 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
               {/* 🔴 Nói rõ hai tình huống khác hẳn nhau, thay vì một câu "đã che" chung chung:
                   còn địa chỉ đã lưu ⇒ vẫn gửi bình thường; không còn ⇒ phải đi theo nhãn. */}
               {state?.recipientMasked && (
-                <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                <p className="text-[11px] text-warning">
                   {state.shippingMode === 'LABEL'
                     ? t('fulfill.maskedNeedsLabel')
                     : t('fulfill.maskedUsingSnapshot')}
@@ -674,7 +674,7 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                     )}
                     {shippingByOrder &&
                       (orderShipping.data?.warnings ?? []).map((warning, index) => (
-                        <p key={index} className="text-[11px] text-amber-700 dark:text-amber-400">
+                        <p key={index} className="text-[11px] text-warning">
                           {warning}
                         </p>
                       ))}
@@ -795,8 +795,8 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                   </div>
                   {/* TikTok trả nhiều dịch vụ mà không có mặc định ⇒ người vận hành chọn rồi mới tạo gói. */}
                   {serviceChoices.length > 0 && (
-                    <div className="space-y-1.5 rounded-md border border-amber-300 bg-amber-50 p-2 dark:border-amber-800 dark:bg-amber-950/40">
-                      <p className="text-[11px] text-amber-800 dark:text-amber-300">
+                    <div className="space-y-1.5 rounded-md border border-warning/40 bg-warning/10 p-2">
+                      <p className="text-[11px] text-warning">
                         {t('fulfill.label.chooseService')}
                       </p>
                       <div className="flex flex-wrap items-center gap-2">
@@ -830,7 +830,7 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                     </div>
                   )}
                   {savedLabel && !labelDirty && (
-                    <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-emerald-700 dark:text-emerald-400">
+                    <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-[11px] text-success">
                       <CheckCircle2 className="size-3.5" />
                       {savedLabel.source === 'TIKTOK'
                         ? t('fulfill.label.savedTiktok')
@@ -1097,7 +1097,7 @@ function FulfillResult({ record }: { record: FulfillmentOrder }) {
 
   return (
     <div className="space-y-3 rounded-md border bg-muted/30 p-3">
-      <div className="flex items-center gap-2 text-sm font-medium text-emerald-600">
+      <div className="flex items-center gap-2 text-sm font-medium text-success">
         <CheckCircle2 className="size-4" />
         {t('fulfill.succeeded')}
       </div>

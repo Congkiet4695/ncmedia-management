@@ -63,7 +63,7 @@ export function OrderClaimAction({
           asChild
           size="sm"
           variant="outline"
-          className="border-emerald-500 text-emerald-600 hover:bg-emerald-500/10 dark:text-emerald-400"
+          className="border-success text-success hover:bg-success/10"
         >
           <Link href={`/dashboard/orders/${orderId}`}>
             <PackageCheck className="size-4" />

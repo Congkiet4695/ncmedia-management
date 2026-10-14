@@ -115,7 +115,7 @@ function SkuTemplatesView() {
                   {item._count?.items ?? 0}
                   {/* Số SKU sẽ có sau khi bấm Tạo SKU — lệch nghĩa là bảng đang cũ. */}
                   {item.expectedItemCount !== (item._count?.items ?? 0) && (
-                    <span className="ml-1 text-xs text-amber-600">/ {item.expectedItemCount}</span>
+                    <span className="ml-1 text-xs text-warning">/ {item.expectedItemCount}</span>
                   )}
                 </TableCell>
                 <TableCell className="text-sm tabular-nums">

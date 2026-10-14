@@ -94,7 +94,7 @@ export function ReturnTable({ items, loading, onViewHistory }: ReturnTableProps)
                     <p className="mt-1 text-xs">{labels.status(request.returnStatus)}</p>
                     <p className="break-all font-mono text-[10px] text-muted-foreground">{request.returnStatus}</p>
                     {request.arbitrationStatus && (
-                      <p className="mt-0.5 text-[11px] text-amber-600">
+                      <p className="mt-0.5 text-[11px] text-warning">
                         {t('arbitration')}: {humanizeCode(request.arbitrationStatus)}
                       </p>
                     )}

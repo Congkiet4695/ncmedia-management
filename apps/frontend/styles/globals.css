@@ -2,67 +2,115 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ---------------------------------------------------------------------------
+   Design tokens — NGUỒN SỰ THẬT DUY NHẤT cho màu / bo góc / đổ bóng (docs/frontend-design-system.md).
+   HSL không bọc hsl() (chuẩn shadcn) ⇒ dùng được alpha: `bg-primary/10`.
+
+   Định hướng: nền sáng mát, bề mặt trắng, màu nhấn indigo tiết chế; màu trạng thái có ngữ nghĩa
+   (success / warning / info / destructive). Mỗi màu "đặc" đi kèm `-foreground` đạt tương phản AA
+   khi dùng làm nền nút; chính màu đó cũng đủ đậm để làm CHỮ trên nền sáng (`text-success`…).
+   --------------------------------------------------------------------------- */
 @layer base {
   :root {
+    /* Nền trang (canvas) tách khỏi bề mặt nội dung (card / popover / input). */
+    --canvas: 225 33% 97%;
     --background: 0 0% 100%;
-    --foreground: 222.2 84% 4.9%;
+    --foreground: 224 39% 12%;
 
     --card: 0 0% 100%;
-    --card-foreground: 222.2 84% 4.9%;
+    --card-foreground: 224 39% 12%;
 
     --popover: 0 0% 100%;
-    --popover-foreground: 222.2 84% 4.9%;
+    --popover-foreground: 224 39% 12%;
 
-    --primary: 222.2 47.4% 11.2%;
-    --primary-foreground: 210 40% 98%;
+    /* Màu nhấn chính — indigo. Trắng trên primary ≈ 6.3:1. */
+    --primary: 243 75% 59%;
+    --primary-foreground: 0 0% 100%;
 
-    --secondary: 210 40% 96.1%;
-    --secondary-foreground: 222.2 47.4% 11.2%;
+    --secondary: 228 60% 95.5%;
+    --secondary-foreground: 243 50% 36%;
 
-    --muted: 210 40% 96.1%;
-    --muted-foreground: 215.4 16.3% 46.9%;
+    --muted: 225 27% 95.5%;
+    --muted-foreground: 222 12% 43%;
 
-    --accent: 210 40% 96.1%;
-    --accent-foreground: 222.2 47.4% 11.2%;
+    --accent: 230 70% 96%;
+    --accent-foreground: 243 55% 38%;
 
-    --destructive: 0 84.2% 60.2%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 72% 51%;
+    --destructive-foreground: 0 0% 100%;
 
-    --border: 214.3 31.8% 91.4%;
-    --input: 214.3 31.8% 91.4%;
-    --ring: 222.2 84% 4.9%;
+    --success: 142 72% 29%;
+    --success-foreground: 0 0% 100%;
 
-    --radius: 0.5rem;
+    --warning: 30 90% 36%;
+    --warning-foreground: 0 0% 100%;
+
+    --info: 201 96% 32%;
+    --info-foreground: 0 0% 100%;
+
+    --border: 224 22% 90%;
+    --input: 224 20% 85%;
+    --ring: 243 75% 59%;
+
+    /* Sidebar — bề mặt riêng để khung điều hướng tách khỏi vùng nội dung. */
+    --sidebar: 0 0% 100%;
+    --sidebar-foreground: 224 25% 30%;
+    --sidebar-border: 224 22% 91%;
+    --sidebar-accent: 230 70% 96%;
+    --sidebar-active: 243 75% 59%;
+
+    /* Màu bóng (pha vào box-shadow ở tailwind.config.ts) — bóng hơi xanh, không xám chì. */
+    --shadow-color: 228 40% 30%;
+
+    --radius: 0.625rem;
   }
 
   .dark {
-    --background: 222.2 84% 4.9%;
-    --foreground: 210 40% 98%;
+    --canvas: 228 32% 6%;
+    --background: 228 28% 9%;
+    --foreground: 220 25% 95%;
 
-    --card: 222.2 84% 4.9%;
-    --card-foreground: 210 40% 98%;
+    --card: 228 26% 11%;
+    --card-foreground: 220 25% 95%;
 
-    --popover: 222.2 84% 4.9%;
-    --popover-foreground: 210 40% 98%;
+    --popover: 228 26% 12%;
+    --popover-foreground: 220 25% 95%;
 
-    --primary: 210 40% 98%;
-    --primary-foreground: 222.2 47.4% 11.2%;
+    --primary: 239 84% 70%;
+    --primary-foreground: 243 50% 12%;
 
-    --secondary: 217.2 32.6% 17.5%;
-    --secondary-foreground: 210 40% 98%;
+    --secondary: 230 26% 19%;
+    --secondary-foreground: 228 70% 88%;
 
-    --muted: 217.2 32.6% 17.5%;
-    --muted-foreground: 215 20.2% 65.1%;
+    --muted: 228 22% 16%;
+    --muted-foreground: 222 14% 66%;
 
-    --accent: 217.2 32.6% 17.5%;
-    --accent-foreground: 210 40% 98%;
+    --accent: 235 30% 20%;
+    --accent-foreground: 230 80% 88%;
 
-    --destructive: 0 62.8% 30.6%;
-    --destructive-foreground: 210 40% 98%;
+    --destructive: 0 84% 64%;
+    --destructive-foreground: 0 60% 10%;
 
-    --border: 217.2 32.6% 17.5%;
-    --input: 217.2 32.6% 17.5%;
-    --ring: 212.7 26.8% 83.9%;
+    --success: 142 60% 52%;
+    --success-foreground: 145 60% 9%;
+
+    --warning: 38 92% 58%;
+    --warning-foreground: 30 80% 10%;
+
+    --info: 199 89% 62%;
+    --info-foreground: 204 80% 10%;
+
+    --border: 228 20% 20%;
+    --input: 228 18% 26%;
+    --ring: 239 84% 70%;
+
+    --sidebar: 228 28% 9%;
+    --sidebar-foreground: 222 18% 75%;
+    --sidebar-border: 228 20% 17%;
+    --sidebar-accent: 235 30% 17%;
+    --sidebar-active: 239 84% 70%;
+
+    --shadow-color: 228 60% 2%;
   }
 }
 

@@ -11,7 +11,7 @@ interface MasterDataSyncButtonProps {
   resources?: PodMasterDataResource[];
   label?: string;
   size?: 'sm' | 'default';
-  variant?: 'default' | 'outline';
+  variant?: 'default' | 'outline' | 'info';
   disabled?: boolean;
   onDone?: () => void;
 }
@@ -32,7 +32,7 @@ export function MasterDataSyncButton({
   resources,
   label,
   size = 'default',
-  variant = 'default',
+  variant = 'info',
   disabled,
   onDone,
 }: MasterDataSyncButtonProps) {

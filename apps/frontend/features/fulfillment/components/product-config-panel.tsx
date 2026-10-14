@@ -456,13 +456,13 @@ export function ProductConfigPanel({
 
       {/* ------------------------------------------- Lưu ý của nhà cung cấp (backend trả về) */}
       {options.data?.notice && (
-        <p className="flex gap-1.5 rounded-md bg-amber-50 p-2 text-[11px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+        <p className="flex gap-1.5 rounded-md bg-warning/10 p-2 text-[11px] text-warning">
           <Info className="mt-px size-3.5 shrink-0" />
           {options.data.notice}
         </p>
       )}
       {(options.data?.warnings ?? []).map((warning, index) => (
-        <p key={index} className="text-[11px] text-amber-700 dark:text-amber-400">
+        <p key={index} className="text-[11px] text-warning">
           {warning}
         </p>
       ))}
@@ -505,7 +505,7 @@ export function ProductConfigPanel({
               )}
             </p>
             {productUnavailable && (
-              <p className="flex gap-1.5 rounded-md bg-amber-50 p-2 text-[11px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+              <p className="flex gap-1.5 rounded-md bg-warning/10 p-2 text-[11px] text-warning">
                 <AlertTriangle className="mt-px size-3.5 shrink-0" />
                 {t('fulfill.config.productUnavailable')}
               </p>
@@ -619,7 +619,7 @@ export function ProductConfigPanel({
           )}
 
           {savedVariantOtherLine && (
-            <p className="flex gap-1.5 rounded-md bg-amber-50 p-2 text-[11px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+            <p className="flex gap-1.5 rounded-md bg-warning/10 p-2 text-[11px] text-warning">
               <AlertTriangle className="mt-px size-3.5 shrink-0" />
               {t('fulfill.config.savedSkuOtherLine', {
                 sku: savedVariantOtherLine.sku,

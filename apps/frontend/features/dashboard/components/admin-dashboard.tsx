@@ -8,8 +8,8 @@ import {
   useDashboardSummary,
   useDashboardTrends,
 } from '../hooks/use-dashboard';
-import type { DashboardRange } from '../types';
-import { currentMonthRange } from '../utils';
+import type { DashboardDatePreset, DashboardRange } from '../types';
+import { currentMonthRange, presetRange } from '../utils';
 import { DashboardFilterBar } from './dashboard-filter-bar';
 import { FinanceOrderSummary } from './finance-order-summary';
 import { HoldBySellerCard, HoldCard, ShopStatusCard } from './overview-cards';
@@ -35,12 +35,16 @@ export function AdminDashboard() {
   const options = useDashboardFilterOptions(canView);
   const [filters, setFilters] = useState<Omit<DashboardRange, 'from' | 'to'>>({});
   const overview = useDashboardOverview(filters, canView);
-  const [days, setDays] = useState<{ from: string; to: string } | null>(null);
+  /** Bộ lọc thời gian: lựa chọn nhanh + khoảng ngày nó điền ("ALL" ⇒ hai ngày trống, gửi `allTime`). */
+  const [period, setPeriod] = useState<{ preset: DashboardDatePreset; from: string; to: string } | null>(null);
+  const offsetMinutes = overview.data?.timezoneOffsetMinutes;
 
-  // Khoảng ngày mặc định cần múi giờ vận hành ⇒ dựng khi overview đã về.
+  // Khoảng ngày mặc định ("Tháng này") cần múi giờ vận hành ⇒ dựng khi overview đã về.
   useEffect(() => {
-    if (!days && overview.data) setDays(currentMonthRange(overview.data.timezoneOffsetMinutes));
-  }, [days, overview.data]);
+    if (!period && offsetMinutes !== undefined) {
+      setPeriod({ preset: 'THIS_MONTH', ...currentMonthRange(offsetMinutes) });
+    }
+  }, [period, offsetMinutes]);
 
   // Đơn vị tiền mặc định = đơn vị phổ biến nhất (backend sắp sẵn) — để ô chọn hiển thị đúng giá trị.
   useEffect(() => {
@@ -48,7 +52,13 @@ export function AdminDashboard() {
     if (!filters.currency && first) setFilters((current) => ({ ...current, currency: first }));
   }, [filters.currency, options.data]);
 
-  const range = useMemo<DashboardRange | null>(() => (days ? { ...filters, ...days } : null), [days, filters]);
+  // MỘT object khoảng cho cả ba widget theo ngày ⇒ đổi lựa chọn là cả ba đổi CÙNG lúc, mỗi widget đúng một request.
+  const range = useMemo<DashboardRange | null>(() => {
+    if (!period) return null;
+    return period.preset === 'ALL'
+      ? { ...filters, from: '', to: '', allTime: true }
+      : { ...filters, from: period.from, to: period.to };
+  }, [period, filters]);
   const rangeReady = canView && range !== null;
   const summary = useDashboardSummary(range ?? { from: '', to: '' }, rangeReady);
   const trends = useDashboardTrends(range ?? { from: '', to: '' }, rangeReady);
@@ -67,10 +77,19 @@ export function AdminDashboard() {
       {range && (
         <DashboardFilterBar
           value={range}
+          preset={period?.preset ?? 'THIS_MONTH'}
           options={options.data}
+          onPresetChange={(preset) =>
+            setPeriod(
+              preset === 'ALL'
+                ? { preset, from: '', to: '' }
+                : { preset, ...presetRange(preset, offsetMinutes ?? 0) },
+            )
+          }
           onChange={(next) => {
-            const { from, to, ...rest } = next;
-            setDays({ from, to });
+            const { from, to, allTime: _allTime, ...rest } = next;
+            // Sửa tay Từ ngày / Đến ngày ⇒ "Tuỳ chỉnh"; đổi tiền / shop / seller giữ nguyên lựa chọn thời gian.
+            if (period && (from !== period.from || to !== period.to)) setPeriod({ preset: 'CUSTOM', from, to });
             setFilters(rest);
           }}
         />

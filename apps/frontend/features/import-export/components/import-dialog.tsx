@@ -130,7 +130,7 @@ export function ImportDialog({
             />
             {file ? (
               <>
-                <FileSpreadsheet className="size-8 text-emerald-600" />
+                <FileSpreadsheet className="size-8 text-success" />
                 <p className="text-sm font-medium">{file.name}</p>
                 <button
                   type="button"
@@ -181,7 +181,7 @@ export function ImportDialog({
           <div className="space-y-3">
             <div className="flex items-center gap-2 text-sm font-medium">
               {succeeded ? (
-                <CheckCircle2 className="size-5 text-emerald-600" />
+                <CheckCircle2 className="size-5 text-success" />
               ) : (
                 <X className="size-5 text-destructive" />
               )}
@@ -309,7 +309,7 @@ function Stat({
       <p
         className={cn(
           'text-lg font-bold tabular-nums',
-          tone === 'success' && 'text-emerald-600',
+          tone === 'success' && 'text-success',
           tone === 'danger' && 'text-destructive',
           tone === 'muted' && 'text-muted-foreground',
         )}

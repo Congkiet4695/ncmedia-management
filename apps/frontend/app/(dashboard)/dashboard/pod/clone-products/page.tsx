@@ -208,8 +208,8 @@ function CloneProductsView() {
                   <span className="line-clamp-2">{batch.sourceShop ? shopOptionLabel(batch.sourceShop) : '—'}</span>
                 </TableCell>
                 <TableCell className="text-right tabular-nums">{batch.counts.total}</TableCell>
-                <TableCell className="text-right tabular-nums text-emerald-600">{batch.counts.success}</TableCell>
-                <TableCell className="text-right tabular-nums text-amber-600">
+                <TableCell className="text-right tabular-nums text-success">{batch.counts.success}</TableCell>
+                <TableCell className="text-right tabular-nums text-warning">
                   {batch.counts.processing + batch.counts.pending}
                 </TableCell>
                 <TableCell className="text-right tabular-nums text-destructive">{batch.counts.failed}</TableCell>

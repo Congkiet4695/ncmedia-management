@@ -329,8 +329,8 @@ function StatCard({
   onClick: () => void;
 }) {
   const TONE = {
-    warning: 'bg-amber-500/10 text-amber-600',
-    success: 'bg-emerald-500/10 text-emerald-600',
+    warning: 'bg-warning/10 text-warning',
+    success: 'bg-success/10 text-success',
     destructive: 'bg-destructive/10 text-destructive',
     muted: 'bg-muted text-muted-foreground',
   } as const;

@@ -30,9 +30,9 @@ export function JobProgressBar({ job, className }: { job: JobProgress; className
   return (
     <div className={cn('space-y-1', className)}>
       <div className="flex h-2 w-full overflow-hidden rounded-full bg-muted">
-        <div className="bg-emerald-500 transition-all" style={{ width: `${success}%` }} />
+        <div className="bg-success transition-all" style={{ width: `${success}%` }} />
         <div className="bg-destructive transition-all" style={{ width: `${failed}%` }} />
-        {running && <div className="flex-1 animate-pulse bg-amber-400/60" />}
+        {running && <div className="flex-1 animate-pulse bg-warning/60" />}
       </div>
       <p className="text-xs text-muted-foreground">
         {t('listing.jobs.progressLabel', { done, total: job.totalItems })}

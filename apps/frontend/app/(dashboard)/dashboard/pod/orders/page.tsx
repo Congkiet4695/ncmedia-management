@@ -21,6 +21,7 @@ import { RequirePermission } from '@/components/require-permission';
 import { cn } from '@/lib/utils';
 import { useAuth } from '@/hooks/use-auth';
 import { useClampedPage } from '@/hooks/use-clamped-page';
+import { usePageChangeScroll } from '@/hooks/use-page-change-scroll';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useApiError } from '@/hooks/use-api-error';
 import { ImageLightbox } from '@/features/pod-tiktok/components/image-lightbox';
@@ -169,6 +170,9 @@ function PodOrdersView() {
   // Xoá nốt record cuối của trang cuối ⇒ lùi về trang còn dữ liệu,
   // không để giao diện kẹt ở "Trang 3 / 2" với một cái bảng trống.
   useClampedPage(meta, (next) => patchQuery({ page: next }));
+  // Chuyển trang bằng phân trang ⇒ cuộn tới đầu khu vực bảng (không phải đầu trang). Chỉ handler phân trang mới
+  // "arm" — đổi bộ lọc / cỡ trang / useClampedPage đổi trang KHÔNG cuộn.
+  const tableScroll = usePageChangeScroll<HTMLDivElement>(query.page);
   const stats = statsQuery.data;
 
   const toggleSelect = useCallback((id: string) => {
@@ -261,7 +265,7 @@ function PodOrdersView() {
                 <DownloadCloud className="size-4" />
                 {t('orders.backfill')}
               </Button>
-              <Button onClick={() => void handleSync()} disabled={syncMutation.isPending}>
+              <Button variant="info" onClick={() => void handleSync()} disabled={syncMutation.isPending}>
                 {syncMutation.isPending ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (
@@ -410,7 +414,8 @@ function PodOrdersView() {
             )}
           </div>
         </CardHeader>
-        <CardContent className="space-y-4">
+        {/* scroll-mt-20: chừa chỗ cho header sticky (h-16) khi cuộn tới đầu bảng. */}
+        <CardContent ref={tableScroll.ref} className="scroll-mt-20 space-y-4">
           {ordersQuery.isError ? (
             <p className="py-10 text-center text-sm text-destructive">
               {translateApiError(ordersQuery.error)}
@@ -447,7 +452,10 @@ function PodOrdersView() {
 
           <DataPagination
             meta={meta}
-            onPageChange={(next) => patchQuery({ page: next })}
+            onPageChange={(next) => {
+              tableScroll.arm(next);
+              patchQuery({ page: next });
+            }}
             onPageSizeChange={(next) => patchQuery({ limit: next, page: 1 })}
           />
         </CardContent>

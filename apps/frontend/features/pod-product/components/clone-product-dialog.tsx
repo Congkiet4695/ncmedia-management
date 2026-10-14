@@ -253,7 +253,7 @@ function CloneResult({ jobId, shopLabel }: { jobId: string; shopLabel: Map<strin
     <section className="space-y-3">
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2 font-medium">
-          {done ? <CheckCircle2 className="size-4 text-emerald-600" /> : <Loader2 className="size-4 animate-spin text-muted-foreground" />}
+          {done ? <CheckCircle2 className="size-4 text-success" /> : <Loader2 className="size-4 animate-spin text-muted-foreground" />}
           {done ? t('products.clone.result.done') : t('products.clone.result.running')}
         </div>
         <div className="flex flex-wrap gap-1.5 text-xs">
@@ -284,13 +284,13 @@ function CloneResult({ jobId, shopLabel }: { jobId: string; shopLabel: Map<strin
 }
 
 const STATUS_ICON: Record<PodListingItemStatus, { Icon: typeof CheckCircle2; className: string }> = {
-  SUCCESS: { Icon: CheckCircle2, className: 'text-emerald-600' },
-  SKIPPED: { Icon: MinusCircle, className: 'text-amber-600' },
+  SUCCESS: { Icon: CheckCircle2, className: 'text-success' },
+  SKIPPED: { Icon: MinusCircle, className: 'text-warning' },
   FAILED: { Icon: XCircle, className: 'text-destructive' },
   CANCELLED: { Icon: XCircle, className: 'text-muted-foreground' },
   PENDING: { Icon: Loader2, className: 'animate-spin text-muted-foreground' },
   PROCESSING: { Icon: Loader2, className: 'animate-spin text-muted-foreground' },
-  RETRYING: { Icon: Loader2, className: 'animate-spin text-amber-600' },
+  RETRYING: { Icon: Loader2, className: 'animate-spin text-warning' },
 };
 
 /** Một dòng = một shop đích. Lỗi/lý do bỏ qua mở rộng được — không nhét cả câu vào bảng. */
@@ -309,8 +309,8 @@ function CloneResultRow({ item, label }: { item: PodListingJobItem; label: strin
         <span
           className={cn(
             'text-xs',
-            item.status === 'SUCCESS' && 'text-emerald-600',
-            item.status === 'SKIPPED' && 'text-amber-600',
+            item.status === 'SUCCESS' && 'text-success',
+            item.status === 'SKIPPED' && 'text-warning',
             (item.status === 'FAILED' || item.status === 'CANCELLED') && 'text-destructive',
             isRunning && 'text-muted-foreground',
           )}

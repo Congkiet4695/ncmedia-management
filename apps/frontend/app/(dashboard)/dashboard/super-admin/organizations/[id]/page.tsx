@@ -99,7 +99,7 @@ function DetailView({ id }: { id: string }) {
             <Button variant="outline" className="text-destructive" onClick={() => setRejectOpen(true)}>
               {t('reject.submit')}
             </Button>
-            <Button onClick={() => setApproveOpen(true)}>{t('approve.submit')}</Button>
+            <Button variant="success" onClick={() => setApproveOpen(true)}>{t('approve.submit')}</Button>
           </div>
         )}
       </div>

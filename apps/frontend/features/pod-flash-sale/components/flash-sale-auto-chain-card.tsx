@@ -37,7 +37,7 @@ export function FlashSaleAutoChainCard({ flashSale, canToggle, toggling, leadHou
             <Repeat className="size-4" />
             {t('flashSale.auto.chainTitle')}
             <span
-              className={`rounded px-1.5 py-0.5 text-xs font-medium ${flashSale.autoMode ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300' : 'bg-muted text-muted-foreground'}`}
+              className={`rounded px-1.5 py-0.5 text-xs font-medium ${flashSale.autoMode ? 'bg-success/10 text-success' : 'bg-muted text-muted-foreground'}`}
             >
               {flashSale.autoMode ? t('flashSale.auto.on') : t('flashSale.auto.off')}
             </span>
@@ -85,7 +85,7 @@ export function FlashSaleAutoChainCard({ flashSale, canToggle, toggling, leadHou
                     <span className="text-xs text-muted-foreground">· {t('flashSale.auto.next')}</span>
                   )}
                   {node.autoMode && (
-                    <span className="text-xs font-medium text-emerald-600">· {t('flashSale.auto.activeNode')}</span>
+                    <span className="text-xs font-medium text-success">· {t('flashSale.auto.activeNode')}</span>
                   )}
                 </li>
               );

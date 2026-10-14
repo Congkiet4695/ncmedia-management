@@ -7,6 +7,7 @@ import type {
   PodTiktokAccount,
   PodTiktokAccountListResult,
   PodTiktokAccountQuery,
+  PodAssignedSellerOptions,
   PodSellerOption,
   PodTiktokAuthorizeUrl,
   PodTiktokLinkResult,
@@ -77,6 +78,12 @@ export const podTiktokService = {
 
   async unlink(id: string): Promise<void> {
     await apiClient.delete<ApiResponse<null>>(`${BASE_PATH}/${id}`);
+  },
+
+  /** Seller đang được phân công (bộ lọc "Seller được assign") — trong phạm vi người xem. */
+  async assignedSellerOptions(): Promise<PodAssignedSellerOptions> {
+    const res = await apiClient.get<ApiResponse<PodAssignedSellerOptions>>(`${BASE_PATH}/assigned-sellers`);
+    return res.data.data;
   },
 
   /** Danh sách Seller có thể phân công (Employee ACTIVE + Role EMPLOYEE). */

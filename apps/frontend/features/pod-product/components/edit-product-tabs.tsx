@@ -281,8 +281,8 @@ export function ImagesTab({
         removable={{ sizeChart: false, video: false }}
       />
 
-      <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-        <Lock className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+      <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 p-3 text-sm">
+        <Lock className="mt-0.5 size-4 shrink-0 text-warning" />
         <span>{t('products.edit.mediaRemoveLocked')}</span>
       </div>
     </div>
@@ -413,8 +413,8 @@ export function SkusTab({
         </table>
       </div>
 
-      <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/5 p-3 text-sm">
-        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600 dark:text-amber-400" />
+      <div className="flex items-start gap-2 rounded-md border border-warning/40 bg-warning/5 p-3 text-sm">
+        <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
         <span>{t('products.edit.inventoryNote')}</span>
       </div>
     </div>

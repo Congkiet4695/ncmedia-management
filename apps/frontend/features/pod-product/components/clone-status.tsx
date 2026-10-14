@@ -58,7 +58,7 @@ export function CloneProgress({ batch, compact }: { batch: PodProductCloneBatch;
       </div>
       <div className="h-1.5 w-full overflow-hidden rounded bg-muted" role="progressbar" aria-valuenow={percent} aria-valuemin={0} aria-valuemax={100}>
         <div className="flex h-full">
-          <div className="h-full bg-emerald-500" style={{ width: `${(counts.success / Math.max(progress.total, 1)) * 100}%` }} />
+          <div className="h-full bg-success" style={{ width: `${(counts.success / Math.max(progress.total, 1)) * 100}%` }} />
           <div className="h-full bg-destructive" style={{ width: `${(counts.failed / Math.max(progress.total, 1)) * 100}%` }} />
           <div className="h-full bg-muted-foreground/40" style={{ width: `${((counts.skipped + counts.cancelled) / Math.max(progress.total, 1)) * 100}%` }} />
         </div>

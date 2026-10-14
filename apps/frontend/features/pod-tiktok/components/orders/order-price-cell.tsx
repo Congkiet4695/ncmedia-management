@@ -238,7 +238,7 @@ function Line({
         className={cn(
           'shrink-0 whitespace-nowrap tabular-nums',
           emphasis ? 'font-semibold text-foreground' : 'text-muted-foreground',
-          tone === 'positive' && 'font-medium text-emerald-600 dark:text-emerald-400',
+          tone === 'positive' && 'font-medium text-success',
           tone === 'negative' && 'font-medium text-destructive',
         )}
       >

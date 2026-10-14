@@ -1,4 +1,12 @@
-import { DASHBOARD_MAX_RANGE_DAYS, localDay, percentChange, resolveDayRange } from './dashboard-metrics';
+import {
+  DASHBOARD_MAX_RANGE_DAYS,
+  localDay,
+  percentChange,
+  resolveAllTimeRange,
+  resolveDayRange,
+  sellerCurrentProfit,
+  sellerEstProfit,
+} from './dashboard-metrics';
 import { ORDER_STATUS_GROUPS, orderStatusGroupOf } from './order-status-groups';
 import { TIKTOK_ORDER_STATUSES } from '../constants/tiktok.constants';
 
@@ -60,5 +68,95 @@ describe('ORDER_STATUS_GROUPS', () => {
     expect(orderStatusGroupOf('AWAITING_COLLECTION')).toBe('AWAITING_COLLECTION');
     expect(orderStatusGroupOf('CANCELLED')).toBe('CANCELLED');
     expect(orderStatusGroupOf('SOMETHING_NEW')).toBe('OTHER');
+  });
+});
+
+describe('sellerCurrentProfit — Paid − Basecost − Label − Seller Shipping Fee', () => {
+  const input = { paid: '475.19', baseCost: '35.46', label: '2', shippingFee: '12.34' };
+
+  it('số liệu bình thường', () => {
+    expect(sellerCurrentProfit(input)).toBe('425.39');
+  });
+
+  it('Shipping Fee = 0 ⇒ chỉ trừ Basecost + Label', () => {
+    expect(sellerCurrentProfit({ ...input, shippingFee: '0' })).toBe('437.73');
+  });
+
+  it('lợi nhuận âm giữ nguyên dấu (không chặn về 0)', () => {
+    expect(sellerCurrentProfit({ paid: '0', baseCost: '10.5', label: '1', shippingFee: '3.2' })).toBe('-14.7');
+  });
+
+  it('Label null (khác đơn vị tiền) ⇒ null, không coi là 0', () => {
+    expect(sellerCurrentProfit({ ...input, label: null })).toBeNull();
+  });
+
+  it('tính bằng Decimal trên tổng chưa làm tròn — không lệch số lẻ dấu phẩy động', () => {
+    // 0.3 − 0.1 − 0.1 − 0.1 bằng number là 2.7e-17; Decimal cho đúng 0.
+    expect(sellerCurrentProfit({ paid: '0.3', baseCost: '0.1', label: '0.1', shippingFee: '0.1' })).toBe('0');
+    expect(sellerCurrentProfit({ paid: '100.0004', baseCost: '0', label: '0', shippingFee: '0.0001' })).toBe('100.0003');
+  });
+
+  it('Shipping Fee trừ ĐÚNG MỘT lần: tăng Shipping Fee x ⇒ Current Profit giảm đúng x', () => {
+    const before = Number(sellerCurrentProfit(input));
+    const after = Number(sellerCurrentProfit({ ...input, shippingFee: '22.34' }));
+    expect(Math.round((before - after) * 100) / 100).toBe(10);
+  });
+});
+
+describe('sellerEstProfit — Est. profit = Revenue − Base cost − Shipping Fee − Label, không trừ hai lần phí ship', () => {
+  const input = { revenue: '200', baseCost: '50', label: '1.5', shippingFee: '30', shippingIncluded: '0' };
+
+  it('phí ship chưa nằm trong Revenue ⇒ trừ trọn: 200 − 50 − 30 − 1.5 = 118.5', () => {
+    expect(sellerEstProfit(input)).toBe('118.5');
+  });
+
+  it('phí ship đã nằm trọn trong Revenue ⇒ không trừ lại: 200 − 50 − 1.5 = 148.5', () => {
+    expect(sellerEstProfit({ ...input, shippingIncluded: '30' })).toBe('148.5');
+  });
+
+  it('= Revenue − Base cost − Shipping Fee − Label + phần đã trừ trong Revenue (đúng công thức PO, bù phần trùng)', () => {
+    const literal = 200 - 50 - 30 - 1.5;
+    expect(Number(sellerEstProfit({ ...input, shippingIncluded: '12' }))).toBe(literal + 12);
+  });
+
+  it('tăng phần đã-nằm-trong-Revenue x ⇒ lợi nhuận tăng đúng x (không trừ hai lần)', () => {
+    const a = Number(sellerEstProfit({ ...input, shippingIncluded: '5' }));
+    const b = Number(sellerEstProfit({ ...input, shippingIncluded: '15' }));
+    expect(b - a).toBe(10);
+  });
+
+  it('Label null (khác đơn vị tiền) ⇒ null', () => {
+    expect(sellerEstProfit({ ...input, label: null })).toBeNull();
+  });
+
+  it('Base cost / Shipping Fee bằng 0 vẫn tính, âm vẫn âm', () => {
+    expect(sellerEstProfit({ revenue: '0', baseCost: '0', label: '0', shippingFee: '0', shippingIncluded: '0' })).toBe('0');
+    expect(sellerEstProfit({ ...input, revenue: '10' })).toBe('-71.5');
+  });
+
+  it('Decimal — không lệch số lẻ dấu phẩy động', () => {
+    expect(sellerEstProfit({ revenue: '0.3', baseCost: '0.1', label: '0.1', shippingFee: '0.2', shippingIncluded: '0.1' })).toBe('0');
+  });
+});
+
+describe('resolveAllTimeRange — "Tất cả thời gian" (UTC+7)', () => {
+  const NOW = new Date('2026-10-14T05:00:00.000Z'); // 14/10/2026 12:00 giờ VN
+
+  it('từ ngày có dữ liệu sớm nhất đến hôm nay, KHÔNG giới hạn DASHBOARD_MAX_RANGE_DAYS', () => {
+    const range = resolveAllTimeRange('2025-01-23', 420, NOW);
+    expect(range).toMatchObject({ fromDay: '2025-01-23', toDay: '2026-10-14' });
+    expect(range.days).toBeGreaterThan(DASHBOARD_MAX_RANGE_DAYS);
+    expect(range.from.toISOString()).toBe('2025-01-22T17:00:00.000Z');
+    expect(range.to.toISOString()).toBe('2026-10-14T16:59:59.999Z');
+  });
+
+  it('chưa có dữ liệu / ngày sớm nhất ở tương lai / sai định dạng ⇒ chỉ hôm nay', () => {
+    for (const earliest of [null, '2026-12-01', 'abc']) {
+      expect(resolveAllTimeRange(earliest, 420, NOW)).toMatchObject({ fromDay: '2026-10-14', toDay: '2026-10-14', days: 1 });
+    }
+  });
+
+  it('hôm nay theo giờ vận hành (01:30 VN ngày 01/10 vẫn là 30/09 UTC)', () => {
+    expect(resolveAllTimeRange('2026-09-01', 420, new Date('2026-09-30T18:30:00.000Z')).toDay).toBe('2026-10-01');
   });
 });

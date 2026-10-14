@@ -295,7 +295,7 @@ function PodProductsView() {
               >
                 {t('products.sync.full')}
               </Button>
-              <Button onClick={() => void handleSync(false)} disabled={syncMutation.isPending}>
+              <Button variant="info" onClick={() => void handleSync(false)} disabled={syncMutation.isPending}>
                 {syncMutation.isPending ? (
                   <Loader2 className="size-4 animate-spin" />
                 ) : (

@@ -16,6 +16,7 @@
     "typecheck": "tsc --noEmit",
     "test:pagination": "node --experimental-strip-types scripts/verify-pagination.ts",
     "test:dashboard": "node --experimental-strip-types scripts/verify-dashboard.ts",
+    "test:navigation": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-navigation.ts",
     "check:i18n": "node scripts/check-i18n.mjs",
     "test:issues": "node --experimental-strip-types scripts/verify-issue-grouping.ts",
     "test:selection": "node --experimental-strip-types scripts/verify-selection.ts",

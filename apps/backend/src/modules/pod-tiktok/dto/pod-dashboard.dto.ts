@@ -43,8 +43,22 @@ export class PodDashboardFilterDto {
   sellerId?: string;
 }
 
-/** Bộ lọc + khoảng ngày (theo giờ vận hành, gồm trọn hai ngày mút). Bỏ trống ⇒ tháng hiện tại. */
+/**
+ * Bộ lọc + khoảng ngày (theo giờ vận hành, gồm trọn hai ngày mút). Bỏ trống ⇒ tháng hiện tại.
+ * `allTime=true` ⇒ "Tất cả thời gian": bỏ qua from / to, không giới hạn số ngày.
+ */
 export class PodDashboardRangeDto extends PodDashboardFilterDto {
+  @ApiPropertyOptional({
+    description:
+      'Tất cả thời gian: bỏ qua from / to và giới hạn 366 ngày — khoảng = từ ngày có dữ liệu sớm nhất (đơn / payout / ' +
+      'statement) trong phạm vi người xem đến hôm nay (giờ vận hành).',
+    default: false,
+  })
+  @IsOptional()
+  @Transform(({ value }) => value === true || value === 'true')
+  @IsBoolean()
+  allTime?: boolean = false;
+
   @ApiPropertyOptional({ example: '2026-09-01' })
   @IsOptional()
   @Matches(DAY, { message: 'from phải có dạng YYYY-MM-DD' })
@@ -143,7 +157,19 @@ export class DashboardPageMetaDto {
   @ApiProperty() totalPages!: number;
 }
 
-export class DashboardHoldShopDto {
+/**
+ * Seller Employee phụ trách shop — Employee được gán ở TikTok Account của shop (`pod_tiktok_accounts.seller_id`,
+ * người phụ trách HIỆN TẠI). Chưa gán ⇒ NULL (giao diện hiện "—").
+ */
+export class DashboardShopSellerDto {
+  @ApiPropertyOptional({ nullable: true, type: String, description: 'Employee id của Seller Employee.' })
+  sellerId!: string | null;
+  @ApiPropertyOptional({ nullable: true, type: String, description: 'Họ tên Seller Employee (thiếu ⇒ email).' })
+  sellerName!: string | null;
+  @ApiPropertyOptional({ nullable: true, type: String }) sellerEmail!: string | null;
+}
+
+export class DashboardHoldShopDto extends DashboardShopSellerDto {
   @ApiProperty() shopId!: string;
   @ApiPropertyOptional({ nullable: true, type: String, description: 'Tên shop TikTok.' }) shopName!: string | null;
   @ApiPropertyOptional({ nullable: true, type: String, description: 'Tên kết nối TikTok (TikTok Account).' })
@@ -159,7 +185,7 @@ export class DashboardHoldShopPageDto {
   @ApiProperty({ type: DashboardPageMetaDto, description: 'meta.total = số shop trên thẻ.' }) meta!: DashboardPageMetaDto;
 }
 
-export class DashboardShopListItemDto {
+export class DashboardShopListItemDto extends DashboardShopSellerDto {
   @ApiProperty() shopId!: string;
   @ApiProperty() shopName!: string;
   @ApiPropertyOptional({ nullable: true, type: String }) accountName!: string | null;
@@ -272,6 +298,19 @@ export class DashboardSellerRowDto {
   @ApiProperty({ description: 'Σ giá vốn đã xác nhận của lần fulfill đang giữ đơn (CÙNG nguồn màn Order).' })
   baseCost!: number;
   @ApiProperty({ description: 'Số đơn có giá vốn đầy đủ & đã xác nhận.' }) baseCostOrders!: number;
+  @ApiProperty({
+    description:
+      'Shipping Fee = Σ phí ship Seller TỪNG đơn (CÙNG nguồn màn Order — gồm cả phần TikTok đã trừ trong tiền thu về), ' +
+      'mỗi đơn MỘT giá trị. Đơn chưa xác định được phí ship không cộng (xem shippingFeeOrders).',
+  })
+  shippingFee!: number;
+  @ApiProperty({ description: 'Số đơn đã xác định được phí ship Seller.' }) shippingFeeOrders!: number;
+  @ApiProperty({
+    description:
+      'Phần của Shipping Fee ĐÃ nằm trong Doanh thu (TikTok đã trừ trong settlement / est_settlement) — Profit Dự kiến ' +
+      'không trừ lần hai phần này.',
+  })
+  shippingIncluded!: number;
   @ApiProperty({ description: 'Số đơn đã fulfill (có lần fulfill đang giữ đơn).' }) fulfilledOrders!: number;
   @ApiPropertyOptional({
     nullable: true,
@@ -283,11 +322,21 @@ export class DashboardSellerRowDto {
     nullable: true,
     type: Number,
     description:
-      'Profit Dự kiến = Σ lợi nhuận từng đơn (CÙNG công thức màn Order): Doanh thu − Base Cost − Label − phí ship ' +
-      'Seller chưa nằm trong tiền thu về. Chỉ cộng đơn đủ dữ kiện (xem profitOrders); NULL = không đơn nào tính được.',
+      'Profit Dự kiến (Est. profit) = Revenue − Base Cost − Shipping Fee − Label trên các tổng của dòng ' +
+      '(quyết định PO 2026-10-14), KHÔNG trừ hai lần phí ship: trừ (shippingFee − shippingIncluded). ' +
+      'NULL khi label khác đơn vị tiền đang xem.',
   })
   profit!: number | null;
-  @ApiProperty({ description: 'Số đơn tính được Profit Dự kiến.' }) profitOrders!: number;
+  @ApiProperty({ description: 'Số đơn tính được lợi nhuận TỪNG ĐƠN đủ dữ kiện (công thức màn Order) — tham khảo.' })
+  profitOrders!: number;
+  @ApiProperty({
+    nullable: true,
+    type: Number,
+    description:
+      'Current Profit = Paid − Base Cost − Label − Shipping Fee (tổng theo seller, công thức nguyên văn). ' +
+      'NULL khi label khác đơn vị tiền đang xem.',
+  })
+  currentProfit!: number | null;
   @ApiProperty() paid!: number;
   @ApiProperty() processing!: number;
   @ApiProperty() hold!: number;

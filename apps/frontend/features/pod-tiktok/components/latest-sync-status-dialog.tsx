@@ -122,7 +122,7 @@ export function LatestSyncStatusDialog({ open, onClose, syncType }: LatestSyncSt
                         {formatDuration(item.durationMs)}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{item.total}</TableCell>
-                      <TableCell className="text-right tabular-nums text-emerald-600">
+                      <TableCell className="text-right tabular-nums text-success">
                         {item.created}
                       </TableCell>
                       <TableCell className="text-right tabular-nums">{item.updated}</TableCell>

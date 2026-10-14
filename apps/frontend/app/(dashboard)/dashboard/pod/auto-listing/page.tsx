@@ -156,7 +156,7 @@ function ListingSessionListView() {
                   : session.shops.map((link) => link.shop.name).join(', ')}
               </TableCell>
               <TableCell className="text-right tabular-nums">
-                <span className="text-emerald-600">{session.counts.UPLOADED}</span>
+                <span className="text-success">{session.counts.UPLOADED}</span>
                 {' / '}
                 <span className="text-destructive">{session.counts.FAILED}</span>
                 {' / '}

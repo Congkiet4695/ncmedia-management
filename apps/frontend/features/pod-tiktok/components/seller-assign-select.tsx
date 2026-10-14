@@ -112,7 +112,7 @@ export function SellerAssignSelect({
       {assignMutation.isPending ? (
         <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
       ) : (
-        assignMutation.isSuccess && <Check className="size-4 shrink-0 text-emerald-600" />
+        assignMutation.isSuccess && <Check className="size-4 shrink-0 text-success" />
       )}
     </div>
   );

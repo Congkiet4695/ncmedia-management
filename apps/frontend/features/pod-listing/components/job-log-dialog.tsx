@@ -245,7 +245,7 @@ function LogList({
               log.level === 'ERROR'
                 ? 'text-destructive'
                 : log.level === 'WARN'
-                  ? 'text-amber-600'
+                  ? 'text-warning'
                   : ''
             }
           >

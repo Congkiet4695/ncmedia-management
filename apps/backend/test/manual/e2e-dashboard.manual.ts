@@ -171,7 +171,9 @@ async function main() {
       near(r.baseCost, e.baseCost) && r.baseCostOrders === e.baseCostOrders &&
       r.fulfilledOrders === e.fulfilled &&
       (labelExpected === null ? r.label === null : r.label !== null && near(r.label, labelExpected)) &&
-      (e.profit === null ? r.profit === null : r.profit !== null && near(r.profit, e.profit)) && r.profitOrders === e.profitOrders
+      r.profitOrders === e.profitOrders &&
+      // Est. profit (2026-10-14) tính trên các tổng của dòng, không trừ hai lần phí ship đã nằm trong Doanh thu.
+      ((r.label === null ? null : r.revenue - r.baseCost - r.label - (r.shippingFee - r.shippingIncluded)) === null ? r.profit === null : r.profit !== null && near(r.profit, (r.label === null ? null : r.revenue - r.baseCost - r.label - (r.shippingFee - r.shippingIncluded))!))
     );
   });
   check('Doanh thu / Basecost / Label / Profit Dự kiến của MỌI seller = cộng từng đơn theo màn Order', mismatched.length === 0,
@@ -186,7 +188,7 @@ async function main() {
   console.log(`  (${Number(both.n)} đơn có CẢ giao dịch đã quyết toán lẫn chưa quyết toán — chỉ settled được cộng)`);
   check('Label = số đơn đã fulfill × label/đơn (mỗi đơn một lần dù nhiều dòng / nhiều lần gửi)',
     sellers.items.every((r) => r.label === null || near(r.label, r.fulfilledOrders * label.amount)));
-  check('Profit Dự kiến chỉ cộng đơn đủ dữ kiện (profitOrders ≤ đơn đã fulfill)', sellers.items.every((r) => r.profitOrders <= r.fulfilledOrders));
+  check('profitOrders (lợi nhuận từng đơn đủ dữ kiện — tham khảo) ≤ đơn đã fulfill', sellers.items.every((r) => r.profitOrders <= r.fulfilledOrders));
   check('API không còn cột "Doanh thu dự kiến"', sellers.items.every((r) => !('estRevenue' in r)));
   const sortedByName = await service.sellers(orgId, ALL, { ...range, sort: 'name', order: 'asc', page: 1, limit: 5 });
   check('Sắp xếp / phân trang chạy được', Array.isArray(sortedByName.items) && sortedByName.meta.limit === 5);

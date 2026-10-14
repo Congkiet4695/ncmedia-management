@@ -103,6 +103,7 @@ describe('PodTiktokAccountService', () => {
       insertTokenAudit: jest.fn().mockResolvedValue(undefined),
       findById: jest.fn(),
       findMany: jest.fn(),
+      findAssignedSellers: jest.fn(),
     };
     // Mock giống ciphertext thật (không chứa plaintext) để assert "không rò rỉ" có ý nghĩa.
     encryption = { encrypt: jest.fn((value: string) => fakeCipher(value)) };
@@ -538,6 +539,60 @@ describe('PodTiktokAccountService', () => {
         3,
       );
       expect(writeData.accountName).toBe('Tên do tổ chức đặt');
+    });
+  });
+
+  describe('findAll — bộ lọc Active / Inactive, Seller được assign, tổng số shop', () => {
+    const ADMIN_SCOPE = { allShops: true, accountIds: [], shopIds: [] };
+    const SELLER_SCOPE = { allShops: false, accountIds: ['acc-a'], shopIds: ['shop-a'] };
+    const paramsOf = () => ((repo.findMany as jest.Mock).mock.calls as Array<[string, Record<string, unknown>]>)[0][1];
+
+    beforeEach(() => {
+      (repo.findMany as jest.Mock).mockResolvedValue({ items: [], total: 23, totalShops: 25 });
+    });
+
+    it('Tất cả: không lọc trạng thái shop / seller; tổng shop lấy từ backend (mọi trang), meta.total = số kết nối', async () => {
+      const result = await service.findAll(ORG_ID, { page: 2, limit: 10 }, ADMIN_SCOPE);
+      expect(paramsOf()).toMatchObject({ shopStatus: undefined, sellerId: undefined, page: 2, limit: 10, accountScope: undefined });
+      expect(result.totalShops).toBe(25);
+      expect(result.meta).toEqual({ total: 23, page: 2, limit: 10, totalPages: 3 });
+    });
+
+    it('Active / Inactive + seller cụ thể + trạng thái kết nối + tìm kiếm cùng đi xuống MỘT truy vấn', async () => {
+      await service.findAll(
+        ORG_ID,
+        { shopStatus: 'INACTIVE', sellerId: 'e-1', status: PodTiktokAccountStatus.ACTIVE, search: 'abc' },
+        ADMIN_SCOPE,
+      );
+      expect(paramsOf()).toMatchObject({ shopStatus: 'INACTIVE', sellerId: 'e-1', status: 'ACTIVE', search: 'abc' });
+    });
+
+    it('"Chưa assign" (UNASSIGNED) ⇒ sellerId = null (seller_id IS NULL), không phải bỏ lọc', async () => {
+      await service.findAll(ORG_ID, { sellerId: 'UNASSIGNED' }, ADMIN_SCOPE);
+      expect(paramsOf().sellerId).toBeNull();
+    });
+
+    it('Seller (không có pod.shop.all) vẫn bị giới hạn trong kết nối được gán dù lọc seller khác', async () => {
+      await service.findAll(ORG_ID, { sellerId: 'e-other' }, SELLER_SCOPE);
+      expect(paramsOf()).toMatchObject({ accountScope: ['acc-a'], sellerId: 'e-other' });
+    });
+
+    it('không có kết quả ⇒ tổng shop 0, totalPages 0', async () => {
+      (repo.findMany as jest.Mock).mockResolvedValue({ items: [], total: 0, totalShops: 0 });
+      const result = await service.findAll(ORG_ID, { shopStatus: 'ACTIVE' }, ADMIN_SCOPE);
+      expect(result).toMatchObject({ totalShops: 0, meta: { total: 0, totalPages: 0 } });
+    });
+
+    it('lựa chọn "Seller được assign": theo phạm vi; chỉ họ tên / email', async () => {
+      (repo.findAssignedSellers as jest.Mock).mockResolvedValue({
+        sellers: [{ id: 'e-1', user: { id: 'u-1', fullName: 'Trang', email: 't@x' } }],
+        unassignedAccounts: 1,
+      });
+      const admin = await service.findAssignedSellerOptions(ORG_ID, ADMIN_SCOPE);
+      expect(admin).toEqual({ sellers: [{ id: 'e-1', fullName: 'Trang', email: 't@x' }], unassignedAccounts: 1 });
+      expect((repo.findAssignedSellers as jest.Mock).mock.calls[0]).toEqual([ORG_ID, undefined]);
+      await service.findAssignedSellerOptions(ORG_ID, SELLER_SCOPE);
+      expect((repo.findAssignedSellers as jest.Mock).mock.calls[1]).toEqual([ORG_ID, ['acc-a']]);
     });
   });
 

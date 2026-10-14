@@ -46,7 +46,7 @@ export function CatalogSyncNotice({ accountId }: { accountId: string | null | un
 
   if (running) {
     return (
-      <p className="flex items-start gap-1.5 rounded-md bg-sky-50 p-2 text-[11px] text-sky-800 dark:bg-sky-950/40 dark:text-sky-300">
+      <p className="flex items-start gap-1.5 rounded-md bg-info/10 p-2 text-[11px] text-info">
         <Loader2 className="mt-px size-3.5 shrink-0 animate-spin" />
         {t('catalogSync.running', {
           at: data.syncStartedAt ? formatDateTime(data.syncStartedAt) : '—',
@@ -57,7 +57,7 @@ export function CatalogSyncNotice({ accountId }: { accountId: string | null | un
 
   const canSync = hasPermission('fulfillment.config');
   return (
-    <div className="space-y-1.5 rounded-md bg-amber-50 p-2 text-[11px] text-amber-800 dark:bg-amber-950/40 dark:text-amber-300">
+    <div className="space-y-1.5 rounded-md bg-warning/10 p-2 text-[11px] text-warning">
       <p className="flex items-start gap-1.5">
         <AlertTriangle className="mt-px size-3.5 shrink-0" />
         <span>

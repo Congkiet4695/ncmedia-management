@@ -172,7 +172,7 @@ function PodReturnsView() {
             {t('pod:latestSync.action')}
           </Button>
           {canSync && (
-            <Button onClick={() => void handleSync()} disabled={syncMutation.isPending}>
+            <Button variant="info" onClick={() => void handleSync()} disabled={syncMutation.isPending}>
               {syncMutation.isPending ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
               {t('common:action.syncNow')}
             </Button>
@@ -181,8 +181,8 @@ function PodReturnsView() {
       </div>
 
       {blockedShops.length > 0 && (
-        <div className="flex gap-3 rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" />
+        <div className="flex gap-3 rounded-md border border-warning/40 bg-warning/10 p-3 text-sm">
+          <AlertTriangle className="mt-0.5 size-4 shrink-0 text-warning" />
           <div className="min-w-0 space-y-1">
             <p className="font-medium">{t('scopeWarning.title')}</p>
             <ul className="space-y-0.5 text-xs">

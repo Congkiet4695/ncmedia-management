@@ -64,6 +64,10 @@ export interface PodTiktokFindManyParams {
   limit: number;
   search?: string;
   status?: PodTiktokAccountStatus;
+  /** Trạng thái shop (Active / Inactive) — kết nối có ÍT NHẤT một shop (chưa xoá) ở trạng thái này. */
+  shopStatus?: PodTiktokShopStatus;
+  /** Employee id của Seller phụ trách; `null` = CHƯA phân công; `undefined` = không lọc. */
+  sellerId?: string | null;
   sortBy: PodTiktokSortField;
   sortOrder: 'asc' | 'desc';
   /**
@@ -658,6 +662,31 @@ export class PodTiktokAccountRepository {
     });
   }
 
+  /**
+   * Seller ĐANG được phân công cho ít nhất một kết nối (trong phạm vi) — nguồn bộ lọc "Seller được assign" của màn
+   * TikTok Accounts. Khác `findEligibleSellers`: lấy theo quan hệ gán thực tế, nên gồm cả Employee đã ngừng hoạt
+   * động nhưng vẫn còn đứng tên kết nối. Kèm số kết nối CHƯA phân công để bộ lọc biết có nên hiện "Chưa assign".
+   */
+  async findAssignedSellers(
+    organizationId: string,
+    accountScope?: string[],
+  ): Promise<{ sellers: EligibleSellerRow[]; unassignedAccounts: number }> {
+    const accountWhere: Prisma.PodTiktokAccountWhereInput = {
+      organizationId,
+      deletedAt: null,
+      ...(accountScope === undefined ? {} : { id: { in: accountScope } }),
+    };
+    const [sellers, unassignedAccounts] = await this.prisma.$transaction([
+      this.prisma.employee.findMany({
+        where: { organizationId, deletedAt: null, podTiktokAccounts: { some: accountWhere } },
+        select: { id: true, user: { select: { id: true, fullName: true, email: true } } },
+        orderBy: { user: { fullName: 'asc' } },
+      }),
+      this.prisma.podTiktokAccount.count({ where: { ...accountWhere, sellerId: null } }),
+    ]);
+    return { sellers, unassignedAccounts };
+  }
+
   /** Tạm ngưng sync cho shop tới thời điểm chỉ định (circuit breaker). */
   async pauseShopSync(shopId: string, pausedUntil: Date): Promise<void> {
     await this.prisma.podTiktokShop.update({
@@ -669,13 +698,15 @@ export class PodTiktokAccountRepository {
   async findMany(
     organizationId: string,
     params: PodTiktokFindManyParams,
-  ): Promise<{ items: PodTiktokAccountWithShops[]; total: number }> {
+  ): Promise<{ items: PodTiktokAccountWithShops[]; total: number; totalShops: number }> {
     const where: Prisma.PodTiktokAccountWhereInput = {
       organizationId,
       deletedAt: null,
       // 🔴 Chỉ những kết nối Admin đã gán cho người này. `undefined` = có `pod.shop.all`.
       ...(params.accountScope === undefined ? {} : { id: { in: params.accountScope } }),
       ...(params.status ? { status: params.status } : {}),
+      ...(params.sellerId !== undefined ? { sellerId: params.sellerId } : {}),
+      ...(params.shopStatus ? { shops: { some: { deletedAt: null, status: params.shopStatus } } } : {}),
       ...(params.search
         ? {
             OR: [
@@ -694,7 +725,7 @@ export class PodTiktokAccountRepository {
         : {}),
     };
 
-    const [items, total] = await this.prisma.$transaction([
+    const [items, total, totalShops] = await this.prisma.$transaction([
       this.prisma.podTiktokAccount.findMany({
         where,
         include: POD_TIKTOK_ACCOUNT_INCLUDE,
@@ -703,7 +734,18 @@ export class PodTiktokAccountRepository {
         take: params.limit,
       }),
       this.prisma.podTiktokAccount.count({ where }),
+      // Tổng số SHOP của MỌI kết nối khớp bộ lọc (mọi trang, không chỉ trang đang mở). Đếm trên bảng shop
+      // (`pod_tiktok_shops` — một dòng / shop, UNIQUE tổ chức + tiktok_shop_id) ⇒ không đếm trùng; lọc trạng thái
+      // shop thì chỉ đếm shop ở trạng thái đó.
+      this.prisma.podTiktokShop.count({
+        where: {
+          organizationId,
+          deletedAt: null,
+          ...(params.shopStatus ? { status: params.shopStatus } : {}),
+          account: { is: where },
+        },
+      }),
     ]);
-    return { items, total };
+    return { items, total, totalShops };
   }
 }

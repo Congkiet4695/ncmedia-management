@@ -168,8 +168,16 @@ export class PodTiktokPaginationMetaDto {
 export class PaginatedPodTiktokAccountResponseDto {
   @ApiProperty({ type: PodTiktokAccountListItemDto, isArray: true })
   items!: PodTiktokAccountListItemDto[];
-  @ApiProperty({ type: PodTiktokPaginationMetaDto }) meta!: PodTiktokPaginationMetaDto;
+  @ApiProperty({ type: PodTiktokPaginationMetaDto, description: 'meta.total = số KẾT NỐI khớp bộ lọc.' })
+  meta!: PodTiktokPaginationMetaDto;
+  @ApiProperty({
+    description:
+      'Tổng số SHOP (`pod_tiktok_shops`, không trùng) của MỌI kết nối khớp bộ lọc — mọi trang, không chỉ trang ' +
+      'đang mở. Lọc trạng thái shop ⇒ chỉ đếm shop ở trạng thái đó.',
+  })
+  totalShops!: number;
 }
+
 
 /**
  * Link uỷ quyền để người dùng copy (hoặc mở trực tiếp).
@@ -275,6 +283,13 @@ export class PodSellerOptionDto {
   id!: string;
   @ApiProperty({ example: 'Nguyễn Văn A' }) fullName!: string;
   @ApiProperty({ example: 'nva@gmail.com' }) email!: string;
+}
+
+/** Bộ lọc "Seller được assign" của màn TikTok Accounts — theo quan hệ gán thực tế, trong phạm vi người xem. */
+export class PodAssignedSellerOptionsDto {
+  @ApiProperty({ type: PodSellerOptionDto, isArray: true }) sellers!: PodSellerOptionDto[];
+  @ApiProperty({ description: 'Số kết nối CHƯA phân công Seller (> 0 ⇒ hiện lựa chọn "Chưa assign").' })
+  unassignedAccounts!: number;
 }
 
 /** Kết quả đối chiếu MỘT shop trong lượt Shop Sync. */

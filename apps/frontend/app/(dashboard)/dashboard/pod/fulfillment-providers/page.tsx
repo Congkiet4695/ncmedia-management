@@ -189,7 +189,7 @@ function ProvidersView() {
                             <p
                               className={
                                 result.connected
-                                  ? 'mt-1 text-xs text-emerald-600'
+                                  ? 'mt-1 text-xs text-success'
                                   : 'mt-1 max-w-[280px] break-words text-xs text-destructive'
                               }
                             >
@@ -227,7 +227,7 @@ function ProvidersView() {
                               {testingId === provider.id ? (
                                 <Loader2 className="size-4 animate-spin" />
                               ) : result?.connected ? (
-                                <CheckCircle2 className="size-4 text-emerald-600" />
+                                <CheckCircle2 className="size-4 text-success" />
                               ) : result ? (
                                 <XCircle className="size-4 text-destructive" />
                               ) : (
@@ -247,7 +247,7 @@ function ProvidersView() {
                             >
                               <Power
                                 className={
-                                  provider.isActive ? 'size-4 text-emerald-600' : 'size-4'
+                                  provider.isActive ? 'size-4 text-success' : 'size-4'
                                 }
                               />
                             </Button>

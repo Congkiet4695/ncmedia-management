@@ -120,7 +120,7 @@ function Row({
           className={cn(
             'text-right text-sm tabular-nums',
             emphasis ? 'font-semibold' : 'font-medium',
-            tone === 'positive' && 'text-emerald-600 dark:text-emerald-400',
+            tone === 'positive' && 'text-success',
             tone === 'negative' && 'text-destructive',
           )}
         >

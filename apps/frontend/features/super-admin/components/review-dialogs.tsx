@@ -36,7 +36,7 @@ export function ApproveDialog({
     <Modal open onClose={onClose} title={t('approve.title')} className="max-w-md">
       <div className="space-y-4">
         <div className="flex gap-3">
-          <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-emerald-50 text-emerald-600">
+          <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-success/10 text-success">
             <CheckCircle2 className="size-5" />
           </div>
           <div className="space-y-1">
@@ -49,7 +49,7 @@ export function ApproveDialog({
           <Button variant="outline" onClick={onClose} disabled={pending}>
             {t('common:action.cancel')}
           </Button>
-          <Button onClick={onConfirm} disabled={pending}>
+          <Button variant="success" onClick={onConfirm} disabled={pending}>
             {pending && <Loader2 className="size-4 animate-spin" />}
             {t('approve.submit')}
           </Button>

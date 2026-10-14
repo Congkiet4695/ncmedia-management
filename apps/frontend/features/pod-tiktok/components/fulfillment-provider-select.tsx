@@ -50,7 +50,7 @@ export function FulfillmentProviderSelect({
 
   if (!editable) {
     return fulfillmentProviderName ? (
-      <span className={fulfillmentProviderActive === false ? 'text-amber-600' : undefined}>
+      <span className={fulfillmentProviderActive === false ? 'text-warning' : undefined}>
         {fulfillmentProviderName}
         {fulfillmentProviderActive === false && t('assign.inactiveSuffix')}
       </span>
@@ -111,7 +111,7 @@ export function FulfillmentProviderSelect({
       {mutation.isPending ? (
         <Loader2 className="size-4 shrink-0 animate-spin text-muted-foreground" />
       ) : (
-        mutation.isSuccess && <Check className="size-4 shrink-0 text-emerald-600" />
+        mutation.isSuccess && <Check className="size-4 shrink-0 text-success" />
       )}
     </div>
   );

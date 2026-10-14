@@ -88,7 +88,7 @@ export function Modal({
           // `max-h-[calc(100vh-4rem)]` chừa đúng phần padding 1rem của khung ngoài ở cả hai
           // phía cộng một khoảng thở — dialog không bao giờ chạm mép màn hình.
           'relative z-10 flex max-h-[calc(100vh-4rem)] w-full max-w-lg flex-col',
-          'overflow-hidden rounded-lg border bg-card shadow-lg',
+          'overflow-hidden rounded-xl border bg-card shadow-xl',
           className,
         )}
       >

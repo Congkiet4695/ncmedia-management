@@ -61,7 +61,7 @@ export function VariantBaseCost({ accountId, variantId, savedBaseCost }: Variant
       ) : (
         <div className="space-y-0.5">
           <p className="flex items-center gap-1.5 text-sm font-medium tabular-nums">
-            <CheckCircle2 className="size-3.5 text-emerald-600" />
+            <CheckCircle2 className="size-3.5 text-success" />
             {formatCurrency(price.data.price, price.data.currency)}
           </p>
           <p className="text-[11px] text-muted-foreground">
@@ -71,7 +71,7 @@ export function VariantBaseCost({ accountId, variantId, savedBaseCost }: Variant
             })}
           </p>
           {saved !== null && saved !== price.data.price && (
-            <p className="text-[11px] text-amber-700 dark:text-amber-400">
+            <p className="text-[11px] text-warning">
               {t('fulfill.config.baseCostWillUpdate', { value: formatCurrency(saved, price.data.currency) })}
             </p>
           )}

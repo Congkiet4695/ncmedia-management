@@ -46,7 +46,7 @@ export function SessionPreviewDialog({
             {issues.map((issue, index) => (
               <li
                 key={index}
-                className={issue.level === 'ERROR' ? 'text-destructive' : 'text-amber-600'}
+                className={issue.level === 'ERROR' ? 'text-destructive' : 'text-warning'}
               >
                 [{issue.level}] {issue.message}
               </li>

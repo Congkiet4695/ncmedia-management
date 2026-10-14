@@ -94,7 +94,7 @@ export function CredentialsPanel({ accountId }: { accountId: string }) {
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-4" noValidate>
-      <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-700 dark:text-amber-400">
+      <div className="flex items-start gap-2 rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
         <ShieldAlert className="mt-0.5 size-4 shrink-0" />
         <span>
           Dữ liệu nhạy cảm (mã hoá at-rest). Mỗi lần &quot;Hiển thị&quot; đều được ghi log audit. Để

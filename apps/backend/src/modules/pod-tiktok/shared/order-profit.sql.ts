@@ -32,9 +32,14 @@ function jsonAmount(path: string): Prisma.Sql {
  * `test/manual/e2e-employee-work.manual.ts`.
  *
  * Trả về các CTE nối sau `WITH` (tên tiền tố `op_` để không đụng CTE của nơi gọi); CTE cuối
- * `order_profit(id, shop_id, profit, proceeds, proceeds_currency, base_cost, cost_currency, fulfilled)`:
+ * `order_profit(id, shop_id, profit, proceeds, proceeds_currency, base_cost, cost_currency, fulfilled, seller_shipping,
+ * seller_shipping_included)`:
  *   - `proceeds` / `proceeds_currency`: tiền thu về của đơn (đã quyết toán ?? ước tính — KHÔNG cộng cả hai);
  *   - `base_cost` / `cost_currency`: giá vốn của lần fulfill đang giữ đơn — NULL khi chưa đủ giá đã xác nhận;
+ *   - `seller_shipping`: phí ship Seller của đơn (= `sellerShipping.amount` của bản TS, dương = chi phí), tính
+ *     bằng đơn vị tiền của `proceeds` — gồm cả phần ĐÃ nằm trong tiền thu về; NULL = chưa xác định (không phải 0);
+ *   - `seller_shipping_included`: phí ship đó ĐÃ nằm trong `proceeds` (TikTok đã trừ) — cùng cờ mà `profit` dùng để
+ *     không trừ lần hai (Profit Dự kiến của Dashboard dùng lại cờ này);
  *   - `fulfilled`: đơn có lần fulfill đang giữ (đúng tập đơn bị trừ label trong lợi nhuận). Nơi gọi định nghĩa trước CTE `o(id, tiktok_order_id, shop_id)` — tập
  * đơn cần tính (đã lọc tổ chức / ngày / đơn vị tiền / shop).
  */
@@ -97,6 +102,8 @@ export function orderProfitCtes(organizationId: string, label: LabelCostConfig):
              CASE WHEN c.items > 0 AND c.unpriced = 0 AND c.unconfirmed = 0 THEN c.amount END AS base_cost,
              c.currency                    AS cost_currency,
              (c.pod_order_id IS NOT NULL)  AS fulfilled,
+             sh.amount                     AS seller_shipping,
+             sh.included                   AS seller_shipping_included,
              CASE
                WHEN pr.amount IS NULL THEN NULL
                WHEN c.items IS NULL OR c.items = 0 OR c.unpriced > 0 OR c.unconfirmed > 0 THEN NULL

@@ -8,7 +8,16 @@
     "shop": "Shop",
     "seller": "Seller",
     "allShops": "All shops",
-    "allSellers": "All sellers"
+    "allSellers": "All sellers",
+    "period": "Period",
+    "preset": {
+      "TODAY": "Today",
+      "YESTERDAY": "Yesterday",
+      "THIS_MONTH": "This month",
+      "LAST_MONTH": "Last month",
+      "ALL": "All time",
+      "CUSTOM": "Custom"
+    }
   },
   "hold": {
     "title": "Total amount on hold",
@@ -80,8 +89,10 @@
       "returns": "Returns",
       "revenue": "Revenue",
       "baseCost": "Base cost",
+      "shippingFee": "Shipping Fee",
       "label": "Label",
       "profit": "Est. profit",
+      "currentProfit": "Current Profit",
       "paid": "Paid",
       "processing": "Processing",
       "hold": "On hold"
@@ -89,12 +100,15 @@
     "colHint": {
       "revenue": "Per-order proceeds: the settled amount for settled orders, otherwise the TikTok estimate. Each order counts once.",
       "baseCost": "Base cost confirmed by the fulfillment provider for the fulfillment currently holding the order (a resubmission replaces the old one).",
+      "shippingFee": "Σ Seller Shipping Fee of each order — the shipping cost the seller actually bears (same value as the Order screen): settled orders use the shipping cost TikTok deducted, unsettled ones the TikTok-charged estimate or the seller-funded shipping discount. Each order counts once; orders whose shipping fee is not known yet are not summed (not treated as 0).",
       "label": "Label = fulfilled orders × label cost per order. Unfulfilled / cancelled fulfillments are excluded.",
-      "profit": "Est. profit = Revenue − Base cost − Label − Seller shipping fee (the part not already in proceeds), same formula as the Order screen. Only orders with complete data are summed — missing data is never treated as 0.",
+      "profit": "Est. profit = Revenue − Base cost − Shipping Fee − Label, computed on the row totals. Shipping is never subtracted twice: the part of Shipping Fee TikTok has ALREADY deducted from Revenue (settled orders / estimates that include shipping) is not subtracted again. Unconfirmed base cost counts as 0 (as in the Basecost column).",
+      "currentProfit": "Current Profit = Paid − Basecost − Label − Seller Shipping Fee, using the seller's totals for the date range (Paid by payout date, the other columns by order date). Note: Paid is TikTok's payout, already net of the shipping TikTok charged.",
       "paid": "Money TikTok paid out in the range.",
       "processing": "Settled but not paid out yet (payment PROCESSING).",
       "hold": "Money TikTok has not settled yet (current)."
     },
+    "formula": "Formula: {{column}}",
     "returnsHint": "Orders with an open or completed return/refund request (cancelled / rejected requests excluded). — = not synced yet.",
     "partial": "{{covered}}/{{total}} orders",
     "partialHint": "Only these orders have complete data; the rest have no finance / cost data yet and are NOT summed (not treated as 0)."
@@ -114,7 +128,8 @@
   },
   "dialog": {
     "connection": "Connection name",
-    "shop": "Shop name"
+    "shop": "Shop name",
+    "sellerEmployee": "Seller Employee"
   },
   "holdShops": {
     "open": "View shops on hold",

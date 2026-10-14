@@ -41,6 +41,7 @@ import {
 } from './dto/pod-tiktok-query.dto';
 import {
   PaginatedPodTiktokAccountResponseDto,
+  PodAssignedSellerOptionsDto,
   PodSellerOptionDto,
   PodTiktokAccountResponseDto,
   PodTiktokAuthorizeUrlDto,
@@ -129,6 +130,23 @@ export class PodTiktokAccountController {
     @Body() dto: SyncTiktokShopsDto,
   ): Promise<PodTiktokShopSyncResultDto> {
     return this.shopSync.syncShops(user.organizationId, user.userId, dto, scope);
+  }
+
+  /** Đặt TRƯỚC `:id` — nếu không, "assigned-sellers" sẽ bị route `:id` bắt nhầm. */
+  @Get('assigned-sellers')
+  @RequirePermissions('pod.tiktok.account.read')
+  @ApiOperation({
+    summary: 'Seller đang được phân công — lựa chọn cho bộ lọc "Seller được assign"',
+    description:
+      'Employee đang đứng tên ít nhất một kết nối trong PHẠM VI người gọi (Admin: cả tổ chức · Seller: chính mình), ' +
+      'theo `pod_tiktok_accounts.seller_id`, kèm số kết nối chưa phân công. Chỉ đọc; chỉ họ tên / email.',
+  })
+  @ApiOkResponse({ type: PodAssignedSellerOptionsDto })
+  findAssignedSellerOptions(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+  ): Promise<PodAssignedSellerOptionsDto> {
+    return this.service.findAssignedSellerOptions(user.organizationId, scope);
   }
 
   /** Đặt TRƯỚC `:id` — nếu không, "sellers" sẽ bị route `:id` bắt nhầm. */

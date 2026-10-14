@@ -96,7 +96,7 @@ function ProductDetailView({ id }: { id: string }) {
         </div>
 
         {hasPermission('pod.product.sync') && (
-          <Button onClick={() => void handleResync()} disabled={resyncMutation.isPending}>
+          <Button variant="info" onClick={() => void handleResync()} disabled={resyncMutation.isPending}>
             {resyncMutation.isPending ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (

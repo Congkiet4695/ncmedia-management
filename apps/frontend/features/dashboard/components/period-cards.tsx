@@ -68,7 +68,7 @@ function PeriodTile({
       <p
         className={cn(
           'mt-0.5 flex h-4 items-center gap-1 text-xs font-medium tabular-nums',
-          change === null ? 'text-muted-foreground' : change >= 0 ? 'text-emerald-600 dark:text-emerald-400' : 'text-destructive',
+          change === null ? 'text-muted-foreground' : change >= 0 ? 'text-success' : 'text-destructive',
         )}
       >
         {compare &&

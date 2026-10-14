@@ -21,7 +21,14 @@ import {
   type PeriodRow,
   type Window,
 } from '../repositories/pod-dashboard.repository';
-import { percentChange, resolveDayRange, type DashboardDayRange } from '../shared/dashboard-metrics';
+import {
+  percentChange,
+  resolveAllTimeRange,
+  resolveDayRange,
+  sellerCurrentProfit,
+  sellerEstProfit,
+  type DashboardDayRange,
+} from '../shared/dashboard-metrics';
 import { labelCostOf } from '../shared/label-cost';
 import { ORDER_STATUS_GROUP_KEYS } from '../shared/order-status-groups';
 import { resolveDateRange } from '../utils/date-range.util';
@@ -42,7 +49,10 @@ export class PodDashboardService {
   ) {}
 
   /** Lựa chọn cho bộ lọc (đơn vị tiền · shop · seller) — trong phạm vi người xem. */
-  async filterOptions(organizationId: string, scope: PodAccessScope): Promise<DashboardFilterOptionsDto> {
+  async filterOptions(
+    organizationId: string,
+    scope: PodAccessScope,
+  ): Promise<DashboardFilterOptionsDto> {
     const [currencies, options] = await Promise.all([
       this.repo.currencies(organizationId),
       this.repo.filterOptions(organizationId, scope.allShops ? null : scope.accountIds),
@@ -89,7 +99,11 @@ export class PodDashboardService {
         shopCount: selected?.shopCount ?? 0,
         otherCurrencies: holdRows
           .filter((row) => row.currency !== filter.currency)
-          .map((row) => ({ currency: row.currency, amount: money(row.amount), shopCount: row.shopCount })),
+          .map((row) => ({
+            currency: row.currency,
+            amount: money(row.amount),
+            shopCount: row.shopCount,
+          })),
       },
       holdBySeller: holdBySeller.map((row) => ({ ...row, amount: money(row.amount) })),
       shopStatus: {
@@ -148,8 +162,8 @@ export class PodDashboardService {
     scope: PodAccessScope,
     query: PodDashboardRangeDto,
   ): Promise<DashboardSummaryDto> {
-    const range = this.range(query);
     const { filter } = await this.filterOf(organizationId, scope, query);
+    const range = await this.range(query, filter);
     const window = this.window(range);
     const [finance, groups, returnsAvailable, returnStats] = await Promise.all([
       this.repo.finance(filter, window),
@@ -191,36 +205,43 @@ export class PodDashboardService {
     scope: PodAccessScope,
     query: PodDashboardSellerQueryDto,
   ): Promise<DashboardSellerPageDto> {
-    const range = this.range(query);
     const { filter } = await this.filterOf(organizationId, scope, query);
+    const range = await this.range(query, filter);
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const [returnsAvailable, result] = await Promise.all([
       this.repo.returnsAvailable(filter),
       this.repo.sellerStats(filter, this.window(range), {
-      activeOnly: query.activeOnly ?? false,
-      search: query.search,
-      sort: query.sort ?? 'orders',
-      order: query.order ?? 'desc',
-      page,
-      limit,
-      label: labelCostOf(this.config),
+        activeOnly: query.activeOnly ?? false,
+        search: query.search,
+        sort: query.sort ?? 'orders',
+        order: query.order ?? 'desc',
+        page,
+        limit,
+        label: labelCostOf(this.config),
       }),
     ]);
     return {
       currency: filter.currency || null,
-      items: result.items.map((row) => ({
-        ...row,
-        // Chưa shop nào trong phạm vi đồng bộ Return/Refund ⇒ NULL ("chưa có dữ liệu"), không phải 0.
-        returns: returnsAvailable ? row.returns : null,
-        revenue: money(row.revenue),
-        baseCost: money(row.baseCost),
-        label: row.label === null ? null : money(row.label),
-        profit: row.profit === null ? null : money(row.profit),
-        paid: money(row.paid),
-        processing: money(row.processing),
-        hold: money(row.hold),
-      })),
+      items: result.items.map((row) => {
+        const currentProfit = sellerCurrentProfit(row);
+        const profit = sellerEstProfit(row);
+        return {
+          ...row,
+          // Chưa shop nào trong phạm vi đồng bộ Return/Refund ⇒ NULL ("chưa có dữ liệu"), không phải 0.
+          returns: returnsAvailable ? row.returns : null,
+          revenue: money(row.revenue),
+          baseCost: money(row.baseCost),
+          shippingFee: money(row.shippingFee),
+          label: row.label === null ? null : money(row.label),
+          shippingIncluded: money(row.shippingIncluded),
+          profit: profit === null ? null : money(profit),
+          currentProfit: currentProfit === null ? null : money(currentProfit),
+          paid: money(row.paid),
+          processing: money(row.processing),
+          hold: money(row.hold),
+        };
+      }),
       meta: { total: result.total, page, limit, totalPages: Math.ceil(result.total / limit) },
     };
   }
@@ -230,8 +251,8 @@ export class PodDashboardService {
     scope: PodAccessScope,
     query: PodDashboardRangeDto,
   ): Promise<DashboardTrendsDto> {
-    const range = this.range(query);
     const { filter } = await this.filterOf(organizationId, scope, query);
+    const range = await this.range(query, filter);
     const window = this.window(range);
     const offset = this.offset();
     const [finance, orders] = await Promise.all([
@@ -242,7 +263,11 @@ export class PodDashboardService {
       currency: filter.currency || null,
       from: range.fromDay,
       to: range.toDay,
-      finance: finance.map((row) => ({ day: row.day, paid: money(row.paid), processing: money(row.processing) })),
+      finance: finance.map((row) => ({
+        day: row.day,
+        paid: money(row.paid),
+        processing: money(row.processing),
+      })),
       orders,
     };
   }
@@ -272,11 +297,25 @@ export class PodDashboardService {
     };
   }
 
-  private range(query: PodDashboardRangeDto): DashboardDayRange {
+  /**
+   * Khoảng ngày của truy vấn. `allTime` ⇒ từ ngày có dữ liệu sớm nhất trong phạm vi đến hôm nay (không giới hạn
+   * số ngày — xu hướng vẫn đủ mọi ngày); ngược lại from / to như cũ (tối đa `DASHBOARD_MAX_RANGE_DAYS`).
+   */
+  private async range(
+    query: PodDashboardRangeDto,
+    filter: DashboardFilter,
+  ): Promise<DashboardDayRange> {
+    if (query.allTime) {
+      const offset = this.offset();
+      return resolveAllTimeRange(await this.repo.earliestActivityDay(filter, offset), offset);
+    }
     try {
       return resolveDayRange(query.from, query.to, this.offset());
     } catch (error) {
-      throw new BadRequestException({ code: 'DASHBOARD_RANGE_INVALID', message: (error as Error).message });
+      throw new BadRequestException({
+        code: 'DASHBOARD_RANGE_INVALID',
+        message: (error as Error).message,
+      });
     }
   }
 

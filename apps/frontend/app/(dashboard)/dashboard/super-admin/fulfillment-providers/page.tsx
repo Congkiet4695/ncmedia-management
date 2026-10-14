@@ -147,7 +147,7 @@ function PlatformProvidersView() {
                         onChange={(event) => void toggleGlobal(provider.id, event.target.checked)}
                       />
                       {provider.isGlobal ? (
-                        <span className="inline-flex items-center gap-1 text-emerald-700 dark:text-emerald-400">
+                        <span className="inline-flex items-center gap-1 text-success">
                           <Globe className="size-3.5" />
                           {t('platform.sharedYes')}
                         </span>
@@ -194,7 +194,7 @@ function PlatformProvidersView() {
                           })}
                         </Badge>
                         {provider.lastSyncStatus === 'PARTIAL' && (
-                          <p className="text-[11px] text-amber-700 dark:text-amber-400">
+                          <p className="text-[11px] text-warning">
                             {t('platform.syncIncomplete')}
                           </p>
                         )}

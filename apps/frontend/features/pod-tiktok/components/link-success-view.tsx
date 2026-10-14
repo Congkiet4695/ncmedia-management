@@ -118,7 +118,7 @@ export function LinkSuccessView() {
   return (
     <LinkResultShell>
       <CardHeader className="items-center text-center">
-        <CheckCircle2 className="size-12 text-emerald-600" />
+        <CheckCircle2 className="size-12 text-success" />
         <h1 className="mt-3 text-xl font-bold tracking-tight sm:text-2xl">
           {t('linkResult.successTitle')}
         </h1>

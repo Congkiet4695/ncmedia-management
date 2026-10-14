@@ -108,3 +108,37 @@ function range(from: number, to: number): number[] {
   if (to < from) return [];
   return Array.from({ length: to - from + 1 }, (_, index) => from + index);
 }
+
+/**
+ * "Cổng" cuộn về đầu bảng khi CHUYỂN TRANG — thuần, test được (`npm run test:pagination`).
+ *
+ * Chỉ handler của điều khiển phân trang mới `arm(trang đích)`; sau khi render, `consume(trang hiện tại)` trả `true`
+ * đúng MỘT lần khi trang hiện tại là trang đã arm. Nhờ vậy KHÔNG cuộn khi trang đổi vì lý do khác (đổi bộ lọc /
+ * cỡ trang về trang 1, `useClampedPage` lùi trang) và không cuộn khi chỉ mở menu cỡ trang.
+ */
+export function createPageScrollGate(): { arm: (page: number) => void; consume: (page: number) => boolean } {
+  let armedFor: number | null = null;
+  return {
+    arm(page) {
+      armedFor = page;
+    },
+    consume(page) {
+      if (armedFor === null || armedFor !== page) return false;
+      armedFor = null;
+      return true;
+    },
+  };
+}
+
+/**
+ * Có cần cuộn tới đầu bảng không? Không cuộn khi đầu bảng ĐÃ nằm sát phía trên khung nhìn (ngay dưới header sticky,
+ * trong 1/4 trên của màn hình) — tránh giật trang khi người dùng vốn đang nhìn đầu bảng.
+ *
+ * @param top            `getBoundingClientRect().top` của đầu bảng.
+ * @param scrollMargin   `scroll-margin-top` của phần tử (= chiều cao header sticky + khoảng thở).
+ * @param viewportHeight `window.innerHeight`.
+ */
+export function shouldScrollToTableTop(top: number, scrollMargin: number, viewportHeight: number): boolean {
+  const offset = top - scrollMargin;
+  return offset < -1 || offset > viewportHeight / 4;
+}

@@ -354,6 +354,7 @@ function DraftListingsView() {
                   {t('listing.publish.all')}
                 </Button>
                 <Button
+                  variant="success"
                   disabled={selectedPublishable.length === 0 || publish.isPending || running}
                   onClick={() => startPublish(selectedPublishable)}
                 >
@@ -430,7 +431,7 @@ function DraftListingsView() {
                       <p className="line-clamp-2 text-xs text-destructive">{draft.publishError}</p>
                     )}
                     {draft.reviewReason && !draft.publishError && (
-                      <p className="line-clamp-2 text-xs text-amber-600">{draft.reviewReason}</p>
+                      <p className="line-clamp-2 text-xs text-warning">{draft.reviewReason}</p>
                     )}
                   </TableCell>
                   <TableCell className="text-sm">{draft.shop?.name ?? '—'}</TableCell>

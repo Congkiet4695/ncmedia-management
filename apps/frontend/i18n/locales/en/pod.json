@@ -95,6 +95,17 @@
         "SKIPPED": "Skipped",
         "FAILED": "Failed"
       }
+    },
+    "totalShops": "Total Shops",
+    "totalShopsLoading": "Loading total shops",
+    "filter": {
+      "allShopStatuses": "All (Active / Inactive)",
+      "shopStatus": {
+        "ACTIVE": "Active",
+        "INACTIVE": "Inactive"
+      },
+      "allSellers": "All sellers",
+      "unassigned": "Unassigned"
     }
   },
   "design": {

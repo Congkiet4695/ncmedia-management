@@ -148,7 +148,7 @@ export default function TiktokPayoutPage() {
           <p className="text-sm text-muted-foreground">{t('payout.subtitle')}</p>
         </div>
         {canSync && (
-          <Button onClick={() => void handleSync()} disabled={syncMutation.isPending}>
+          <Button variant="info" onClick={() => void handleSync()} disabled={syncMutation.isPending}>
             {syncMutation.isPending ? (
               <Loader2 className="size-4 animate-spin" />
             ) : (

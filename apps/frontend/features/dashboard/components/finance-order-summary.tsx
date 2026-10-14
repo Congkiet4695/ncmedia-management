@@ -46,7 +46,7 @@ export function FinanceOrderSummary({
             <p className="text-xs text-muted-foreground">{rangeText}</p>
             <div className="flex items-baseline justify-between gap-2">
               <span className="text-sm text-muted-foreground">{t('finance.paid')}</span>
-              <span className="text-2xl font-bold tabular-nums text-emerald-600 dark:text-emerald-400">
+              <span className="text-2xl font-bold tabular-nums text-success">
                 {money(data.finance.paid)}
               </span>
             </div>
@@ -65,7 +65,7 @@ export function FinanceOrderSummary({
             <div className="flex items-center gap-3">
               <div className="h-2 flex-1 overflow-hidden rounded-full bg-muted">
                 <div
-                  className="h-full rounded-full bg-emerald-500"
+                  className="h-full rounded-full bg-success"
                   style={{ width: `${Math.min(data.orders.deliveredRate ?? 0, 100)}%` }}
                 />
               </div>

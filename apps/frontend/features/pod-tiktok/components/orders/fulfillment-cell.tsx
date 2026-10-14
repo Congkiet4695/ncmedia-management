@@ -318,7 +318,7 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
       {/* Đang gửi / chờ đối soát: nhà cung cấp có thể ĐÃ nhận đơn — hệ thống tự tra theo mã tham chiếu.
           Không có nút gửi lại ở trạng thái này (chống tạo đơn trùng). */}
       {fulfillment.status === 'SUBMITTING' && (
-        <p className="text-[10px] text-amber-600">{t('pod:orders.fulfillment.reconciling')}</p>
+        <p className="text-[10px] text-warning">{t('pod:orders.fulfillment.reconciling')}</p>
       )}
 
       {fulfillment.status === 'CANCELLED' && data?.cancellation && (

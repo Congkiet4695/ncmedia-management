@@ -98,7 +98,7 @@ export function DropdownMenu({ trigger, children, align = 'end', className }: Dr
             role="menu"
             style={{ top: box.top, left: box.left, width: MENU_WIDTH }}
             className={cn(
-              'fixed z-50 overflow-hidden rounded-md border bg-popover p-1 shadow-md',
+              'fixed z-50 overflow-hidden rounded-lg border bg-popover p-1 shadow-lg',
               className,
             )}
             // Chọn xong là đóng — không có mục nào của màn hình này cần giữ menu mở.

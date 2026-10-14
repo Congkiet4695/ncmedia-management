@@ -7,11 +7,19 @@ export interface DashboardFilters {
   sellerId?: string;
 }
 
-/** Khoảng ngày "YYYY-MM-DD" theo giờ vận hành (gồm trọn hai ngày mút). */
+/**
+ * Khoảng ngày "YYYY-MM-DD" theo giờ vận hành (gồm trọn hai ngày mút).
+ * `allTime` ⇒ "Tất cả thời gian": `from` / `to` để trống (không gửi), backend lấy từ ngày có dữ liệu sớm nhất.
+ */
 export interface DashboardRange extends DashboardFilters {
   from: string;
   to: string;
+  allTime?: boolean;
 }
+
+/** Lựa chọn nhanh của bộ lọc thời gian (đúng thứ tự hiển thị); `CUSTOM` = người dùng tự chọn ngày. */
+export const DASHBOARD_DATE_PRESETS = ['TODAY', 'YESTERDAY', 'THIS_MONTH', 'LAST_MONTH', 'ALL'] as const;
+export type DashboardDatePreset = (typeof DASHBOARD_DATE_PRESETS)[number] | 'CUSTOM';
 
 export interface DashboardFilterOptions {
   currencies: string[];
@@ -81,8 +89,10 @@ export const SELLER_SORT_FIELDS = [
   'orders',
   'revenue',
   'baseCost',
+  'shippingFee',
   'label',
   'profit',
+  'currentProfit',
   'paid',
   'processing',
   'hold',
@@ -114,14 +124,25 @@ export interface DashboardSellerRow {
   /** Σ giá vốn đã xác nhận của lần fulfill đang giữ đơn. */
   baseCost: number;
   baseCostOrders: number;
+  /** Σ phí ship Seller từng đơn (mỗi đơn MỘT giá trị — cùng nguồn màn Order). */
+  shippingFee: number;
+  /** Số đơn đã xác định được phí ship Seller — phần còn lại chưa có dữ liệu. */
+  shippingFeeOrders: number;
   /** Số đơn đã fulfill (mỗi đơn một label). */
   fulfilledOrders: number;
   /** Σ label của đơn đã fulfill; `null` khi label khác đơn vị tiền đang xem. */
   label: number | null;
-  /** Profit Dự kiến; `null` = không đơn nào tính được. */
+  /** Phần của Shipping Fee ĐÃ nằm trong Doanh thu (TikTok đã trừ) — Profit Dự kiến không trừ lần hai. */
+  shippingIncluded: number;
+  /**
+   * Profit Dự kiến = Revenue − Basecost − Shipping Fee − Label, không trừ hai lần phần phí ship đã nằm trong
+   * Revenue (backend tính); `null` khi Label khác đơn vị tiền.
+   */
   profit: number | null;
-  /** Số đơn tính được Profit Dự kiến (đủ dữ kiện). */
+  /** Số đơn tính được lợi nhuận từng đơn đủ dữ kiện (công thức màn Order) — tham khảo. */
   profitOrders: number;
+  /** Current Profit = Paid − Basecost − Label − Shipping Fee (backend tính); `null` khi Label khác đơn vị tiền. */
+  currentProfit: number | null;
   paid: number;
   processing: number;
   hold: number;
@@ -140,13 +161,20 @@ export interface DashboardHoldShopPage {
   currency: string | null;
   /** Σ hold mọi shop (mọi trang) — bằng số trên thẻ. */
   totalAmount: number;
-  items: Array<{ shopId: string; shopName: string | null; accountName: string | null; amount: number }>;
+  items: Array<DashboardShopSeller & { shopId: string; shopName: string | null; accountName: string | null; amount: number }>;
   meta: PaginationMeta;
+}
+
+/** Seller Employee phụ trách shop (gán ở TikTok Account của shop); chưa gán ⇒ cả ba `null`. */
+export interface DashboardShopSeller {
+  sellerId: string | null;
+  sellerName: string | null;
+  sellerEmail: string | null;
 }
 
 export interface DashboardShopListPage {
   status: DashboardShopStatus;
-  items: Array<{ shopId: string; shopName: string; accountName: string | null; region: string | null }>;
+  items: Array<DashboardShopSeller & { shopId: string; shopName: string; accountName: string | null; region: string | null }>;
   meta: PaginationMeta;
 }
 

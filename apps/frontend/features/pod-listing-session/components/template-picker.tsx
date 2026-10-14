@@ -98,7 +98,7 @@ export function TemplatePicker({
         />
 
         <Button variant="outline" size="sm" disabled={!value || disabled} onClick={handleApply}>
-          {applied ? <Check className="size-4 text-emerald-600" /> : null}
+          {applied ? <Check className="size-4 text-success" /> : null}
           {t('listing.templatePicker.apply')}
         </Button>
 
@@ -138,7 +138,7 @@ export function TemplatePicker({
       ) : null}
 
       {mismatch && (
-        <p className={cn('flex items-center gap-1 text-xs text-amber-600 dark:text-amber-400')}>
+        <p className={cn('flex items-center gap-1 text-xs text-warning')}>
           <AlertTriangle className="size-3.5 shrink-0" />
           {t('listing.templatePicker.marketMismatch', {
             templateMarket: selected?.market,

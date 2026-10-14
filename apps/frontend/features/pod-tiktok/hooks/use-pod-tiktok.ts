@@ -66,6 +66,18 @@ export function usePodTiktokLinkResult(ref?: string) {
   });
 }
 
+/**
+ * Lựa chọn của bộ lọc "Seller được assign". Nằm dưới `POD_TIKTOK_KEY` ⇒ phân công / bỏ phân công Seller (đã
+ * invalidate key này) làm danh sách cập nhật theo.
+ */
+export function usePodAssignedSellerOptions() {
+  return useQuery({
+    queryKey: [POD_TIKTOK_KEY, 'assigned-sellers'],
+    queryFn: () => podTiktokService.assignedSellerOptions(),
+    staleTime: 60 * 1000,
+  });
+}
+
 /** Danh sách Seller cho dropdown — dùng chung mọi dòng nên chỉ tải MỘT lần. */
 export function usePodSellerOptions(enabled = true) {
   return useQuery({

@@ -15,16 +15,20 @@ import { useAuth } from '@/hooks/use-auth';
 import { useClampedPage } from '@/hooks/use-clamped-page';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useApiError } from '@/hooks/use-api-error';
+import { AccountShopTotalCard } from '@/features/pod-tiktok/components/account-shop-total-card';
 import { LinkAccountDialog } from '@/features/pod-tiktok/components/link-account-dialog';
 import { ShopSyncResultDialog } from '@/features/pod-tiktok/components/shop-sync-result-dialog';
 import { TiktokAccountTable } from '@/features/pod-tiktok/components/tiktok-account-table';
 import {
+  usePodAssignedSellerOptions,
   usePodTiktokAccounts,
   useSyncPodTiktokShops,
   useUnlinkPodTiktokAccount,
 } from '@/features/pod-tiktok/hooks/use-pod-tiktok';
 import {
+  POD_ACCOUNT_SHOP_STATUS_FILTERS,
   POD_TIKTOK_STATUSES,
+  POD_UNASSIGNED_SELLER,
   type PodTiktokAccountListItem,
   type PodTiktokAccountQuery,
   type PodTiktokShopSyncResult,
@@ -65,6 +69,7 @@ function PodTiktokAccountsView() {
   const canSyncShops = hasPermission('pod.tiktok.shop.sync');
 
   const accountsQuery = usePodTiktokAccounts(query);
+  const assignedSellers = usePodAssignedSellerOptions();
   const unlinkMutation = useUnlinkPodTiktokAccount();
   const syncShopsMutation = useSyncPodTiktokShops();
 
@@ -157,6 +162,11 @@ function PodTiktokAccountsView() {
         </div>
       </div>
 
+      <AccountShopTotalCard
+        total={accountsQuery.isError ? null : accountsQuery.data?.totalShops}
+        loading={accountsQuery.isFetching}
+      />
+
       <Card>
         <CardHeader>
           <div className="flex flex-wrap items-center gap-3">
@@ -185,6 +195,40 @@ function PodTiktokAccountsView() {
                 })),
               ]}
               className="w-[200px]"
+            />
+            {/* Active / Inactive = trạng thái SHOP phía TikTok (Live / Die của Dashboard), không phải trạng thái kết nối. */}
+            <Combobox
+              value={query.shopStatus ?? ''}
+              onChange={(value) =>
+                patchQuery({
+                  shopStatus: (value || undefined) as PodTiktokAccountQuery['shopStatus'],
+                  page: 1,
+                })
+              }
+              options={[
+                { value: '', label: t('account.filter.allShopStatuses') },
+                ...POD_ACCOUNT_SHOP_STATUS_FILTERS.map((status) => ({
+                  value: status,
+                  label: t(`account.filter.shopStatus.${status}`),
+                })),
+              ]}
+              className="w-[170px]"
+            />
+            {/* Seller được assign — theo `seller_id` của kết nối; danh sách do backend giới hạn theo phạm vi. */}
+            <Combobox
+              value={query.sellerId ?? ''}
+              onChange={(value) => patchQuery({ sellerId: value || undefined, page: 1 })}
+              options={[
+                { value: '', label: t('account.filter.allSellers') },
+                ...(assignedSellers.data?.unassignedAccounts
+                  ? [{ value: POD_UNASSIGNED_SELLER, label: t('account.filter.unassigned') }]
+                  : []),
+                ...(assignedSellers.data?.sellers ?? []).map((seller) => ({
+                  value: seller.id,
+                  label: seller.fullName || seller.email,
+                })),
+              ]}
+              className="w-[220px]"
             />
           </div>
         </CardHeader>

@@ -85,7 +85,7 @@ export function PayoutSummaryCard({ data, loading, error }: PayoutSummaryCardPro
 
           {/* Cộng dồn nhiều loại tiền là sai về tài chính — phải nói rõ thay vì hiển thị êm. */}
           {mixedCurrency && (
-            <p className="mt-3 flex items-start gap-2 rounded-md bg-amber-50 p-2 text-xs text-amber-700 dark:bg-amber-950/40 dark:text-amber-400">
+            <p className="mt-3 flex items-start gap-2 rounded-md bg-warning/10 p-2 text-xs text-warning">
               <AlertTriangle className="mt-0.5 size-4 shrink-0" />
               <span>{t('payout.mixedCurrencyFull', { list: data.currencies.join(', ') })}</span>
             </p>

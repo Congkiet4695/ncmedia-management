@@ -182,7 +182,7 @@ function ResourceRow({
             <FileText className="size-4" />
             {t('resources.viewLog')}
           </Button>
-          {canSync && <ResourceSyncButton resource={row.resource} size="sm" />}
+          {canSync && <ResourceSyncButton resource={row.resource} size="sm" variant="outline" />}
         </div>
       </TableCell>
     </TableRow>

@@ -76,7 +76,7 @@ export function DraftPublishDialog({
           </div>
 
           {draft.reviewReason && (
-            <p className="rounded border border-amber-300 bg-amber-50 p-2 text-xs text-amber-800">
+            <p className="rounded border border-warning/40 bg-warning/10 p-2 text-xs text-warning">
               {draft.reviewReason}
             </p>
           )}

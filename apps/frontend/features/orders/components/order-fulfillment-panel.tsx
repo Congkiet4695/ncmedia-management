@@ -117,7 +117,7 @@ export function OrderFulfillmentPanel({ order }: { order: Order }) {
 
       <CardContent className="space-y-5">
         {order.isClaimed && !mine && !isAdmin && (
-          <p className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-amber-700 dark:text-amber-400">
+          <p className="rounded-md border border-warning/40 bg-warning/10 px-3 py-2 text-sm text-warning">
             Đơn đang được xử lý bởi {order.fulfilledByName ?? 'Fulfillment khác'}. Bạn không thể
             chỉnh sửa.
           </p>

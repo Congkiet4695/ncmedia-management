@@ -53,10 +53,10 @@ function GroupTable({
           {rows.map((r) => (
             <TableRow key={r.key ?? '__none__'}>
               <TableCell className="font-medium">{r.label}</TableCell>
-              <TableCell className="text-right text-emerald-600 dark:text-emerald-400">
+              <TableCell className="text-right text-success">
                 {r.live}
               </TableCell>
-              <TableCell className="text-right text-amber-600 dark:text-amber-400">
+              <TableCell className="text-right text-warning">
                 {r.dieTrang}
               </TableCell>
               <TableCell className="text-right text-destructive">{r.die}</TableCell>
@@ -77,12 +77,12 @@ export function AccountOverviewPanel({ overview }: { overview: AccountOverview }
         <StatCard
           label="Live"
           value={overview.byStatus.live}
-          className="text-emerald-600 dark:text-emerald-400"
+          className="text-success"
         />
         <StatCard
           label="Die trắng"
           value={overview.byStatus.dieTrang}
-          className="text-amber-600 dark:text-amber-400"
+          className="text-warning"
         />
         <StatCard label="Die" value={overview.byStatus.die} className="text-destructive" />
       </div>
