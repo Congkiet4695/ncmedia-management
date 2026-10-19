@@ -81,6 +81,7 @@ rollback() {
     docker image inspect "$img:rollback" >/dev/null 2>&1 && docker tag "$img:rollback" "$img:latest" >/dev/null 2>&1 || true
   done
   $COMPOSE up -d || true
+  reload_nginx || true
   err "Đã rollback. Xem log: $COMPOSE logs --tail=100"
   exit 1
 }
@@ -94,6 +95,24 @@ wait_healthy() {
     sleep 3
   done
   return 1
+}
+
+# Nginx phân giải `frontend` / `backend` trong khối `upstream` ra IP ĐÚNG MỘT LẦN lúc nạp
+# cấu hình. `up -d` tạo lại backend + frontend (image mới ⇒ IP mới) nhưng KHÔNG tạo lại nginx
+# (cấu hình/image của nó không đổi) ⇒ nginx giữ IP cũ. Khi hai container đổi IP cho nhau,
+# `/` bị đẩy sang backend ("Cannot GET /") và `/api/` sang frontend, trong khi mọi healthcheck
+# vẫn xanh. Reload (kiểm `nginx -t` trước) buộc phân giải lại, không làm rớt kết nối.
+reload_nginx() {
+  docker exec ncmedia-nginx nginx -t && docker exec ncmedia-nginx nginx -s reload
+}
+
+# Healthcheck của nginx chỉ gọi /healthz (trả thẳng từ nginx) ⇒ không phát hiện upstream sai.
+# Kiểm tra định tuyến thật QUA nginx: API phải về backend, trang phải về frontend (HTML).
+verify_routing() {
+  docker exec ncmedia-nginx wget -q -O /dev/null http://127.0.0.1/api/v1/health \
+    || { err "Qua Nginx: /api/v1/health không trả 200 (upstream backend sai?)."; return 1; }
+  docker exec ncmedia-nginx wget -S -O /dev/null http://127.0.0.1/login 2>&1 | grep -qi 'content-type: text/html' \
+    || { err "Qua Nginx: /login không trả HTML của frontend (upstream frontend sai?)."; return 1; }
 }
 
 # --- 3. Pull base images ---
@@ -135,6 +154,11 @@ log "Chờ healthcheck…"
 wait_healthy ncmedia-backend  || rollback
 wait_healthy ncmedia-frontend || rollback
 wait_healthy ncmedia-nginx    || rollback
+
+log "Reload Nginx (phân giải lại IP frontend/backend) + kiểm tra định tuyến…"
+reload_nginx   || rollback
+sleep 2
+verify_routing || rollback
 
 # --- 8. Đối chiếu biến môi trường đã thực sự vào container ---
 # Nạp qua `env_file` là im lặng: sai đường dẫn hay sai định dạng một dòng thì biến chỉ
