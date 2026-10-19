@@ -75,8 +75,17 @@ for img in ncmedia-backend ncmedia-frontend; do
   fi
 done
 
+# Đã chạy `prisma migrate deploy` thành công trong lần deploy này chưa (để rollback nói rõ trạng thái DB).
+MIGRATED=0
+
 rollback() {
   err "Deploy thất bại → ROLLBACK về image trước."
+  # 🔴 Rollback CHỈ đổi image. Schema KHÔNG bị hoàn tác (hoàn tác tự động có thể xoá dữ liệu): migration của dự án
+  # phải ADDITIVE (bảng/cột NULLABLE mới) để image cũ vẫn chạy đúng trên schema mới.
+  if [ "$MIGRATED" = 1 ]; then
+    err "LƯU Ý: migration của lần deploy này ĐÃ được áp và được GIỮ NGUYÊN. Image cũ chạy trên schema mới —"
+    err "kiểm tra: $COMPOSE run --rm --no-deps backend npx prisma migrate status"
+  fi
   for img in ncmedia-backend ncmedia-frontend; do
     docker image inspect "$img:rollback" >/dev/null 2>&1 && docker tag "$img:rollback" "$img:latest" >/dev/null 2>&1 || true
   done
@@ -106,13 +115,63 @@ reload_nginx() {
   docker exec ncmedia-nginx nginx -t && docker exec ncmedia-nginx nginx -s reload
 }
 
+# Gọi MỘT URL từ BÊN TRONG container nginx (busybox wget) và in một dòng tóm tắt an toàn:
+#   status=<mã cuối> type=<content-type cuối> next=<số lần thấy /_next/static/> ok=<số lần thấy "status":"ok"> rc=<mã thoát wget>
+# Chỉ in mã/kiểu/đếm — không in header (cookie) hay body.
+#
+# 🔴 KHÔNG dùng `docker exec … | grep -q` ở host: script chạy `set -o pipefail`; `grep -q` thoát ngay khi khớp,
+# busybox wget vẫn in tiếp ("saving to…", tiến trình, "saved") ⇒ docker exec nhận SIGPIPE (141) ⇒ cả pipeline
+# coi là THẤT BẠI dù đã khớp. Đó chính là lỗi "/login không trả HTML" làm deploy 2026-10-19 rollback oan
+# (frontend vẫn trả 200 text/html). Mọi phân tích làm trong container, host chỉ so chuỗi.
+probe_http() {
+  docker exec ncmedia-nginx sh -c '
+    hdr=$(mktemp) body=$(mktemp)
+    wget -S -T 10 -O "$body" "$1" 2>"$hdr"; rc=$?
+    # wget tự theo redirect và in header của MỌI chặng ⇒ lấy chặng CUỐI.
+    status=$(sed -n "s/^ *HTTP\/[0-9.]* \([0-9][0-9][0-9]\).*/\1/p" "$hdr" | tail -n 1)
+    ctype=$(sed -n "s/^ *[Cc]ontent-[Tt]ype: *//p" "$hdr" | tail -n 1 | tr -d "\r")
+    next=$(grep -c "/_next/static/" "$body")
+    ok=$(grep -c "\"status\":\"ok\"" "$body")
+    rm -f "$hdr" "$body"
+    echo "status=${status:-none} type=${ctype:-none} next=${next:-0} ok=${ok:-0} rc=$rc"
+  ' sh "$1" 2>/dev/null || echo "status=none type=none next=0 ok=0 rc=exec-failed"
+}
+
+# Trang frontend sẵn sàng = 200 + text/html + có asset Next.js (chứng minh là Next, không phải trang lỗi của
+# nginx/backend). `/login` không kèm cookie KHÔNG bị middleware redirect; nếu có redirect thì wget đã theo tới
+# trang cuối, nên một redirect hợp lệ (vd /dashboard → /login) vẫn đạt, còn 404/5xx/không kết nối thì không.
+check_frontend() {
+  local label="$1" url="$2" res
+  res="$(probe_http "$url")"
+  case "$res" in
+    "status=200 type=text/html"*" next="[1-9]*) log "✓ $label: $res"; return 0 ;;
+  esac
+  err "$label KHÔNG đạt (cần 200 + text/html + asset /_next/static/): $res"
+  return 1
+}
+
+# API sẵn sàng = 200 + JSON + `"status":"ok"` của /api/v1/health.
+check_backend() {
+  local label="$1" url="$2" res
+  res="$(probe_http "$url")"
+  case "$res" in
+    "status=200 type=application/json"*" ok="[1-9]*) log "✓ $label: $res"; return 0 ;;
+  esac
+  err "$label KHÔNG đạt (cần 200 + application/json + status ok): $res"
+  return 1
+}
+
 # Healthcheck của nginx chỉ gọi /healthz (trả thẳng từ nginx) ⇒ không phát hiện upstream sai.
-# Kiểm tra định tuyến thật QUA nginx: API phải về backend, trang phải về frontend (HTML).
+# Kiểm HAI chặng, độc lập cho backend và frontend, để lỗi nói rõ hỏng ở đâu:
+#   1. nginx → upstream trực tiếp (DNS Docker + network + app đang nghe đúng cổng);
+#   2. QUA nginx (khối upstream/location đúng — API về backend, trang về frontend).
 verify_routing() {
-  docker exec ncmedia-nginx wget -q -O /dev/null http://127.0.0.1/api/v1/health \
-    || { err "Qua Nginx: /api/v1/health không trả 200 (upstream backend sai?)."; return 1; }
-  docker exec ncmedia-nginx wget -S -O /dev/null http://127.0.0.1/login 2>&1 | grep -qi 'content-type: text/html' \
-    || { err "Qua Nginx: /login không trả HTML của frontend (upstream frontend sai?)."; return 1; }
+  local failed=0
+  check_backend  "Nginx → backend:3000 trực tiếp"  "http://backend:3000/api/v1/health" || failed=1
+  check_frontend "Nginx → frontend:3000 trực tiếp" "http://frontend:3000/login"        || failed=1
+  check_backend  "Qua Nginx /api/v1/health"         "http://127.0.0.1/api/v1/health"    || failed=1
+  check_frontend "Qua Nginx /login"                 "http://127.0.0.1/login"            || failed=1
+  return "$failed"
 }
 
 # --- 3. Pull base images ---
@@ -135,6 +194,7 @@ wait_healthy ncmedia-redis    || rollback
 
 log "prisma migrate deploy…"
 $COMPOSE run --rm --no-deps backend npx prisma migrate deploy || rollback
+MIGRATED=1
 
 # Seed dữ liệu tham chiếu BẮT BUỘC: permission catalog + platform + backfill role_permissions.
 # Idempotent (upsert). Thiếu bước này → catalog trống → /auth/me trả permissions:[]. SEED_DEMO=false (không tạo admin demo).
