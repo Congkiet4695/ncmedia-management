@@ -9,12 +9,12 @@ import { useApiError } from '@/hooks/use-api-error';
 import {
   useExportPodTemplates,
   useImportPodTemplates,
-  type PodTemplateKind,
+  type PodBundleTemplateKind,
 } from '../hooks/use-pod-listing';
 import type { PodTemplateBundle, PodTemplateQuery } from '../types';
 
 interface TemplateTransferBarProps {
-  kind: PodTemplateKind;
+  kind: PodBundleTemplateKind;
   /** Bộ lọc đang áp trên màn hình — Export đúng những gì người dùng đang nhìn thấy. */
   query: PodTemplateQuery;
   canExport: boolean;

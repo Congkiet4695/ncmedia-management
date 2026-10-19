@@ -7,6 +7,7 @@ import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { cn } from '@/lib/utils';
 import { EMPTY, type OrderPriceBreakdown } from '../../order-view-model';
 import type { FinanceBreakdown, PodOrderProceeds } from '../../order-types';
+import { BaseCostLine } from './base-cost-line';
 import { DesignAmountLine } from './design-amount-line';
 import { useFinancialLabels } from './order-financial-labels';
 
@@ -64,9 +65,13 @@ export function OrderPriceCell({ price }: { price: OrderPriceBreakdown }) {
           )
         }
       />
-      <Line
-        label={t('orders.price.baseCost')}
-        value={money(financials.productCost, financials.costCurrency ?? proceedsCurrency)}
+      {/* `key` theo đơn: ô đang sửa không bao giờ "đi theo" sang đơn khác khi đổi trang / sắp xếp lại. */}
+      <BaseCostLine
+        key={`base-cost-${price.orderId}`}
+        orderId={price.orderId}
+        amount={financials.productCost}
+        currency={financials.costCurrency}
+        display={money(financials.productCost, financials.costCurrency ?? proceedsCurrency)}
         hint={baseCostHint}
       />
       <Line

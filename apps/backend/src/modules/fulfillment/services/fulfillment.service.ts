@@ -34,7 +34,9 @@ import {
   ProductMappingQueryDto,
   TiktokProductOptionDto,
   UpdateFulfillmentAccountDto,
+  MANUAL_BASE_COST_MAX,
   UpdateManualBaseCostDto,
+  UpdateOrderBaseCostDto,
   UpsertProductMappingDto,
 } from '../dto/fulfillment.dto';
 import {
@@ -72,7 +74,11 @@ import {
   NON_BLOCKING_FULFILLMENT_STATUSES,
   SUBMITTABLE_FULFILLMENT_STATUSES,
 } from '../shared/fulfillment-lifecycle';
-import { currencyFractionDigits, exceedsFractionDigits } from '../shared/manual-base-cost';
+import {
+  currencyFractionDigits,
+  exceedsFractionDigits,
+  resolveOrderLevelBaseCost,
+} from '../shared/manual-base-cost';
 import { productCostOf } from '../shared/product-cost';
 
 
@@ -825,6 +831,35 @@ export class FulfillmentService {
 
     const fresh = await this.repo.findCurrentByPodOrder(organizationId, podOrderId);
     return this.toOrderDto(fresh ?? record);
+  }
+
+  /**
+   * **Base Cost cấp ĐƠN** — sửa tại chỗ ở cột Giá của màn hình Orders (quyền `fulfillment.basecost.update`).
+   *
+   * Một con số cho cả đơn ⇒ chỉ đơn có ĐÚNG MỘT dòng hàng, số lượng 1 (`resolveOrderLevelBaseCost` — cùng
+   * luật với Import Excel). Ghi qua CHÍNH `updateBaseCostManually` ⇒ cùng kiểm tra, cùng transaction, cùng
+   * nhật ký `BASE_COST_MANUAL_UPDATED`. Giá không đổi (đã xác nhận) ⇒ không ghi gì, trả bản ghi hiện tại.
+   */
+  async updateOrderBaseCost(
+    organizationId: string,
+    actorUserId: string,
+    podOrderId: string,
+    dto: UpdateOrderBaseCostDto,
+    scope: PodAccessScope,
+  ): Promise<FulfillmentOrderDto> {
+    await this.assertPodOrderInScope(organizationId, podOrderId, scope);
+    const record = await this.repo.findCurrentByPodOrder(organizationId, podOrderId);
+    if (!record) throw new FulfillmentOrderNotFoundException();
+    const verdict = resolveOrderLevelBaseCost(record, dto.baseCost, MANUAL_BASE_COST_MAX);
+    if (!verdict.ok) throw new FulfillmentManualBaseCostInvalidException(verdict.reason, verdict.message);
+    if (verdict.unchanged) return this.toOrderDto(record);
+    return this.updateBaseCostManually(
+      organizationId,
+      actorUserId,
+      podOrderId,
+      { items: [{ itemId: verdict.itemId, baseCost: dto.baseCost }], reason: dto.reason },
+      scope,
+    );
   }
 
   async assertPodOrderInScope(

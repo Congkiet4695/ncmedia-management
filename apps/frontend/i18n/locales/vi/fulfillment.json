@@ -462,5 +462,41 @@
       "CURRENCY_REQUIRED": "Chọn đơn vị tiền.",
       "CURRENCY_INVALID": "Mã tiền tệ không hợp lệ (VD: USD)."
     }
+  },
+  "baseCostImport": {
+    "action": "Import Basecost",
+    "title": "Import Basecost từ Excel",
+    "description": "Cập nhật Base cost cho nhiều đơn đã fulfill cùng lúc (tối đa {{max}} dòng mỗi file).",
+    "formatTitle": "Định dạng file (.xlsx, sheet đầu tiên, header ở dòng 1)",
+    "formatColumns": "Cột: OrderID (TikTok Order ID, định dạng Text) · Basecost (vd 12.50). Không phụ thuộc thứ tự cột; cột khác bị bỏ qua.",
+    "formatRules": "Chỉ đơn đã fulfill có một dòng hàng. Basecost ≥ 0, dấu chấm thập phân, để trống không phải là 0. Mỗi OrderID chỉ xuất hiện một lần.",
+    "formatAtomic": "Kiểm tra toàn bộ file trước. Chỉ cần một dòng lỗi thì không đơn nào được cập nhật.",
+    "choose": "Chọn file Excel",
+    "chooseAnother": "Chọn file khác",
+    "onlyXlsx": "Chỉ chấp nhận file .xlsx",
+    "tooLarge": "File lớn hơn {{mb}}MB",
+    "ignoredHeaders": "Cột bị bỏ qua: {{headers}}",
+    "errorsTitle": "Lỗi theo dòng",
+    "changesTitle": "Xem trước",
+    "unchanged": "Không đổi",
+    "stat": {
+      "total": "Dòng dữ liệu",
+      "valid": "Hợp lệ",
+      "invalid": "Không hợp lệ",
+      "notFound": "Không tìm thấy / ngoài phạm vi",
+      "duplicate": "OrderID trùng",
+      "unchanged": "Không đổi",
+      "updated": "Đã cập nhật"
+    },
+    "col": {
+      "row": "Dòng",
+      "reason": "Lý do",
+      "before": "Hiện tại",
+      "after": "Mới"
+    },
+    "ready": "File hợp lệ — {{count}} đơn sẽ được cập nhật sau khi bạn xác nhận.",
+    "rejected": "{{count}} dòng lỗi — chưa cập nhật đơn nào. Sửa file rồi chọn lại.",
+    "applied": "Đã cập nhật Base cost cho {{count}} đơn.",
+    "confirm": "Xác nhận import ({{count}})"
   }
 }

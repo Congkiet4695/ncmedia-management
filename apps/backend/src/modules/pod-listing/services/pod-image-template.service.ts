@@ -219,6 +219,15 @@ export class PodImageTemplateService {
         message: `Bộ ảnh đang được ${used} Listing Template sử dụng — gỡ khỏi Listing Template trước khi xoá.`,
       });
     }
+    const usedByGroups = await this.prisma.podGroupTemplate.count({
+      where: { imageTemplateId: id, organizationId, deletedAt: null },
+    });
+    if (usedByGroups > 0) {
+      throw new BadRequestException({
+        code: 'POD_TEMPLATE_IN_USE',
+        message: `Bộ ảnh đang được ${usedByGroups} Group Template sử dụng — gỡ khỏi Group Template trước khi xoá.`,
+      });
+    }
 
     // Xoá mềm bộ ảnh; ảnh trên R2 giữ nguyên để còn khôi phục được.
     await this.prisma.podImageTemplate.update({

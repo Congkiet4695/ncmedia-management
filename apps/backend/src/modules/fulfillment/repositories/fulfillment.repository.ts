@@ -710,6 +710,74 @@ export class FulfillmentRepository {
     ]);
   }
 
+  /**
+   * Bản ghi HIỆN HÀNH của nhiều đơn trong MỘT truy vấn — cùng luật chọn với `findCurrentByPodOrder`
+   * (ưu tiên bản ghi đang giữ đơn, rồi bản mới nhất). Dùng cho Import Base Cost (không truy vấn từng dòng).
+   */
+  async findCurrentByPodOrders(
+    organizationId: string,
+    podOrderIds: string[],
+  ): Promise<Map<string, FulfillmentOrderWithRelations>> {
+    const current = new Map<string, FulfillmentOrderWithRelations>();
+    if (podOrderIds.length === 0) return current;
+    const records = await this.prisma.fulfillmentOrder.findMany({
+      where: { organizationId, podOrderId: { in: podOrderIds }, deletedAt: null },
+      include: FULFILLMENT_ORDER_INCLUDE,
+      orderBy: { updatedAt: 'desc' },
+    });
+    for (const record of records) {
+      const chosen = current.get(record.podOrderId);
+      const blocking = !NON_BLOCKING_FULFILLMENT_STATUSES.includes(record.status);
+      if (!chosen || (blocking && NON_BLOCKING_FULFILLMENT_STATUSES.includes(chosen.status))) {
+        current.set(record.podOrderId, record);
+      }
+    }
+    return current;
+  }
+
+  /**
+   * Ghi Base Cost của NHIỀU đơn (Import Excel) — tất cả hoặc không gì cả.
+   *
+   * Một câu `UPDATE … FROM (VALUES …)` thay vì một lệnh mỗi dòng. Chỉ đụng `base_cost` và
+   * `base_cost_confirmed_at` (+ `updated_at`) của đúng dòng hàng chưa xoá, đúng tổ chức. Số dòng thực sự
+   * được ghi khác số dòng định ghi (lần fulfill vừa bị huỷ / gửi lại giữa lúc kiểm và lúc ghi) ⇒ ném
+   * `onStale()` ⇒ transaction rollback, không đơn nào bị ghi nửa chừng.
+   */
+  async applyManualItemCostsBatch(params: {
+    organizationId: string;
+    costs: Array<{ itemId: string; fulfillmentOrderId: string; baseCost: number }>;
+    histories: HistoryEntry[];
+    timeoutMs: number;
+    onStale: () => Error;
+  }): Promise<void> {
+    if (params.costs.length === 0) return;
+    const now = new Date();
+    await this.prisma.$transaction(
+      async (tx) => {
+        const values = Prisma.join(
+          params.costs.map(
+            (cost) =>
+              Prisma.sql`(${cost.itemId}::uuid, ${cost.fulfillmentOrderId}::uuid, ${new Prisma.Decimal(cost.baseCost)}::numeric)`,
+          ),
+        );
+        const updated = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+          UPDATE fulfillment_order_items AS i
+             SET base_cost = v.cost, base_cost_confirmed_at = ${now}, updated_at = ${now}
+            FROM (VALUES ${values}) AS v(id, fulfillment_order_id, cost)
+           WHERE i.id = v.id
+             AND i.fulfillment_order_id = v.fulfillment_order_id
+             AND i.organization_id = ${params.organizationId}::uuid
+             AND i.deleted_at IS NULL
+       RETURNING i.id`);
+        if (updated.length !== params.costs.length) throw params.onStale();
+        await tx.fulfillmentHistory.createMany({
+          data: params.histories.map((entry) => this.historyData(entry)),
+        });
+      },
+      { timeout: params.timeoutMs },
+    );
+  }
+
   /** Dòng hàng kèm id line item TikTok — Sellerwix ghép chi phí theo `line_items[].reference_id`. */
   listItemsWithLineRef(fulfillmentOrderId: string) {
     return this.prisma.fulfillmentOrderItem.findMany({

@@ -24,6 +24,8 @@ import type {
   PodListingJobQuery,
   PodListingLog,
   PodListingTemplate,
+  PodGroupTemplate,
+  PodGroupTemplateResolved,
   PodPricingStrategy,
   PodSkuImportResult,
   PodSkuTemplate,
@@ -139,6 +141,7 @@ export const podListingService = {
   imageTemplates: crud<PodImageTemplate>(`${TEMPLATES}/images`, 'IMAGE'),
   pricingStrategies: crud<PodPricingStrategy>(`${TEMPLATES}/pricing`, 'PRICING'),
   listingTemplates: crud<PodListingTemplate>(`${POD}/listing-templates`, 'LISTING'),
+  groupTemplates: groupTemplateApi(`${TEMPLATES}/groups`),
 
   // ------------------------- Bảng SKU (grid) ---------------------------
 
@@ -519,6 +522,30 @@ export const podListingService = {
     return res.data.data.files[0];
   },
 };
+
+/**
+ * Group Template — cùng bộ CRUD + Clone với các loại template khác, NHƯNG không có Export /
+ * Import (group chỉ là tham chiếu tới template con, gói JSON sang tổ chức khác sẽ trỏ vào
+ * id không tồn tại). Thêm `resolved`: 4 mảnh bản đầy đủ trong một request để áp vào listing.
+ */
+function groupTemplateApi(basePath: string) {
+  const base = crud<PodGroupTemplate>(basePath, 'LISTING');
+  return {
+    list: base.list,
+    get: base.get,
+    create: base.create,
+    update: base.update,
+    remove: base.remove,
+    clone: base.clone,
+
+    async resolved(id: string): Promise<PodGroupTemplateResolved> {
+      const res = await apiClient.get<ApiResponse<PodGroupTemplateResolved>>(
+        `${basePath}/${id}/resolved`,
+      );
+      return res.data.data;
+    },
+  };
+}
 
 /**
  * Bộ thao tác dùng chung cho MỌI loại template.

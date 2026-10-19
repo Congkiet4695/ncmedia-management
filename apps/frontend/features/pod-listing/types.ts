@@ -537,6 +537,72 @@ export interface PodListingTemplate {
 }
 
 // ---------------------------------------------------------------------------
+// Group Template — bộ 4 mảnh Category · SKU · Description · Image áp bằng một lần chọn
+// ---------------------------------------------------------------------------
+
+/** Bản danh sách / chi tiết: tham chiếu + tóm tắt từng mảnh (không kéo cả bảng SKU về). */
+export interface PodGroupTemplate {
+  id: string;
+  name: string;
+  categoryTemplateId: string | null;
+  skuTemplateId: string | null;
+  descriptionTemplateId: string | null;
+  imageTemplateId: string | null;
+  isActive: boolean;
+  displayOrder: number;
+  note: string | null;
+  createdAt: string;
+  updatedAt: string;
+  categoryTemplate: {
+    id: string;
+    name: string;
+    market: PodListingMarket;
+    tiktokCategoryId: string;
+    categoryName: string | null;
+    categoryPath: string | null;
+    isActive: boolean;
+    /** Không `null` = template đã bị xoá mềm — phải chọn lại trước khi lưu. */
+    deletedAt?: string | null;
+  } | null;
+  skuTemplate: {
+    id: string;
+    name: string;
+    currency: string | null;
+    isActive: boolean;
+    deletedAt?: string | null;
+    variants: Array<{ name: string }>;
+    _count: { items: number };
+  } | null;
+  descriptionTemplate: { id: string; name: string; isActive: boolean; deletedAt?: string | null } | null;
+  imageTemplate: {
+    id: string;
+    name: string;
+    isActive: boolean;
+    deletedAt?: string | null;
+    _count: { items: number };
+  } | null;
+  /** Số lượt đăng (chưa xoá) đang ghi nhận group này. */
+  _count?: { listingSessions: number };
+}
+
+/**
+ * `GET /pod/templates/groups/:id/resolved` — bản ĐẦY ĐỦ của từng mảnh, cùng hình dạng với
+ * `GET /pod/templates/{categories|skus|descriptions|images}/:id`, để áp group bằng đúng các
+ * hàm áp template lẻ đang có.
+ */
+export interface PodGroupTemplateResolved {
+  id: string;
+  name: string;
+  /** Thị trường của Category Template trong group (`null` = group không có Category). */
+  market: PodListingMarket | null;
+  updatedAt: string;
+  categoryTemplate: PodCategoryTemplate | null;
+  skuTemplate: PodSkuTemplate | null;
+  descriptionTemplate: PodDescriptionTemplate | null;
+  imageTemplate: PodImageTemplate | null;
+}
+
+// ---------------------------------------------------------------------------
 // Import / Export
 // ---------------------------------------------------------------------------
 

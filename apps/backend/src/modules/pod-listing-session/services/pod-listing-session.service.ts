@@ -73,6 +73,8 @@ export const SESSION_INCLUDE = {
     orderBy: { createdAt: 'asc' },
   },
   templates: { orderBy: { templateType: 'asc' } },
+  // `deletedAt` để màn hình nói được "group đã xoá" thay vì hiện một lựa chọn không còn tồn tại.
+  groupTemplate: { select: { id: true, name: true, deletedAt: true } },
 } satisfies Prisma.PodListingSessionInclude;
 
 export type SessionFull = Prisma.PodListingSessionGetPayload<{ include: typeof SESSION_INCLUDE }>;
@@ -244,6 +246,7 @@ export class PodListingSessionService {
     const shopIds = dto.shopIds ?? [];
     await this.assertShopsBelongToOrg(organizationId, shopIds, scope);
     const templates = await this.resolveTemplateRefs(organizationId, dto.market, dto.templates);
+    const group = await this.resolveGroupRef(organizationId, dto.templates?.groupTemplateId);
 
     const session = await this.prisma.podListingSession.create({
       data: {
@@ -253,6 +256,7 @@ export class PodListingSessionService {
         market: dto.market,
         source,
         note: dto.note ?? null,
+        ...group,
         createdBy: userId,
         shops: { create: shopIds.map((shopId) => ({ organizationId, shopId })) },
         templates: {
@@ -302,6 +306,10 @@ export class PodListingSessionService {
     const templates = dto.templates
       ? await this.resolveTemplateRefs(organizationId, market, dto.templates)
       : null;
+    // Group đi cùng bộ template: gửi `templates` là thay trọn bộ, kể cả group đã áp.
+    const group = dto.templates
+      ? await this.resolveGroupRef(organizationId, dto.templates.groupTemplateId, session)
+      : null;
 
     await this.prisma.$transaction(async (tx) => {
       await tx.podListingSession.update({
@@ -310,6 +318,7 @@ export class PodListingSessionService {
           ...(dto.name === undefined ? {} : { name: dto.name }),
           ...(dto.market === undefined ? {} : { market: dto.market }),
           ...(dto.note === undefined ? {} : { note: dto.note }),
+          ...(group ?? {}),
           // Cấu hình đổi ⇒ kết quả validate cũ hết giá trị. Giữ lại màu xanh của lần trước
           // là cách chắc chắn để một lượt thiếu dữ liệu vẫn bấm được Start Listing.
           status: PodListingSessionStatus.DRAFT,
@@ -864,6 +873,30 @@ export class PodListingSessionService {
     }
 
     return rows;
+  }
+
+  /**
+   * Group Template mà người dùng vừa áp — chỉ là NHÃN của lượt đăng (kèm ảnh chụp tên).
+   *
+   * Group phải thuộc cùng tổ chức và còn sống khi CHỌN. Riêng trường hợp gửi lại đúng group
+   * lượt đăng đang ghi nhận thì giữ nguyên không kiểm: group bị xoá sau khi áp không được làm
+   * hỏng việc lưu lại một lượt đăng chẳng đổi gì về group.
+   */
+  private async resolveGroupRef(
+    organizationId: string,
+    groupTemplateId: string | null | undefined,
+    current?: { groupTemplateId: string | null; groupTemplateName: string | null },
+  ): Promise<{ groupTemplateId: string | null; groupTemplateName: string | null }> {
+    if (!groupTemplateId) return { groupTemplateId: null, groupTemplateName: null };
+    if (current?.groupTemplateId === groupTemplateId) {
+      return { groupTemplateId, groupTemplateName: current.groupTemplateName };
+    }
+    const found = await this.prisma.podGroupTemplate.findFirst({
+      where: { id: groupTemplateId, organizationId, deletedAt: null },
+      select: { id: true, name: true },
+    });
+    if (!found) throw this.invalidTemplate('Group Template');
+    return { groupTemplateId: found.id, groupTemplateName: found.name };
   }
 
   private invalidTemplate(label: string): BadRequestException {

@@ -32,6 +32,8 @@ interface TemplatePageShellProps {
   error?: unknown;
   empty?: boolean;
   emptyMessage?: string;
+  /** Hành động hiện ngay trong empty state (vd nút tạo bản ghi đầu tiên). */
+  emptyAction?: ReactNode;
   onSearchChange?: (value: string) => void;
   searchPlaceholder?: string;
   /** Bộ lọc riêng của từng màn hình (vd Market của Category Template). */
@@ -41,6 +43,8 @@ interface TemplatePageShellProps {
   status?: {
     value: 'ALL' | 'ACTIVE' | 'DEFAULT';
     onChange: (value: 'ALL' | 'ACTIVE' | 'DEFAULT') => void;
+    /** `false` ⇒ ẩn lựa chọn "Mặc định" (loại template không có khái niệm mặc định, vd Group). */
+    withDefault?: boolean;
   };
   /** `meta` nguyên vẹn từ API (ADR-023). Bỏ trống ⇒ màn hình không phân trang. */
   meta?: PaginationMeta | null;
@@ -72,6 +76,7 @@ export function TemplatePageShell({
   filters,
   sort,
   status,
+  emptyAction,
   meta,
   onPageChange,
   onPageSizeChange,
@@ -136,7 +141,9 @@ export function TemplatePageShell({
                   options={[
                     { value: 'ALL', label: t('listing.filters.statusAll') },
                     { value: 'ACTIVE', label: t('listing.filters.statusActive') },
-                    { value: 'DEFAULT', label: t('listing.filters.statusDefault') },
+                    ...(status.withDefault === false
+                      ? []
+                      : [{ value: 'DEFAULT', label: t('listing.filters.statusDefault') }]),
                   ]}
                   className="w-[150px]"
                 />
@@ -179,9 +186,12 @@ export function TemplatePageShell({
               <Loader2 className="size-6 animate-spin text-muted-foreground" />
             </div>
           ) : empty ? (
-            <p className="py-14 text-center text-sm text-muted-foreground">
-              {emptyMessage ?? t('listing.common.empty')}
-            </p>
+            <div className="flex flex-col items-center gap-3 py-14">
+              <p className="text-center text-sm text-muted-foreground">
+                {emptyMessage ?? t('listing.common.empty')}
+              </p>
+              {emptyAction}
+            </div>
           ) : (
             <div className="overflow-x-auto">{children}</div>
           )}

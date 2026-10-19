@@ -85,6 +85,11 @@ export interface PodListingSession {
   platform: { id: string; code: string; name: string };
   shops: Array<{ shopId: string; shop: { id: string; name: string; region: string } }>;
   templates: PodSessionTemplateRow[];
+  /** Group Template áp lần gần nhất — chỉ là nhãn; dữ liệu thật nằm ở `templates` + phần nhập tay. */
+  groupTemplateId?: string | null;
+  /** Ảnh chụp tên group lúc áp (còn đọc được khi group bị đổi tên / xoá). */
+  groupTemplateName?: string | null;
+  groupTemplate?: { id: string; name: string; deletedAt: string | null } | null;
   counts: PodSessionCounts;
 }
 
@@ -173,6 +178,8 @@ export interface PodSessionTemplateSelection {
   descriptionTemplateId?: string | null;
   imageTemplateId?: string | null;
   pricingStrategyId?: string | null;
+  /** Group Template đã áp (nhãn hiển thị lại lựa chọn). */
+  groupTemplateId?: string | null;
 }
 
 export interface CreateSessionPayload {

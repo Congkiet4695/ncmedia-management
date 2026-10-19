@@ -5,7 +5,7 @@ import { usePathname } from 'next/navigation';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 
-/** Sáu tab của Template Engine — thứ tự đúng theo luồng dựng listing. */
+/** Các tab của Template Engine — thứ tự đúng theo luồng dựng listing. */
 const TABS = [
   { href: '/dashboard/pod/templates/categories', labelKey: 'listing.tabs.categories' },
   { href: '/dashboard/pod/templates/skus', labelKey: 'listing.tabs.skus' },
@@ -13,6 +13,8 @@ const TABS = [
   { href: '/dashboard/pod/templates/images', labelKey: 'listing.tabs.images' },
   { href: '/dashboard/pod/templates/pricing', labelKey: 'listing.tabs.pricing' },
   { href: '/dashboard/pod/templates/listings', labelKey: 'listing.tabs.listings' },
+  // Bộ 4 mảnh áp nhanh vào Auto Listing / Custom Listing — xem `group-template-apply.ts`.
+  { href: '/dashboard/pod/templates/groups', labelKey: 'listing.tabs.groups' },
 ] as const;
 
 /**

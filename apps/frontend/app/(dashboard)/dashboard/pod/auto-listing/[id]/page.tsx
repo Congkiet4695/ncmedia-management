@@ -569,6 +569,7 @@ function SessionConfigCard({
         descriptionTemplateId: pickTemplate(session, 'descriptionTemplateId'),
         imageTemplateId: pickTemplate(session, 'imageTemplateId'),
         pricingStrategyId: pickTemplate(session, 'pricingStrategyId'),
+        groupTemplateId: session.groupTemplateId ?? null,
       },
       note: session.note ?? '',
     }),
@@ -615,6 +616,12 @@ function SessionConfigCard({
                     .map((row) => `${row.templateType}: ${row.templateName ?? '—'}`)
                     .join(' · ')}
             </p>
+            {session.groupTemplateName && (
+              <p className="text-xs text-muted-foreground">
+                {t('listing.groupTemplates.sessionLabel', { name: session.groupTemplateName })}
+                {session.groupTemplate?.deletedAt ? ` ${t('listing.groupTemplates.deletedSuffix')}` : ''}
+              </p>
+            )}
           </div>
           <Button variant="outline" size="sm" onClick={onToggle}>
             {open ? t('common:action.close') : t('common:action.edit')}
@@ -626,6 +633,11 @@ function SessionConfigCard({
             <SessionConfigForm
               value={config}
               onChange={setConfig}
+              groupFallback={
+                session.groupTemplateId
+                  ? { name: session.groupTemplateName ?? null, deleted: Boolean(session.groupTemplate?.deletedAt) }
+                  : null
+              }
               disabled={!editable || update.isPending}
             />
             {editable && (

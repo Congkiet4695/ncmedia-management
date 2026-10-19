@@ -253,6 +253,28 @@ export class PodOrderRepository {
   // Truy vấn phục vụ API
   // -------------------------------------------------------------------------
 
+  /**
+   * Tra nhiều đơn theo TikTok Order ID trong MỘT query (Import Base Cost). Chỉ đơn chưa xoá của đúng tổ
+   * chức; `shopIds` ≠ `null` ⇒ thêm giới hạn shop của người dùng (Seller) — đơn ngoài phạm vi coi như
+   * không tồn tại.
+   */
+  findRefsByTiktokOrderIds(
+    organizationId: string,
+    tiktokOrderIds: string[],
+    shopIds: string[] | null,
+  ): Promise<Array<{ id: string; tiktokOrderId: string }>> {
+    if (tiktokOrderIds.length === 0) return Promise.resolve([]);
+    return this.prisma.podOrder.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        tiktokOrderId: { in: tiktokOrderIds },
+        ...(shopIds ? { shopId: { in: shopIds } } : {}),
+      },
+      select: { id: true, tiktokOrderId: true },
+    });
+  }
+
   findById(organizationId: string, id: string): Promise<PodOrderWithRelations | null> {
     return this.prisma.podOrder.findFirst({
       where: { id, organizationId, deletedAt: null },

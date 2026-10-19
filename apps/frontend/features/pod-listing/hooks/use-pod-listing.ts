@@ -25,12 +25,28 @@ const TEMPLATE_SERVICES = {
   images: podListingService.imageTemplates,
   pricing: podListingService.pricingStrategies,
   listings: podListingService.listingTemplates,
+  groups: podListingService.groupTemplates,
 } as const;
 
 export type PodTemplateKind = keyof typeof TEMPLATE_SERVICES;
 
+/**
+ * Loại template có Export / Import gói JSON. Group Template KHÔNG có: nó chỉ là tham chiếu tới
+ * template con, mang sang tổ chức khác là trỏ vào id không tồn tại.
+ */
+export type PodBundleTemplateKind = Exclude<PodTemplateKind, 'groups'>;
+
+const BUNDLE_SERVICES = {
+  categories: podListingService.categoryTemplates,
+  skus: podListingService.skuTemplates,
+  descriptions: podListingService.descriptionTemplates,
+  images: podListingService.imageTemplates,
+  pricing: podListingService.pricingStrategies,
+  listings: podListingService.listingTemplates,
+} as const satisfies Record<PodBundleTemplateKind, unknown>;
+
 /** Tên file khi tải gói Export. */
-const BUNDLE_FILENAME: Record<PodTemplateKind, string> = {
+const BUNDLE_FILENAME: Record<PodBundleTemplateKind, string> = {
   categories: 'category-templates.json',
   skus: 'sku-templates.json',
   descriptions: 'description-templates.json',
@@ -118,19 +134,29 @@ export function useClonePodTemplate<T = unknown>(kind: PodTemplateKind) {
 }
 
 /** Export: tải gói JSON theo đúng bộ lọc đang xem trên màn hình. */
-export function useExportPodTemplates(kind: PodTemplateKind) {
+export function useExportPodTemplates(kind: PodBundleTemplateKind) {
   return useMutation({
     mutationFn: (query: PodTemplateQuery = {}) =>
-      TEMPLATE_SERVICES[kind].download(query, BUNDLE_FILENAME[kind]),
+      BUNDLE_SERVICES[kind].download(query, BUNDLE_FILENAME[kind]),
   });
 }
 
-export function useImportPodTemplates(kind: PodTemplateKind) {
+export function useImportPodTemplates(kind: PodBundleTemplateKind) {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (bundle: PodTemplateBundle) => TEMPLATE_SERVICES[kind].importBundle(bundle),
+    mutationFn: (bundle: PodTemplateBundle) => BUNDLE_SERVICES[kind].importBundle(bundle),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [KEY] }),
   });
+}
+
+/**
+ * Khoá cache bản "resolved" của một Group Template (4 mảnh bản đầy đủ).
+ *
+ * Nơi áp group gọi `queryClient.fetchQuery({ queryKey, queryFn, staleTime: 0 })`: áp là phải
+ * lấy bản MỚI NHẤT của template con, không dùng bản đã nằm trong cache từ lần áp trước.
+ */
+export function podGroupTemplateResolvedKey(id: string) {
+  return [KEY, 'groups', 'resolved', id] as const;
 }
 
 // ---------------------------------------------------------------------------

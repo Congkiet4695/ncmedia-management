@@ -183,6 +183,49 @@ export interface UpdateBaseCostPayload {
   reason?: string;
 }
 
+/** Base Cost của CẢ đơn — sửa tại chỗ ở cột Giá (chỉ đơn một dòng hàng). */
+export interface UpdateOrderBaseCostPayload {
+  baseCost: number;
+  reason?: string;
+}
+
+/** Lỗi một dòng của file Import Base Cost (`row` = số dòng Excel, header là 1). */
+export interface BaseCostImportError {
+  row: number;
+  orderId: string | null;
+  code: string;
+  message: string;
+}
+
+export interface BaseCostImportChange {
+  row: number;
+  orderId: string;
+  before: number | null;
+  after: number;
+  currency: string;
+  /** Giá đã đúng ⇒ không ghi lại. */
+  unchanged: boolean;
+}
+
+/**
+ * Kết quả Import Base Cost. READY = xem trước hợp lệ (chưa ghi) · REJECTED = có dòng lỗi, KHÔNG ghi đơn nào ·
+ * APPLIED = đã ghi.
+ */
+export interface BaseCostImportResult {
+  dryRun: boolean;
+  status: 'READY' | 'REJECTED' | 'APPLIED';
+  totalRows: number;
+  validRows: number;
+  invalidRows: number;
+  notFoundRows: number;
+  duplicateRows: number;
+  unchangedRows: number;
+  updatedOrders: number;
+  ignoredHeaders: string[];
+  errors: BaseCostImportError[];
+  changes: BaseCostImportChange[];
+}
+
 export interface FulfillmentOrder {
   id: string;
   podOrderId: string;

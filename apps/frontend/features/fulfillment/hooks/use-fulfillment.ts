@@ -11,6 +11,7 @@ import {
 import type { PodDesignPlacement } from '@/features/pod-tiktok/order-types';
 import type {
   UpdateBaseCostPayload,
+  UpdateOrderBaseCostPayload,
   CatalogProductQuery,
   CreateFulfillmentProviderInput,
   FulfillPayload,
@@ -136,6 +137,32 @@ export function useUpdateBaseCost(podOrderId: string) {
       void queryClient.invalidateQueries({ queryKey: [KEY] });
       void queryClient.invalidateQueries({ queryKey: ['pod-tiktok-orders'] });
       void queryClient.invalidateQueries({ queryKey: ['pod-dashboard'] });
+    },
+  });
+}
+
+/** Số liệu phụ thuộc Base Cost: trạng thái fulfillment, danh sách đơn (cột Giá) và Dashboard / Seller Statistics. */
+function invalidateBaseCostDependents(queryClient: ReturnType<typeof useQueryClient>) {
+  void queryClient.invalidateQueries({ queryKey: [KEY] });
+  void queryClient.invalidateQueries({ queryKey: ['pod-tiktok-orders'] });
+  void queryClient.invalidateQueries({ queryKey: ['pod-dashboard'] });
+}
+
+export function useUpdateOrderBaseCost() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ podOrderId, ...payload }: UpdateOrderBaseCostPayload & { podOrderId: string }) =>
+      fulfillmentService.updateOrderBaseCost(podOrderId, payload),
+    onSuccess: () => invalidateBaseCostDependents(queryClient),
+  });
+}
+
+export function useImportBaseCost() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ file, dryRun }: { file: File; dryRun: boolean }) => fulfillmentService.importBaseCost(file, dryRun),
+    onSuccess: (result) => {
+      if (result.status === 'APPLIED' && result.updatedOrders > 0) invalidateBaseCostDependents(queryClient);
     },
   });
 }

@@ -67,6 +67,8 @@ export interface CustomListingTemplates {
   description: string;
   sku: string;
   image: string;
+  /** Group Template áp gần nhất (nhãn — nội dung đã chép vào các khu vực của form). */
+  group: string;
 }
 
 export interface CustomListingForm {
@@ -116,7 +118,7 @@ export function emptyCustomListingForm(): CustomListingForm {
     variations: [],
     skus: [],
     warehouseId: '',
-    templates: { category: '', description: '', sku: '', image: '' },
+    templates: { category: '', description: '', sku: '', image: '', group: '' },
   };
 }
 
@@ -144,6 +146,7 @@ export function restoreCustomListingForm(
     description: pickTemplate(session, 'descriptionTemplateId'),
     sku: pickTemplate(session, 'skuTemplateId'),
     image: pickTemplate(session, 'imageTemplateId'),
+    group: session.groupTemplateId ?? '',
   };
 
   if (!product) return form;
@@ -278,6 +281,7 @@ function buildTemplates(templates: CustomListingTemplates): PodSessionTemplateSe
     descriptionTemplateId: templates.description || null,
     skuTemplateId: templates.sku || null,
     imageTemplateId: templates.image || null,
+    groupTemplateId: templates.group || null,
   };
 }
 
@@ -325,7 +329,11 @@ export function buildManualData(
           brand: { tiktokBrandId: form.brand.id || null, name: form.brand.name || null },
           attributes: buildAttributes(form.attributeValues, attributes),
         }
-      : {}),
+      : form.brand.id
+        ? // 🔴 Xoá danh mục KHÔNG được làm mất brand cụ thể đang chọn (brand không thuộc phạm vi
+          // danh mục). "No brand" + chưa có danh mục thì vẫn bỏ trường như cũ để template quyết.
+          { brand: { tiktokBrandId: form.brand.id, name: form.brand.name || null } }
+        : {}),
     ...(form.pkg.weight.trim() ? { package: form.pkg } : {}),
     ...(form.video?.fileId ? { video: { fileId: form.video.fileId, fileName: form.video.fileName } } : {}),
     ...(form.skus.length > 0 || form.variations.length > 0

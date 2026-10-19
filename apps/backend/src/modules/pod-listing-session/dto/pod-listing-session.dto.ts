@@ -75,6 +75,16 @@ export class SessionTemplatesDto {
   @IsOptional()
   @IsUUID()
   pricingStrategyId?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    description:
+      'Group Template đã áp (chỉ để hiển thị lại lựa chọn — dữ liệu đăng là các template ở ' +
+      'trên + phần nhập tay). Group bị xoá sau đó KHÔNG làm hỏng lượt đăng.',
+  })
+  @IsOptional()
+  @IsUUID()
+  groupTemplateId?: string | null;
 }
 
 /** Tạo một Listing Session (bước "New Listing"). */

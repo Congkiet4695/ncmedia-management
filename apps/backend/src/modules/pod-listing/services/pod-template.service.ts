@@ -366,6 +366,7 @@ export class PodTemplateService {
   async removeCategoryTemplate(organizationId: string, userId: string, id: string): Promise<void> {
     await this.getCategoryTemplate(organizationId, id);
     await this.ensureNotUsedByListingTemplate(organizationId, { categoryTemplateId: id });
+    await this.ensureNotUsedByGroupTemplate(organizationId, { categoryTemplateId: id });
     await this.prisma.podCategoryTemplate.update({
       where: { id },
       data: { deletedAt: new Date(), isActive: false, updatedBy: userId },
@@ -832,6 +833,7 @@ export class PodTemplateService {
   async removeSkuTemplate(organizationId: string, userId: string, id: string): Promise<void> {
     await this.getSkuTemplate(organizationId, id);
     await this.ensureNotUsedByListingTemplate(organizationId, { skuTemplateId: id });
+    await this.ensureNotUsedByGroupTemplate(organizationId, { skuTemplateId: id });
     await this.prisma.podSkuTemplate.update({
       where: { id },
       data: { deletedAt: new Date(), isActive: false, updatedBy: userId },
@@ -972,6 +974,7 @@ export class PodTemplateService {
   ): Promise<void> {
     await this.getDescriptionTemplate(organizationId, id);
     await this.ensureNotUsedByListingTemplate(organizationId, { descriptionTemplateId: id });
+    await this.ensureNotUsedByGroupTemplate(organizationId, { descriptionTemplateId: id });
     await this.prisma.podDescriptionTemplate.update({
       where: { id },
       data: { deletedAt: new Date(), isActive: false, updatedBy: userId },
@@ -1666,6 +1669,25 @@ export class PodTemplateService {
       throw new BadRequestException({
         code: 'POD_TEMPLATE_IN_USE',
         message: `Template đang được ${used} Listing Template sử dụng — gỡ khỏi Listing Template trước khi xoá.`,
+      });
+    }
+  }
+
+  /**
+   * Chặn xoá template đang nằm trong một Group Template — xoá đi thì group áp ra thiếu mảnh
+   * mà người dùng không hề biết. Gỡ khỏi group (hoặc xoá group) trước.
+   */
+  private async ensureNotUsedByGroupTemplate(
+    organizationId: string,
+    where: Prisma.PodGroupTemplateWhereInput,
+  ): Promise<void> {
+    const used = await this.prisma.podGroupTemplate.count({
+      where: { ...where, organizationId, deletedAt: null },
+    });
+    if (used > 0) {
+      throw new BadRequestException({
+        code: 'POD_TEMPLATE_IN_USE',
+        message: `Template đang được ${used} Group Template sử dụng — gỡ khỏi Group Template trước khi xoá.`,
       });
     }
   }

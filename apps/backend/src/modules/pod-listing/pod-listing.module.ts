@@ -15,6 +15,7 @@ import { PodListingReviewJob } from './schedulers/pod-listing-review.job';
 import { PodListingPublisherService } from './services/pod-listing-publisher.service';
 import { PodListingValidatorService } from './services/pod-listing-validator.service';
 import { PodListingResolverService } from './services/pod-listing-resolver.service';
+import { PodGroupTemplateService } from './services/pod-group-template.service';
 import { PodImageTemplateService } from './services/pod-image-template.service';
 import { PodListingTemplateService } from './services/pod-listing-template.service';
 import { PodSkuExcelService } from './services/pod-sku-excel.service';
@@ -71,6 +72,7 @@ import { PodProductCloneHistoryService } from './services/pod-product-clone-hist
     PodTemplateScopeService,
     PodSkuExcelService,
     PodListingTemplateService,
+    PodGroupTemplateService,
     PodListingResolverService,
     PodListingPayloadService,
     PodWarehouseService,

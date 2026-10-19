@@ -4010,6 +4010,7 @@ model PodCategoryTemplate {
   attributes       PodCategoryTemplateAttribute[]
   listingTemplates PodListingTemplate[]
   sessionTemplates PodListingSessionTemplate[]
+  groupTemplates   PodGroupTemplate[]
 
   @@index([organizationId, market])
   @@index([organizationId, displayOrder])
@@ -4178,6 +4179,7 @@ model PodSkuTemplate {
   items            PodSkuTemplateItem[]
   listingTemplates PodListingTemplate[]
   sessionTemplates PodListingSessionTemplate[]
+  groupTemplates   PodGroupTemplate[]
 
   @@index([organizationId])
   @@index([organizationId, displayOrder])
@@ -4337,6 +4339,7 @@ model PodDescriptionTemplate {
   tokens           PodDescriptionTemplateToken[]
   listingTemplates PodListingTemplate[]
   sessionTemplates PodListingSessionTemplate[]
+  groupTemplates   PodGroupTemplate[]
 
   @@index([organizationId])
   @@index([organizationId, displayOrder])
@@ -4412,6 +4415,7 @@ model PodImageTemplate {
   listingTemplates PodListingTemplate[]
   listingJobs      PodListingJob[]
   sessionTemplates PodListingSessionTemplate[]
+  groupTemplates   PodGroupTemplate[]
 
   @@index([organizationId])
   @@index([organizationId, displayOrder])
@@ -4587,6 +4591,60 @@ model PodListingTemplate {
   @@index([organizationId, market])
   @@index([organizationId, displayOrder])
   @@map("pod_listing_templates")
+}
+
+// ---------------------------------------------------------------------------
+// PodGroupTemplate — BỘ 4 MẢNH (Category · SKU · Description · Image) đặt tên sẵn để áp
+// vào Auto Listing / Custom Listing bằng MỘT lần chọn.
+//
+// 🔴 Vì sao KHÔNG dùng lại `pod_listing_templates`: Listing Template là đơn vị của Bulk
+// Listing — bắt buộc có market, mang scope chọn sản phẩm, kho, brand, vận chuyển, Pricing,
+// và resolver quét bảng đó theo scope. Nhét Group vào cùng bảng thì mọi truy vấn của Bulk
+// Listing phải nhớ lọc thêm một cờ, quên một chỗ là group lọt vào lượt đăng tự động.
+//
+// Chỉ lưu THAM CHIẾU (FK thật, `Restrict`) tới 4 template con — không chép nội dung: áp
+// group lúc nào là lấy bản MỚI NHẤT của template con lúc đó. Listing đã lưu không bị ảnh
+// hưởng khi group đổi vì lượt đăng giữ id template con của riêng nó.
+//
+// Thị trường KHÔNG có cột riêng: nó là thị trường của Category Template đã chọn (một nguồn
+// sự thật, không thể lệch nhau).
+// ---------------------------------------------------------------------------
+
+model PodGroupTemplate {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  /// Duy nhất trong Organization (không phân biệt hoa thường, bỏ qua bản đã xoá) — index
+  /// từng phần `pod_group_templates_org_name_key` ở migration.
+  name           String @db.VarChar(255)
+
+  categoryTemplateId    String? @map("category_template_id") @db.Uuid
+  skuTemplateId         String? @map("sku_template_id") @db.Uuid
+  descriptionTemplateId String? @map("description_template_id") @db.Uuid
+  imageTemplateId       String? @map("image_template_id") @db.Uuid
+
+  isActive     Boolean @default(true) @map("is_active")
+  displayOrder Int     @default(0) @map("display_order")
+  note         String? @db.VarChar(500)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  categoryTemplate    PodCategoryTemplate?    @relation(fields: [categoryTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  skuTemplate         PodSkuTemplate?         @relation(fields: [skuTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  descriptionTemplate PodDescriptionTemplate? @relation(fields: [descriptionTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  imageTemplate       PodImageTemplate?       @relation(fields: [imageTemplateId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  listingSessions PodListingSession[]
+
+  @@index([organizationId, displayOrder])
+  @@index([categoryTemplateId])
+  @@index([skuTemplateId])
+  @@index([descriptionTemplateId])
+  @@index([imageTemplateId])
+  @@map("pod_group_templates")
 }
 
 // ---------------------------------------------------------------------------
@@ -4816,13 +4874,21 @@ model PodListingSession {
   /// Lỗi làm hỏng cả lượt (vd template bị xoá giữa chừng).
   lastError  String?   @map("last_error") @db.VarChar(2000)
 
+  /// Group Template người dùng áp lần gần nhất — CHỈ để hiển thị lại lựa chọn. Dữ liệu thật
+  /// của lượt đăng là các template con ở `pod_listing_session_templates` (+ phần nhập tay);
+  /// group bị sửa/xoá sau đó không làm lượt đăng đổi theo.
+  groupTemplateId   String? @map("group_template_id") @db.Uuid
+  /// Ảnh chụp tên group lúc áp — vẫn đọc được khi group bị đổi tên hoặc xoá.
+  groupTemplateName String? @map("group_template_name") @db.VarChar(255)
+
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
   deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
   createdBy String?   @map("created_by") @db.Uuid
   updatedBy String?   @map("updated_by") @db.Uuid
 
-  platform Platform @relation(fields: [platformId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  platform      Platform          @relation(fields: [platformId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  groupTemplate PodGroupTemplate? @relation(fields: [groupTemplateId], references: [id], onDelete: SetNull, onUpdate: Cascade)
 
   shops     PodListingSessionShop[]
   templates PodListingSessionTemplate[]
@@ -4832,6 +4898,7 @@ model PodListingSession {
   @@index([organizationId, status])
   @@index([organizationId, createdAt])
   @@index([organizationId, market])
+  @@index([groupTemplateId])
   @@map("pod_listing_sessions")
 }
 

@@ -1086,7 +1086,8 @@
       "descriptions": "Mô tả",
       "images": "Hình ảnh",
       "pricing": "Giá",
-      "listings": "Listing"
+      "listings": "Listing",
+      "groups": "Group Template"
     },
     "transfer": {
       "export": "Xuất",
@@ -1311,7 +1312,9 @@
       "publishLiveHint": "Đăng thẳng lên sàn (save_mode = LISTING) — không tạo Draft. Sản phẩm vào hàng chờ duyệt của TikTok.",
       "confirmPublishLive": "Publish LIVE sản phẩm này lên {{count}} shop TikTok ngay bây giờ (không qua Draft)?",
       "publishLiveStarted": "Đã gửi Publish Live: {{products}} sản phẩm × {{targets}} shop. Theo dõi kết quả từng shop ở màn hình lượt đăng.",
-      "publishLiveFailed": "Không gửi được Publish Live"
+      "publishLiveFailed": "Không gửi được Publish Live",
+      "resetCategory": "Xoá danh mục",
+      "confirmResetCategory": "Xoá danh mục, Category Template đang chọn và các thuộc tính của danh mục? Brand, kho, kiện hàng, bảng size và video được giữ nguyên."
     },
     "media": {
       "section": "Hình ảnh & Video",
@@ -1375,6 +1378,58 @@
       "confirmImages": "Áp bộ ảnh mẫu sẽ thay danh sách ảnh đang có. Tiếp tục?",
       "imagesSkipped": "Bỏ qua {{count}} ảnh trong bộ mẫu vì không còn file hợp lệ.",
       "categoryGone": "Danh mục {{id}} trong mẫu không còn trong cây danh mục TikTok — hãy chọn lại."
+    },
+    "groupTemplates": {
+      "title": "Group Template",
+      "subtitle": "Bộ Category + SKU + Description + Image đặt tên sẵn — chọn một lần ở Auto Listing / Custom Listing là điền đủ cả bốn.",
+      "create": "Tạo Group Template",
+      "edit": "Sửa Group Template",
+      "view": "Xem Group Template",
+      "empty": "Chưa có Group Template nào.",
+      "dialogHint": "Group chỉ lưu tham chiếu tới các template con — sửa nội dung thì sửa template con. Listing đã lưu không đổi theo group.",
+      "name": "Group Template Name",
+      "namePlaceholder": "VD: Tee Comfort Colors — US",
+      "nameRequired": "Vui lòng nhập tên Group Template.",
+      "nameTooLong": "Tên tối đa {{max}} ký tự.",
+      "noteTooLong": "Ghi chú tối đa {{max}} ký tự.",
+      "partRequired": "Chọn ít nhất một trong: Category, SKU, Description, Image.",
+      "categoryHint": "Category Template đã tạo ở Templates → Category (mang danh mục TikTok + thuộc tính của nó); quyết định thị trường của group.",
+      "skuHint": "SKU Template — giữ nguyên trục biến thể và bảng SKU (giá, tồn, ảnh) của template.",
+      "imageHint": "Image Template — giữ nguyên thứ tự ảnh của bộ.",
+      "none": "Không dùng",
+      "slot": {
+        "category": "Category",
+        "sku": "SKU",
+        "description": "Description",
+        "image": "Image"
+      },
+      "skuCount": "{{count}} SKU",
+      "imageCount": "{{count}} ảnh",
+      "hasDescription": "có mô tả",
+      "confirmDeleteUsed": "Xoá \"{{name}}\"? Group đang được {{count}} lượt đăng ghi nhận — các lượt đăng đó GIỮ NGUYÊN dữ liệu, chỉ hiện nhãn \"đã xoá\".",
+      "field": "Group Template",
+      "pick": "Chọn Group Template",
+      "search": "Tìm Group Template…",
+      "noMatch": "Không có Group Template phù hợp.",
+      "loadFailed": "Không tải được danh sách Group Template.",
+      "emptyPicker": "Chưa có Group Template nào.",
+      "goCreate": "Tạo trong Templates → Group Template",
+      "pickerHint": "Chọn group để điền Category, SKU, Description, Image. Sau đó vẫn sửa từng phần được.",
+      "deletedOption": "{{name}} (đã xoá)",
+      "deletedSuffix": "(đã xoá)",
+      "sessionLabel": "Group Template: {{name}}",
+      "confirmOverwrite": "Áp Group Template \"{{name}}\" sẽ THAY dữ liệu bạn đã nhập ở: {{slots}}. Tiếp tục?",
+      "applied": "Đã áp Group Template \"{{name}}\"",
+      "applyFailed": "Không áp được Group Template (có thể group đã bị xoá). Dữ liệu trên form giữ nguyên.",
+      "summarySet": "Đã điền: {{slots}}.",
+      "summaryCleared": "Đã dọn phần của group trước: {{slots}}.",
+      "summaryKept": "Giữ phần bạn tự nhập: {{slots}}.",
+      "marketChanged": "Thị trường đổi sang {{market}} theo Category của group.",
+      "nothingApplied": "Group \"{{name}}\" không điền thêm được khu vực nào — dữ liệu hiện tại được giữ nguyên.",
+      "draftHint": "Bản nháp đã lưu: đổi group chỉ điền các khu vực còn TRỐNG; dữ liệu đang có được giữ nguyên. Muốn thay một khu vực, dùng nút Áp dụng của khu vực đó.",
+      "categoryTemplateMarket": "Thị trường {{market}}",
+      "partDeleted": "đã xoá",
+      "partDeletedHint": "Template này đã bị xoá — chọn template khác hoặc bỏ chọn trước khi lưu."
     }
   },
   "orderDetail": {
@@ -1552,7 +1607,16 @@
       "designAmountEdit": "Sửa Design Amount",
       "designAmountSaved": "Đã lưu Design Amount",
       "designAmountFailed": "Lưu Design Amount thất bại",
-      "designAmountInvalid": "Design Amount phải là số ≥ 0, tối đa 2 chữ số thập phân"
+      "designAmountInvalid": "Design Amount phải là số ≥ 0, tối đa 2 chữ số thập phân",
+      "baseCostEdit": "Sửa Base cost",
+      "baseCostSaved": "Đã lưu Base cost — lợi nhuận đã được tính lại",
+      "baseCostFailed": "Không lưu được Base cost",
+      "baseCostInvalid": {
+        "REQUIRED": "Nhập Base cost (để trống không phải là 0)",
+        "INVALID": "Base cost phải là số không âm, dùng dấu chấm thập phân",
+        "OUT_OF_RANGE": "Base cost vượt giới hạn cho phép",
+        "TOO_MANY_DECIMALS": "{{currency}} không cho phép nhiều chữ số thập phân như vậy"
+      }
     },
     "fulfillment": {
       "notFulfilled": "Chưa gửi",

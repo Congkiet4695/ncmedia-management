@@ -1,16 +1,31 @@
 'use client';
 
+import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
+import { useApiError } from '@/hooks/use-api-error';
 import { Input } from '@/components/ui/input';
 import { shopOptionLabel } from '@/features/pod-tiktok/shop-label';
 import { Label } from '@/components/ui/label';
 import { Combobox, MultiCombobox } from '@/components/ui/combobox';
 import { usePodProductFilters } from '@/features/pod-product/hooks/use-pod-products';
-import { usePodTemplates } from '@/features/pod-listing/hooks/use-pod-listing';
+import {
+  GroupTemplateSelect,
+  groupApplySummary,
+  groupOverwriteConfirm,
+} from '@/features/pod-listing/components/group-template-select';
+import { applyGroupToSessionTemplates } from '@/features/pod-listing/group-template-apply';
+import {
+  podTemplateDetailKey,
+  usePodTemplates,
+} from '@/features/pod-listing/hooks/use-pod-listing';
+import { podListingService } from '@/features/pod-listing/services/pod-listing.service';
 import { POD_LISTING_MARKETS } from '@/features/pod-listing/types';
 import type {
   PodCategoryTemplate,
   PodDescriptionTemplate,
+  PodGroupTemplate,
   PodImageTemplate,
   PodListingMarket,
   PodPricingStrategy,
@@ -44,12 +59,18 @@ export function SessionConfigForm({
   value,
   onChange,
   disabled,
+  groupFallback,
 }: {
   value: SessionConfigValue;
   onChange: (value: SessionConfigValue) => void;
   disabled?: boolean;
+  /** Tên đã lưu của group đang ghi nhận (màn sửa) — hiện được cả khi group đã bị xoá. */
+  groupFallback?: { name: string | null; deleted: boolean } | null;
 }) {
   const { t } = useTranslation('pod');
+  const translateApiError = useApiError();
+  const queryClient = useQueryClient();
+  const [applyingGroup, setApplyingGroup] = useState(false);
 
   const shops = usePodProductFilters().data?.shops ?? [];
   const categoryTemplates = usePodTemplates<PodCategoryTemplate>('categories', {
@@ -71,7 +92,60 @@ export function SessionConfigForm({
     limit: 100,
   });
 
+  const groupTemplates = usePodTemplates<PodGroupTemplate>('groups', { activeOnly: true, limit: 100 });
+  const groups = groupTemplates.data?.items ?? [];
+
   const patch = (part: Partial<SessionConfigValue>): void => onChange({ ...value, ...part });
+
+  /**
+   * Chọn Group Template ⇒ điền ngay 4 ô Category / SKU / Description / Image theo quy tắc chung
+   * (`applyGroupToSessionTemplates`). Pricing, tên, shop, ghi chú KHÔNG bị đụng tới.
+   *
+   * 🔴 Đọc lại group từ server (`staleTime: 0`) thay vì dùng bản trong danh sách: group có thể
+   * vừa được sửa ở tab khác — áp là phải lấy cấu hình MỚI NHẤT. Group đã bị xoá ⇒ báo lỗi và
+   * KHÔNG đụng vào form.
+   */
+  const handleGroupChange = async (id: string): Promise<void> => {
+    if (!id) {
+      // Bỏ chọn chỉ gỡ nhãn — các template đã điền giữ nguyên.
+      patch({ templates: { ...value.templates, groupTemplateId: null } });
+      return;
+    }
+    setApplyingGroup(true);
+    let group: PodGroupTemplate;
+    try {
+      group = await queryClient.fetchQuery({
+        queryKey: podTemplateDetailKey('groups', id),
+        queryFn: () => podListingService.groupTemplates.get(id),
+        staleTime: 0,
+      });
+    } catch (error) {
+      toast.error(t('listing.groupTemplates.applyFailed'), { description: translateApiError(error) });
+      return;
+    } finally {
+      setApplyingGroup(false);
+    }
+
+    const previousGroup = groups.find((item) => item.id === value.templates.groupTemplateId) ?? null;
+    const result = applyGroupToSessionTemplates({
+      templates: value.templates,
+      market: value.market,
+      group,
+      previousGroup,
+    });
+    const confirmMessage = groupOverwriteConfirm(result.plan, group.name, t);
+    if (confirmMessage && !window.confirm(confirmMessage)) return;
+
+    patch({ templates: result.templates, ...(result.market ? { market: result.market } : {}) });
+    toast.success(t('listing.groupTemplates.applied', { name: group.name }), {
+      description: [
+        groupApplySummary(result.plan, t),
+        result.market ? t('listing.groupTemplates.marketChanged', { market: result.market }) : '',
+      ]
+        .filter(Boolean)
+        .join(' '),
+    });
+  };
   const setTemplate = (key: keyof PodSessionTemplateSelection, id: string): void =>
     patch({ templates: { ...value.templates, [key]: id || null } });
 
@@ -123,6 +197,19 @@ export function SessionConfigForm({
       </div>
 
       <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-3">
+        <div className="sm:col-span-3">
+          <GroupTemplateSelect
+            value={value.templates.groupTemplateId ?? ''}
+            groups={groups}
+            loading={groupTemplates.isLoading}
+            error={groupTemplates.isError}
+            applying={applyingGroup}
+            disabled={disabled}
+            fallbackName={groupFallback?.name}
+            fallbackDeleted={groupFallback?.deleted}
+            onChange={(id) => void handleGroupChange(id)}
+          />
+        </div>
         <TemplateSelect
           label={t('listing.sessions.categoryTemplate')}
           required

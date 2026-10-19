@@ -21,6 +21,7 @@ import {
   ApiAcceptedResponse,
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiBody,
   ApiConflictResponse,
   ApiConsumes,
   ApiForbiddenResponse,
@@ -72,7 +73,16 @@ import {
   UpsertProductMappingDto,
   VariantPriceDto,
   UpdateManualBaseCostDto,
+  UpdateOrderBaseCostDto,
+  BaseCostImportQueryDto,
+  BaseCostImportResultDto,
 } from '../dto/fulfillment.dto';
+import { createXlsxUploadOptions, requireXlsx } from '../../../common/excel/excel.http';
+import {
+  BASE_COST_IMPORT_MAX_BYTES,
+  BASE_COST_IMPORT_MAX_ROWS,
+} from '../constants/base-cost-import.constants';
+import { FulfillmentBaseCostImportService } from '../services/fulfillment-base-cost-import.service';
 import { FulfillmentCatalogQueryService } from '../services/fulfillment-catalog-query.service';
 import { FulfillmentCatalogSyncService } from '../services/fulfillment-catalog-sync.service';
 import { ProductMappingAutoService } from '../services/product-mapping-auto.service';
@@ -111,6 +121,7 @@ export class FulfillmentController {
     private readonly autoMap: ProductMappingAutoService,
     private readonly productDesigns: ProductDesignService,
     private readonly variantPrice: FulfillmentVariantPriceService,
+    private readonly baseCostImport: FulfillmentBaseCostImportService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -839,6 +850,64 @@ export class FulfillmentController {
     @Body() dto: UpdateManualBaseCostDto,
   ): Promise<FulfillmentOrderDto> {
     return this.service.updateBaseCostManually(user.organizationId, user.userId, podOrderId, dto, scope);
+  }
+
+  @Patch('orders/:podOrderId/order-base-cost')
+  @HttpCode(HttpStatus.OK)
+  // 🔴 Cùng quyền tài chính với nhập từng dòng — mặc định chỉ Admin.
+  @RequirePermissions('fulfillment.basecost.update')
+  @ApiOperation({
+    summary: 'Sửa Base Cost của CẢ đơn (sửa tại chỗ ở cột Giá)',
+    description:
+      'Một con số cho cả đơn — chỉ đơn ĐÃ fulfill có đúng MỘT dòng hàng (số lượng 1); đơn nhiều dòng ⇒ 400 ' +
+      'MULTI_ITEM, dùng PATCH orders/:podOrderId/base-cost. Chỉ ghi giá vốn dòng hàng (không đụng field nào ' +
+      'khác của đơn). Giá không đổi ⇒ không ghi. Lợi nhuận / Dashboard tính lại ở lần đọc kế.',
+  })
+  @ApiOkResponse({ type: FulfillmentOrderDto })
+  @ApiBadRequestResponse({
+    description:
+      'FULFILLMENT_BASE_COST_INVALID (details.reason: NOT_SUBMITTED · MULTI_ITEM · CURRENCY_REQUIRED · ' +
+      'TOO_MANY_DECIMALS · OUT_OF_RANGE) / lỗi validate',
+  })
+  @ApiNotFoundResponse({ description: 'FULFILLMENT_ORDER_NOT_FOUND' })
+  updateOrderBaseCost(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('podOrderId', ParseUUIDPipe) podOrderId: string,
+    @Body() dto: UpdateOrderBaseCostDto,
+  ): Promise<FulfillmentOrderDto> {
+    return this.service.updateOrderBaseCost(user.organizationId, user.userId, podOrderId, dto, scope);
+  }
+
+  @Post('base-cost/import')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('fulfillment.basecost.update')
+  @UseInterceptors(FileInterceptor('file', createXlsxUploadOptions(BASE_COST_IMPORT_MAX_BYTES)))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
+  @ApiOperation({
+    summary: 'Import Base Cost hàng loạt từ Excel (.xlsx: OrderID · Basecost)',
+    description:
+      'OrderID = TikTok Order ID. Kiểm TOÀN BỘ file trước khi ghi; một dòng lỗi ⇒ status REJECTED, không ghi ' +
+      'đơn nào (atomic). dryRun=true ⇒ chỉ xem trước. OrderID trùng trong file là lỗi. Luật mỗi dòng trùng sửa ' +
+      `tại chỗ. Tối đa ${BASE_COST_IMPORT_MAX_ROWS} dòng, ${BASE_COST_IMPORT_MAX_BYTES / 1024 / 1024}MB.`,
+  })
+  @ApiOkResponse({ type: BaseCostImportResultDto })
+  @ApiBadRequestResponse({ description: 'BASE_COST_IMPORT_INVALID (lỗi cả file) / IMPORT_FILE_MISSING / IMPORT_FORMAT_ERROR' })
+  @ApiConflictResponse({ description: 'BASE_COST_IMPORT_STALE — đơn đổi giữa lúc kiểm và ghi, đã rollback' })
+  importBaseCost(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Query() query: BaseCostImportQueryDto,
+    @UploadedFile() file: Express.Multer.File,
+  ): Promise<BaseCostImportResultDto> {
+    return this.baseCostImport.import(
+      user.organizationId,
+      user.userId,
+      requireXlsx(file),
+      scope,
+      query.dryRun ?? false,
+    );
   }
 
   @Post('orders/:podOrderId/cancel')

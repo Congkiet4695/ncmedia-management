@@ -386,3 +386,20 @@ export class FulfillmentManualBaseCostInvalidException extends BadRequestExcepti
     super({ code: 'FULFILLMENT_BASE_COST_INVALID', message, details: { reason } });
   }
 }
+
+/** Lỗi CẢ FILE Import Base Cost (rỗng, thiếu cột, quá số dòng…) — lỗi từng dòng nằm trong kết quả, không ném. */
+export class FulfillmentBaseCostImportInvalidException extends BadRequestException {
+  constructor(reason: string, message: string) {
+    super({ code: 'BASE_COST_IMPORT_INVALID', message, details: { reason } });
+  }
+}
+
+/** Đơn đổi lần fulfill giữa lúc kiểm và lúc ghi — đã rollback toàn bộ, import lại để kiểm trên dữ liệu mới. */
+export class FulfillmentBaseCostImportStaleException extends ConflictException {
+  constructor() {
+    super({
+      code: 'BASE_COST_IMPORT_STALE',
+      message: 'Một số đơn vừa thay đổi lần fulfill trong lúc import — chưa ghi đơn nào, hãy import lại file.',
+    });
+  }
+}

@@ -41,6 +41,8 @@
     "scripts/verify-custom-listing.ts",
     "scripts/verify-sku-sync.ts",
     "scripts/verify-dashboard.ts",
-    "scripts/verify-login-info-design-amount.ts"
+    "scripts/verify-login-info-design-amount.ts",
+    "scripts/verify-group-template.ts",
+    "scripts/verify-order-base-cost.ts"
   ]
 }

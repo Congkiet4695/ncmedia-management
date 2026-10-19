@@ -1086,7 +1086,8 @@
       "descriptions": "Description",
       "images": "Image",
       "pricing": "Pricing",
-      "listings": "Listing"
+      "listings": "Listing",
+      "groups": "Group Template"
     },
     "transfer": {
       "export": "Export",
@@ -1311,7 +1312,9 @@
       "publishLiveHint": "List directly on TikTok (save_mode = LISTING) — no draft. The product goes to TikTok review.",
       "confirmPublishLive": "Publish this product LIVE to {{count}} TikTok shop(s) now (skipping Draft)?",
       "publishLiveStarted": "Publish Live sent: {{products}} product(s) × {{targets}} shop(s). Track each shop on the listing run screen.",
-      "publishLiveFailed": "Could not send Publish Live"
+      "publishLiveFailed": "Could not send Publish Live",
+      "resetCategory": "Clear category",
+      "confirmResetCategory": "Clear the category, the selected Category Template and its attributes? Brand, warehouse, package, size chart and video are kept."
     },
     "media": {
       "section": "Images & Video",
@@ -1375,6 +1378,58 @@
       "confirmImages": "Applying will replace the current image list. Continue?",
       "imagesSkipped": "Skipped {{count}} images from the set — their files are no longer valid.",
       "categoryGone": "Category {{id}} from the template is no longer in the TikTok tree — pick another."
+    },
+    "groupTemplates": {
+      "title": "Group Template",
+      "subtitle": "A named Category + SKU + Description + Image set — pick it once in Auto Listing / Custom Listing to fill all four.",
+      "create": "Create Group Template",
+      "edit": "Edit Group Template",
+      "view": "View Group Template",
+      "empty": "No Group Templates yet.",
+      "dialogHint": "A group only references the underlying templates — edit those to change content. Saved listings do not change with the group.",
+      "name": "Group Template Name",
+      "namePlaceholder": "e.g. Tee Comfort Colors — US",
+      "nameRequired": "Please enter a Group Template name.",
+      "nameTooLong": "Name must be at most {{max}} characters.",
+      "noteTooLong": "Note must be at most {{max}} characters.",
+      "partRequired": "Pick at least one of: Category, SKU, Description, Image.",
+      "categoryHint": "A Category Template created under Templates → Category (carries its TikTok category + attributes); decides the group market.",
+      "skuHint": "SKU Template — keeps the template variant axes and SKU table (price, stock, images).",
+      "imageHint": "Image Template — keeps the image order of the set.",
+      "none": "Not used",
+      "slot": {
+        "category": "Category",
+        "sku": "SKU",
+        "description": "Description",
+        "image": "Image"
+      },
+      "skuCount": "SKUs: {{count}}",
+      "imageCount": "Images: {{count}}",
+      "hasDescription": "has description",
+      "confirmDeleteUsed": "Delete \"{{name}}\"? {{count}} listing session(s) recorded this group — they KEEP their data and just show a \"deleted\" label.",
+      "field": "Group Template",
+      "pick": "Select Group Template",
+      "search": "Search Group Templates…",
+      "noMatch": "No matching Group Template.",
+      "loadFailed": "Could not load Group Templates.",
+      "emptyPicker": "No Group Templates yet.",
+      "goCreate": "Create one in Templates → Group Template",
+      "pickerHint": "Pick a group to fill Category, SKU, Description and Image. You can still edit each part afterwards.",
+      "deletedOption": "{{name}} (deleted)",
+      "deletedSuffix": "(deleted)",
+      "sessionLabel": "Group Template: {{name}}",
+      "confirmOverwrite": "Applying Group Template \"{{name}}\" will REPLACE what you entered in: {{slots}}. Continue?",
+      "applied": "Applied Group Template \"{{name}}\"",
+      "applyFailed": "Could not apply the Group Template (it may have been deleted). The form is unchanged.",
+      "summarySet": "Filled: {{slots}}.",
+      "summaryCleared": "Cleared the previous group's parts: {{slots}}.",
+      "summaryKept": "Kept what you entered: {{slots}}.",
+      "marketChanged": "Market switched to {{market}} to match the group Category.",
+      "nothingApplied": "Group \"{{name}}\" had nothing to fill — the current data is kept.",
+      "draftHint": "Saved draft: changing the group only fills EMPTY sections; existing data is kept. To replace a section, use that section's Apply button.",
+      "categoryTemplateMarket": "Market {{market}}",
+      "partDeleted": "deleted",
+      "partDeletedHint": "This template has been deleted — choose another one or clear it before saving."
     }
   },
   "orderDetail": {
@@ -1552,7 +1607,16 @@
       "designAmountEdit": "Edit Design Amount",
       "designAmountSaved": "Design Amount saved",
       "designAmountFailed": "Failed to save Design Amount",
-      "designAmountInvalid": "Design Amount must be a number ≥ 0 with at most 2 decimals"
+      "designAmountInvalid": "Design Amount must be a number ≥ 0 with at most 2 decimals",
+      "baseCostEdit": "Edit base cost",
+      "baseCostSaved": "Base cost saved — profit recalculated",
+      "baseCostFailed": "Could not save base cost",
+      "baseCostInvalid": {
+        "REQUIRED": "Enter a base cost (empty is not 0)",
+        "INVALID": "Base cost must be a non-negative number with a dot as decimal separator",
+        "OUT_OF_RANGE": "Base cost is out of range",
+        "TOO_MANY_DECIMALS": "{{currency}} does not allow that many decimal places"
+      }
     },
     "fulfillment": {
       "notFulfilled": "Not Fulfilled",

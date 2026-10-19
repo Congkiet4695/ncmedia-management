@@ -42,6 +42,7 @@ import {
   ClonePodTemplateDto,
   CreateCategoryTemplateDto,
   CreateDescriptionTemplateDto,
+  CreateGroupTemplateDto,
   CreateImageTemplateDto,
   CreatePricingStrategyDto,
   CreateSkuTemplateDto,
@@ -50,6 +51,7 @@ import {
   PreviewDescriptionDto,
   UpdateCategoryTemplateDto,
   UpdateDescriptionTemplateDto,
+  UpdateGroupTemplateDto,
   SortImageItemsDto,
   UpdateImageItemDto,
   UpdateImageTemplateDto,
@@ -59,6 +61,7 @@ import {
   UpdateSkuTemplateDto,
 } from './dto/pod-template.dto';
 import { ImportTemplateBundleDto } from './dto/pod-template-transfer.dto';
+import { PodGroupTemplateService } from './services/pod-group-template.service';
 import { PodSkuExcelService } from './services/pod-sku-excel.service';
 import { PodImageTemplateService } from './services/pod-image-template.service';
 import { PodTemplateService } from './services/pod-template.service';
@@ -89,6 +92,7 @@ export class PodTemplateController {
     private readonly images: PodImageTemplateService,
     private readonly transfer: PodTemplateTransferService,
     private readonly skuExcel: PodSkuExcelService,
+    private readonly groups: PodGroupTemplateService,
   ) {}
 
   // ------------------------------- Metadata -------------------------------
@@ -763,5 +767,104 @@ export class PodTemplateController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.service.removePricingStrategy(user.organizationId, user.userId, id);
+  }
+
+  // ------------------------------ Group Template ------------------------------
+
+  @Get('groups')
+  @RequirePermissions('pod.template.read')
+  @ApiOperation({
+    summary: 'Danh sách Group Template',
+    description:
+      'Bộ 4 mảnh Category · SKU · Description · Image có tên, kèm tóm tắt từng mảnh ' +
+      '(đường dẫn danh mục, số SKU, số ảnh) và số lượt đăng đang ghi nhận group. ' +
+      '`market` lọc theo thị trường của Category Template trong group.',
+  })
+  listGroupTemplates(@CurrentUser() user: AuthenticatedUser, @Query() query: PodTemplateQueryDto) {
+    return this.groups.list(user.organizationId, query);
+  }
+
+  @Get('groups/:id')
+  @RequirePermissions('pod.template.read')
+  @ApiOperation({ summary: 'Chi tiết Group Template (tóm tắt từng mảnh)' })
+  getGroupTemplate(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.groups.get(user.organizationId, id);
+  }
+
+  @Get('groups/:id/resolved')
+  @RequirePermissions('pod.template.read')
+  @ApiOperation({
+    summary: 'Group Template + bản ĐẦY ĐỦ của 4 mảnh — dùng để áp vào listing',
+    description:
+      'Một request trả đủ dữ liệu để Auto Listing / Custom Listing áp group: mỗi mảnh có ' +
+      'đúng hình dạng của `GET /pod/templates/{categories|skus|descriptions|images}/:id`. ' +
+      'Luôn đọc bản MỚI NHẤT của template con.',
+  })
+  getResolvedGroupTemplate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.groups.getResolved(user.organizationId, id);
+  }
+
+  @Post('groups')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermissions('pod.template.write')
+  @ApiOperation({
+    summary: 'Tạo Group Template',
+    description:
+      'Tên bắt buộc, duy nhất trong tổ chức (không phân biệt hoa thường). Ít nhất một mảnh; ' +
+      'mỗi mảnh phải thuộc cùng tổ chức. Lỗi: POD_GROUP_TEMPLATE_EMPTY, ' +
+      'POD_GROUP_TEMPLATE_INVALID_REF, POD_GROUP_TEMPLATE_NAME_TAKEN (409).',
+  })
+  createGroupTemplate(@CurrentUser() user: AuthenticatedUser, @Body() dto: CreateGroupTemplateDto) {
+    return this.groups.create(user.organizationId, user.userId, dto);
+  }
+
+  @Post('groups/:id/clone')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermissions('pod.template.write')
+  @ApiOperation({
+    summary: 'Nhân bản Group Template',
+    description: 'Cùng 4 mảnh. Không đặt tên ⇒ "<tên> (copy)" (tự tăng số nếu đã có).',
+  })
+  cloneGroupTemplate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: ClonePodTemplateDto,
+  ) {
+    return this.groups.clone(user.organizationId, user.userId, id, dto?.name);
+  }
+
+  @Patch('groups/:id')
+  @RequirePermissions('pod.template.write')
+  @ApiOperation({
+    summary: 'Cập nhật Group Template',
+    description:
+      'Mảnh không gửi = giữ nguyên, gửi `null` = gỡ ra. Listing đã lưu KHÔNG đổi theo — ' +
+      'chỉ lần áp group tiếp theo mới lấy cấu hình mới.',
+  })
+  updateGroupTemplate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateGroupTemplateDto,
+  ) {
+    return this.groups.update(user.organizationId, user.userId, id, dto);
+  }
+
+  @Delete('groups/:id')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('pod.template.write')
+  @ApiOperation({
+    summary: 'Xoá (mềm) Group Template',
+    description:
+      'Lượt đăng đã áp group vẫn giữ nguyên dữ liệu và ảnh chụp tên group. Trả về số lượt ' +
+      'đăng đang ghi nhận group (`referencedSessions`).',
+  })
+  removeGroupTemplate(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+  ) {
+    return this.groups.remove(user.organizationId, user.userId, id);
   }
 }

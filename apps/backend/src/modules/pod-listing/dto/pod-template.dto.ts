@@ -1080,6 +1080,71 @@ export class UpdateListingTemplateDto extends CreateListingTemplateDto {
   isActive?: boolean;
 }
 
+// ---------------------------------------------------------------------------
+// Group Template
+// ---------------------------------------------------------------------------
+
+/**
+ * Tạo Group Template — tên + tham chiếu tới tối đa 4 template con.
+ *
+ * Mỗi mảnh tuỳ chọn nhưng phải có ÍT NHẤT MỘT (service kiểm, CHECK ở DB chặn lần nữa).
+ * `null` = không dùng mảnh đó.
+ */
+export class CreateGroupTemplateDto {
+  @ApiProperty({ example: 'Tee Comfort Colors — US', maxLength: 255 })
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(255)
+  name!: string;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Category Template (quyết định thị trường của group)' })
+  @IsOptional()
+  @IsUUID()
+  categoryTemplateId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'SKU Template — trục biến thể + bảng SKU' })
+  @IsOptional()
+  @IsUUID()
+  skuTemplateId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Description Template' })
+  @IsOptional()
+  @IsUUID()
+  descriptionTemplateId?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, description: 'Image Template — bộ ảnh theo thứ tự' })
+  @IsOptional()
+  @IsUUID()
+  imageTemplateId?: string | null;
+
+  @ApiPropertyOptional({ default: 0 })
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  @Min(0)
+  displayOrder?: number;
+
+  @ApiPropertyOptional({ maxLength: 500 })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(500)
+  note?: string | null;
+}
+
+/**
+ * Sửa Group Template. Trường KHÔNG gửi = giữ nguyên; mảnh gửi `null` = gỡ mảnh đó ra
+ * (form luôn gửi đủ 4 mảnh nên không có chuyện "quên gửi là mất").
+ */
+export class UpdateGroupTemplateDto extends CreateGroupTemplateDto {
+  @ApiPropertyOptional()
+  @IsOptional()
+  @Transform(toBool)
+  @IsBoolean()
+  isActive?: boolean;
+}
+
 /** Danh sách sản phẩm mà một Listing Template đang bao phủ. */
 export class ListingTemplateProductQueryDto {
   @ApiPropertyOptional({ default: 1 })

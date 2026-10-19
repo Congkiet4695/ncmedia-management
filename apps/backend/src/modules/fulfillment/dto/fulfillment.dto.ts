@@ -1483,3 +1483,80 @@ export class UpdateManualBaseCostDto {
   @MaxLength(500)
   reason?: string;
 }
+
+/** Base Cost cấp ĐƠN — sửa tại chỗ ở cột Giá (chỉ đơn một dòng hàng, số lượng 1). */
+export class UpdateOrderBaseCostDto {
+  @ApiProperty({
+    example: 9.12,
+    description:
+      'Giá vốn của CẢ đơn (≥ 0, 0 là giá trị hợp lệ — khác "chưa có giá"). Số lẻ theo đơn vị tiền của bản ghi ' +
+      'fulfillment (USD: 2 chữ số) — server kiểm lại.',
+  })
+  @IsNumber({ allowNaN: false, allowInfinity: false, maxDecimalPlaces: 4 })
+  @Min(0)
+  @Max(MANUAL_BASE_COST_MAX)
+  baseCost!: number;
+
+  @ApiPropertyOptional({ maxLength: 500, description: 'Lý do / nguồn số liệu — lưu vào nhật ký.' })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(500)
+  reason?: string;
+}
+
+export class BaseCostImportQueryDto {
+  @ApiPropertyOptional({
+    default: false,
+    description: '`true` = chỉ kiểm tra file và trả bản xem trước, KHÔNG ghi gì. `false` = kiểm lại toàn bộ rồi ghi.',
+  })
+  @IsOptional()
+  // 🔴 Đọc giá trị GỐC (`obj`): `enableImplicitConversion` đã đổi chuỗi "false" thành `true` (Boolean("false"))
+  // trước khi `value` tới đây — dùng `value` thì `?dryRun=false` vẫn chỉ xem trước.
+  @Transform(({ obj }: { obj: Record<string, unknown> }) => toBool({ value: obj.dryRun }))
+  @IsBoolean()
+  dryRun?: boolean;
+}
+
+export class BaseCostImportErrorDto {
+  @ApiProperty({ description: 'Số dòng Excel (header là dòng 1)' }) row!: number;
+  @ApiProperty({ nullable: true, type: String }) orderId!: string | null;
+  @ApiProperty({
+    description:
+      'ORDER_ID_REQUIRED · ORDER_ID_INVALID · ORDER_ID_PRECISION_LOST · DUPLICATE_ORDER_ID · BASE_COST_REQUIRED · ' +
+      'BASE_COST_INVALID · ORDER_NOT_FOUND · NOT_FULFILLED · NOT_SUBMITTED · MULTI_ITEM · CURRENCY_REQUIRED · ' +
+      'CURRENCY_INVALID · TOO_MANY_DECIMALS · OUT_OF_RANGE',
+  })
+  code!: string;
+  @ApiProperty() message!: string;
+}
+
+export class BaseCostImportChangeDto {
+  @ApiProperty() row!: number;
+  @ApiProperty() orderId!: string;
+  @ApiProperty({ nullable: true, type: Number }) before!: number | null;
+  @ApiProperty() after!: number;
+  @ApiProperty() currency!: string;
+  @ApiProperty({ description: 'Giá đã đúng bằng giá trị trong file và đã xác nhận ⇒ không ghi lại' })
+  unchanged!: boolean;
+}
+
+export class BaseCostImportResultDto {
+  @ApiProperty() dryRun!: boolean;
+  @ApiProperty({
+    enum: ['READY', 'REJECTED', 'APPLIED'],
+    description:
+      'READY = file hợp lệ (bản xem trước, chưa ghi) · REJECTED = có dòng lỗi, KHÔNG ghi dòng nào · APPLIED = đã ghi',
+  })
+  status!: 'READY' | 'REJECTED' | 'APPLIED';
+  @ApiProperty({ description: 'Số dòng dữ liệu (bỏ dòng trống hoàn toàn)' }) totalRows!: number;
+  @ApiProperty() validRows!: number;
+  @ApiProperty() invalidRows!: number;
+  @ApiProperty({ description: 'Dòng có OrderID không tồn tại hoặc ngoài phạm vi quyền' }) notFoundRows!: number;
+  @ApiProperty() duplicateRows!: number;
+  @ApiProperty({ description: 'Dòng hợp lệ nhưng giá không đổi ⇒ không ghi' }) unchangedRows!: number;
+  @ApiProperty({ description: 'Số đơn ĐÃ được ghi giá (0 khi dryRun / REJECTED)' }) updatedOrders!: number;
+  @ApiProperty({ type: [String], description: 'Cột không thuộc mẫu — bị bỏ qua' }) ignoredHeaders!: string[];
+  @ApiProperty({ type: [BaseCostImportErrorDto] }) errors!: BaseCostImportErrorDto[];
+  @ApiProperty({ type: [BaseCostImportChangeDto] }) changes!: BaseCostImportChangeDto[];
+}

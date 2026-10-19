@@ -462,5 +462,41 @@
       "CURRENCY_REQUIRED": "Choose a currency.",
       "CURRENCY_INVALID": "Invalid currency code (e.g. USD)."
     }
+  },
+  "baseCostImport": {
+    "action": "Import Basecost",
+    "title": "Import Basecost from Excel",
+    "description": "Update the base cost of many fulfilled orders at once (max {{max}} rows per file).",
+    "formatTitle": "File format (.xlsx, first sheet, header on row 1)",
+    "formatColumns": "Columns: OrderID (TikTok Order ID, formatted as Text) · Basecost (e.g. 12.50). Column order does not matter; other columns are ignored.",
+    "formatRules": "Only fulfilled orders with a single line item. Basecost ≥ 0, dot decimal separator, empty is not 0. An OrderID may appear only once.",
+    "formatAtomic": "The whole file is checked first. If any row is invalid, no order is updated.",
+    "choose": "Choose Excel file",
+    "chooseAnother": "Choose another file",
+    "onlyXlsx": "Only .xlsx files are accepted",
+    "tooLarge": "File is larger than {{mb}}MB",
+    "ignoredHeaders": "Ignored columns: {{headers}}",
+    "errorsTitle": "Errors by row",
+    "changesTitle": "Preview",
+    "unchanged": "Unchanged",
+    "stat": {
+      "total": "Data rows",
+      "valid": "Valid",
+      "invalid": "Invalid",
+      "notFound": "Order not found / out of scope",
+      "duplicate": "Duplicate OrderID",
+      "unchanged": "Unchanged",
+      "updated": "Updated"
+    },
+    "col": {
+      "row": "Row",
+      "reason": "Reason",
+      "before": "Current",
+      "after": "New"
+    },
+    "ready": "File is valid — {{count}} order(s) will be updated after you confirm.",
+    "rejected": "{{count}} row(s) are invalid — nothing was updated. Fix the file and choose it again.",
+    "applied": "Updated base cost of {{count}} order(s).",
+    "confirm": "Confirm import ({{count}})"
   }
 }

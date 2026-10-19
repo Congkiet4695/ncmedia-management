@@ -74,7 +74,7 @@ function fullForm(): CustomListingForm {
     { sellerSku: 'POSTER-M', optionValues: [{ name: 'Size', value: 'M' }], salePrice: '12.99', retailPrice: '', quantity: 3 },
   ];
   form.warehouseId = 'wh-1';
-  form.templates = { category: '', description: 'dt-1', sku: '', image: 'it-1' };
+  form.templates = { category: '', description: 'dt-1', sku: '', image: 'it-1', group: '' };
   return form;
 }
 
@@ -229,6 +229,7 @@ console.log('Payload: form là nguồn sự thật, không tra ngược danh sá
     descriptionTemplateId: 'dt-1',
     skuTemplateId: null,
     imageTemplateId: 'it-1',
+    groupTemplateId: null,
   });
   check(
     'bảng size đi chung mảng ảnh với imageType SIZE_CHART, kèm fileId, sortOrder liên tục',

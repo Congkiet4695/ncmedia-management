@@ -4,6 +4,8 @@ import type { ApiResponse, Paginated } from '@/types/api';
 import type { PodDesign, PodDesignPlacement } from '@/features/pod-tiktok/order-types';
 import type {
   UpdateBaseCostPayload,
+  UpdateOrderBaseCostPayload,
+  BaseCostImportResult,
   CatalogSyncStarted,
   CreateFulfillmentProviderInput,
   FulfillPayload,
@@ -109,6 +111,30 @@ export const fulfillmentService = {
       `${BASE_PATH}/orders/${podOrderId}/base-cost`,
       payload,
     );
+    return res.data.data;
+  },
+
+  /** Admin sửa Base Cost của CẢ đơn tại cột Giá (đơn một dòng hàng — `fulfillment.basecost.update`). */
+  async updateOrderBaseCost(podOrderId: string, payload: UpdateOrderBaseCostPayload): Promise<FulfillmentOrder> {
+    const res = await apiClient.patch<ApiResponse<FulfillmentOrder>>(
+      `${BASE_PATH}/orders/${podOrderId}/order-base-cost`,
+      payload,
+    );
+    return res.data.data;
+  },
+
+  /**
+   * Import Base Cost từ Excel (`OrderID` · `Basecost`). `dryRun` = chỉ kiểm + xem trước; bước xác nhận gửi
+   * lại CÙNG file và server kiểm lại từ đầu. Có dòng lỗi ⇒ `REJECTED`, không ghi đơn nào.
+   */
+  async importBaseCost(file: File, dryRun: boolean): Promise<BaseCostImportResult> {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await apiClient.post<ApiResponse<BaseCostImportResult>>(`${BASE_PATH}/base-cost/import`, form, {
+      params: { dryRun },
+      headers: { 'Content-Type': undefined },
+      timeout: env.uploadTimeoutMs,
+    });
     return res.data.data;
   },
 

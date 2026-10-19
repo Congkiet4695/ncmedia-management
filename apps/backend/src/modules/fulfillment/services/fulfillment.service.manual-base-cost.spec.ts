@@ -228,3 +228,68 @@ describe('Cập nhật Base Cost thủ công — phân quyền', () => {
     expect(permissions).not.toContain('fulfillment.basecost.update');
   });
 });
+
+describe('FulfillmentService.updateOrderBaseCost (sửa tại chỗ ở cột Giá)', () => {
+  it('đơn một dòng ⇒ ghi qua đúng luồng nhập tay (cùng nhật ký), chỉ base cost của dòng đó', async () => {
+    const h = build();
+    await h.service.updateOrderBaseCost(ORG, ADMIN_ID, POD_ORDER, { baseCost: 0 }, ADMIN);
+    const call = h.repo.applyManualItemCosts.mock.calls[0][0] as unknown as {
+      costs: unknown;
+      history: { eventType: string; performedBy: string };
+    };
+    // 0 là giá hợp lệ — không bị coi là "chưa có giá".
+    expect(call.costs).toEqual([{ id: 'fi-1', baseCost: 0 }]);
+    expect(call.history).toMatchObject({ eventType: 'BASE_COST_MANUAL_UPDATED', performedBy: ADMIN_ID });
+  });
+
+  it('giá không đổi (đã xác nhận) ⇒ không ghi, không thêm nhật ký', async () => {
+    const h = build({
+      record: record({
+        items: [
+          {
+            id: 'fi-1',
+            providerSku: 'SKU',
+            quantity: 1,
+            baseCost: new Prisma.Decimal('9.12'),
+            baseCostConfirmedAt: new Date(),
+          },
+        ],
+      }),
+    });
+    await h.service.updateOrderBaseCost(ORG, ADMIN_ID, POD_ORDER, { baseCost: 9.12 }, ADMIN);
+    expect(h.repo.applyManualItemCosts).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    [
+      'nhiều dòng',
+      record({
+        items: [
+          { id: 'fi-1', providerSku: 'A', quantity: 1, baseCost: null, baseCostConfirmedAt: null },
+          { id: 'fi-2', providerSku: 'B', quantity: 1, baseCost: null, baseCostConfirmedAt: null },
+        ],
+      }),
+      9,
+      'MULTI_ITEM',
+    ],
+    ['chưa gửi', record({ status: FulfillmentStatus.DRAFT, submittedAt: null }), 9, 'NOT_SUBMITTED'],
+    ['quá số lẻ', record(), 9.125, 'TOO_MANY_DECIMALS'],
+  ])('từ chối %s ⇒ FULFILLMENT_BASE_COST_INVALID, không ghi', async (_label, rec, baseCost, reason) => {
+    const h = build({ record: rec });
+    const error = await h.service
+      .updateOrderBaseCost(ORG, ADMIN_ID, POD_ORDER, { baseCost }, ADMIN)
+      .catch((caught: unknown) => caught);
+    expect(error).toBeInstanceOf(FulfillmentManualBaseCostInvalidException);
+    expect((error as FulfillmentManualBaseCostInvalidException).getResponse()).toMatchObject({ details: { reason } });
+    expect(h.repo.applyManualItemCosts).not.toHaveBeenCalled();
+  });
+
+  it('🔴 đơn ngoài shop được gán ⇒ 403 trước khi đọc bản ghi', async () => {
+    const h = build({ shopOfOrder: 'shop-other' });
+    const seller: PodAccessScope = { allShops: false, accountIds: ['acc-1'], shopIds: ['shop-1'] };
+    await expect(
+      h.service.updateOrderBaseCost(ORG, 'seller-1', POD_ORDER, { baseCost: 1 }, seller),
+    ).rejects.toBeInstanceOf(PodShopForbiddenException);
+    expect(h.repo.findCurrentByPodOrder).not.toHaveBeenCalled();
+  });
+});

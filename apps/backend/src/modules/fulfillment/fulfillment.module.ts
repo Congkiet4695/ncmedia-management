@@ -29,6 +29,7 @@ import { FulfillmentShippingLabelService } from './services/fulfillment-shipping
 import { PlatformFulfillmentService } from './services/platform-fulfillment.service';
 import { ProductDesignService } from './services/product-design.service';
 import { FulfillmentSyncService } from './services/fulfillment-sync.service';
+import { FulfillmentBaseCostImportService } from './services/fulfillment-base-cost-import.service';
 import { FulfillmentService } from './services/fulfillment.service';
 import { FulfillmentProviderGateway } from './services/fulfillment-provider.gateway';
 import { FulfillmentNotificationService } from './services/fulfillment-notification.service';
@@ -76,6 +77,8 @@ import { SellerwixWebhookService } from './sellerwix/webhook/sellerwix-webhook.s
   providers: [
     // Nghiệp vụ chung
     FulfillmentService,
+    // Import Base Cost (Excel) — cùng luật với sửa Base Cost tại chỗ.
+    FulfillmentBaseCostImportService,
     FulfillmentReadinessService,
     // Nhãn vận chuyển TikTok — đường duy nhất tạo/lấy lại gói hàng của đơn.
     FulfillmentShippingLabelService,

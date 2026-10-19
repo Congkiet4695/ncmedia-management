@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import {
   Check,
   DownloadCloud,
+  FileSpreadsheet,
   History,
   Loader2,
   RefreshCw,
@@ -31,6 +32,7 @@ import { PodOrderTable } from '@/features/pod-tiktok/components/pod-order-table'
 import { UploadDesignDialog } from '@/features/pod-tiktok/components/upload-design-dialog';
 import { usePodOrderStatusLabel } from '@/features/pod-tiktok/components/pod-order-status-badge';
 import { LatestSyncStatusDialog } from '@/features/pod-tiktok/components/latest-sync-status-dialog';
+import { BaseCostImportDialog } from '@/features/fulfillment/components/base-cost-import-dialog';
 import {
   usePodOrderStats,
   usePodOrders,
@@ -71,6 +73,7 @@ function PodOrdersView() {
   const [searchInput, setSearchInput] = useState('');
   const debouncedSearch = useDebouncedValue(searchInput, 350);
   const [historyOpen, setHistoryOpen] = useState(false);
+  const [baseCostImportOpen, setBaseCostImportOpen] = useState(false);
   const [designItem, setDesignItem] = useState<PodOrderItem | null>(null);
   /**
    * Bộ ảnh đang xem — dùng CHUNG cho ảnh sản phẩm và ảnh design.
@@ -90,6 +93,8 @@ function PodOrdersView() {
   const canViewFulfillment = hasPermission('fulfillment.read');
   const canFulfill = hasPermission('fulfillment.create');
   const canCancelFulfillment = hasPermission('fulfillment.cancel');
+  // 🔴 Quyền tài chính RIÊNG (mặc định chỉ Admin) — backend chặn bằng đúng quyền này.
+  const canEditBaseCost = hasPermission('fulfillment.basecost.update');
   /**
    * Bộ lọc theo NHÂN VIÊN chỉ dành cho người xem được mọi shop.
    *
@@ -254,6 +259,12 @@ function PodOrdersView() {
             <History className="size-4" />
             {t('latestSync.action')}
           </Button>
+          {canEditBaseCost && (
+            <Button variant="outline" onClick={() => setBaseCostImportOpen(true)}>
+              <FileSpreadsheet className="size-4" />
+              {t('fulfillment:baseCostImport.action')}
+            </Button>
+          )}
           {canSync && (
             <>
               <Button
@@ -473,6 +484,10 @@ function PodOrdersView() {
         startIndex={lightbox?.index ?? 0}
         onClose={() => setLightbox(null)}
       />
+
+      {canEditBaseCost && (
+        <BaseCostImportDialog open={baseCostImportOpen} onClose={() => setBaseCostImportOpen(false)} />
+      )}
 
       <LatestSyncStatusDialog
         open={historyOpen}

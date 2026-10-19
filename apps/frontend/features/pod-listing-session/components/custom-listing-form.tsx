@@ -18,6 +18,13 @@ import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { cn } from '@/lib/utils';
 import { AttributeValuePicker } from '@/features/pod-listing/components/attribute-value-picker';
 import {
+  GroupTemplateSelect,
+  groupApplySummary,
+  groupOverwriteConfirm,
+} from '@/features/pod-listing/components/group-template-select';
+import type { SlotFingerprints } from '@/features/pod-listing/group-template-apply';
+import {
+  podGroupTemplateResolvedKey,
   podTemplateDetailKey,
   useCategoryAttributes,
   usePodTemplate,
@@ -48,16 +55,21 @@ import {
 import type {
   PodCategoryTemplate,
   PodDescriptionTemplate,
+  PodGroupTemplate,
+  PodGroupTemplateResolved,
   PodImageTemplate,
   PodSkuTemplate,
 } from '@/features/pod-listing/types';
 import type { ManualAttribute, ManualSku } from '../types';
+import { skuTemplateSeed } from '../template-apply';
 import {
-  applyCategoryTemplate,
-  applyImageTemplate,
-  applySkuTemplate,
-  skuTemplateSeed,
-} from '../template-apply';
+  applyGroupToCustomForm,
+  clearSlot,
+  withCategoryTemplate,
+  withDescriptionTemplate,
+  withImageTemplate,
+  withSkuTemplate,
+} from '../custom-listing-group';
 import {
   buildCustomListingPayload,
   buildUpdateCustomListingPayload,
@@ -147,6 +159,9 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
   const publishLive = usePublishLiveSession();
 
   const [form, setForm] = useState<FormState>(emptyCustomListingForm);
+  /** Bản form mới nhất cho các handler bất đồng bộ (áp group sau khi chờ tải xong). */
+  const formRef = useRef(form);
+  formRef.current = form;
   const patch = useCallback(
     (next: Partial<FormState>) => setForm((prev) => ({ ...prev, ...next })),
     [],
@@ -309,39 +324,25 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
   const handleApplyCategoryTemplate = (id: string) => {
     const template = categoryTemplates.data?.items.find((item) => item.id === id);
     if (!template) return;
-    const applied = applyCategoryTemplate(template);
-
-    setForm((prev) => ({
-      ...prev,
-      ...(applied.market ? { market: applied.market } : {}),
-      ...(applied.categoryTiktokId
-        ? {
-            category: {
-              id: applied.categoryTiktokId,
-              name: applied.categoryName ?? '',
-              path: applied.categoryPath ?? '',
-            },
-            attributeValues: applied.attributeValues ?? {},
-          }
-        : {}),
-      ...(applied.brandId !== undefined
-        ? { brand: { id: applied.brandId, name: template.brandName ?? '' } }
-        : {}),
-      ...(applied.warehouseId ? { warehouseId: applied.warehouseId } : {}),
-      ...(applied.package ? { pkg: { ...prev.pkg, ...applied.package } } : {}),
-      ...(applied.sizeChartFileId
-        ? { sizeChart: { imageUrl: '', fileId: applied.sizeChartFileId, imageType: 'SIZE_CHART' as const } }
-        : {}),
-      ...(applied.videoFileId ? { video: { fileId: applied.videoFileId } } : {}),
-    }));
+    setForm((prev) => withCategoryTemplate(prev, template));
     toast.success(t('listing.templatePicker.applied', { name: template.name }));
+  };
+
+  /**
+   * Xoá danh mục: CHỈ Category Template đang chọn + danh mục + thuộc tính của nó
+   * (`clearSlot('category')`). Brand, kho, kiện hàng, bảng size, video giữ nguyên — chúng không
+   * thuộc phạm vi danh mục. Không reset cả form.
+   */
+  const handleResetCategory = () => {
+    if (!window.confirm(t('listing.custom.confirmResetCategory'))) return;
+    setForm((prev) => clearSlot(prev, 'category'));
   };
 
   const handleApplyDescriptionTemplate = (id: string) => {
     const template = descriptionTemplates.data?.items.find((item) => item.id === id);
     if (!template) return;
     // Nạp HTML vào editor — giữ nguyên định dạng, người dùng sửa tiếp được.
-    patch({ description: template.contentHtml });
+    setForm((prev) => withDescriptionTemplate(prev, template));
     toast.success(t('listing.templatePicker.applied', { name: template.name }));
   };
 
@@ -365,13 +366,7 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
       toast.error(t('listing.templatePicker.loadFailed'), { description: translateApiError(error) });
       return;
     }
-    const applied = applySkuTemplate(template);
-    setForm((prev) => ({
-      ...prev,
-      templates: { ...prev.templates, sku: id },
-      variations: applied.variations,
-      skus: applied.skus,
-    }));
+    setForm((prev) => withSkuTemplate(prev, template));
     toast.success(t('listing.templatePicker.applied', { name: template.name ?? summary?.name ?? '' }));
   };
 
@@ -391,12 +386,79 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
   const handleApplyImageTemplate = (id: string) => {
     const template = imageTemplates.data?.items.find((item) => item.id === id);
     if (!template) return;
-    const applied = applyImageTemplate(template);
-    patch({ images: applied.images });
+    const applied = withImageTemplate(formRef.current, template);
+    setForm(applied.form);
     if (applied.skipped > 0) {
       toast.warning(t('listing.templatePicker.imagesSkipped', { count: applied.skipped }));
     }
     toast.success(t('listing.templatePicker.applied', { name: template.name }));
+  };
+
+  // --- Group Template: Category + SKU + Description + Image trong MỘT lần chọn ---
+  const groupTemplates = usePodTemplates<PodGroupTemplate>('groups', { activeOnly: true, limit: 100 });
+  const [applyingGroup, setApplyingGroup] = useState(false);
+  /**
+   * Dấu vân tay các khu vực mà group áp GẦN NHẤT đã điền (trong phiên làm việc này). Đổi sang
+   * group khác thì khu vực còn y nguyên dữ liệu của group cũ mới được dọn; khu vực người dùng
+   * đã sửa thì giữ. Mở lại nháp ⇒ chưa biết ⇒ `null` ⇒ không dọn gì (an toàn).
+   */
+  const groupApplied = useRef<Partial<SlotFingerprints> | null>(null);
+
+  /**
+   * Chọn Group Template ⇒ tải 4 mảnh bản đầy đủ trong MỘT request (`/groups/:id/resolved`,
+   * luôn bản mới nhất) rồi áp bằng đúng các hàm áp template lẻ (`applyGroupToCustomForm`).
+   * Sẽ đè dữ liệu nhập tay ⇒ hỏi trước; huỷ thì form không đổi gì. Group không tải được (đã
+   * xoá…) ⇒ báo lỗi, form giữ nguyên.
+   */
+  const handleGroupChange = async (id: string) => {
+    if (!id) {
+      // Bỏ chọn chỉ gỡ nhãn group — dữ liệu đã áp vẫn ở nguyên trong form.
+      setForm((prev) => ({ ...prev, templates: { ...prev.templates, group: '' } }));
+      groupApplied.current = null;
+      return;
+    }
+    setApplyingGroup(true);
+    let group: PodGroupTemplateResolved;
+    try {
+      group = await queryClient.fetchQuery({
+        queryKey: podGroupTemplateResolvedKey(id),
+        queryFn: () => podListingService.groupTemplates.resolved(id),
+        staleTime: 0,
+      });
+    } catch (error) {
+      toast.error(t('listing.groupTemplates.applyFailed'), { description: translateApiError(error) });
+      return;
+    } finally {
+      setApplyingGroup(false);
+    }
+
+    // Tính trên form MỚI NHẤT (người dùng có thể vừa gõ trong lúc chờ tải group).
+    // Mở lại từ nháp ⇒ dữ liệu đang có được GIỮ (group chỉ điền khu vực trống) — xem `keepManual`.
+    const result = applyGroupToCustomForm(formRef.current, group, groupApplied.current, {
+      keepManual: editing,
+    });
+    const confirmMessage = groupOverwriteConfirm(result.plan, group.name, t);
+    if (confirmMessage && !window.confirm(confirmMessage)) return;
+
+    // Bảng SKU đi kèm group đã là bản chi tiết — nạp sẵn vào cache để nguồn sinh dòng SKU mới
+    // (`skuTemplateDetail`) không phải hỏi lại server.
+    if (group.skuTemplate) {
+      queryClient.setQueryData(podTemplateDetailKey('skus', group.skuTemplate.id), group.skuTemplate);
+    }
+    if (!result.changed) {
+      toast.info(t('listing.groupTemplates.nothingApplied', { name: group.name }), {
+        description: groupApplySummary(result.plan, t),
+      });
+      return;
+    }
+    setForm(result.form);
+    groupApplied.current = { ...groupApplied.current, ...result.applied };
+    if (result.skippedImages > 0) {
+      toast.warning(t('listing.templatePicker.imagesSkipped', { count: result.skippedImages }));
+    }
+    toast.success(t('listing.groupTemplates.applied', { name: group.name }), {
+      description: groupApplySummary(result.plan, t),
+    });
   };
 
   const pendingSkuCount = useMemo(() => countCombinations(form.variations), [form.variations]);
@@ -640,6 +702,23 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
             />
           </div>
         </div>
+
+        {/* Group Template: điền Category · SKU · Description · Image bằng một lần chọn.
+            Đặt cạnh Market vì Category của group có thể đổi thị trường của listing. */}
+        <div className="mt-4 rounded-md border border-dashed p-3">
+          <GroupTemplateSelect
+            value={form.templates.group}
+            groups={groupTemplates.data?.items ?? []}
+            loading={groupTemplates.isLoading}
+            error={groupTemplates.isError}
+            applying={applyingGroup}
+            disabled={sessionLocked}
+            fallbackName={session.data?.groupTemplateName}
+            fallbackDeleted={Boolean(session.data?.groupTemplate?.deletedAt)}
+            hint={editing ? t('listing.groupTemplates.draftHint') : undefined}
+            onChange={(id) => void handleGroupChange(id)}
+          />
+        </div>
       </Section>
 
       {/* ---------- 2. Thông tin sản phẩm ---------- */}
@@ -767,10 +846,23 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
 
         <div className="grid gap-4 lg:grid-cols-2">
           <div className="space-y-1">
-            <Label>
-              {t('listing.categoryTemplates.category')}
-              <span className="ml-1 text-destructive">*</span>
-            </Label>
+            <div className="flex items-center justify-between gap-2">
+              <Label>
+                {t('listing.categoryTemplates.category')}
+                <span className="ml-1 text-destructive">*</span>
+              </Label>
+              {(form.category.id || form.templates.category) && (
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 px-2 text-xs"
+                  onClick={handleResetCategory}
+                >
+                  {t('listing.custom.resetCategory')}
+                </Button>
+              )}
+            </div>
             {/* Tìm kiếm phía SERVER — cây danh mục TikTok có ~9.900 nút lá, không tải hết.
                 Chọn xong là ghi cả mã + nhãn vào form; danh sách có dọn đi cũng không mất. */}
             <Combobox
