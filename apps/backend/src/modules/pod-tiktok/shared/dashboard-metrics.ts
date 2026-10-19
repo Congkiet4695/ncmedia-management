@@ -105,22 +105,26 @@ export interface SellerCurrentProfitInput {
   label: string | null;
   /** Σ phí ship Seller từng đơn (cột Shipping Fee). */
   shippingFee: string;
+  /** Σ Design Amount (cột Design Amount); `null` = khác đơn vị tiền đang xem (không quy đổi). */
+  designAmount: string | null;
 }
 
 /**
- * Current Profit của bảng Thống kê seller = Paid − Basecost − Label − Seller Shipping Fee
- * (công thức nguyên văn — quyết định PO 2026-10-14). KHÁC Profit Dự kiến (Σ lợi nhuận từng đơn).
+ * Current Profit của bảng Thống kê seller = Paid − Basecost − Label − Seller Shipping Fee − Design Amount
+ * (công thức nguyên văn — quyết định PO 2026-10-14, bổ sung Design Amount). KHÁC Profit Dự kiến.
+ * Quy tắc phí ship giữ NGUYÊN như PO đã chốt (trừ toàn bộ Shipping Fee) — chỉ thêm Design Amount, trừ MỘT lần.
  *
  * Tính trên tổng ĐÃ cộng (không làm tròn từng thành phần trước), bằng Decimal để không lệch số lẻ.
- * Label `null` ⇒ `null` ("—"), không coi là 0. Biểu thức `current_profit` (ORDER BY) trong
+ * Label / Design Amount `null` ⇒ `null` ("—"), không coi là 0. Biểu thức `current_profit` (ORDER BY) trong
  * `PodDashboardRepository.sellerStats` phải khớp hàm này.
  */
 export function sellerCurrentProfit(input: SellerCurrentProfitInput): string | null {
-  if (input.label === null) return null;
+  if (input.label === null || input.designAmount === null) return null;
   return new Prisma.Decimal(input.paid)
     .minus(input.baseCost)
     .minus(input.label)
     .minus(input.shippingFee)
+    .minus(input.designAmount)
     .toString();
 }
 
@@ -136,23 +140,27 @@ export interface SellerEstProfitInput {
   shippingFee: string;
   /** Phần của `shippingFee` ĐÃ nằm trong Doanh thu (TikTok đã trừ trong settlement / est_settlement). */
   shippingIncluded: string;
+  /** Σ Design Amount (cột Design Amount); `null` = khác đơn vị tiền đang xem (không quy đổi). */
+  designAmount: string | null;
 }
 
 /**
- * Profit Dự kiến (Est. profit) của bảng Thống kê seller = Revenue − Base cost − Shipping Fee − Label
- * (quyết định PO 2026-10-14), KHÔNG trừ hai lần phí ship: phần Shipping Fee mà TikTok ĐÃ trừ trong Doanh thu
- * (`shippingIncluded`) không bị trừ lại ⇒ thực tế trừ `shippingFee − shippingIncluded`.
+ * Profit Dự kiến (Est. profit) của bảng Thống kê seller = Revenue − Base cost − Shipping Fee − Label − Design Amount
+ * (quyết định PO 2026-10-14, bổ sung Design Amount), KHÔNG trừ hai lần phí ship: phần Shipping Fee mà TikTok ĐÃ trừ
+ * trong Doanh thu (`shippingIncluded`) không bị trừ lại ⇒ thực tế trừ `shippingFee − shippingIncluded`.
+ * Design Amount KHÔNG nằm trong Revenue (chi phí nhập tay) ⇒ trừ đúng MỘT lần.
  *
  * Tính trên các tổng của dòng (đúng các cột đang hiển thị), bằng Decimal, không làm tròn từng thành phần.
- * Label `null` ⇒ `null` ("—"). Biểu thức `profit` (ORDER BY) trong `PodDashboardRepository.sellerStats`
- * phải khớp hàm này.
+ * Label / Design Amount `null` ⇒ `null` ("—"). Biểu thức `profit` (ORDER BY) trong
+ * `PodDashboardRepository.sellerStats` phải khớp hàm này.
  */
 export function sellerEstProfit(input: SellerEstProfitInput): string | null {
-  if (input.label === null) return null;
+  if (input.label === null || input.designAmount === null) return null;
   const shippingNotInRevenue = new Prisma.Decimal(input.shippingFee).minus(input.shippingIncluded);
   return new Prisma.Decimal(input.revenue)
     .minus(input.baseCost)
     .minus(input.label)
     .minus(shippingNotInRevenue)
+    .minus(input.designAmount)
     .toString();
 }

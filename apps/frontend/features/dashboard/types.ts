@@ -91,6 +91,7 @@ export const SELLER_SORT_FIELDS = [
   'baseCost',
   'shippingFee',
   'label',
+  'designAmount',
   'profit',
   'currentProfit',
   'paid',
@@ -132,16 +133,24 @@ export interface DashboardSellerRow {
   fulfilledOrders: number;
   /** Σ label của đơn đã fulfill; `null` khi label khác đơn vị tiền đang xem. */
   label: number | null;
+  /**
+   * Σ Design Amount của các đơn của seller trong phạm vi (mỗi đơn một giá trị); `null` khi Design Amount (USD)
+   * khác đơn vị tiền đang xem.
+   */
+  designAmount: number | null;
   /** Phần của Shipping Fee ĐÃ nằm trong Doanh thu (TikTok đã trừ) — Profit Dự kiến không trừ lần hai. */
   shippingIncluded: number;
   /**
-   * Profit Dự kiến = Revenue − Basecost − Shipping Fee − Label, không trừ hai lần phần phí ship đã nằm trong
-   * Revenue (backend tính); `null` khi Label khác đơn vị tiền.
+   * Profit Dự kiến = Revenue − Basecost − Shipping Fee − Label − Design Amount, không trừ hai lần phần phí ship đã
+   * nằm trong Revenue (backend tính); `null` khi Label / Design Amount khác đơn vị tiền.
    */
   profit: number | null;
   /** Số đơn tính được lợi nhuận từng đơn đủ dữ kiện (công thức màn Order) — tham khảo. */
   profitOrders: number;
-  /** Current Profit = Paid − Basecost − Label − Shipping Fee (backend tính); `null` khi Label khác đơn vị tiền. */
+  /**
+   * Current Profit = Paid − Basecost − Label − Shipping Fee − Design Amount (backend tính); `null` khi Label /
+   * Design Amount khác đơn vị tiền.
+   */
   currentProfit: number | null;
   paid: number;
   processing: number;

@@ -9,7 +9,7 @@ import { StorageMapper } from '../../storage/storage.mapper';
 import type { ResolvedItemDesigns } from '../services/pod-order-design-resolver.service';
 import type { ResolvedProductImage } from '../services/pod-order-product-image.resolver';
 import { PodOrderWithRelations } from '../types/pod-order-with-relations.type';
-import type { OrderFinancials } from '../shared/order-financials';
+import { DESIGN_AMOUNT_CURRENCY, type OrderFinancials } from '../shared/order-financials';
 
 /**
  * PodOrderResponseMapper — Entity → Response DTO.
@@ -59,7 +59,7 @@ export class PodOrderResponseMapper {
       tax: this.toNumber(order.tax),
       sellerDiscount: this.toNumber(order.sellerDiscount),
       platformDiscount: this.toNumber(order.platformDiscount),
-      financials: this.financialsOf(order.id, financials),
+      financials: this.financialsOf(order, financials),
 
       fulfillmentType: order.fulfillmentType,
       shippingType: order.shippingType,
@@ -127,7 +127,7 @@ export class PodOrderResponseMapper {
       tax: this.toNumber(order.tax),
       sellerDiscount: this.toNumber(order.sellerDiscount),
       platformDiscount: this.toNumber(order.platformDiscount),
-      financials: this.financialsOf(order.id, financials),
+      financials: this.financialsOf(order, financials),
       orderType: order.orderType,
       hasPodItem: order.hasPodItem,
       itemCount: order.items.length,
@@ -194,9 +194,12 @@ export class PodOrderResponseMapper {
    * Tài chính của đơn (đã tính sẵn ở `PodOrderFinanceService` cho cả trang). Đơn không có trong
    * map ⇒ trạng thái "chưa có dữ liệu" rõ ràng, không bịa số 0.
    */
-  private financialsOf(orderId: string, financials: Map<string, OrderFinancials>): OrderFinancials {
+  private financialsOf(
+    order: { id: string; designAmount: Prisma.Decimal | null },
+    financials: Map<string, OrderFinancials>,
+  ): OrderFinancials {
     return (
-      financials.get(orderId) ?? {
+      financials.get(order.id) ?? {
         proceeds: null,
         productCost: null,
         productCostConfirmed: false,
@@ -205,6 +208,8 @@ export class PodOrderResponseMapper {
         sellerShipping: null,
         labelCost: 0,
         labelCostCurrency: '',
+        designAmount: this.toNumber(order.designAmount) ?? 0,
+        designAmountCurrency: DESIGN_AMOUNT_CURRENCY,
         profit: null,
         margin: null,
         status: 'NO_PROCEEDS',

@@ -38,11 +38,13 @@ import {
   SetShopWarehouseDto,
   PodTiktokAccountQueryDto,
   SyncTiktokShopsDto,
+  UpdatePodTiktokAccountLoginInfoDto,
 } from './dto/pod-tiktok-query.dto';
 import {
   PaginatedPodTiktokAccountResponseDto,
   PodAssignedSellerOptionsDto,
   PodSellerOptionDto,
+  PodTiktokAccountCredentialsDto,
   PodTiktokAccountResponseDto,
   PodTiktokAuthorizeUrlDto,
   PodTiktokShopSyncResultDto,
@@ -50,6 +52,7 @@ import {
 import { PodScope } from './decorators/pod-scope.decorator';
 import { PodScopeGuard } from './guards/pod-scope.guard';
 import type { PodAccessScope } from './services/pod-access-scope.service';
+import { PodTiktokAccountInfoService } from './services/pod-tiktok-account-info.service';
 import { PodTiktokAccountService } from './services/pod-tiktok-account.service';
 import { PodTiktokOAuthService } from './services/pod-tiktok-oauth.service';
 import { PodTiktokShopSyncService } from './services/pod-tiktok-shop-sync.service';
@@ -72,6 +75,7 @@ export class PodTiktokAccountController {
     private readonly service: PodTiktokAccountService,
     private readonly oauthService: PodTiktokOAuthService,
     private readonly shopSync: PodTiktokShopSyncService,
+    private readonly accountInfo: PodTiktokAccountInfoService,
   ) {}
 
   @Post('authorize-url')
@@ -206,6 +210,58 @@ export class PodTiktokAccountController {
     @Body() dto: AssignPodSellerDto,
   ): Promise<PodTiktokAccountResponseDto> {
     return this.service.assignSeller(user.organizationId, user.userId, id, dto);
+  }
+
+  @Patch(':id/login-info')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('pod.tiktok.account.update')
+  @ApiOperation({
+    summary: 'Cập nhật Tiktok mail · Password tiktok · 2FA Code · Ngày về tiền (một request cho cả form)',
+    description:
+      'Chỉ ghi các trường có trong body: bỏ qua = KHÔNG đổi · `null` = xoá. Password / 2FA gửi chuỗi rỗng cũng = ' +
+      'không đổi (không vô tình xoá khi sửa trường khác). Password / 2FA lưu MÃ HOÁ, response chỉ có cờ ' +
+      '`hasTiktokPassword` / `hasTiktokTwoFactorCode`; đổi credential ghi audit (tên trường, không có giá trị). ' +
+      'Kết nối ngoài phạm vi shop của người gọi ⇒ 404.',
+  })
+  @ApiOkResponse({ type: PodTiktokAccountResponseDto })
+  @ApiBadRequestResponse({
+    description: 'Email sai định dạng / Ngày về tiền sai (POD_TIKTOK_MONEY_RETURN_DATE_INVALID) / lỗi validate',
+  })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy kết nối (POD_TIKTOK_ACCOUNT_NOT_FOUND)' })
+  updateLoginInfo(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePodTiktokAccountLoginInfoDto,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<PodTiktokAccountResponseDto> {
+    return this.accountInfo.updateLoginInfo(user.organizationId, user.userId, id, dto, scope, {
+      ipAddress: ip,
+      userAgent,
+    });
+  }
+
+  @Get(':id/credentials')
+  // 🔴 Quyền RIÊNG để XEM giá trị thật — `pod.tiktok.account.read` (Seller có) không đủ. Mặc định chỉ Admin.
+  @RequirePermissions('pod.tiktok.account.credentials.read')
+  @ApiOperation({
+    summary: 'Xem (reveal) Password tiktok + 2FA Code đã giải mã — ghi audit mỗi lần',
+    description: 'Không cache phía client. Kết nối ngoài phạm vi shop của người gọi ⇒ 404.',
+  })
+  @ApiOkResponse({ type: PodTiktokAccountCredentialsDto })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy kết nối (POD_TIKTOK_ACCOUNT_NOT_FOUND)' })
+  revealCredentials(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Ip() ip: string,
+    @Headers('user-agent') userAgent?: string,
+  ): Promise<PodTiktokAccountCredentialsDto> {
+    return this.accountInfo.revealCredentials(user.organizationId, user.userId, id, scope, {
+      ipAddress: ip,
+      userAgent,
+    });
   }
 
   @Patch(':id/fulfillment-provider')

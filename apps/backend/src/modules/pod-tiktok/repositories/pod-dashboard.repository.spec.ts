@@ -31,6 +31,7 @@ describe('PodDashboardRepository.sellerStats — Shipping Fee / Current Profit',
     shipping_included: new Prisma.Decimal('4.25'),
     fulfilled_orders: BigInt(3),
     label: new Prisma.Decimal('1.5'),
+    design_amount: new Prisma.Decimal('3.5'),
     profit: new Prisma.Decimal('51.25'),
     profit_orders: BigInt(2),
     current_profit: new Prisma.Decimal('21.25'),
@@ -66,11 +67,28 @@ describe('PodDashboardRepository.sellerStats — Shipping Fee / Current Profit',
     expect(sql).toContain('pr.amount - c.amount - CASE WHEN sh.included THEN 0 ELSE sh.amount END - ?');
   });
 
-  it('current_profit (để sắp xếp) = Paid − Basecost − Label − Shipping Fee, NULL khi label khác đơn vị tiền', async () => {
+  it('current_profit (để sắp xếp) = Paid − Basecost − Label − Shipping Fee − Design Amount, NULL khi label / design khác đơn vị tiền', async () => {
     const { sql } = await run();
     expect(sql).toMatch(
-      /CASE WHEN UPPER\(\?\) = UPPER\(\?\) THEN COALESCE\(pa\.amount, 0\) - COALESCE\(o\.base_cost, 0\) - COALESCE\(o\.fulfilled_orders, 0\) \* \?::numeric - COALESCE\(o\.shipping_fee, 0\) END AS current_profit/,
+      /CASE WHEN UPPER\(\?\) = UPPER\(\?\) AND \(\? = UPPER\(\?\) OR COALESCE\(o\.design_amount, 0\) = 0\) THEN COALESCE\(pa\.amount, 0\) - COALESCE\(o\.base_cost, 0\) - COALESCE\(o\.fulfilled_orders, 0\) \* \?::numeric - COALESCE\(o\.shipping_fee, 0\) - COALESCE\(o\.design_amount, 0\) END AS current_profit/,
     );
+  });
+
+  it('Design Amount = Σ design_amount MỖI ĐƠN (order_profit một dòng / đơn — không nhân theo line item)', async () => {
+    const { sql, result } = await run('designAmount');
+    expect(sql).toContain('COALESCE(SUM(op.design_amount), 0) AS design_amount');
+    expect(sql).toContain('COALESCE(po.design_amount, 0) AS design_amount');
+    // Không join line item vào tổng hợp tiền của seller.
+    expect(sql).not.toMatch(/JOIN pod_order_items/);
+    expect(sql).toMatch(/CASE WHEN \(\? = UPPER\(\?\) OR COALESCE\(o\.design_amount, 0\) = 0\) THEN COALESCE\(o\.design_amount, 0\) END AS design_amount/);
+    expect(sql).toContain('ORDER BY design_amount DESC NULLS LAST');
+    expect(result.items[0].designAmount).toBe('3.5');
+  });
+
+  it('lợi nhuận từng đơn (order_profit) trừ Design Amount đúng MỘT lần', async () => {
+    const { sql } = await run();
+    expect(sql).toContain('- ?::numeric - COALESCE(po.design_amount, 0), 4)');
+    expect(sql).toContain('WHEN COALESCE(po.design_amount, 0) <> 0 AND pr.currency <> ? THEN NULL');
   });
 
   it.each([
@@ -87,7 +105,7 @@ describe('PodDashboardRepository.sellerStats — Shipping Fee / Current Profit',
     expect(sql).toContain('sh.included AS seller_shipping_included');
     expect(sql).toContain('SUM(op.seller_shipping) FILTER ( WHERE op.proceeds_currency = UPPER(?) AND op.seller_shipping_included), 0) AS shipping_included');
     expect(sql).toMatch(
-      /CASE WHEN UPPER\(\?\) = UPPER\(\?\) THEN COALESCE\(o\.revenue, 0\) - COALESCE\(o\.base_cost, 0\) - COALESCE\(o\.fulfilled_orders, 0\) \* \?::numeric - \(COALESCE\(o\.shipping_fee, 0\) - COALESCE\(o\.shipping_included, 0\)\) END AS profit/,
+      /CASE WHEN UPPER\(\?\) = UPPER\(\?\) AND \(\? = UPPER\(\?\) OR COALESCE\(o\.design_amount, 0\) = 0\) THEN COALESCE\(o\.revenue, 0\) - COALESCE\(o\.base_cost, 0\) - COALESCE\(o\.fulfilled_orders, 0\) \* \?::numeric - \(COALESCE\(o\.shipping_fee, 0\) - COALESCE\(o\.shipping_included, 0\)\) - COALESCE\(o\.design_amount, 0\) END AS profit/,
     );
     // Không còn cộng lợi nhuận từng đơn (chỉ đơn đủ dữ kiện) làm Est. profit.
     expect(sql).not.toContain('SUM(op.profit)');

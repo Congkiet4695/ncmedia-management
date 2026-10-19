@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { Eye, Loader2, RefreshCw, RotateCw, Store, Unlink } from 'lucide-react';
+import { Eye, KeyRound, Loader2, RefreshCw, RotateCw, Store, Unlink } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import {
@@ -17,7 +17,7 @@ import { FulfillmentProviderSelect } from './fulfillment-provider-select';
 import { SellerAssignSelect } from './seller-assign-select';
 import { ShopStatusBadge } from './shop-status-badge';
 import { TiktokStatusBadge } from './tiktok-status-badge';
-import type { PodTiktokAccountListItem } from '../types';
+import type { PodTiktokAccountListItem, PodTiktokOnholdAmount } from '../types';
 
 interface TiktokAccountTableProps {
   accounts: PodTiktokAccountListItem[];
@@ -25,7 +25,34 @@ interface TiktokAccountTableProps {
   canUnlink?: boolean;
   /** Có quyền `pod.tiktok.account.update` ⇒ được phân công Seller ngay trên bảng. */
   canAssignSeller?: boolean;
+  /** Mở dialog Thông tin đăng nhập (sửa hoặc chỉ xem / reveal tuỳ quyền). Không truyền ⇒ ẩn nút. */
+  onEditLoginInfo?: (account: PodTiktokAccountListItem) => void;
   onUnlink: (account: PodTiktokAccountListItem) => void;
+}
+
+/** Credential chỉ là cờ "đã lưu" — bảng KHÔNG BAO GIỜ có giá trị thật. */
+function MaskedSecret({ stored }: { stored: boolean }) {
+  const { t } = useTranslation('pod');
+  return stored ? (
+    <span className="font-mono tracking-widest text-muted-foreground" title={t('account.loginInfo.storedHint')}>
+      ••••••••
+    </span>
+  ) : (
+    <span className="text-muted-foreground">—</span>
+  );
+}
+
+/** Onhold Amount theo từng đơn vị tiền (không cộng lẫn USD / GBP). */
+function OnholdAmounts({ amounts }: { amounts: PodTiktokOnholdAmount[] }) {
+  const { formatCurrency } = useLocaleFormat();
+  if (amounts.length === 0) return <span className="text-muted-foreground">—</span>;
+  return (
+    <div className="space-y-0.5 text-right tabular-nums">
+      {amounts.map((row) => (
+        <div key={row.currency}>{formatCurrency(row.amount, row.currency)}</div>
+      ))}
+    </div>
+  );
 }
 
 /** Nhãn thời hạn token — cảnh báo khi sắp/đã hết hạn. */
@@ -45,6 +72,7 @@ export function TiktokAccountTable({
   loading,
   canUnlink,
   canAssignSeller = false,
+  onEditLoginInfo,
   onUnlink,
 }: TiktokAccountTableProps) {
   const { t } = useTranslation(['pod', 'common', 'fulfillment']);
@@ -79,6 +107,11 @@ export function TiktokAccountTable({
             <TableHead>{t('account.tiktokSeller')}</TableHead>
             <TableHead className="min-w-[200px]">{t('account.assignedSeller')}</TableHead>
             <TableHead className="min-w-[190px]">{t('fulfillment:assign.label')}</TableHead>
+            <TableHead className="min-w-[180px]">{t('account.loginInfo.mail')}</TableHead>
+            <TableHead className="whitespace-nowrap">{t('account.loginInfo.password')}</TableHead>
+            <TableHead className="whitespace-nowrap">{t('account.loginInfo.twoFactor')}</TableHead>
+            <TableHead className="whitespace-nowrap text-right">{t('account.loginInfo.onhold')}</TableHead>
+            <TableHead className="whitespace-nowrap">{t('account.loginInfo.moneyReturnDate')}</TableHead>
             <TableHead>{t('account.status.columnLabel')}</TableHead>
             <TableHead className="whitespace-nowrap">{t('account.tokenExpiry')}</TableHead>
             <TableHead className="whitespace-nowrap">{t('account.lastSync')}</TableHead>
@@ -137,6 +170,22 @@ export function TiktokAccountTable({
                   editable={canAssignSeller}
                 />
               </TableCell>
+              <TableCell className="max-w-[240px] truncate" title={account.tiktokMail ?? undefined}>
+                {account.tiktokMail ?? <span className="text-muted-foreground">—</span>}
+              </TableCell>
+              <TableCell>
+                <MaskedSecret stored={account.hasTiktokPassword} />
+              </TableCell>
+              <TableCell>
+                <MaskedSecret stored={account.hasTiktokTwoFactorCode} />
+              </TableCell>
+              <TableCell className="whitespace-nowrap">
+                <OnholdAmounts amounts={account.onholdAmounts} />
+              </TableCell>
+              <TableCell className="whitespace-nowrap text-muted-foreground">
+                {/* Ngày lịch: ghép giờ địa phương 00:00 ⇒ không lệch một ngày ở múi giờ âm. */}
+                {account.moneyReturnDate ? formatDate(`${account.moneyReturnDate}T00:00:00`) : '—'}
+              </TableCell>
               <TableCell>
                 <TiktokStatusBadge status={account.status} />
               </TableCell>
@@ -164,6 +213,17 @@ export function TiktokAccountTable({
                       <Eye className="size-4" />
                     </Link>
                   </Button>
+                  {onEditLoginInfo && (
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      aria-label={t('account.loginInfo.title')}
+                      title={t('account.loginInfo.title')}
+                      onClick={() => onEditLoginInfo(account)}
+                    >
+                      <KeyRound className="size-4" />
+                    </Button>
+                  )}
                   {/* Placeholder — triển khai ở Sprint Token Lifecycle */}
                   <Button
                     variant="ghost"

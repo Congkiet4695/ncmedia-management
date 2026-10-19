@@ -227,6 +227,7 @@ describe('PodDashboardService.sellers', () => {
       shippingIncluded: '10',
       fulfilledOrders: 4,
       label: '2',
+      designAmount: '0',
       profit: '6610.88',
       profitOrders: 3,
       paid: '475.19',
@@ -278,7 +279,7 @@ describe('PodDashboardService.sellers', () => {
   });
 
   it('đã đồng bộ Return/Refund ⇒ cột Đơn hoàn là số đơn thật (0 vẫn là 0)', async () => {
-    const base = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 5, revenue: '0', revenueOrders: 0, baseCost: '0', baseCostOrders: 0, shippingFee: '0', shippingFeeOrders: 0, shippingIncluded: '0', fulfilledOrders: 0, label: '0', profit: null, profitOrders: 0, paid: '0', processing: '0', hold: '0' };
+    const base = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 5, revenue: '0', revenueOrders: 0, baseCost: '0', baseCostOrders: 0, shippingFee: '0', shippingFeeOrders: 0, shippingIncluded: '0', fulfilledOrders: 0, label: '0', designAmount: '0', profit: null, profitOrders: 0, paid: '0', processing: '0', hold: '0' };
     const { service } = build({
       returnsAvailable: jest.fn().mockResolvedValue(true),
       sellerStats: jest.fn().mockResolvedValue({ items: [{ ...base, returns: 2 }, { ...base, sellerId: 's2', returns: 0 }], total: 2 }),
@@ -288,9 +289,40 @@ describe('PodDashboardService.sellers', () => {
   });
 });
 
+describe('PodDashboardService — Design Amount (Seller Statistics)', () => {
+  const base = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 4, revenue: '100', revenueOrders: 4, baseCost: '40', baseCostOrders: 4, shippingFee: '6.5', shippingFeeOrders: 4, shippingIncluded: '2.5', fulfilledOrders: 4, label: '2', designAmount: '0', profit: '54', profitOrders: 4, paid: '80', processing: '0', hold: '0', returns: 0 };
+  const rowOf = async (over: Record<string, unknown>) => {
+    const { service } = build({ sellerStats: jest.fn().mockResolvedValue({ items: [{ ...base, ...over }], total: 1 }) });
+    return (await service.sellers(ORG, ADMIN, { from: '2026-10-01', to: '2026-10-05' })).items[0];
+  };
+
+  it('Design Amount = 0 ⇒ Est. profit / Current Profit y như trước', async () => {
+    // Est: 100 − 40 − 2 − (6.5 − 2.5) = 54 · Current: 80 − 40 − 2 − 6.5 = 31.5
+    expect(await rowOf({})).toMatchObject({ designAmount: 0, profit: 54, currentProfit: 31.5 });
+  });
+
+  it('Design Amount trừ ĐÚNG MỘT lần ở cả Est. profit và Current Profit', async () => {
+    expect(await rowOf({ designAmount: '7.255' })).toMatchObject({
+      designAmount: 7.26,
+      profit: 46.75, // 54 − 7.255 = 46.745 ⇒ 46.75
+      currentProfit: 24.25, // 31.5 − 7.255 = 24.245 ⇒ 24.25
+    });
+  });
+
+  it('Design Amount null (khác đơn vị tiền đang xem) ⇒ cột + hai lợi nhuận là "—"', async () => {
+    expect(await rowOf({ designAmount: null })).toMatchObject({ designAmount: null, profit: null, currentProfit: null });
+  });
+
+  it('sort=designAmount được chuyển xuống DB', async () => {
+    const { service, repo } = build({ sellerStats: jest.fn().mockResolvedValue({ items: [], total: 0 }) });
+    await service.sellers(ORG, ADMIN, { from: '2026-10-01', to: '2026-10-05', sort: 'designAmount' });
+    expect((repo.sellerStats.mock.calls[0] as unknown[])[2]).toMatchObject({ sort: 'designAmount' });
+  });
+});
+
 describe('PodDashboardService — Profit Dự kiến / Label thiếu dữ kiện', () => {
   it('Label khác đơn vị tiền ⇒ Profit Dự kiến null ("—"), không coi Label là 0', async () => {
-    const row = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 3, revenue: '30', revenueOrders: 2, baseCost: '0', baseCostOrders: 0, shippingFee: '0', shippingFeeOrders: 0, shippingIncluded: '0', fulfilledOrders: 1, label: null, profit: null, profitOrders: 0, paid: '0', processing: '0', hold: '0', returns: 0 };
+    const row = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 3, revenue: '30', revenueOrders: 2, baseCost: '0', baseCostOrders: 0, shippingFee: '0', shippingFeeOrders: 0, shippingIncluded: '0', fulfilledOrders: 1, label: null, designAmount: '0', profit: null, profitOrders: 0, paid: '0', processing: '0', hold: '0', returns: 0 };
     const { service } = build({ sellerStats: jest.fn().mockResolvedValue({ items: [row], total: 1 }) });
     const result = await service.sellers(ORG, ADMIN, { from: '2026-10-01', to: '2026-10-05' });
     expect(result.items[0]).toMatchObject({ label: null, profit: null, profitOrders: 0, revenueOrders: 2, orders: 3 });
@@ -298,7 +330,7 @@ describe('PodDashboardService — Profit Dự kiến / Label thiếu dữ kiện
 });
 
 describe('PodDashboardService — Shipping Fee / Current Profit', () => {
-  const base = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 4, revenue: '100', revenueOrders: 4, baseCost: '40', baseCostOrders: 4, shippingFee: '6.5', shippingFeeOrders: 4, shippingIncluded: '2.5', fulfilledOrders: 4, label: '2', profit: '54', profitOrders: 4, paid: '80', processing: '0', hold: '0', returns: 0 };
+  const base = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 4, revenue: '100', revenueOrders: 4, baseCost: '40', baseCostOrders: 4, shippingFee: '6.5', shippingFeeOrders: 4, shippingIncluded: '2.5', fulfilledOrders: 4, label: '2', designAmount: '0', profit: '54', profitOrders: 4, paid: '80', processing: '0', hold: '0', returns: 0 };
   const sellersOf = async (rows: Array<Record<string, unknown>>) => {
     const { service, repo } = build({ sellerStats: jest.fn().mockResolvedValue({ items: rows, total: rows.length }) });
     return { result: await service.sellers(ORG, ADMIN, { from: '2026-10-01', to: '2026-10-14' }), repo };
@@ -340,7 +372,7 @@ describe('PodDashboardService — Shipping Fee / Current Profit', () => {
 });
 
 describe('PodDashboardService — Est. profit = Revenue − Base cost − Shipping Fee − Label (2026-10-14)', () => {
-  const base = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 10, revenue: '500', revenueOrders: 10, baseCost: '120', baseCostOrders: 6, shippingFee: '40', shippingFeeOrders: 10, shippingIncluded: '0', fulfilledOrders: 6, label: '3', profit: '0', profitOrders: 6, paid: '0', processing: '0', hold: '0', returns: 0 };
+  const base = { sellerId: 's1', sellerName: 'A', sellerEmail: 'a@x', active: true, orders: 10, revenue: '500', revenueOrders: 10, baseCost: '120', baseCostOrders: 6, shippingFee: '40', shippingFeeOrders: 10, shippingIncluded: '0', fulfilledOrders: 6, label: '3', designAmount: '0', profit: '0', profitOrders: 6, paid: '0', processing: '0', hold: '0', returns: 0 };
   const profitOf = async (patch: Record<string, unknown>) => {
     const { service } = build({ sellerStats: jest.fn().mockResolvedValue({ items: [{ ...base, ...patch }], total: 1 }) });
     return (await service.sellers(ORG, ADMIN, { from: '2026-10-01', to: '2026-10-14' })).items[0].profit;

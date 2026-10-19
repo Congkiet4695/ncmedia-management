@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
-import type { LabelCostConfig } from '../shared/order-financials';
+import { DESIGN_AMOUNT_CURRENCY, type LabelCostConfig } from '../shared/order-financials';
 import { orderProfitCtes } from '../shared/order-profit.sql';
 import { settledRefundAmountSql } from '../shared/settled-refund.sql';
 import { ORDER_STATUS_GROUPS, type OrderStatusGroup } from '../shared/order-status-groups';
@@ -31,6 +31,7 @@ export const SELLER_SORT_FIELDS = [
   'baseCost',
   'shippingFee',
   'label',
+  'designAmount',
   'profit',
   'currentProfit',
   'paid',
@@ -131,8 +132,13 @@ export interface SellerStatRow {
   /** Σ label = số đơn đã fulfill × label/đơn; NULL khi label khác đơn vị tiền đang xem. */
   label: string | null;
   /**
-   * Profit Dự kiến = Doanh thu − Basecost − Label − (Shipping Fee − phần đã nằm trong Doanh thu), tính trên
-   * các tổng của dòng (quyết định PO 2026-10-14). Repository trả biểu thức SQL (để ORDER BY); service tính lại
+   * Σ Design Amount của các đơn trong phạm vi (mỗi đơn MỘT giá trị — `order_profit.design_amount`, không nhân theo
+   * line item). NULL khi tổng ≠ 0 mà đơn vị tiền đang xem khác `DESIGN_AMOUNT_CURRENCY` (không quy đổi).
+   */
+  designAmount: string | null;
+  /**
+   * Profit Dự kiến = Doanh thu − Basecost − Label − (Shipping Fee − phần đã nằm trong Doanh thu) − Design Amount,
+   * tính trên các tổng của dòng (quyết định PO 2026-10-14 + Design Amount). Repository trả biểu thức SQL (để ORDER BY); service tính lại
    * giá trị hiển thị bằng `sellerEstProfit`. NULL khi Label khác đơn vị tiền đang xem.
    */
   profit: string | null;
@@ -184,11 +190,12 @@ const dec = (value: Prisma.Decimal | string | number | null | undefined): string
  *     Doanh thu      = Σ tiền thu về từng đơn (đã quyết toán ?? ước tính — mỗi đơn MỘT giá trị)
  *     Basecost       = Σ giá vốn đã xác nhận của lần fulfill đang giữ đơn (lần gửi lại thay lần cũ)
  *     Label          = số đơn đã fulfill × label/đơn (cấu hình ORDER_LABEL_COST — label không lưu theo đơn)
+ *     Design Amount  = Σ pod_orders.design_amount của các đơn trong phạm vi (mỗi đơn một giá trị, NULL ⇒ 0)
  *     Profit Dự kiến = Σ lợi nhuận TỪNG ĐƠN: tiền thu về − giá vốn − label − phí ship Seller CHƯA nằm trong
  *                      tiền thu về. Đơn thiếu dữ kiện không cộng (không coi là 0); không đơn nào ⇒ NULL ("—").
  *     Shipping Fee   = Σ phí ship Seller TỪNG ĐƠN (`order_profit.seller_shipping`, gồm cả phần đã trong tiền thu về)
- *     Current Profit = Đã thanh toán − Basecost − Label − Shipping Fee (quyết định PO 2026-10-14, công thức nguyên văn —
- *                      xem `sellerCurrentProfit`); Label NULL ⇒ NULL
+ *     Current Profit = Đã thanh toán − Basecost − Label − Shipping Fee − Design Amount (quyết định PO 2026-10-14 +
+ *                      Design Amount — xem `sellerCurrentProfit`); Label / Design Amount NULL ⇒ NULL
  *       🔴 Biểu thức ORDER BY `current_profit` dưới đây phải khớp `sellerCurrentProfit` (giá trị hiển thị).
  *
  * 🔴 Phạm vi tổ chức + phạm vi Seller nằm trong MỌI câu WHERE (`scope()`), không lọc ở frontend.
@@ -572,6 +579,8 @@ export class PodDashboardRepository {
     const cur = Prisma.sql`UPPER(${filter.currency})`;
     // Label chỉ cộng được trong CÙNG đơn vị tiền (không quy đổi) — khác ⇒ NULL, như lợi nhuận từng đơn.
     const labelSameCurrency = Prisma.sql`UPPER(${options.label.currency}) = ${cur}`;
+    // Design Amount (USD): khác đơn vị tiền đang xem mà tổng ≠ 0 ⇒ NULL (không quy đổi); tổng = 0 thì luôn dùng được.
+    const designUsable = Prisma.sql`(${DESIGN_AMOUNT_CURRENCY} = ${cur} OR COALESCE(o.design_amount, 0) = 0)`;
 
     const rows = await this.prisma.$queryRaw<
       Array<{
@@ -589,6 +598,7 @@ export class PodDashboardRepository {
         shipping_included: Prisma.Decimal;
         fulfilled_orders: bigint;
         label: Prisma.Decimal | null;
+        design_amount: Prisma.Decimal | null;
         profit: Prisma.Decimal | null;
         profit_orders: bigint;
         paid: Prisma.Decimal;
@@ -612,6 +622,8 @@ export class PodDashboardRepository {
                COALESCE(SUM(op.seller_shipping) FILTER (
                  WHERE op.proceeds_currency = ${cur} AND op.seller_shipping_included), 0)        AS shipping_included,
                COUNT(*) FILTER (WHERE op.fulfilled)::bigint                                 AS fulfilled_orders,
+               -- fin / order_profit đều MỘT dòng mỗi đơn ⇒ không nhân Design Amount theo line item.
+               COALESCE(SUM(op.design_amount), 0)                                           AS design_amount,
                COUNT(op.profit) FILTER (WHERE op.proceeds_currency = ${cur})::bigint        AS profit_orders
           FROM fin
           JOIN pod_tiktok_accounts a ON a.id = fin.account_id
@@ -678,16 +690,19 @@ export class PodDashboardRepository {
                COALESCE(o.fulfilled_orders, 0)::bigint   AS fulfilled_orders,
                CASE WHEN ${labelSameCurrency}
                     THEN COALESCE(o.fulfilled_orders, 0) * ${options.label.amount}::numeric END AS label,
+               CASE WHEN ${designUsable} THEN COALESCE(o.design_amount, 0) END AS design_amount,
                -- = sellerEstProfit (chỉ để ORDER BY; giá trị hiển thị do service tính từ các thành phần).
-               CASE WHEN ${labelSameCurrency}
+               CASE WHEN ${labelSameCurrency} AND ${designUsable}
                     THEN COALESCE(o.revenue, 0) - COALESCE(o.base_cost, 0)
                          - COALESCE(o.fulfilled_orders, 0) * ${options.label.amount}::numeric
-                         - (COALESCE(o.shipping_fee, 0) - COALESCE(o.shipping_included, 0)) END AS profit,
+                         - (COALESCE(o.shipping_fee, 0) - COALESCE(o.shipping_included, 0))
+                         - COALESCE(o.design_amount, 0) END AS profit,
                -- = sellerCurrentProfit (chỉ để ORDER BY; giá trị hiển thị do service tính từ các thành phần).
-               CASE WHEN ${labelSameCurrency}
+               CASE WHEN ${labelSameCurrency} AND ${designUsable}
                     THEN COALESCE(pa.amount, 0) - COALESCE(o.base_cost, 0)
                          - COALESCE(o.fulfilled_orders, 0) * ${options.label.amount}::numeric
-                         - COALESCE(o.shipping_fee, 0) END AS current_profit,
+                         - COALESCE(o.shipping_fee, 0)
+                         - COALESCE(o.design_amount, 0) END AS current_profit,
                COALESCE(o.profit_orders, 0)::bigint      AS profit_orders,
                COALESCE(pa.amount, 0)                    AS paid,
                COALESCE(pr.amount, 0)                    AS processing,
@@ -721,6 +736,7 @@ export class PodDashboardRepository {
         shippingIncluded: dec(row.shipping_included),
         fulfilledOrders: Number(row.fulfilled_orders),
         label: row.label === null ? null : dec(row.label),
+        designAmount: row.design_amount === null ? null : dec(row.design_amount),
         profit: row.profit === null ? null : dec(row.profit),
         profitOrders: Number(row.profit_orders),
         paid: dec(row.paid),
@@ -936,6 +952,7 @@ export class PodDashboardRepository {
       baseCost: 'base_cost',
       shippingFee: 'shipping_fee',
       label: 'label',
+      designAmount: 'design_amount',
       profit: 'profit',
       currentProfit: 'current_profit',
       paid: 'paid',

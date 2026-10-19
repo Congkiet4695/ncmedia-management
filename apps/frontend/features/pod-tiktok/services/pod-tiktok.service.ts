@@ -9,10 +9,12 @@ import type {
   PodTiktokAccountQuery,
   PodAssignedSellerOptions,
   PodSellerOption,
+  PodTiktokAccountCredentials,
   PodTiktokAuthorizeUrl,
   PodTiktokLinkResult,
   PodTiktokShopSyncResult,
   StartTiktokAuthorizationPayload,
+  UpdatePodTiktokLoginInfoPayload,
 } from '../types';
 
 const BASE_PATH = '/pod/tiktok/accounts';
@@ -121,6 +123,23 @@ export const podTiktokService = {
     const res = await apiClient.patch<ApiResponse<PodTiktokAccount>>(
       `${BASE_PATH}/${accountId}/shops/${shopId}/warehouse`,
       { warehouseId },
+    );
+    return res.data.data;
+  },
+
+  /** Cập nhật Tiktok mail / Password / 2FA / Ngày về tiền — MỘT request cho cả form. Credential đi trong BODY. */
+  async updateLoginInfo(
+    id: string,
+    payload: UpdatePodTiktokLoginInfoPayload,
+  ): Promise<PodTiktokAccount> {
+    const res = await apiClient.patch<ApiResponse<PodTiktokAccount>>(`${BASE_PATH}/${id}/login-info`, payload);
+    return res.data.data;
+  },
+
+  /** Xem Password tiktok / 2FA Code đã giải mã (quyền `pod.tiktok.account.credentials.read`, có audit). */
+  async revealCredentials(id: string): Promise<PodTiktokAccountCredentials> {
+    const res = await apiClient.get<ApiResponse<PodTiktokAccountCredentials>>(
+      `${BASE_PATH}/${id}/credentials`,
     );
     return res.data.data;
   },

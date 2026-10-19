@@ -12,7 +12,7 @@ import {
   type CreateEmployeePayload,
   type UpdateEmployeePayload,
 } from '../services/employee.service';
-import type { EmployeeListResult, EmployeeQuery } from '../types';
+import type { EmployeeListResult, EmployeeQuery, UpdateAccountHandoverPayload } from '../types';
 
 const EMPLOYEES_KEY = 'employees';
 const ROLES_KEY = 'roles';
@@ -96,5 +96,26 @@ export function useDeleteEmployee() {
       context?.snapshots.forEach(([key, data]) => queryClient.setQueryData(key, data));
     },
     onSettled: () => queryClient.invalidateQueries({ queryKey: [EMPLOYEES_KEY] }),
+  });
+}
+
+/** Admin chỉnh tay Tiền giao account — xong làm mới danh sách / chi tiết / lịch sử. */
+export function useUpdateAccountHandover() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: UpdateAccountHandoverPayload }) =>
+      employeeService.updateAccountHandoverAmount(id, payload),
+    // onSettled (không chỉ onSuccess): 409 "số dư vừa đổi" cũng phải tải lại số mới để người dùng sửa tiếp.
+    onSettled: () => queryClient.invalidateQueries({ queryKey: [EMPLOYEES_KEY] }),
+  });
+}
+
+/** Lịch sử Tiền giao account của MỘT nhân viên (phân trang ở backend). */
+export function useAccountHandoverTransactions(id: string | undefined, page: number, limit = 10) {
+  return useQuery({
+    queryKey: [EMPLOYEES_KEY, 'account-handover', id, page, limit],
+    queryFn: () => employeeService.accountHandoverTransactions(id as string, page, limit),
+    enabled: Boolean(id),
+    placeholderData: keepPreviousData,
   });
 }

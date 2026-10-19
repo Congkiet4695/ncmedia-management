@@ -35,6 +35,7 @@ export class EmployeeMapper {
       orderKpi: employee.orderKpi,
       revenueKpi: Number(employee.revenueKpi),
       avatar: employee.avatar,
+      accountHandoverAmount: Number(employee.accountHandoverAmount),
       role: { id: user.role.id, code: user.role.code, name: user.role.displayName },
       createdAt: employee.createdAt.toISOString(),
       updatedAt: employee.updatedAt.toISOString(),
@@ -53,6 +54,7 @@ export class EmployeeMapper {
       startDate: toDateString(employee.startDate),
       resignedAt: toDateString(employee.resignedAt),
       avatar: employee.avatar,
+      accountHandoverAmount: Number(employee.accountHandoverAmount),
       role: { id: user.role.id, code: user.role.code, name: user.role.displayName },
       createdAt: employee.createdAt.toISOString(),
     };

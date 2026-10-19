@@ -36,6 +36,11 @@ import { EMPLOYEE_IMPORT_MAX_BYTES } from './constants/employee-excel.constants'
 import { CreateEmployeeDto } from './dto/create-employee.dto';
 import { EmployeeImportResultDto } from './dto/employee-import-result.dto';
 import {
+  AccountHandoverHistoryQueryDto,
+  AccountHandoverTransactionPageDto,
+  UpdateAccountHandoverAmountDto,
+} from './dto/account-handover.dto';
+import {
   CreateEmployeeResponseDto,
   EmployeeResponseDto,
   PaginatedEmployeeResponseDto,
@@ -43,6 +48,7 @@ import {
 } from './dto/employee-response.dto';
 import { EmployeeQueryDto } from './dto/employee-query.dto';
 import { UpdateEmployeeDto } from './dto/update-employee.dto';
+import { AccountHandoverService } from './services/account-handover.service';
 import { EmployeeExcelService } from './services/employee-excel.service';
 import { EmployeeService } from './services/employee.service';
 
@@ -61,6 +67,7 @@ export class EmployeeController {
   constructor(
     private readonly employeeService: EmployeeService,
     private readonly excel: EmployeeExcelService,
+    private readonly accountHandover: AccountHandoverService,
   ) {}
 
   @Post()
@@ -145,6 +152,40 @@ export class EmployeeController {
     @Body() dto: UpdateEmployeeDto,
   ): Promise<EmployeeResponseDto> {
     return this.employeeService.update(user.organizationId, user.userId, id, dto);
+  }
+
+  @Patch(':id/account-handover-amount')
+  @ApiOperation({
+    summary: 'Chỉnh tay "Tiền giao account" (Admin)',
+    description:
+      'Đặt lại số dư (USD, ≥ 0). Ghi một dòng MANUAL_ADJUSTMENT (trước / sau / người sửa / ghi chú) vào sổ cái — ' +
+      'lịch sử các khoản cộng tự động được giữ nguyên. Gửi `expectedAmount` = số đang thấy ⇒ nếu số dư vừa đổi ' +
+      '(có khoản cộng mới) trả 409 EMPLOYEE_ACCOUNT_HANDOVER_AMOUNT_CHANGED thay vì ghi đè.',
+  })
+  @ApiOkResponse({ type: EmployeeResponseDto })
+  async updateAccountHandoverAmount(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateAccountHandoverAmountDto,
+  ): Promise<EmployeeResponseDto> {
+    await this.accountHandover.setAmount(user.organizationId, user.userId, id, dto);
+    return this.employeeService.findOne(user.organizationId, id);
+  }
+
+  @Get(':id/account-handover-transactions')
+  @ApiOperation({ summary: 'Lịch sử "Tiền giao account" của Employee (mới nhất trước)' })
+  @ApiOkResponse({ type: AccountHandoverTransactionPageDto })
+  findAccountHandoverTransactions(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Query() query: AccountHandoverHistoryQueryDto,
+  ): Promise<AccountHandoverTransactionPageDto> {
+    return this.accountHandover.listTransactions(
+      user.organizationId,
+      id,
+      query.page ?? 1,
+      query.limit ?? 20,
+    );
   }
 
   @Delete(':id')

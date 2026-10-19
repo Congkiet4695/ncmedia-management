@@ -12,7 +12,9 @@
  *  - **Giá vốn** = product cost của lần fulfill ĐANG giữ đơn ở xưởng (không gồm phí ship nhà cung cấp).
  *  - **Phí ship Seller** — phần phí vận chuyển Seller THỰC SỰ chịu (xem `resolveSellerShipping`).
  *  - **Label** = chi phí label cấu hình (`ORDER_LABEL_COST`), MỘT lần cho MỖI ĐƠN.
- *  - **Lợi nhuận** = tiền thu về − giá vốn − phí ship Seller CHƯA nằm trong tiền thu về − label.
+ *  - **Design Amount** = chi phí design nhập tay của đơn (`pod_orders.design_amount`, USD, mặc định 0).
+ *  - **Lợi nhuận** = tiền thu về − giá vốn − phí ship Seller CHƯA nằm trong tiền thu về − label − design amount.
+ *    Design amount = 0 ⇒ kết quả y như công thức trước khi có Design Amount.
  *  - **Margin** = lợi nhuận ÷ tiền thu về, chỉ khi tiền thu về > 0.
  *
  * 🔴 Vì sao "phí ship CHƯA nằm trong tiền thu về" (quyết định PO 2026-10-08): TikTok định nghĩa
@@ -27,6 +29,12 @@
 
 /** `shipping_type` của đơn TikTok: giao bằng label của TikTok (TikTok tính phí ship cho Seller). */
 export const TIKTOK_SHIPPING_TYPE = 'TIKTOK';
+
+/**
+ * Đơn vị tiền của Design Amount (`pod_orders.design_amount`). Chỉ trừ được vào đơn CÙNG đơn vị tiền thu về
+ * (không quy đổi tỉ giá) — giống Label. Design Amount = 0 thì không ràng buộc đơn vị tiền.
+ */
+export const DESIGN_AMOUNT_CURRENCY = 'USD';
 
 /** Một giao dịch tài chính của đơn (settled hoặc unsettled), số tiền đã quy về `number`. */
 export interface FinanceTransactionInput {
@@ -71,6 +79,8 @@ export interface OrderFinancialsInput {
   } | null;
   shipping: OrderShippingInput;
   labelCost: LabelCostConfig;
+  /** `pod_orders.design_amount` (≥ 0, đơn vị `DESIGN_AMOUNT_CURRENCY`). Dữ liệu cũ / thiếu ⇒ 0. */
+  designAmount?: number | null;
 }
 
 export type OrderFinancialsStatus =
@@ -89,7 +99,9 @@ export type OrderFinancialsStatus =
   /** Chưa xác định được phí ship Seller chịu (TikTok chưa trả đủ dữ liệu / đơn tự vận chuyển). */
   | 'SHIPPING_UNKNOWN'
   /** Label cost chỉ cấu hình cho một đơn vị tiền khác tiền thu về — không quy đổi. */
-  | 'LABEL_CURRENCY_MISMATCH';
+  | 'LABEL_CURRENCY_MISMATCH'
+  /** Design Amount ≠ 0 nhưng tiền thu về không phải `DESIGN_AMOUNT_CURRENCY` — không quy đổi. */
+  | 'DESIGN_CURRENCY_MISMATCH';
 
 /**
  * Nguồn của phí ship Seller:
@@ -139,6 +151,9 @@ export interface OrderFinancials {
   sellerShipping: SellerShipping | null;
   labelCost: number;
   labelCostCurrency: string;
+  /** Design Amount của đơn (luôn là số — thiếu ⇒ 0). */
+  designAmount: number;
+  designAmountCurrency: string;
   profit: number | null;
   /** Tỉ lệ (0.25 = 25%). */
   margin: number | null;
@@ -163,6 +178,8 @@ export function calculateOrderFinancials(input: OrderFinancialsInput): OrderFina
     sellerShipping,
     labelCost: input.labelCost.amount,
     labelCostCurrency: input.labelCost.currency,
+    designAmount: designAmountOf(input.designAmount),
+    designAmountCurrency: DESIGN_AMOUNT_CURRENCY,
   };
 
   const fail = (status: OrderFinancialsStatus): OrderFinancials => ({
@@ -183,9 +200,15 @@ export function calculateOrderFinancials(input: OrderFinancialsInput): OrderFina
   if (input.labelCost.currency.toUpperCase() !== proceeds.currency.toUpperCase()) {
     return fail('LABEL_CURRENCY_MISMATCH');
   }
+  if (base.designAmount !== 0 && DESIGN_AMOUNT_CURRENCY !== proceeds.currency.toUpperCase()) {
+    return fail('DESIGN_CURRENCY_MISMATCH');
+  }
 
   const shippingNotInProceeds = sellerShipping.includedInProceeds ? 0 : sellerShipping.amount;
-  const profit = round(proceeds.amount - cost.productCost - shippingNotInProceeds - input.labelCost.amount);
+  // Design Amount trừ ĐÚNG MỘT lần, ở đây — không nơi nào khác trừ lại (bản SQL dùng cùng công thức).
+  const profit = round(
+    proceeds.amount - cost.productCost - shippingNotInProceeds - input.labelCost.amount - base.designAmount,
+  );
   return {
     ...base,
     profit,
@@ -254,6 +277,11 @@ export function resolveSellerShipping(
     };
   }
   return null;
+}
+
+/** Design Amount của đơn: null / không phải số hữu hạn (dữ liệu cũ) ⇒ 0. */
+function designAmountOf(value: number | null | undefined): number {
+  return typeof value === 'number' && Number.isFinite(value) ? round(value) || 0 : 0;
 }
 
 /** Giao dịch có số tiền (dòng thiếu `settlement_amount` không tham gia tiền thu về lẫn phí ship). */

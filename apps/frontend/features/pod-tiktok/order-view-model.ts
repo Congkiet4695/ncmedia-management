@@ -240,6 +240,8 @@ export function rowDesignStatus(row: OrderProductRow): RowDesignStatus {
  *     margin = profit ÷ tiền thu về). Thiếu dữ kiện ⇒ `null` + `status` nói rõ thiếu gì.
  */
 export interface OrderPriceBreakdown {
+  /** Đơn sở hữu các số này — ô sửa Design Amount ghi vào ĐÚNG đơn này. */
+  orderId: string;
   subtotal: number | null;
   tax: number | null;
   shipping: number | null;
@@ -256,6 +258,7 @@ export function buildPriceBreakdown(order: PodOrderListItem): OrderPriceBreakdow
   }, null);
 
   return {
+    orderId: order.id,
     subtotal: order.subTotal ?? summed,
     tax: order.tax,
     shipping: order.shippingFee,

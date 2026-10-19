@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PodShopSyncType, PodSyncTrigger } from '@prisma/client';
+import { PodShopSyncType, PodSyncTrigger, Prisma } from '@prisma/client';
 import { resolveDateRange } from '../utils/date-range.util';
 import {
   PaginatedPodOrderResponseDto,
@@ -8,7 +8,11 @@ import {
   PodOrderStatsDto,
   PodSyncTriggerResultDto,
 } from '../dto/pod-order-response.dto';
-import { PodOrderQueryDto, TriggerSyncDto } from '../dto/pod-order-query.dto';
+import {
+  PodOrderQueryDto,
+  TriggerSyncDto,
+  UpdatePodOrderDesignAmountDto,
+} from '../dto/pod-order-query.dto';
 import { PodShopSyncStatusListDto, PodShopSyncStatusQueryDto } from '../dto/pod-shop-sync-status.dto';
 import {
   PodOrderNotFoundException,
@@ -37,6 +41,8 @@ import { PodSyncOrchestratorService } from './pod-sync-orchestrator.service';
  */
 @Injectable()
 export class PodOrderService {
+  private readonly logger = new Logger(PodOrderService.name);
+
   constructor(
     private readonly config: ConfigService,
     private readonly repo: PodOrderRepository,
@@ -127,6 +133,39 @@ export class PodOrderService {
       this.finance.summarize(organizationId, [order]),
     ]);
     return this.mapper.toResponse(order, designs, productImages, financials);
+  }
+
+  /**
+   * Cập nhật Design Amount của MỘT đơn (cột Giá → "Design Amount"). Lợi nhuận được tính lại lúc đọc (ADR-014),
+   * nên trả về đơn đã tính lại để giao diện hiển thị ngay.
+   *
+   * 🔴 Kiểm phạm vi shop TRƯỚC khi ghi — người không có `pod.shop.all` chỉ sửa được đơn của shop được gán.
+   */
+  async updateDesignAmount(
+    organizationId: string,
+    actorUserId: string,
+    id: string,
+    dto: UpdatePodOrderDesignAmountDto,
+    scope: PodAccessScope,
+  ): Promise<PodOrderResponseDto> {
+    const order = await this.repo.findById(organizationId, id);
+    if (!order) throw new PodOrderNotFoundException();
+    this.accessScope.assertShopAllowed(scope, order.shopId);
+
+    const next = new Prisma.Decimal(dto.designAmount);
+    const previous = await this.repo.updateDesignAmount(organizationId, order.id, next, actorUserId);
+    if (previous === null) throw new PodOrderNotFoundException();
+    this.logger.log({
+      module: 'pod-tiktok',
+      operation: 'order.update-design-amount',
+      organizationId,
+      orderId: order.id,
+      previous: previous.toString(),
+      next: next.toString(),
+      actorUserId,
+      msg: 'Đã cập nhật Design Amount của đơn',
+    });
+    return this.findOne(organizationId, order.id, scope);
   }
 
   /**

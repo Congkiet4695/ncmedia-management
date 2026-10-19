@@ -6,13 +6,16 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
   ApiConflictResponse,
+  ApiNotFoundResponse,
   ApiForbiddenResponse,
   ApiOkResponse,
   ApiOperation,
@@ -24,7 +27,11 @@ import { RequirePermissions } from '../auth/decorators/require-permissions.decor
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
-import { PodOrderQueryDto, TriggerSyncDto } from './dto/pod-order-query.dto';
+import {
+  PodOrderQueryDto,
+  TriggerSyncDto,
+  UpdatePodOrderDesignAmountDto,
+} from './dto/pod-order-query.dto';
 import { PodShopSyncStatusListDto, PodShopSyncStatusQueryDto } from './dto/pod-shop-sync-status.dto';
 import {
   PaginatedPodOrderResponseDto,
@@ -125,6 +132,30 @@ export class PodOrderController {
     @Query() query: PodShopSyncStatusQueryDto,
   ): Promise<PodShopSyncStatusListDto> {
     return this.service.findSyncStatus(user.organizationId, query, scope);
+  }
+
+  @Patch('orders/:id/design-amount')
+  @HttpCode(HttpStatus.OK)
+  // 🔴 Quyền RIÊNG cho chi phí nhập tay (ảnh hưởng lợi nhuận): `pod.tiktok.order.read` không đủ. Mặc định chỉ Admin
+  // (seed cấp toàn bộ catalog cho ADMIN); role khác chỉ có khi Admin cấp tường minh.
+  @RequirePermissions('pod.tiktok.order.update')
+  @ApiOperation({
+    summary: 'Cập nhật Design Amount của đơn (cột Giá)',
+    description:
+      'Chi phí design nhập tay (USD, ≥ 0). Lợi nhuận đơn = … − Label − Design Amount; Dashboard Seller Statistics ' +
+      'cộng cột Design Amount và trừ vào Est. profit / Current Profit. Đồng bộ TikTok không ghi đè giá trị này. ' +
+      'Trả về đơn với tài chính đã tính lại. Đơn ngoài phạm vi shop ⇒ 403 POD_SHOP_FORBIDDEN.',
+  })
+  @ApiOkResponse({ type: PodOrderResponseDto })
+  @ApiBadRequestResponse({ description: 'Design Amount thiếu / âm / quá 2 chữ số thập phân' })
+  @ApiNotFoundResponse({ description: 'Không tìm thấy đơn' })
+  updateDesignAmount(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdatePodOrderDesignAmountDto,
+  ): Promise<PodOrderResponseDto> {
+    return this.service.updateDesignAmount(user.organizationId, user.userId, id, dto, scope);
   }
 
   // Đặt CUỐI để `orders/stats` và `orders/sync` không bị `:id` bắt nhầm.

@@ -7,16 +7,17 @@ import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { cn } from '@/lib/utils';
 import { EMPTY, type OrderPriceBreakdown } from '../../order-view-model';
 import type { FinanceBreakdown, PodOrderProceeds } from '../../order-types';
+import { DesignAmountLine } from './design-amount-line';
 import { useFinancialLabels } from './order-financial-labels';
 
 /**
  * Cột **Giá**: Tạm tính · Thuế · Phí ship · Tổng tiền · Tiền thu về · Base cost · Phí ship Seller · Label ·
- * Lợi nhuận · Margin.
+ * Design Amount (sửa tại chỗ) · Lợi nhuận · Margin.
  *
  * 🔴 Giao diện KHÔNG tự tính công thức tài chính nào — mọi số do backend trả:
  *   - Tiền thu về = \`settlement_amount\` (đã quyết toán) hoặc \`est_settlement_amount\` (ước tính)
  *     của TikTok Finance API; nhãn "Ước tính" / "Đã quyết toán" nói rõ nguồn.
- *   - Lợi nhuận = tiền thu về − base cost − phí ship Seller CHƯA nằm trong tiền thu về − label (mỗi đơn);
+ *   - Lợi nhuận = tiền thu về − base cost − phí ship Seller CHƯA nằm trong tiền thu về − label (mỗi đơn) − Design Amount;
  *     Margin = lợi nhuận ÷ tiền thu về (backend tính).
  *   - Chưa đủ dữ kiện ⇒ \`—\` kèm tooltip nói đúng thiếu gì (chưa fulfill, chờ báo giá…).
  *
@@ -77,6 +78,13 @@ export function OrderPriceCell({ price }: { price: OrderPriceBreakdown }) {
         label={t('orders.price.labelCost')}
         value={money(financials.labelCost, financials.labelCostCurrency || proceedsCurrency)}
         hint={t('orders.price.labelCostHint')}
+      />
+      {/* `key` theo đơn: ô đang sửa không bao giờ "đi theo" sang đơn khác khi đổi trang / sắp xếp lại. */}
+      <DesignAmountLine
+        key={price.orderId}
+        orderId={price.orderId}
+        amount={financials.designAmount ?? 0}
+        currency={financials.designAmountCurrency || 'USD'}
       />
       <Line
         label={t('orders.price.profit')}

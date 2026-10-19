@@ -106,6 +106,31 @@
       },
       "allSellers": "Tất cả seller",
       "unassigned": "Chưa assign"
+    },
+    "loginInfo": {
+      "title": "Thông tin đăng nhập TikTok",
+      "mail": "Tiktok mail",
+      "password": "Password tiktok",
+      "twoFactor": "2FA Code",
+      "twoFactorHint": "Khoá / secret 2FA của tài khoản TikTok — được mã hoá và bảo vệ như mật khẩu.",
+      "onhold": "Onhold Amount",
+      "moneyReturnDate": "Ngày về tiền",
+      "keepPlaceholder": "Đã lưu — để trống để giữ nguyên",
+      "emptyPlaceholder": "Chưa có — nhập để lưu",
+      "clearPassword": "Xoá Password tiktok đã lưu",
+      "clearTwoFactor": "Xoá 2FA Code đã lưu",
+      "clearDate": "Xoá ngày về tiền",
+      "showTyped": "Hiện ký tự đang nhập",
+      "hideTyped": "Ẩn ký tự đang nhập",
+      "reveal": "Xem Password / 2FA đã lưu",
+      "revealHint": "Mỗi lần xem đều được ghi nhật ký kiểm toán. Giá trị chỉ hiện trong cửa sổ này và mất khi đóng.",
+      "revealedTitle": "Giá trị đang lưu",
+      "hideRevealed": "Ẩn",
+      "revealFailed": "Không xem được thông tin đăng nhập",
+      "saved": "Đã lưu thông tin đăng nhập",
+      "saveFailed": "Lưu thông tin đăng nhập thất bại",
+      "noChanges": "Không có thay đổi nào",
+      "storedHint": "Đã lưu (được mã hoá) — mở Thông tin đăng nhập để xem nếu có quyền"
     }
   },
   "design": {
@@ -1464,7 +1489,8 @@
         "COST_CURRENCY_UNKNOWN": "Nhà cung cấp không nêu đơn vị tiền của base cost — chưa tính lợi nhuận.",
         "CURRENCY_MISMATCH": "Tiền thu về và base cost khác đơn vị tiền — chưa tính lợi nhuận.",
         "SHIPPING_UNKNOWN": "Chưa xác định được phí ship Seller chịu — chưa tính lợi nhuận (không coi là $0).",
-        "LABEL_CURRENCY_MISMATCH": "Label cost chỉ cấu hình cho đơn vị tiền khác — chưa tính lợi nhuận (không quy đổi tỉ giá)."
+        "LABEL_CURRENCY_MISMATCH": "Label cost chỉ cấu hình cho đơn vị tiền khác — chưa tính lợi nhuận (không quy đổi tỉ giá).",
+        "DESIGN_CURRENCY_MISMATCH": "Design Amount (USD) không trừ được vào đơn tiền khác — chưa tính lợi nhuận (không quy đổi tỉ giá)."
       },
       "section": {
         "revenue": "Doanh thu",
@@ -1520,7 +1546,13 @@
         "TIKTOK_CHARGED": "Nguồn: TikTok Finance — phí ship TikTok đã tính trong ước tính.",
         "SELLER_SHIPPING_DISCOUNT": "Nguồn: TikTok Finance — seller_shipping_fee_discount_amount (free ship do Seller tài trợ).",
         "ORDER_DETAIL": "Nguồn: Get Order Detail — shipping_fee_seller_discount (giao dịch chưa có breakdown)."
-      }
+      },
+      "designAmount": "Design Amount",
+      "designAmountHint": "Chi phí design của đơn — trừ vào Lợi nhuận. Mặc định 0.",
+      "designAmountEdit": "Sửa Design Amount",
+      "designAmountSaved": "Đã lưu Design Amount",
+      "designAmountFailed": "Lưu Design Amount thất bại",
+      "designAmountInvalid": "Design Amount phải là số ≥ 0, tối đa 2 chữ số thập phân"
     },
     "fulfillment": {
       "notFulfilled": "Chưa gửi",

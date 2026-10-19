@@ -69,5 +69,35 @@
   "subtitle": "Manage your organization's staff records",
   "title": "Employees",
   "updateFailed": "Update failed",
-  "updateSuccess": "Updated successfully"
+  "updateSuccess": "Updated successfully",
+  "accountHandover": {
+    "column": "Account handover pay",
+    "open": "View / adjust account handover pay",
+    "title": "Account handover pay",
+    "amountLabel": "Account handover pay (USD)",
+    "noteLabel": "Note",
+    "notePlaceholder": "Reason for the manual change (kept in history)",
+    "invalid": "Amount must be ≥ 0 with at most 2 decimals",
+    "rule": "Automatically +40 USD when the employee links a new TikTok Account or an Admin assigns them an unassigned account — once per account. Moving an account between employees does not add or deduct anything.",
+    "historyTitle": "History",
+    "historyEmpty": "No changes yet.",
+    "saved": "Account handover pay updated",
+    "saveFailed": "Failed to update account handover pay",
+    "noChanges": "Amount unchanged",
+    "current": "Current balance: {{amount}}",
+    "col": {
+      "time": "Time",
+      "type": "Type",
+      "account": "TikTok Account",
+      "amount": "Change",
+      "balance": "Before → After",
+      "actor": "By",
+      "note": "Note"
+    },
+    "type": {
+      "EMPLOYEE_LINK": "Self-linked account",
+      "ADMIN_ASSIGN": "Assigned by Admin",
+      "MANUAL_ADJUSTMENT": "Manual adjustment"
+    }
+  }
 }

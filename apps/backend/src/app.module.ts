@@ -87,6 +87,13 @@ import { NotificationModule } from './modules/notification/notification.module';
               '*.refresh_token',
               '*.cipher',
               '*.sign',
+              // TikTok Accounts — Password tiktok / 2FA Code (plaintext lẫn ciphertext).
+              'req.body.tiktokPassword',
+              'req.body.tiktokTwoFactorCode',
+              '*.tiktokPassword',
+              '*.tiktokTwoFactorCode',
+              '*.tiktokPasswordEnc',
+              '*.tiktokTwoFactorEnc',
             ],
             censor: '[REDACTED]',
           },

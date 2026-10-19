@@ -166,6 +166,14 @@ export default () => ({
   },
 
   /**
+   * "Tiền giao account" — số tiền cộng cho Employee khi nhận MỘT TikTok Account mới (tự link hoặc được Admin
+   * giao). Đơn vị USD (cột `employees.account_handover_amount`). Mỗi account chỉ sinh khoản cộng MỘT lần.
+   */
+  accountHandover: {
+    creditAmount: parseFloat(process.env.ACCOUNT_HANDOVER_CREDIT_AMOUNT ?? '40'),
+  },
+
+  /**
    * Module Fulfillment — gửi đơn sang xưởng in (docs/fulfillment/README.md).
    *
    * API key của nhà cung cấp KHÔNG nằm ở đây: mỗi Organization tự cấu hình và khoá được

@@ -1,6 +1,8 @@
 import { Module } from '@nestjs/common';
 import { ScheduleModule } from '@nestjs/schedule';
+import { EncryptionService } from '../../common/services/encryption.service';
 import { AuthModule } from '../auth/auth.module';
+import { EmployeeModule } from '../employee/employee.module';
 import { NotificationModule } from '../notification/notification.module';
 import { TiktokApiClient } from './clients/tiktok-api.client';
 import { TiktokAuthClient } from './clients/tiktok-auth.client';
@@ -32,6 +34,7 @@ import { PodTiktokAccountRepository } from './repositories/pod-tiktok-account.re
 import { PodTiktokOAuthStateRepository } from './repositories/pod-tiktok-oauth-state.repository';
 import { PodTiktokShopSyncRepository } from './repositories/pod-tiktok-shop-sync.repository';
 import { PodTiktokShopSyncService } from './services/pod-tiktok-shop-sync.service';
+import { PodTiktokAccountInfoService } from './services/pod-tiktok-account-info.service';
 import { PodOrderFinanceService } from './services/pod-order-finance.service';
 import { PodOrderSyncJob } from './schedulers/pod-order-sync.job';
 import { PodOrderIngestionService } from './services/pod-order-ingestion.service';
@@ -68,7 +71,8 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
 @Module({
   // NotificationModule: ghi sự kiện NEW ORDER vào outbox trong transaction tạo đơn (một chiều —
   // module Notification không import module POD).
-  imports: [AuthModule, NotificationModule, ScheduleModule.forRoot()],
+  // EmployeeModule: "Tiền giao account" (AccountHandoverService) cộng trong luồng link / assign.
+  imports: [AuthModule, EmployeeModule, NotificationModule, ScheduleModule.forRoot()],
   controllers: [
     TiktokCallbackController,
     PodTiktokAccountController,
@@ -89,6 +93,10 @@ import { TiktokEncryptionService } from './services/tiktok-encryption.service';
     PodTiktokOAuthService,
     PodTiktokAccountRepository,
     PodTiktokOAuthStateRepository,
+    // Thông tin đăng nhập nhập tay (Tiktok mail · Password · 2FA · Ngày về tiền). Password / 2FA mã hoá bằng
+    // `EncryptionService` (ACCOUNT_ENCRYPTION_KEY — miền credential tài khoản sàn, tách khỏi khoá token TikTok).
+    PodTiktokAccountInfoService,
+    EncryptionService,
     // Shop Sync — đối chiếu thông tin + trạng thái shop với TikTok (nút "Sync Shops").
     PodTiktokShopSyncService,
     PodTiktokShopSyncRepository,

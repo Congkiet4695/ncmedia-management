@@ -29,6 +29,8 @@ export interface Employee {
   orderKpi: number;
   revenueKpi: number;
   avatar: string | null;
+  /** Tiền giao account (USD) — số dư của sổ cái giao account. */
+  accountHandoverAmount: number;
   role: EmployeeRole;
   createdAt: string;
   updatedAt: string;
@@ -45,8 +47,36 @@ export interface EmployeeListItem {
   startDate: string | null;
   resignedAt: string | null;
   avatar: string | null;
+  /** Tiền giao account (USD). */
+  accountHandoverAmount: number;
   role: EmployeeRole;
   createdAt: string;
+}
+
+/** Nguồn của một biến động Tiền giao account (khớp enum backend). */
+export type AccountHandoverType = 'EMPLOYEE_LINK' | 'ADMIN_ASSIGN' | 'MANUAL_ADJUSTMENT';
+
+/** Một dòng lịch sử Tiền giao account. */
+export interface AccountHandoverTransaction {
+  id: string;
+  type: AccountHandoverType;
+  /** Biến động có dấu (+ cộng, − trừ). */
+  amount: number;
+  balanceBefore: number;
+  balanceAfter: number;
+  currency: string;
+  tiktokAccountId: string | null;
+  tiktokAccountName: string | null;
+  actorName: string | null;
+  note: string | null;
+  createdAt: string;
+}
+
+/** Body chỉnh tay. `expectedAmount` = số đang thấy ⇒ backend trả 409 nếu số dư vừa đổi. */
+export interface UpdateAccountHandoverPayload {
+  amount: number;
+  expectedAmount: number;
+  note?: string;
 }
 
 /** Thông tin đăng nhập khởi tạo (hiển thị một lần). */

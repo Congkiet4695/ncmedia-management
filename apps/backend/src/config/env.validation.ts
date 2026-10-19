@@ -95,6 +95,7 @@ export const envValidationSchema = Joi.object({
   // Chi phí label MỖI ĐƠN trừ vào lợi nhuận đơn POD (mặc định 0.50 USD). Đơn khác đơn vị tiền ⇒ lợi nhuận "—".
   ORDER_LABEL_COST: Joi.number().min(0).max(1000).default(0.5),
   ORDER_LABEL_COST_CURRENCY: Joi.string().length(3).default('USD'),
+  ACCOUNT_HANDOVER_CREDIT_AMOUNT: Joi.number().min(0).max(100000).default(40),
 
   // --- Module POD — TikTok Shop (docs/pod-tiktok/**) ---
   // app_key / app_secret / service_id: Partner Center → App & Service → Basic Information.

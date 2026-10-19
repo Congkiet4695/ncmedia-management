@@ -70,10 +70,14 @@ export class PodOrderFinancialsDto {
   sellerShipping!: PodOrderSellerShippingDto | null;
   @ApiProperty({ description: 'Chi phí label MỖI ĐƠN (ORDER_LABEL_COST)' }) labelCost!: number;
   @ApiProperty() labelCostCurrency!: string;
+  @ApiProperty({ example: 0, description: 'Design Amount nhập tay của đơn (mặc định 0)' }) designAmount!: number;
+  @ApiProperty({ example: 'USD' }) designAmountCurrency!: string;
   @ApiProperty({
     nullable: true,
     type: Number,
-    description: 'profit = proceeds − productCost − phí ship Seller CHƯA trong proceeds − labelCost',
+    description:
+      'profit = proceeds − productCost − phí ship Seller CHƯA trong proceeds − labelCost − designAmount ' +
+      '(designAmount trừ đúng MỘT lần)',
   })
   profit!: number | null;
   @ApiProperty({
@@ -92,6 +96,7 @@ export class PodOrderFinancialsDto {
       'CURRENCY_MISMATCH',
       'SHIPPING_UNKNOWN',
       'LABEL_CURRENCY_MISMATCH',
+      'DESIGN_CURRENCY_MISMATCH',
     ],
     description: 'Vì sao chưa tính được lợi nhuận (OK = đã tính)',
   })

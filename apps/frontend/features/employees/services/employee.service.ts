@@ -8,8 +8,11 @@ import type {
   EmployeeQuery,
   EmployeeRole,
   EmployeeStatus,
+  AccountHandoverTransaction,
   ResetPasswordResult,
+  UpdateAccountHandoverPayload,
 } from '../types';
+import type { Paginated } from '@/types/api';
 
 export interface CreateEmployeePayload {
   fullName: string;
@@ -50,6 +53,25 @@ export const employeeService = {
     const res = await apiClient.get<ApiResponse<EmployeeListResult>>('/employees', {
       params: clean(query as Record<string, unknown>),
     });
+    return res.data.data;
+  },
+
+  /** Admin đặt lại Tiền giao account (ghi lịch sử MANUAL_ADJUSTMENT). */
+  async updateAccountHandoverAmount(id: string, payload: UpdateAccountHandoverPayload): Promise<Employee> {
+    const res = await apiClient.patch<ApiResponse<Employee>>(`/employees/${id}/account-handover-amount`, payload);
+    return res.data.data;
+  },
+
+  /** Lịch sử Tiền giao account (mới nhất trước). */
+  async accountHandoverTransactions(
+    id: string,
+    page: number,
+    limit: number,
+  ): Promise<Paginated<AccountHandoverTransaction>> {
+    const res = await apiClient.get<ApiResponse<Paginated<AccountHandoverTransaction>>>(
+      `/employees/${id}/account-handover-transactions`,
+      { params: { page, limit } },
+    );
     return res.data.data;
   },
 

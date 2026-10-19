@@ -49,6 +49,21 @@ export class PodTiktokShopDto {
  * Chi tiết kết nối TikTok Shop.
  * ⚠️ KHÔNG chứa access_token / refresh_token — chỉ trả metadata về thời hạn.
  */
+/** Số tiền đang hold của kết nối trong MỘT đơn vị tiền (cùng nguồn thẻ Hold của Dashboard). */
+export class PodTiktokOnholdAmountDto {
+  @ApiProperty({ example: 'USD' }) currency!: string;
+  @ApiProperty({ example: 125.4 }) amount!: number;
+}
+
+/**
+ * Credential đã GIẢI MÃ — CHỈ trả ở `GET /pod/tiktok/accounts/:id/credentials` (quyền
+ * `pod.tiktok.account.credentials.read`, mỗi lần gọi ghi audit). Không bao giờ có trong list/detail.
+ */
+export class PodTiktokAccountCredentialsDto {
+  @ApiProperty({ nullable: true, type: String }) tiktokPassword!: string | null;
+  @ApiProperty({ nullable: true, type: String }) tiktokTwoFactorCode!: string | null;
+}
+
 export class PodTiktokAccountResponseDto {
   @ApiProperty() id!: string;
   @ApiProperty({ example: 'NCMedia US Store' }) accountName!: string;
@@ -105,6 +120,13 @@ export class PodTiktokAccountResponseDto {
   @ApiProperty({ nullable: true, type: String }) lastErrorMessage!: string | null;
 
   @ApiProperty({ type: PodTiktokShopDto, isArray: true }) shops!: PodTiktokShopDto[];
+
+  @ApiProperty({ nullable: true, type: String, description: 'Tiktok mail' }) tiktokMail!: string | null;
+  @ApiProperty({ description: 'Đã lưu Password tiktok (giá trị KHÔNG được trả về)' }) hasTiktokPassword!: boolean;
+  @ApiProperty({ description: 'Đã lưu 2FA Code (giá trị KHÔNG được trả về)' }) hasTiktokTwoFactorCode!: boolean;
+  @ApiProperty({ nullable: true, type: String, example: '2026-11-05', description: 'Ngày về tiền (YYYY-MM-DD)' })
+  moneyReturnDate!: string | null;
+
   @ApiProperty() createdAt!: string;
   @ApiProperty() updatedAt!: string;
 }
@@ -155,6 +177,21 @@ export class PodTiktokAccountListItemDto {
   @ApiProperty() accessTokenExpired!: boolean;
   @ApiProperty() daysUntilReauthorize!: number;
   @ApiProperty({ nullable: true, type: String }) lastSyncedAt!: string | null;
+
+  @ApiProperty({ nullable: true, type: String, description: 'Tiktok mail' }) tiktokMail!: string | null;
+  @ApiProperty({ description: 'Đã lưu Password tiktok (giá trị KHÔNG được trả về)' }) hasTiktokPassword!: boolean;
+  @ApiProperty({ description: 'Đã lưu 2FA Code (giá trị KHÔNG được trả về)' }) hasTiktokTwoFactorCode!: boolean;
+  @ApiProperty({ nullable: true, type: String, example: '2026-11-05', description: 'Ngày về tiền (YYYY-MM-DD)' })
+  moneyReturnDate!: string | null;
+  @ApiProperty({
+    type: PodTiktokOnholdAmountDto,
+    isArray: true,
+    description:
+      'Onhold Amount theo đơn vị tiền = Σ est_settlement_amount giao dịch TikTok CHƯA quyết toán của kết nối — ' +
+      'CÙNG nguồn thẻ "Tổng tiền đang hold" của Dashboard. Rỗng = không có khoản hold.',
+  })
+  onholdAmounts!: PodTiktokOnholdAmountDto[];
+
   @ApiProperty() createdAt!: string;
 }
 

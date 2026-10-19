@@ -182,6 +182,27 @@ export class PodOrderRepository {
     await tx.podOrder.update({ where: { id }, data });
   }
 
+  /**
+   * Ghi Design Amount nhập tay — CHỈ cột này (đồng bộ TikTok không bao giờ ghi cột này, và ngược lại).
+   * Trả giá trị cũ; `null` = không tìm thấy đơn trong tổ chức.
+   */
+  async updateDesignAmount(
+    organizationId: string,
+    id: string,
+    designAmount: Prisma.Decimal,
+    actorUserId: string,
+  ): Promise<Prisma.Decimal | null> {
+    return this.prisma.$transaction(async (tx) => {
+      const current = await tx.podOrder.findFirst({
+        where: { id, organizationId, deletedAt: null },
+        select: { designAmount: true },
+      });
+      if (!current) return null;
+      await tx.podOrder.update({ where: { id }, data: { designAmount, updatedBy: actorUserId } });
+      return current.designAmount;
+    });
+  }
+
   /** Chỉ chạm `last_synced_at` khi đơn KHÔNG đổi — không tăng `updated_at` nghiệp vụ. */
   async touchLastSynced(tiktokOrderIds: string[], organizationId: string, at: Date): Promise<void> {
     if (tiktokOrderIds.length === 0) return;

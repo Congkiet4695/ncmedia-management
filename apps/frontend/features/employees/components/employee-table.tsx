@@ -13,6 +13,7 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { formatDate } from '@/lib/format';
 import { EmployeeStatusBadge } from './employee-status-badge';
 import type { EmployeeListItem } from '../types';
@@ -22,10 +23,13 @@ interface EmployeeTableProps {
   loading?: boolean;
   onView: (employee: EmployeeListItem) => void;
   onDelete: (employee: EmployeeListItem) => void;
+  /** Mở dialog Tiền giao account (chỉnh tay + lịch sử). */
+  onAccountHandover: (employee: EmployeeListItem) => void;
 }
 
-export function EmployeeTable({ employees, loading, onView, onDelete }: EmployeeTableProps) {
+export function EmployeeTable({ employees, loading, onView, onDelete, onAccountHandover }: EmployeeTableProps) {
   const { t } = useTranslation(['employee', 'common']);
+  const { formatCurrency } = useLocaleFormat();
   if (loading) {
     return (
       <div className="flex items-center justify-center py-16">
@@ -54,6 +58,7 @@ export function EmployeeTable({ employees, loading, onView, onDelete }: Employee
           <TableHead>{t('field.status')}</TableHead>
           <TableHead>{t('field.startDate')}</TableHead>
           <TableHead>{t('resignedAt')}</TableHead>
+          <TableHead className="whitespace-nowrap text-right">{t('accountHandover.column')}</TableHead>
           <TableHead className="text-right">{t('common:table.actions')}</TableHead>
         </TableRow>
       </TableHeader>
@@ -77,6 +82,16 @@ export function EmployeeTable({ employees, loading, onView, onDelete }: Employee
             </TableCell>
             <TableCell className="whitespace-nowrap text-muted-foreground">
               {formatDate(employee.resignedAt)}
+            </TableCell>
+            <TableCell className="whitespace-nowrap text-right">
+              <button
+                type="button"
+                className="rounded px-1 tabular-nums underline-offset-2 hover:underline"
+                onClick={() => onAccountHandover(employee)}
+                title={t('accountHandover.open')}
+              >
+                {formatCurrency(employee.accountHandoverAmount ?? 0, 'USD')}
+              </button>
             </TableCell>
             <TableCell>
               <div className="flex items-center justify-end gap-1">

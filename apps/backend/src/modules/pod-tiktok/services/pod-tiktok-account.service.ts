@@ -1,6 +1,12 @@
 import { BadRequestException, Inject, Injectable, Logger, Optional } from '@nestjs/common';
-import { PodTiktokAccountStatus, PodTiktokTokenAction, Prisma } from '@prisma/client';
+import {
+  EmployeeAccountHandoverType,
+  PodTiktokAccountStatus,
+  PodTiktokTokenAction,
+  Prisma,
+} from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { AccountHandoverService } from '../../employee/services/account-handover.service';
 import { TIKTOK_SELLER_USER_TYPES } from '../constants/tiktok.constants';
 import { normalizeSellerType } from '../shared/seller-type';
 import { TIKTOK_ERROR_CODES, TiktokErrorClass } from '../constants/tiktok-error-code.constants';
@@ -77,6 +83,8 @@ export class PodTiktokAccountService {
     private readonly encryption: TiktokEncryptionService,
     private readonly authClient: TiktokAuthClient,
     private readonly apiClient: TiktokApiClient,
+    /** "Tiền giao account" — cộng cho Employee khi nhận một TikTok Account mới (link / assign). */
+    private readonly accountHandover: AccountHandoverService,
     /**
      * Cổng kích hoạt đồng bộ sản phẩm — do `PodProductSyncBridgeModule` (@Global) cung cấp.
      *
@@ -163,8 +171,13 @@ export class PodTiktokAccountService {
       sortBy: query.sortBy ?? 'createdAt',
       sortOrder: query.sortOrder ?? 'desc',
     });
+    // Onhold Amount của cả trang — MỘT truy vấn GROUP BY (không N+1).
+    const holds = await this.repo.holdByAccounts(
+      organizationId,
+      items.map((item) => item.id),
+    );
     return {
-      items: items.map((item) => this.mapper.toListItem(item)),
+      items: items.map((item) => this.mapper.toListItem(item, holds.get(item.id) ?? [])),
       meta: { total, page, limit, totalPages: total === 0 ? 0 : Math.ceil(total / limit) },
       totalShops,
     };
@@ -226,15 +239,6 @@ export class PodTiktokAccountService {
   }
 
   /**
-   * Phân công / bỏ phân công Seller phụ trách (`sellerId = null` để bỏ).
-   *
-   * `sellerId` là ID **Employee**. Điều kiện hợp lệ (kiểm ở repository, một truy vấn):
-   * cùng Organization + hồ sơ ACTIVE + Role `EMPLOYEE`. Admin/Fulfillment bị từ chối.
-   *
-   * Đổi người phụ trách có hiệu lực NGAY trên toàn hệ thống (Order, Payout, Dashboard)
-   * vì các nơi đó join ngược qua account chứ không lưu bản sao seller.
-   */
-  /**
    * Gán nhà cung cấp fulfillment cho một kết nối TikTok.
    *
    * Chỉ chấp nhận nhà cung cấp CÙNG TỔ CHỨC và đang ACTIVE — chặn ngay tại đây thay vì để
@@ -277,6 +281,20 @@ export class PodTiktokAccountService {
     return this.findOne(organizationId, id);
   }
 
+  /**
+   * Phân công / bỏ phân công Seller phụ trách (`sellerId = null` để bỏ).
+   *
+   * `sellerId` là ID **Employee**. Điều kiện hợp lệ (kiểm ở repository, một truy vấn):
+   * cùng Organization + hồ sơ ACTIVE + Role `EMPLOYEE`. Admin/Fulfillment bị từ chối.
+   *
+   * Đổi người phụ trách có hiệu lực NGAY trên toàn hệ thống (Order, Payout, Dashboard)
+   * vì các nơi đó join ngược qua account chứ không lưu bản sao seller.
+   *
+   * "Tiền giao account" (ADMIN_ASSIGN): CHỈ khi account đang CHƯA có người phụ trách được giao cho một Employee —
+   * cộng cho Employee được giao (không phải Admin thao tác), cùng transaction với việc ghi phân công. Chuyển
+   * account từ A sang B KHÔNG cộng cho B và KHÔNG trừ của A (chưa có chính sách hoàn trả); account đã từng sinh
+   * khoản cộng (tự link, hoặc giao trước đó) không cộng lần hai — xem `tiktokAccountHandoverEventKey`.
+   */
   async assignSeller(
     organizationId: string,
     actorUserId: string,
@@ -290,15 +308,34 @@ export class PodTiktokAccountService {
       const eligible = await this.repo.isEligibleSeller(organizationId, dto.sellerId);
       if (!eligible) throw new PodTiktokSellerInvalidException();
     }
+    const nextSellerId = dto.sellerId ?? null;
 
-    await this.repo.assignSeller(existing.id, dto.sellerId ?? null, actorUserId);
+    const { previousSellerId, credited } = await this.prisma.$transaction(async (tx) => {
+      // Đọc người phụ trách SAU khi khoá dòng — không dùng `existing.sellerId` (có thể đã cũ khi hai Admin
+      // phân công cùng lúc).
+      const previous = await this.repo.lockSellerId(tx, organizationId, existing.id);
+      if (previous === undefined) throw new PodTiktokAccountNotFoundException();
+      await this.repo.assignSeller(tx, existing.id, nextSellerId, actorUserId);
+      const credit =
+        previous === null && nextSellerId
+          ? await this.accountHandover.creditTiktokAccountHandover(tx, {
+              organizationId,
+              employeeId: nextSellerId,
+              tiktokAccountId: existing.id,
+              type: EmployeeAccountHandoverType.ADMIN_ASSIGN,
+              actorUserId,
+            })
+          : { credited: false };
+      return { previousSellerId: previous, credited: credit.credited };
+    });
     this.logger.log({
       module: 'pod-tiktok',
       operation: 'account.assign-seller',
       organizationId,
       accountId: id,
-      sellerId: dto.sellerId ?? null,
-      previousSellerId: existing.sellerId,
+      sellerId: nextSellerId,
+      previousSellerId,
+      handoverCredited: credited,
       msg: dto.sellerId ? 'Đã phân công Seller phụ trách' : 'Đã bỏ phân công Seller',
     });
 
@@ -556,6 +593,18 @@ export class PodTiktokAccountService {
           });
           accountId = created.id;
           action = PodTiktokTokenAction.ISSUE;
+          // "Tiền giao account" (EMPLOYEE_LINK): Employee tự link một account MỚI ⇒ cộng cho chính họ (danh tính
+          // từ `state` đã xác thực, không từ client). Cùng transaction ⇒ link lỗi / rollback thì không cộng.
+          // Uỷ quyền lại / khôi phục (nhánh trên) KHÔNG phải lần giao mới ⇒ không cộng.
+          if (sellerId) {
+            await this.accountHandover.creditTiktokAccountHandover(tx, {
+              organizationId,
+              employeeId: sellerId,
+              tiktokAccountId: accountId,
+              type: EmployeeAccountHandoverType.EMPLOYEE_LINK,
+              actorUserId,
+            });
+          }
         }
 
         for (const shop of shops) {

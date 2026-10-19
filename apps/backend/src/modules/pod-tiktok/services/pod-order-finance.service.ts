@@ -84,7 +84,8 @@ export class PodOrderFinanceService {
       // Get Order Detail: loại vận chuyển + free ship do Seller tài trợ (nguồn dự phòng của phí ship Seller).
       this.prisma.podOrder.findMany({
         where: { organizationId, id: { in: podOrderIds } },
-        select: { id: true, shippingType: true, shippingFeeSellerDiscount: true },
+        // + Design Amount nhập tay (chi phí design của đơn — trừ vào lợi nhuận).
+        select: { id: true, shippingType: true, shippingFeeSellerDiscount: true, designAmount: true },
       }),
     ]);
     const shippingOf = new Map(shippingRows.map((row) => [row.id, row]));
@@ -145,6 +146,7 @@ export class PodOrderFinanceService {
             sellerShippingDiscount: toNumber(shipping?.shippingFeeSellerDiscount ?? null),
           },
           labelCost,
+          designAmount: toNumber(shipping?.designAmount ?? null),
         }),
       );
     }

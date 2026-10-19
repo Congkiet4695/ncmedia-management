@@ -59,6 +59,35 @@ export interface PodTiktokShopWriteData {
   sellerType: string;
 }
 
+/**
+ * Thông tin đăng nhập nhập tay (màn TikTok Accounts). `undefined` = KHÔNG đổi trường đó; `null` = xoá.
+ * Password / 2FA đã được service MÃ HOÁ — repository chỉ lưu ciphertext.
+ */
+export interface PodTiktokAccountLoginInfoWriteData {
+  tiktokMail?: string | null;
+  tiktokPasswordEnc?: string | null;
+  tiktokTwoFactorEnc?: string | null;
+  moneyReturnDate?: Date | null;
+}
+
+/** Một dòng audit xem / cập nhật credential — chỉ TÊN trường, không có giá trị. */
+export interface PodTiktokCredentialAuditData {
+  organizationId: string;
+  accountId: string;
+  action: 'REVEAL' | 'UPDATE';
+  fields: string[];
+  performedBy: string;
+  ipAddress?: string;
+  userAgent?: string;
+}
+
+/** Số tiền đang hold của một kết nối trong MỘT đơn vị tiền. */
+export interface PodTiktokAccountHoldRow {
+  currency: string;
+  /** Chuỗi Decimal. */
+  amount: string;
+}
+
 export interface PodTiktokFindManyParams {
   page: number;
   limit: number;
@@ -606,11 +635,93 @@ export class PodTiktokAccountRepository {
     return count > 0;
   }
 
-  async assignSeller(id: string, sellerId: string | null, actorUserId: string): Promise<void> {
-    await this.prisma.podTiktokAccount.update({
+  /**
+   * Khoá dòng kết nối (FOR UPDATE) và đọc người phụ trách HIỆN TẠI — trong transaction phân công, để hai lượt
+   * phân công đồng thời không cùng thấy "chưa có người phụ trách". `undefined` = không còn tồn tại.
+   */
+  async lockSellerId(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    id: string,
+  ): Promise<string | null | undefined> {
+    const rows = await tx.$queryRaw<Array<{ seller_id: string | null }>>(Prisma.sql`
+      SELECT seller_id FROM pod_tiktok_accounts
+       WHERE id = ${id}::uuid AND organization_id = ${organizationId}::uuid AND deleted_at IS NULL
+       FOR UPDATE`);
+    return rows.length ? rows[0].seller_id : undefined;
+  }
+
+  async assignSeller(
+    tx: Prisma.TransactionClient,
+    id: string,
+    sellerId: string | null,
+    actorUserId: string,
+  ): Promise<void> {
+    await tx.podTiktokAccount.update({
       where: { id },
       data: { sellerId, updatedBy: actorUserId },
     });
+  }
+
+  /** Ghi thông tin đăng nhập nhập tay — chỉ các trường có mặt (`undefined` giữ nguyên giá trị cũ). */
+  async updateLoginInfo(
+    tx: Prisma.TransactionClient,
+    id: string,
+    data: PodTiktokAccountLoginInfoWriteData,
+    actorUserId: string,
+  ): Promise<void> {
+    await tx.podTiktokAccount.update({
+      where: { id },
+      data: { ...data, updatedBy: actorUserId },
+    });
+  }
+
+  async insertCredentialAudit(
+    tx: Prisma.TransactionClient,
+    data: PodTiktokCredentialAuditData,
+  ): Promise<void> {
+    await tx.podTiktokAccountCredentialAudit.create({
+      data: {
+        organizationId: data.organizationId,
+        accountId: data.accountId,
+        action: data.action,
+        fields: data.fields,
+        performedBy: data.performedBy,
+        ipAddress: data.ipAddress ?? null,
+        userAgent: data.userAgent?.slice(0, 512) ?? null,
+      },
+    });
+  }
+
+  /**
+   * "Onhold Amount" theo kết nối — CÙNG nguồn với thẻ "Tổng tiền đang hold" của Dashboard
+   * (`PodDashboardRepository.holdTotals`): Σ `est_settlement_amount` của `pod_tiktok_unsettled_transactions`
+   * (TikTok chưa quyết toán), không theo khoảng ngày, tách theo đơn vị tiền (không quy đổi).
+   *
+   * Mỗi giao dịch thuộc ĐÚNG một kết nối (`account_id`) ⇒ cộng theo kết nối không đếm trùng; MỘT truy vấn
+   * GROUP BY cho cả trang (không N+1).
+   */
+  async holdByAccounts(
+    organizationId: string,
+    accountIds: string[],
+  ): Promise<Map<string, PodTiktokAccountHoldRow[]>> {
+    const result = new Map<string, PodTiktokAccountHoldRow[]>();
+    if (accountIds.length === 0) return result;
+    const rows = await this.prisma.podTiktokUnsettledTransaction.groupBy({
+      by: ['accountId', 'currency'],
+      where: { organizationId, deletedAt: null, accountId: { in: accountIds } },
+      _sum: { estSettlementAmount: true },
+      orderBy: [{ accountId: 'asc' }, { currency: 'asc' }],
+    });
+    for (const row of rows) {
+      const list = result.get(row.accountId) ?? [];
+      list.push({
+        currency: row.currency,
+        amount: (row._sum.estSettlementAmount ?? new Prisma.Decimal(0)).toString(),
+      });
+      result.set(row.accountId, list);
+    }
+    return result;
   }
 
   /**

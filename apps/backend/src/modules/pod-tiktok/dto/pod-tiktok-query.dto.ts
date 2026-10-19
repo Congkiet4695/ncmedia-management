@@ -1,6 +1,7 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  IsEmail,
   IsEnum,
   IsIn,
   IsInt,
@@ -17,6 +18,31 @@ import { POD_TIKTOK_SORT_FIELDS, type PodTiktokSortField } from '../constants/ti
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
+
+/** Dạng ngày lịch `YYYY-MM-DD` (ngày có thật hay không — kiểm ở `parseCalendarDay`). */
+const CALENDAR_DAY = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+/** Email: bỏ khoảng trắng + chữ thường; chuỗi rỗng ⇒ `null` (xoá). */
+const normalizeEmail = ({ value }: { value: unknown }): unknown => {
+  if (typeof value !== 'string') return value;
+  const normalized = value.trim().toLowerCase();
+  return normalized === '' ? null : normalized;
+};
+
+/**
+ * Secret (password / 2FA): chuỗi rỗng ⇒ `undefined` = GIỮ NGUYÊN giá trị đã lưu. Xoá phải gửi `null` tường minh —
+ * một ô để trống không bao giờ vô tình xoá mật khẩu.
+ */
+const blankSecretUnchanged = ({ value }: { value: unknown }): unknown =>
+  typeof value === 'string' && value.trim() === '' ? undefined : value;
+
+/** 2FA: như secret, thêm bỏ khoảng trắng đầu/cuối (khoá 2FA không có khoảng trắng có nghĩa ở hai đầu). */
+const blankSecretUnchangedTrimmed = ({ value }: { value: unknown }): unknown =>
+  typeof value === 'string' ? (value.trim() === '' ? undefined : value.trim()) : value;
+
+/** Ngày: chuỗi rỗng ⇒ `null` (xoá). */
+const blankDateToNull = ({ value }: { value: unknown }): unknown =>
+  typeof value === 'string' && value.trim() === '' ? null : value;
 
 /** Giá trị `sellerId` để lọc kết nối CHƯA được phân công Seller (`seller_id IS NULL`). */
 export const POD_UNASSIGNED_SELLER = 'UNASSIGNED';
@@ -106,6 +132,52 @@ export class AssignPodSellerDto {
  * shop là ba kho khác nhau. Đây là chỗ khai báo lựa chọn của từng shop; để trống thì lúc
  * Publish hệ thống tự suy (shop chỉ có một kho, hoặc kho TikTok đánh dấu mặc định).
  */
+/**
+ * PATCH /pod/tiktok/accounts/:id/login-info — thông tin nhập tay của kết nối, MỘT request cho cả form.
+ *
+ * Quy ước mọi trường: bỏ qua (`undefined`) = KHÔNG đổi · `null` = xoá · giá trị = đặt mới.
+ * 🔴 Password / 2FA: chuỗi rỗng cũng = không đổi (ô password để trống khi sửa trường khác).
+ */
+export class UpdatePodTiktokAccountLoginInfoDto {
+  @ApiPropertyOptional({ nullable: true, maxLength: 255, example: 'shop.us@gmail.com', description: 'Tiktok mail' })
+  @IsOptional()
+  @Transform(normalizeEmail)
+  @IsEmail({}, { message: 'Tiktok mail không đúng định dạng email' })
+  @MaxLength(255)
+  tiktokMail?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    maxLength: 256,
+    format: 'password',
+    description: 'Password tiktok — lưu MÃ HOÁ, không bao giờ được trả lại ở API list/detail.',
+  })
+  @IsOptional()
+  @Transform(blankSecretUnchanged)
+  @IsString()
+  @MaxLength(256)
+  tiktokPassword?: string | null;
+
+  @ApiPropertyOptional({
+    nullable: true,
+    maxLength: 256,
+    format: 'password',
+    description: '2FA Code — khoá/secret 2FA của tài khoản TikTok; lưu MÃ HOÁ như password.',
+  })
+  @IsOptional()
+  @Transform(blankSecretUnchangedTrimmed)
+  @IsString()
+  @MaxLength(256)
+  tiktokTwoFactorCode?: string | null;
+
+  @ApiPropertyOptional({ nullable: true, example: '2026-11-05', description: 'Ngày về tiền (ngày lịch YYYY-MM-DD)' })
+  @IsOptional()
+  @Transform(blankDateToNull)
+  @IsString()
+  @Matches(CALENDAR_DAY, { message: 'Ngày về tiền phải có dạng YYYY-MM-DD' })
+  moneyReturnDate?: string | null;
+}
+
 export class SetShopWarehouseDto {
   @ApiPropertyOptional({
     format: 'uuid',

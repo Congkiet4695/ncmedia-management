@@ -19,6 +19,8 @@ const MONEY_COLUMNS: MoneyColumn[] = [
   'baseCost',
   'shippingFee',
   'label',
+  // Ngay bên phải Label.
+  'designAmount',
   'profit',
   'currentProfit',
   'paid',
@@ -102,7 +104,7 @@ export function SellerStatsTable({ range, enabled }: { range: DashboardRange; en
         <WidgetEmpty message={t('sellers.empty')} />
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1360px] text-sm">
+          <table className="w-full min-w-[1480px] text-sm">
             <thead className="bg-muted/40 text-xs text-muted-foreground">
               <tr>
                 <th className="px-3 py-2 text-left font-medium">#</th>
@@ -174,6 +176,7 @@ function SellerRow({ index, row, money }: { index: number; row: DashboardSellerR
       <MoneyCell value={money(row.baseCost)} covered={row.baseCostOrders} total={row.fulfilledOrders} />
       <MoneyCell value={money(row.shippingFee)} covered={row.shippingFeeOrders} total={row.orders} />
       <MoneyCell value={money(row.label)} />
+      <MoneyCell value={money(row.designAmount)} />
       {/* Est. profit tính trên CÁC TỔNG của dòng (không còn chỉ cộng đơn đủ dữ kiện) ⇒ không ghi "x/y đơn". */}
       <MoneyCell
         value={money(row.profit)}

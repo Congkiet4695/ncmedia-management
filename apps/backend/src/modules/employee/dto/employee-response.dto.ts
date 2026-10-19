@@ -32,6 +32,8 @@ export class EmployeeResponseDto {
   @ApiProperty({ example: 0, description: 'KPI Đơn hàng (mục tiêu/tháng)' }) orderKpi!: number;
   @ApiProperty({ example: 0, description: 'KPI Doanh thu (USD, mục tiêu/tháng)' }) revenueKpi!: number;
   @ApiProperty({ nullable: true, type: String, example: null }) avatar!: string | null;
+  @ApiProperty({ example: 40, description: 'Tiền giao account (USD) — số dư của sổ cái giao account' })
+  accountHandoverAmount!: number;
   @ApiProperty({ type: EmployeeRoleDto }) role!: EmployeeRoleDto;
   @ApiProperty({ example: '2026-07-15T00:00:00.000Z' }) createdAt!: string;
   @ApiProperty({ example: '2026-07-15T00:00:00.000Z' }) updatedAt!: string;
@@ -39,7 +41,7 @@ export class EmployeeResponseDto {
 
 /**
  * Hàng danh sách (table) — chỉ field cần hiển thị:
- * Avatar, Tên, Email, SĐT, Phòng, Trạng thái, Ngày vào làm, Ngày nghỉ.
+ * Avatar, Tên, Email, SĐT, Phòng, Trạng thái, Ngày vào làm, Ngày nghỉ, Tiền giao account.
  */
 export class EmployeeListItemDto {
   @ApiProperty() id!: string;
@@ -51,6 +53,7 @@ export class EmployeeListItemDto {
   @ApiProperty({ nullable: true, type: String }) startDate!: string | null;
   @ApiProperty({ nullable: true, type: String }) resignedAt!: string | null;
   @ApiProperty({ nullable: true, type: String }) avatar!: string | null;
+  @ApiProperty({ example: 40, description: 'Tiền giao account (USD)' }) accountHandoverAmount!: number;
   @ApiProperty({ type: EmployeeRoleDto }) role!: EmployeeRoleDto;
   @ApiProperty() createdAt!: string;
 }

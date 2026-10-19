@@ -71,8 +71,8 @@ describe('ORDER_STATUS_GROUPS', () => {
   });
 });
 
-describe('sellerCurrentProfit — Paid − Basecost − Label − Seller Shipping Fee', () => {
-  const input = { paid: '475.19', baseCost: '35.46', label: '2', shippingFee: '12.34' };
+describe('sellerCurrentProfit — Paid − Basecost − Label − Seller Shipping Fee − Design Amount', () => {
+  const input = { paid: '475.19', baseCost: '35.46', label: '2', shippingFee: '12.34', designAmount: '0' };
 
   it('số liệu bình thường', () => {
     expect(sellerCurrentProfit(input)).toBe('425.39');
@@ -83,7 +83,7 @@ describe('sellerCurrentProfit — Paid − Basecost − Label − Seller Shippin
   });
 
   it('lợi nhuận âm giữ nguyên dấu (không chặn về 0)', () => {
-    expect(sellerCurrentProfit({ paid: '0', baseCost: '10.5', label: '1', shippingFee: '3.2' })).toBe('-14.7');
+    expect(sellerCurrentProfit({ paid: '0', baseCost: '10.5', label: '1', shippingFee: '3.2', designAmount: '0' })).toBe('-14.7');
   });
 
   it('Label null (khác đơn vị tiền) ⇒ null, không coi là 0', () => {
@@ -92,8 +92,8 @@ describe('sellerCurrentProfit — Paid − Basecost − Label − Seller Shippin
 
   it('tính bằng Decimal trên tổng chưa làm tròn — không lệch số lẻ dấu phẩy động', () => {
     // 0.3 − 0.1 − 0.1 − 0.1 bằng number là 2.7e-17; Decimal cho đúng 0.
-    expect(sellerCurrentProfit({ paid: '0.3', baseCost: '0.1', label: '0.1', shippingFee: '0.1' })).toBe('0');
-    expect(sellerCurrentProfit({ paid: '100.0004', baseCost: '0', label: '0', shippingFee: '0.0001' })).toBe('100.0003');
+    expect(sellerCurrentProfit({ ...input, paid: '0.3', baseCost: '0.1', label: '0.1', shippingFee: '0.1' })).toBe('0');
+    expect(sellerCurrentProfit({ ...input, paid: '100.0004', baseCost: '0', label: '0', shippingFee: '0.0001' })).toBe('100.0003');
   });
 
   it('Shipping Fee trừ ĐÚNG MỘT lần: tăng Shipping Fee x ⇒ Current Profit giảm đúng x', () => {
@@ -101,10 +101,37 @@ describe('sellerCurrentProfit — Paid − Basecost − Label − Seller Shippin
     const after = Number(sellerCurrentProfit({ ...input, shippingFee: '22.34' }));
     expect(Math.round((before - after) * 100) / 100).toBe(10);
   });
+
+  it('Design Amount = 0 ⇒ y như công thức cũ (Paid − Basecost − Label − Shipping Fee)', () => {
+    expect(sellerCurrentProfit({ ...input, designAmount: '0' })).toBe(
+      String(Math.round((475.19 - 35.46 - 2 - 12.34) * 100) / 100),
+    );
+  });
+
+  it('Design Amount trừ ĐÚNG MỘT lần: 425.39 − 7.5 = 417.89', () => {
+    expect(sellerCurrentProfit({ ...input, designAmount: '7.5' })).toBe('417.89');
+  });
+
+  it('Shipping Fee vẫn trừ trọn (quy tắc PO giữ nguyên) khi có Design Amount', () => {
+    const a = Number(sellerCurrentProfit({ ...input, designAmount: '3' }));
+    const b = Number(sellerCurrentProfit({ ...input, designAmount: '3', shippingFee: '22.34' }));
+    expect(Math.round((a - b) * 100) / 100).toBe(10);
+  });
+
+  it('Design Amount null (khác đơn vị tiền) ⇒ null', () => {
+    expect(sellerCurrentProfit({ ...input, designAmount: null })).toBeNull();
+  });
 });
 
 describe('sellerEstProfit — Est. profit = Revenue − Base cost − Shipping Fee − Label, không trừ hai lần phí ship', () => {
-  const input = { revenue: '200', baseCost: '50', label: '1.5', shippingFee: '30', shippingIncluded: '0' };
+  const input = {
+    revenue: '200',
+    baseCost: '50',
+    label: '1.5',
+    shippingFee: '30',
+    shippingIncluded: '0',
+    designAmount: '0',
+  };
 
   it('phí ship chưa nằm trong Revenue ⇒ trừ trọn: 200 − 50 − 30 − 1.5 = 118.5', () => {
     expect(sellerEstProfit(input)).toBe('118.5');
@@ -130,12 +157,28 @@ describe('sellerEstProfit — Est. profit = Revenue − Base cost − Shipping F
   });
 
   it('Base cost / Shipping Fee bằng 0 vẫn tính, âm vẫn âm', () => {
-    expect(sellerEstProfit({ revenue: '0', baseCost: '0', label: '0', shippingFee: '0', shippingIncluded: '0' })).toBe('0');
+    expect(sellerEstProfit({ ...input, revenue: '0', baseCost: '0', label: '0', shippingFee: '0', shippingIncluded: '0' })).toBe('0');
     expect(sellerEstProfit({ ...input, revenue: '10' })).toBe('-71.5');
   });
 
+  it('Design Amount = 0 ⇒ y như trước khi có Design Amount', () => {
+    expect(sellerEstProfit({ ...input, designAmount: '0' })).toBe('118.5');
+  });
+
+  it('Design Amount trừ ĐÚNG MỘT lần: 200 − 50 − 30 − 1.5 − 12.25 = 106.25', () => {
+    expect(sellerEstProfit({ ...input, designAmount: '12.25' })).toBe('106.25');
+  });
+
+  it('có Design Amount vẫn KHÔNG trừ hai lần phí ship đã nằm trong Revenue: 200 − 50 − 1.5 − 10 = 138.5', () => {
+    expect(sellerEstProfit({ ...input, shippingIncluded: '30', designAmount: '10' })).toBe('138.5');
+  });
+
+  it('Design Amount null (khác đơn vị tiền đang xem) ⇒ null, không coi là 0', () => {
+    expect(sellerEstProfit({ ...input, designAmount: null })).toBeNull();
+  });
+
   it('Decimal — không lệch số lẻ dấu phẩy động', () => {
-    expect(sellerEstProfit({ revenue: '0.3', baseCost: '0.1', label: '0.1', shippingFee: '0.2', shippingIncluded: '0.1' })).toBe('0');
+    expect(sellerEstProfit({ ...input, revenue: '0.3', baseCost: '0.1', label: '0.1', shippingFee: '0.2', shippingIncluded: '0.1' })).toBe('0');
   });
 });
 

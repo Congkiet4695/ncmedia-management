@@ -19,6 +19,23 @@ export function usePodOrders(query: PodOrderQuery) {
   });
 }
 
+/**
+ * Lưu Design Amount của MỘT đơn. Làm mới danh sách / chi tiết đơn (lợi nhuận đổi theo) và Dashboard (cột
+ * Design Amount + Est. profit / Current Profit của Seller Statistics) — không tải lại trang.
+ */
+export function useUpdatePodOrderDesignAmount() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, designAmount }: { id: string; designAmount: number }) =>
+      podOrderService.updateDesignAmount(id, designAmount),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [POD_ORDERS_KEY] });
+      void queryClient.invalidateQueries({ queryKey: ['pod-dashboard'] });
+      void queryClient.invalidateQueries({ queryKey: ['pod-employee-work'] });
+    },
+  });
+}
+
 export function usePodOrder(id?: string) {
   return useQuery({
     queryKey: [POD_ORDERS_KEY, 'detail', id],

@@ -318,13 +318,21 @@ export class DashboardSellerRowDto {
     description: 'Label = số đơn đã fulfill × label/đơn (ORDER_LABEL_COST). NULL khi label khác đơn vị tiền đang xem.',
   })
   label!: number | null;
+  @ApiPropertyOptional({
+    nullable: true,
+    type: Number,
+    description:
+      'Design Amount = Σ Design Amount của các đơn của seller trong phạm vi (mỗi đơn một giá trị, đơn cũ = 0). ' +
+      'NULL khi tổng ≠ 0 mà đơn vị tiền đang xem không phải USD (không quy đổi).',
+  })
+  designAmount!: number | null;
   @ApiProperty({
     nullable: true,
     type: Number,
     description:
-      'Profit Dự kiến (Est. profit) = Revenue − Base Cost − Shipping Fee − Label trên các tổng của dòng ' +
-      '(quyết định PO 2026-10-14), KHÔNG trừ hai lần phí ship: trừ (shippingFee − shippingIncluded). ' +
-      'NULL khi label khác đơn vị tiền đang xem.',
+      'Profit Dự kiến (Est. profit) = Revenue − Base Cost − Shipping Fee − Label − Design Amount trên các tổng của ' +
+      'dòng (quyết định PO 2026-10-14 + Design Amount), KHÔNG trừ hai lần phí ship: trừ (shippingFee − ' +
+      'shippingIncluded). NULL khi label / Design Amount khác đơn vị tiền đang xem.',
   })
   profit!: number | null;
   @ApiProperty({ description: 'Số đơn tính được lợi nhuận TỪNG ĐƠN đủ dữ kiện (công thức màn Order) — tham khảo.' })
@@ -333,8 +341,8 @@ export class DashboardSellerRowDto {
     nullable: true,
     type: Number,
     description:
-      'Current Profit = Paid − Base Cost − Label − Shipping Fee (tổng theo seller, công thức nguyên văn). ' +
-      'NULL khi label khác đơn vị tiền đang xem.',
+      'Current Profit = Paid − Base Cost − Label − Shipping Fee − Design Amount (tổng theo seller, công thức ' +
+      'nguyên văn + Design Amount). NULL khi label / Design Amount khác đơn vị tiền đang xem.',
   })
   currentProfit!: number | null;
   @ApiProperty() paid!: number;

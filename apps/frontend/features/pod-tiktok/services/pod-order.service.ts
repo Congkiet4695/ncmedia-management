@@ -26,6 +26,14 @@ function clean<T extends Record<string, unknown>>(obj: T): Partial<T> {
 }
 
 export const podOrderService = {
+  /** Cập nhật Design Amount (USD, ≥ 0) — backend tính lại lợi nhuận và trả đơn đã cập nhật. */
+  async updateDesignAmount(id: string, designAmount: number): Promise<PodOrder> {
+    const res = await apiClient.patch<ApiResponse<PodOrder>>(`${BASE_PATH}/orders/${id}/design-amount`, {
+      designAmount,
+    });
+    return res.data.data;
+  },
+
   async list(query: PodOrderQuery): Promise<PodOrderListResult> {
     const res = await apiClient.get<ApiResponse<PodOrderListResult>>(`${BASE_PATH}/orders`, {
       params: clean(query as Record<string, unknown>),

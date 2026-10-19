@@ -1,10 +1,11 @@
-import { ApiPropertyOptional } from '@nestjs/swagger';
+import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
   IsIn,
   IsInt,
   IsISO8601,
+  IsNumber,
   IsOptional,
   IsString,
   IsUUID,
@@ -161,6 +162,24 @@ export class PodOrderQueryDto {
   @IsOptional()
   @IsIn(['asc', 'desc'])
   sortOrder?: 'asc' | 'desc' = 'desc';
+}
+
+/** Design Amount tối đa của một đơn (USD) — chặn nhập nhầm thêm số 0. */
+export const POD_ORDER_DESIGN_AMOUNT_MAX = 1_000_000;
+
+/** PATCH /pod/tiktok/orders/:id/design-amount — chi phí design nhập tay của đơn. */
+export class UpdatePodOrderDesignAmountDto {
+  @ApiProperty({
+    example: 2.5,
+    minimum: 0,
+    maximum: POD_ORDER_DESIGN_AMOUNT_MAX,
+    description: 'Design Amount (USD, ≥ 0, tối đa 2 chữ số thập phân). BẮT BUỘC — không có giá trị mặc định ngầm.',
+  })
+  @Type(() => Number)
+  @IsNumber({ maxDecimalPlaces: 2, allowNaN: false, allowInfinity: false }, { message: 'Design Amount không hợp lệ' })
+  @Min(0)
+  @Max(POD_ORDER_DESIGN_AMOUNT_MAX)
+  designAmount!: number;
 }
 
 /** Body của trigger đồng bộ thủ công. */

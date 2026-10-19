@@ -1,6 +1,6 @@
 import { Prisma } from '@prisma/client';
 import { NON_BLOCKING_FULFILLMENT_STATUSES } from '../../fulfillment/shared/fulfillment-lifecycle';
-import { TIKTOK_SHIPPING_TYPE, type LabelCostConfig } from './order-financials';
+import { DESIGN_AMOUNT_CURRENCY, TIKTOK_SHIPPING_TYPE, type LabelCostConfig } from './order-financials';
 
 /** Số tiền dạng chuỗi trong breakdown JSON của TikTok ⇒ numeric; chuỗi rỗng / không phải số ⇒ NULL (không ném lỗi). */
 function jsonAmount(path: string): Prisma.Sql {
@@ -24,8 +24,9 @@ function jsonAmount(path: string): Prisma.Sql {
  *                 ước tính, chưa tính, shipping_type TIKTOK ⇒ −Σ seller_shipping_fee_discount_amount
  *                   (breakdown thiếu ⇒ pod_orders.shipping_fee_seller_discount) — CHƯA trong tiền thu về
  *                 còn lại ⇒ NULL
- *   lợi nhuận   = tiền thu về − giá vốn − phí ship CHƯA trong tiền thu về − label (mỗi đơn một lần),
- *                 khi giá vốn & label CÙNG đơn vị tiền thu về — ngược lại NULL
+ *   design      = pod_orders.design_amount (USD, mặc định 0 — NULL coi là 0)
+ *   lợi nhuận   = tiền thu về − giá vốn − phí ship CHƯA trong tiền thu về − label (mỗi đơn một lần) − design,
+ *                 khi giá vốn & label CÙNG đơn vị tiền thu về, và design = 0 hoặc tiền thu về là USD — ngược lại NULL
  * ```
  *
  * Làm tròn 4 chữ số như bản TS. Bộ đối chiếu từng đơn với bản TS trên DB thật:
@@ -33,13 +34,15 @@ function jsonAmount(path: string): Prisma.Sql {
  *
  * Trả về các CTE nối sau `WITH` (tên tiền tố `op_` để không đụng CTE của nơi gọi); CTE cuối
  * `order_profit(id, shop_id, profit, proceeds, proceeds_currency, base_cost, cost_currency, fulfilled, seller_shipping,
- * seller_shipping_included)`:
+ * seller_shipping_included, design_amount)`:
  *   - `proceeds` / `proceeds_currency`: tiền thu về của đơn (đã quyết toán ?? ước tính — KHÔNG cộng cả hai);
  *   - `base_cost` / `cost_currency`: giá vốn của lần fulfill đang giữ đơn — NULL khi chưa đủ giá đã xác nhận;
  *   - `seller_shipping`: phí ship Seller của đơn (= `sellerShipping.amount` của bản TS, dương = chi phí), tính
  *     bằng đơn vị tiền của `proceeds` — gồm cả phần ĐÃ nằm trong tiền thu về; NULL = chưa xác định (không phải 0);
  *   - `seller_shipping_included`: phí ship đó ĐÃ nằm trong `proceeds` (TikTok đã trừ) — cùng cờ mà `profit` dùng để
  *     không trừ lần hai (Profit Dự kiến của Dashboard dùng lại cờ này);
+ *   - `design_amount`: Design Amount của đơn (một giá trị / đơn, đơn vị `DESIGN_AMOUNT_CURRENCY`; NULL ⇒ 0) — đã nằm
+ *     trong `profit`; Dashboard cộng cột này cho cột Design Amount (không trừ lần hai);
  *   - `fulfilled`: đơn có lần fulfill đang giữ (đúng tập đơn bị trừ label trong lợi nhuận). Nơi gọi định nghĩa trước CTE `o(id, tiktok_order_id, shop_id)` — tập
  * đơn cần tính (đã lọc tổ chức / ngày / đơn vị tiền / shop).
  */
@@ -104,14 +107,17 @@ export function orderProfitCtes(organizationId: string, label: LabelCostConfig):
              (c.pod_order_id IS NOT NULL)  AS fulfilled,
              sh.amount                     AS seller_shipping,
              sh.included                   AS seller_shipping_included,
+             COALESCE(po.design_amount, 0) AS design_amount,
              CASE
                WHEN pr.amount IS NULL THEN NULL
                WHEN c.items IS NULL OR c.items = 0 OR c.unpriced > 0 OR c.unconfirmed > 0 THEN NULL
                WHEN c.currency IS NULL OR c.currency <> pr.currency THEN NULL
                WHEN sh.amount IS NULL THEN NULL
                WHEN UPPER(${label.currency}) <> pr.currency THEN NULL
+               WHEN COALESCE(po.design_amount, 0) <> 0 AND pr.currency <> ${DESIGN_AMOUNT_CURRENCY} THEN NULL
                ELSE ROUND(
-                 pr.amount - c.amount - CASE WHEN sh.included THEN 0 ELSE sh.amount END - ${label.amount}::numeric,
+                 pr.amount - c.amount - CASE WHEN sh.included THEN 0 ELSE sh.amount END - ${label.amount}::numeric
+                   - COALESCE(po.design_amount, 0),
                  4)
              END AS profit
         FROM o

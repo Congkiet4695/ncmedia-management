@@ -43,8 +43,43 @@ export interface PodTiktokShop {
   createdAt: string;
 }
 
+/**
+ * Thông tin đăng nhập nhập tay của kết nối. Password / 2FA KHÔNG BAO GIỜ có giá trị ở list/detail — chỉ cờ
+ * "đã lưu"; xem giá trị thật phải gọi `revealCredentials` (quyền riêng, backend ghi audit).
+ */
+export interface PodTiktokLoginInfo {
+  tiktokMail: string | null;
+  hasTiktokPassword: boolean;
+  hasTiktokTwoFactorCode: boolean;
+  /** Ngày lịch `YYYY-MM-DD` (không có giờ / múi giờ). */
+  moneyReturnDate: string | null;
+}
+
+/** Số tiền đang hold của kết nối trong MỘT đơn vị tiền (cùng nguồn thẻ Hold của Dashboard). */
+export interface PodTiktokOnholdAmount {
+  currency: string;
+  amount: number;
+}
+
+/**
+ * Body `PATCH /pod/tiktok/accounts/:id/login-info` — bỏ qua trường = KHÔNG đổi · `null` = xoá.
+ * 🔴 Password / 2FA chỉ gửi khi người dùng THỰC SỰ nhập giá trị mới.
+ */
+export interface UpdatePodTiktokLoginInfoPayload {
+  tiktokMail?: string | null;
+  tiktokPassword?: string | null;
+  tiktokTwoFactorCode?: string | null;
+  moneyReturnDate?: string | null;
+}
+
+/** Credential đã giải mã — chỉ giữ trong bộ nhớ của dialog, không cache, không lưu storage. */
+export interface PodTiktokAccountCredentials {
+  tiktokPassword: string | null;
+  tiktokTwoFactorCode: string | null;
+}
+
 /** Chi tiết kết nối (KHÔNG chứa access/refresh token). */
-export interface PodTiktokAccount {
+export interface PodTiktokAccount extends PodTiktokLoginInfo {
   id: string;
   accountName: string;
   openIdMasked: string;
@@ -77,7 +112,7 @@ export interface PodTiktokAccount {
 }
 
 /** Hàng danh sách kết nối. */
-export interface PodTiktokAccountListItem {
+export interface PodTiktokAccountListItem extends PodTiktokLoginInfo {
   id: string;
   accountName: string;
   sellerName: string | null;
@@ -105,6 +140,8 @@ export interface PodTiktokAccountListItem {
   accessTokenExpired: boolean;
   daysUntilReauthorize: number;
   lastSyncedAt: string | null;
+  /** Onhold Amount theo đơn vị tiền. Rỗng = không có khoản hold. */
+  onholdAmounts: PodTiktokOnholdAmount[];
   createdAt: string;
 }
 

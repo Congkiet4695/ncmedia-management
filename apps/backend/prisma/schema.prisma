@@ -75,6 +75,17 @@ enum EmployeeStatus {
   @@map("employee_status")
 }
 
+/// Nguồn của một biến động "Tiền giao account" (sổ cái `employee_account_handover_transactions`).
+/// EMPLOYEE_LINK = Employee tự link TikTok Account mới · ADMIN_ASSIGN = Admin giao account (chưa có người phụ trách)
+/// cho Employee · MANUAL_ADJUSTMENT = Admin chỉnh tay số dư.
+enum EmployeeAccountHandoverType {
+  EMPLOYEE_LINK
+  ADMIN_ASSIGN
+  MANUAL_ADJUSTMENT
+
+  @@map("employee_account_handover_type")
+}
+
 /// Trạng thái vòng đời Account bán hàng trên sàn (docs/account.md D-02).
 enum AccountStatus {
   NEW
@@ -464,6 +475,10 @@ model Employee {
   revenueKpi Decimal @default(0) @map("revenue_kpi") @db.Decimal(15, 2)
   /// URL avatar (nullable).
   avatar     String? @db.VarChar(1024)
+  /// "Tiền giao account" (USD). Mặc định 0, không âm (CHECK ở migration).
+  /// 🔴 Chỉ đổi qua `AccountHandoverService` — mỗi biến động có một dòng sổ cái
+  /// `employee_account_handover_transactions` (nguồn gốc của con số), ghi cùng transaction.
+  accountHandoverAmount Decimal @default(0) @map("account_handover_amount") @db.Decimal(15, 2)
 
   // Audit (ADR-015) + soft delete
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
@@ -478,11 +493,58 @@ model Employee {
   /// Các kết nối TikTok Shop do nhân viên này phụ trách với vai trò Seller.
   /// Một Employee quản lý được NHIỀU TikTok Account (1-n).
   podTiktokAccounts PodTiktokAccount[] @relation("PodTiktokSeller")
+  /// Sổ cái "Tiền giao account" của nhân viên này.
+  accountHandoverTransactions EmployeeAccountHandoverTransaction[]
 
   @@index([organizationId])
   @@index([status])
   @@index([department])
   @@map("employees")
+}
+
+// ---------------------------------------------------------------------------
+// EmployeeAccountHandoverTransaction — sổ cái "Tiền giao account" (mỗi dòng MỘT biến động).
+//
+// 🔴 Chống cộng trùng ở tầng DB: UNIQUE(organization_id, event_key). Khoản cộng tự động của một TikTok
+// Account dùng khoá `TIKTOK_ACCOUNT_HANDOVER:<account_id>` ⇒ một account chỉ sinh khoản cộng MỘT lần, dù
+// request được retry, dù account đi qua cả luồng link lẫn assign, dù unlink rồi link lại.
+// `employees.account_handover_amount` = số dư sau dòng mới nhất (cập nhật cùng transaction).
+// ---------------------------------------------------------------------------
+
+model EmployeeAccountHandoverTransaction {
+  id              String  @id @default(uuid()) @db.Uuid
+  organizationId  String  @map("organization_id") @db.Uuid
+  /// Employee nhận / bị điều chỉnh khoản tiền.
+  employeeId      String  @map("employee_id") @db.Uuid
+  /// TikTok Account liên quan (khoản cộng tự động). NULL với điều chỉnh tay.
+  tiktokAccountId String? @map("tiktok_account_id") @db.Uuid
+
+  type          EmployeeAccountHandoverType
+  /// Biến động có dấu (+ cộng, − trừ).
+  amount        Decimal @db.Decimal(15, 2)
+  balanceBefore Decimal @map("balance_before") @db.Decimal(15, 2)
+  balanceAfter  Decimal @map("balance_after") @db.Decimal(15, 2)
+  currency      String  @db.VarChar(10)
+  /// Mã định danh sự kiện nghiệp vụ — khoá chống xử lý trùng.
+  eventKey      String  @map("event_key") @db.VarChar(120)
+  /// User thực hiện thao tác gây ra biến động.
+  actorUserId   String? @map("actor_user_id") @db.Uuid
+  note          String? @db.VarChar(500)
+
+  // Audit + soft delete (ADR-015)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+  createdBy String?   @map("created_by") @db.Uuid
+  updatedBy String?   @map("updated_by") @db.Uuid
+
+  employee      Employee          @relation(fields: [employeeId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  tiktokAccount PodTiktokAccount? @relation(fields: [tiktokAccountId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+
+  @@unique([organizationId, eventKey])
+  @@index([employeeId, createdAt])
+  @@index([tiktokAccountId])
+  @@map("employee_account_handover_transactions")
 }
 
 // ---------------------------------------------------------------------------
@@ -980,6 +1042,18 @@ model PodTiktokAccount {
   /// Một TikTok Account chỉ dùng MỘT provider; đổi provider áp dụng cho đơn gửi từ đó về sau.
   fulfillmentAccountId String? @map("fulfillment_account_id") @db.Uuid
 
+  // --- Thông tin đăng nhập TikTok nhập tay (màn TikTok Accounts) ---
+  /// "Tiktok mail" — email đăng nhập tài khoản TikTok, chuẩn hoá chữ thường. NULL = chưa nhập.
+  tiktokMail         String?   @map("tiktok_mail") @db.VarChar(255)
+  /// "Password tiktok" — MÃ HOÁ AES-256-GCM (`EncryptionService`, ACCOUNT_ENCRYPTION_KEY). KHÔNG bao giờ vào
+  /// response list/detail — chỉ endpoint reveal (permission riêng + audit).
+  tiktokPasswordEnc  String?   @map("tiktok_password_enc") @db.Text
+  /// "2FA Code" — khoá/secret 2FA của tài khoản TikTok (docs/account.md: "2fa nền tảng" = TOTP secret, dùng để
+  /// sinh mã) ⇒ bảo vệ như password: MÃ HOÁ, chỉ reveal theo quyền.
+  tiktokTwoFactorEnc String?   @map("tiktok_two_factor_enc") @db.Text
+  /// "Ngày về tiền" — NGÀY LỊCH (không giờ, không múi giờ). NULL = chưa có.
+  moneyReturnDate    DateTime? @map("money_return_date") @db.Date
+
   // Audit + soft delete (ADR-015)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -1005,6 +1079,9 @@ model PodTiktokAccount {
   flashSales            PodFlashSale[]
   flashSaleTemplates    PodFlashSaleTemplate[]
   returnRequests        PodReturnRequest[]
+  /// Khoản "Tiền giao account" sinh ra từ việc giao account này.
+  handoverTransactions  EmployeeAccountHandoverTransaction[]
+  credentialAudits      PodTiktokAccountCredentialAudit[]
 
   // Không link trùng cùng một seller (open_id) trong CÙNG Organization.
   // Uỷ quyền lại (reauthorize) → UPDATE bản ghi cũ, không tạo mới.
@@ -1172,6 +1249,34 @@ model PodTiktokTokenAudit {
 }
 
 // ---------------------------------------------------------------------------
+// PodTiktokAccountCredentialAudit — mỗi lần XEM (reveal) hoặc CẬP NHẬT Password tiktok / 2FA Code.
+// Chỉ lưu TÊN trường, KHÔNG BAO GIỜ lưu giá trị (kể cả bản mã hoá). Bảng log vận hành ⇒ không soft delete
+// (cùng nguyên tắc với `pod_tiktok_token_audits`).
+// ---------------------------------------------------------------------------
+
+model PodTiktokAccountCredentialAudit {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  accountId      String @map("account_id") @db.Uuid
+
+  /// REVEAL | UPDATE.
+  action      String  @db.VarChar(20)
+  /// Tên trường bị xem / đổi, vd ["tiktokPassword"] — KHÔNG có giá trị.
+  fields      Json
+  performedBy String  @map("performed_by") @db.Uuid
+  ipAddress   String? @map("ip_address") @db.VarChar(45)
+  userAgent   String? @map("user_agent") @db.VarChar(512)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  account PodTiktokAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@index([accountId, createdAt])
+  @@index([organizationId])
+  @@map("pod_tiktok_account_credential_audits")
+}
+
+// ---------------------------------------------------------------------------
 // PodTiktokOAuthState — tham số `state` của luồng uỷ quyền TikTok.
 //
 // 🔴 Vì sao BẮT BUỘC: một app TikTok chỉ khai báo được MỘT Redirect URL cho tất cả
@@ -1335,6 +1440,11 @@ model PodOrder {
   itemInsuranceFee            Decimal? @map("item_insurance_fee") @db.Decimal(18, 4)
   itemInsuranceTax            Decimal? @map("item_insurance_tax") @db.Decimal(18, 4)
   smallOrderFee               Decimal? @map("small_order_fee") @db.Decimal(18, 4)
+
+  // --- Chi phí nhập tay (không đến từ TikTok — đồng bộ đơn KHÔNG ghi đè) ---
+  /// "Design Amount" — chi phí design của đơn, đơn vị `DESIGN_AMOUNT_CURRENCY` (USD). Mặc định 0, không âm
+  /// (CHECK ở migration). Trừ MỘT lần vào lợi nhuận đơn (`order-financials.ts` / `order-profit.sql.ts`).
+  designAmount                Decimal  @default(0) @map("design_amount") @db.Decimal(18, 4)
 
   // --- recipient_address{} — PII, MÃ HOÁ at-rest (AES-256-GCM) ---
   /// Toàn bộ object `recipient_address` đã mã hoá. Chỉ giải mã khi có quyền.

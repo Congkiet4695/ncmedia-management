@@ -1,5 +1,6 @@
 import { PodTiktokAccountStatus, PodTiktokTokenAction } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import type { AccountHandoverService } from '../../employee/services/account-handover.service';
 import { TiktokErrorClass, TIKTOK_ERROR_CODES } from '../constants/tiktok-error-code.constants';
 import { TiktokApiClient } from '../clients/tiktok-api.client';
 import { TiktokAuthClient } from '../clients/tiktok-auth.client';
@@ -79,6 +80,8 @@ describe('PodTiktokAccountService', () => {
   let prisma: { $transaction: jest.Mock };
   /** Cổng kích hoạt đồng bộ sản phẩm (`PRODUCT_SYNC_TRIGGER`). */
   let productSync: { syncShops: jest.Mock };
+  /** "Tiền giao account" — chỉ kiểm nơi gọi; quy tắc chống trùng nằm ở AccountHandoverService (spec riêng). */
+  let accountHandover: { creditTiktokAccountHandover: jest.Mock };
   let repo: jest.Mocked<Partial<PodTiktokAccountRepository>>;
   let encryption: { encrypt: jest.Mock };
   let authClient: { getAccessToken: jest.Mock };
@@ -90,6 +93,9 @@ describe('PodTiktokAccountService', () => {
       $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb({})),
     };
     productSync = { syncShops: jest.fn().mockResolvedValue([]) };
+    accountHandover = {
+      creditTiktokAccountHandover: jest.fn().mockResolvedValue({ credited: true, balanceAfter: '40' }),
+    };
     repo = {
       findByOpenIdIncludingDeleted: jest.fn().mockResolvedValue(null),
       findConflictingShops: jest.fn().mockResolvedValue([]),
@@ -104,6 +110,7 @@ describe('PodTiktokAccountService', () => {
       findById: jest.fn(),
       findMany: jest.fn(),
       findAssignedSellers: jest.fn(),
+      holdByAccounts: jest.fn().mockResolvedValue(new Map()),
     };
     // Mock giống ciphertext thật (không chứa plaintext) để assert "không rò rỉ" có ý nghĩa.
     encryption = { encrypt: jest.fn((value: string) => fakeCipher(value)) };
@@ -123,6 +130,7 @@ describe('PodTiktokAccountService', () => {
       encryption as unknown as TiktokEncryptionService,
       authClient as unknown as TiktokAuthClient,
       apiClient as unknown as TiktokApiClient,
+      accountHandover as unknown as AccountHandoverService,
       productSync,
     );
   });
@@ -197,6 +205,47 @@ describe('PodTiktokAccountService', () => {
 
       expect(repo.createAccount as jest.Mock).not.toHaveBeenCalled();
       expect(repo.findSellerEmployeeIdByUser as jest.Mock).not.toHaveBeenCalled();
+    });
+
+    it('💵 Employee tự link account MỚI ⇒ cộng Tiền giao account cho CHÍNH họ, trong transaction của việc link', async () => {
+      (repo.findSellerEmployeeIdByUser as jest.Mock).mockResolvedValue('employee-1');
+      const tx = { marker: 'tx' };
+      prisma.$transaction.mockImplementation((cb: (client: unknown) => unknown) => cb(tx));
+
+      await service.completeAuthorization(ORG_ID, USER_ID, 'auth-code');
+
+      expect(accountHandover.creditTiktokAccountHandover).toHaveBeenCalledTimes(1);
+      expect(accountHandover.creditTiktokAccountHandover).toHaveBeenCalledWith(tx, {
+        organizationId: ORG_ID,
+        employeeId: 'employee-1',
+        tiktokAccountId: ACCOUNT_ID,
+        type: 'EMPLOYEE_LINK',
+        actorUserId: USER_ID,
+      });
+    });
+
+    it('💵 Admin link (không phải Seller) ⇒ KHÔNG cộng cho ai', async () => {
+      (repo.findSellerEmployeeIdByUser as jest.Mock).mockResolvedValue(null);
+      await service.completeAuthorization(ORG_ID, USER_ID, 'auth-code');
+      expect(accountHandover.creditTiktokAccountHandover).not.toHaveBeenCalled();
+    });
+
+    it('💵 uỷ quyền lại / unlink rồi link lại (bản ghi đã có) ⇒ KHÔNG phải lần giao mới, không cộng', async () => {
+      (repo.findByOpenIdIncludingDeleted as jest.Mock).mockResolvedValue({
+        id: ACCOUNT_ID,
+        deletedAt: new Date(),
+        accountName: 'Kết nối cũ',
+      });
+      (repo.findSellerEmployeeIdByUser as jest.Mock).mockResolvedValue('employee-1');
+      await service.completeAuthorization(ORG_ID, USER_ID, 'auth-code');
+      expect(accountHandover.creditTiktokAccountHandover).not.toHaveBeenCalled();
+    });
+
+    it('💵 lỗi ghi khoản cộng ⇒ cả lượt link thất bại (cùng transaction — không có "link xong mà không cộng")', async () => {
+      (repo.findSellerEmployeeIdByUser as jest.Mock).mockResolvedValue('employee-1');
+      accountHandover.creditTiktokAccountHandover.mockRejectedValue(new Error('db down'));
+      await expect(service.completeAuthorization(ORG_ID, USER_ID, 'auth-code')).rejects.toThrow('db down');
+      expect(productSync.syncShops).not.toHaveBeenCalled();
     });
 
     it('🔴 liên kết xong TỰ kích hoạt đồng bộ sản phẩm cho ĐÚNG kết nối vừa tạo', async () => {
@@ -575,6 +624,39 @@ describe('PodTiktokAccountService', () => {
     it('Seller (không có pod.shop.all) vẫn bị giới hạn trong kết nối được gán dù lọc seller khác', async () => {
       await service.findAll(ORG_ID, { sellerId: 'e-other' }, SELLER_SCOPE);
       expect(paramsOf()).toMatchObject({ accountScope: ['acc-a'], sellerId: 'e-other' });
+    });
+
+    it('Onhold Amount: MỘT truy vấn cho cả trang, gắn đúng kết nối, theo từng đơn vị tiền', async () => {
+      mockFindByIdResult();
+      const row = (await (repo.findById as jest.Mock)()) as Record<string, unknown>;
+      (repo.findMany as jest.Mock).mockResolvedValue({ items: [row], total: 1, totalShops: 1 });
+      (repo.holdByAccounts as jest.Mock).mockResolvedValue(
+        new Map([[ACCOUNT_ID, [{ currency: 'USD', amount: '125.4000' }]]]),
+      );
+      const result = await service.findAll(ORG_ID, {}, ADMIN_SCOPE);
+      expect(repo.holdByAccounts).toHaveBeenCalledTimes(1);
+      expect(repo.holdByAccounts).toHaveBeenCalledWith(ORG_ID, [ACCOUNT_ID]);
+      expect(result.items[0].onholdAmounts).toEqual([{ currency: 'USD', amount: 125.4 }]);
+    });
+
+    it('🔒 list KHÔNG chứa Password tiktok / 2FA (kể cả ciphertext) — chỉ cờ đã lưu', async () => {
+      mockFindByIdResult();
+      const row = (await (repo.findById as jest.Mock)()) as Record<string, unknown>;
+      (repo.findMany as jest.Mock).mockResolvedValue({
+        items: [{ ...row, tiktokMail: 'a@b.com', tiktokPasswordEnc: 'v1.SECRET', tiktokTwoFactorEnc: 'v1.TOTP' }],
+        total: 1,
+        totalShops: 1,
+      });
+      const result = await service.findAll(ORG_ID, {}, ADMIN_SCOPE);
+      const json = JSON.stringify(result);
+      expect(json).not.toContain('v1.SECRET');
+      expect(json).not.toContain('v1.TOTP');
+      expect(result.items[0]).toMatchObject({
+        tiktokMail: 'a@b.com',
+        hasTiktokPassword: true,
+        hasTiktokTwoFactorCode: true,
+        onholdAmounts: [],
+      });
     });
 
     it('không có kết quả ⇒ tổng shop 0, totalPages 0', async () => {

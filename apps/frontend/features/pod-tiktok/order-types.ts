@@ -61,7 +61,8 @@ export type PodOrderFinancialsStatus =
   | 'COST_CURRENCY_UNKNOWN'
   | 'CURRENCY_MISMATCH'
   | 'SHIPPING_UNKNOWN'
-  | 'LABEL_CURRENCY_MISMATCH';
+  | 'LABEL_CURRENCY_MISMATCH'
+  | 'DESIGN_CURRENCY_MISMATCH';
 
 /** Phí ship Seller THỰC SỰ chịu (dương = chi phí) — backend xác định từ TikTok Finance. */
 export interface PodOrderSellerShipping {
@@ -87,6 +88,9 @@ export interface PodOrderFinancials {
   /** Chi phí label MỖI ĐƠN (cấu hình ORDER_LABEL_COST). */
   labelCost: number;
   labelCostCurrency: string;
+  /** Design Amount nhập tay của đơn (mặc định 0) — đã trừ vào `profit` ở backend. */
+  designAmount: number;
+  designAmountCurrency: string;
   profit: number | null;
   /** Tỉ lệ (0.25 = 25%) = profit ÷ proceeds. */
   margin: number | null;

@@ -5,6 +5,8 @@ import {
   PodTiktokAccountResponseDto,
   PodTiktokShopDto,
 } from '../dto/pod-tiktok-response.dto';
+import type { PodTiktokAccountHoldRow } from '../repositories/pod-tiktok-account.repository';
+import { toCalendarDay } from '../shared/calendar-day';
 import { PodTiktokAccountWithShops } from '../types/pod-tiktok-with-relations.type';
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
@@ -13,7 +15,8 @@ const MS_PER_DAY = 24 * 60 * 60 * 1000;
  * PodTiktokAccountMapper — Entity (Prisma) → Response DTO.
  *
  * Nguyên tắc bảo mật: KHÔNG BAO GIỜ đưa `accessTokenEnc`, `refreshTokenEnc`,
- * `shopCipherEnc` (kể cả bản đã mã hoá) vào response. Chỉ trả metadata thời hạn.
+ * `shopCipherEnc`, `tiktokPasswordEnc`, `tiktokTwoFactorEnc` (kể cả bản đã mã hoá) vào response.
+ * Chỉ trả metadata thời hạn và cờ "đã lưu" của credential.
  */
 @Injectable()
 export class PodTiktokAccountMapper {
@@ -43,12 +46,17 @@ export class PodTiktokAccountMapper {
       lastErrorCode: account.lastErrorCode,
       lastErrorMessage: account.lastErrorMessage,
       shops: account.shops.map((shop) => this.toShopDto(shop)),
+      ...this.toLoginInfo(account),
       createdAt: account.createdAt.toISOString(),
       updatedAt: account.updatedAt.toISOString(),
     };
   }
 
-  toListItem(account: PodTiktokAccountWithShops): PodTiktokAccountListItemDto {
+  /** `onhold` = Onhold Amount của kết nối theo từng đơn vị tiền (`PodTiktokAccountRepository.holdByAccounts`). */
+  toListItem(
+    account: PodTiktokAccountWithShops,
+    onhold: PodTiktokAccountHoldRow[] = [],
+  ): PodTiktokAccountListItemDto {
     const primaryShop = account.shops[0];
     return {
       id: account.id,
@@ -74,7 +82,19 @@ export class PodTiktokAccountMapper {
       accessTokenExpired: account.accessTokenExpiresAt.getTime() <= Date.now(),
       daysUntilReauthorize: this.daysUntil(account.refreshTokenExpiresAt),
       lastSyncedAt: account.lastSyncedAt?.toISOString() ?? null,
+      ...this.toLoginInfo(account),
+      onholdAmounts: onhold.map((row) => ({ currency: row.currency, amount: Number(row.amount) })),
       createdAt: account.createdAt.toISOString(),
+    };
+  }
+
+  /** Thông tin đăng nhập nhập tay — secret chỉ là CỜ "đã lưu", không bao giờ là giá trị. */
+  private toLoginInfo(account: PodTiktokAccountWithShops) {
+    return {
+      tiktokMail: account.tiktokMail ?? null,
+      hasTiktokPassword: Boolean(account.tiktokPasswordEnc),
+      hasTiktokTwoFactorCode: Boolean(account.tiktokTwoFactorEnc),
+      moneyReturnDate: account.moneyReturnDate ? toCalendarDay(account.moneyReturnDate) : null,
     };
   }
 

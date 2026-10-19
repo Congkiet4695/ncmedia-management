@@ -6,6 +6,7 @@ import type {
   CompleteTiktokOAuthPayload,
   PodTiktokAccountQuery,
   StartTiktokAuthorizationPayload,
+  UpdatePodTiktokLoginInfoPayload,
 } from '../types';
 
 const POD_TIKTOK_KEY = 'pod-tiktok-accounts';
@@ -160,6 +161,27 @@ export function useSyncPodTiktokShops() {
       void queryClient.invalidateQueries({ queryKey: [POD_TIKTOK_KEY] });
       void queryClient.invalidateQueries({ queryKey: ['pod-products', 'filters'] });
     },
+  });
+}
+
+/** Lưu thông tin đăng nhập nhập tay — xong thì làm mới danh sách / chi tiết (không tải lại trang). */
+export function useUpdatePodTiktokLoginInfo() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, payload }: { id: string; payload: UpdatePodTiktokLoginInfoPayload }) =>
+      podTiktokService.updateLoginInfo(id, payload),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [POD_TIKTOK_KEY] }),
+  });
+}
+
+/**
+ * Xem credential đã giải mã. Là MUTATION (không phải query) có chủ đích: kết quả KHÔNG vào cache của
+ * TanStack Query — chỉ sống trong state của dialog và mất khi đóng. Mỗi lần xem là một dòng audit.
+ */
+export function useRevealPodTiktokCredentials() {
+  return useMutation({
+    mutationFn: (id: string) => podTiktokService.revealCredentials(id),
+    retry: false,
   });
 }
 

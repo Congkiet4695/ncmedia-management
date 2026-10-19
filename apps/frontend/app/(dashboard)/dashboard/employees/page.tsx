@@ -16,6 +16,7 @@ import { DeleteDialog } from '@/features/employees/components/delete-dialog';
 import { EmployeeDialog } from '@/features/employees/components/employee-dialog';
 import { EmployeeFilter } from '@/features/employees/components/employee-filter';
 import { EmployeeImportExportBar } from '@/features/employees/components/employee-import-export-bar';
+import { AccountHandoverDialog } from '@/features/employees/components/account-handover-dialog';
 import { EmployeeTable } from '@/features/employees/components/employee-table';
 import { RequireAdmin } from '@/features/employees/components/require-admin';
 import {
@@ -48,6 +49,8 @@ function EmployeesView() {
 
   const [viewingId, setViewingId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<EmployeeListItem | null>(null);
+  /** Nhân viên đang mở dialog Tiền giao account. `null` = đóng. */
+  const [handoverOf, setHandoverOf] = useState<EmployeeListItem | null>(null);
 
   const queryClient = useQueryClient();
   const employeesQuery = useEmployees(query);
@@ -127,6 +130,7 @@ function EmployeesView() {
               loading={employeesQuery.isLoading}
               onView={(e) => setViewingId(e.id)}
               onDelete={setDeleting}
+              onAccountHandover={setHandoverOf}
             />
           )}
 
@@ -150,6 +154,7 @@ function EmployeesView() {
         onConfirm={handleConfirmDelete}
         onClose={() => setDeleting(null)}
       />
+      <AccountHandoverDialog employee={handoverOf} onClose={() => setHandoverOf(null)} />
     </div>
   );
 }

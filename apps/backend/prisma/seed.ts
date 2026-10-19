@@ -116,12 +116,17 @@ const PERMISSIONS: Array<{
   { code: 'pod.tiktok.account.create', module: 'POD_TIKTOK', resource: 'pod.tiktok.account', action: 'create', description: 'Liên kết (link) TikTok Shop Account' },
   { code: 'pod.tiktok.account.update', module: 'POD_TIKTOK', resource: 'pod.tiktok.account', action: 'update', description: 'Cập nhật kết nối TikTok Shop (refresh token, bật/tắt sync)' },
   { code: 'pod.tiktok.account.delete', module: 'POD_TIKTOK', resource: 'pod.tiktok.account', action: 'delete', description: 'Ngắt liên kết (unlink) TikTok Shop Account' },
+  // 🔴 Xem GIÁ TRỊ THẬT của Password tiktok / 2FA Code (giải mã, ghi audit mỗi lần). Tách khỏi `account.read`
+  // (Seller có) — mặc định chỉ ADMIN (seed cấp toàn bộ catalog); role khác chỉ có khi Admin cấp tường minh.
+  { code: 'pod.tiktok.account.credentials.read', module: 'POD_TIKTOK', resource: 'pod.tiktok.account.credentials', action: 'read', description: 'Xem (reveal) Password tiktok / 2FA Code của TikTok Account (có audit)' },
   // Shop Sync: đọc lại thông tin + trạng thái shop từ TikTok. Phạm vi vẫn bị PodAccessScopeService
   // chặn — Seller chỉ đồng bộ được kết nối Admin đã gán.
   { code: 'pod.tiktok.shop.sync',      module: 'POD_TIKTOK', resource: 'pod.tiktok.shop',    action: 'sync',   description: 'Đồng bộ thông tin + trạng thái TikTok Shop (Sync Shops)' },
   // Sprint 2: Scheduler + Get Orders + Sync Orders
   { code: 'pod.tiktok.order.read',     module: 'POD_TIKTOK', resource: 'pod.tiktok.order',   action: 'read',   description: 'Xem đơn TikTok đã đồng bộ + nhật ký đồng bộ' },
   { code: 'pod.tiktok.order.sync',     module: 'POD_TIKTOK', resource: 'pod.tiktok.order',   action: 'sync',   description: 'Kích hoạt đồng bộ đơn TikTok thủ công' },
+  // Chi phí nhập tay của đơn (Design Amount) — ảnh hưởng lợi nhuận ⇒ mặc định chỉ ADMIN (như fulfillment.basecost.update).
+  { code: 'pod.tiktok.order.update',   module: 'POD_TIKTOK', resource: 'pod.tiktok.order',   action: 'update', description: 'Cập nhật chi phí nhập tay của đơn TikTok (Design Amount)' },
   { code: 'pod.tiktok.return.read',    module: 'POD_TIKTOK', resource: 'pod.tiktok.return',  action: 'read',   description: 'Xem yêu cầu Return/Refund TikTok + lịch sử xử lý' },
   { code: 'pod.tiktok.return.sync',    module: 'POD_TIKTOK', resource: 'pod.tiktok.return',  action: 'sync',   description: 'Kích hoạt đồng bộ Return/Refund TikTok thủ công (trong phạm vi shop)' },
   // Seller Dashboard: cùng API `/pod/dashboard/*` với Dashboard quản trị, phạm vi do

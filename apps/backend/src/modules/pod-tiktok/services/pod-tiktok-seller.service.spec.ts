@@ -1,4 +1,5 @@
 import { PrismaService } from '../../../database/prisma.service';
+import type { AccountHandoverService } from '../../employee/services/account-handover.service';
 import { TiktokApiClient } from '../clients/tiktok-api.client';
 import { TiktokAuthClient } from '../clients/tiktok-auth.client';
 import { PodTiktokSellerInvalidException } from '../exceptions/pod-tiktok.exceptions';
@@ -43,26 +44,38 @@ describe('PodTiktokAccountService — Seller phụ trách', () => {
   let service: PodTiktokAccountService;
   let repo: {
     findById: jest.Mock;
+    lockSellerId: jest.Mock;
     assignSeller: jest.Mock;
     isEligibleSeller: jest.Mock;
     findEligibleSellers: jest.Mock;
   };
+  /** `tx` giả mà `$transaction` chuyền cho callback — để kiểm khoản cộng chạy CÙNG transaction. */
+  const TX = { marker: 'tx' };
+  let prisma: { $transaction: jest.Mock };
+  let accountHandover: { creditTiktokAccountHandover: jest.Mock };
 
   beforeEach(() => {
     repo = {
       findById: jest.fn().mockResolvedValue(accountRow()),
+      // Người phụ trách đọc SAU khi khoá dòng — mặc định chưa có ai.
+      lockSellerId: jest.fn().mockResolvedValue(null),
       assignSeller: jest.fn().mockResolvedValue(undefined),
       isEligibleSeller: jest.fn().mockResolvedValue(true),
       findEligibleSellers: jest.fn().mockResolvedValue([]),
     };
+    prisma = { $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb(TX)) };
+    accountHandover = {
+      creditTiktokAccountHandover: jest.fn().mockResolvedValue({ credited: true, balanceAfter: '40' }),
+    };
 
     service = new PodTiktokAccountService(
-      {} as unknown as PrismaService,
+      prisma as unknown as PrismaService,
       repo as unknown as PodTiktokAccountRepository,
       new PodTiktokAccountMapper(),
       {} as unknown as TiktokEncryptionService,
       {} as unknown as TiktokAuthClient,
       {} as unknown as TiktokApiClient,
+      accountHandover as unknown as AccountHandoverService,
     );
     jest.spyOn(service['logger'], 'log').mockImplementation(() => undefined);
   });
@@ -95,7 +108,7 @@ describe('PodTiktokAccountService — Seller phụ trách', () => {
       await service.assignSeller(ORG, ACTOR, ACCOUNT, { sellerId: EMPLOYEE });
 
       expect(repo.isEligibleSeller).toHaveBeenCalledWith(ORG, EMPLOYEE);
-      expect(repo.assignSeller).toHaveBeenCalledWith(ACCOUNT, EMPLOYEE, ACTOR);
+      expect(repo.assignSeller).toHaveBeenCalledWith(TX, ACCOUNT, EMPLOYEE, ACTOR);
     });
 
     it('🔴 Employee không đủ điều kiện (nghỉ việc / role Admin / khác tổ chức) → từ chối', async () => {
@@ -111,12 +124,12 @@ describe('PodTiktokAccountService — Seller phụ trách', () => {
       await service.assignSeller(ORG, ACTOR, ACCOUNT, { sellerId: null });
 
       expect(repo.isEligibleSeller).not.toHaveBeenCalled();
-      expect(repo.assignSeller).toHaveBeenCalledWith(ACCOUNT, null, ACTOR);
+      expect(repo.assignSeller).toHaveBeenCalledWith(TX, ACCOUNT, null, ACTOR);
     });
 
     it('bỏ trống sellerId → cũng là bỏ phân công', async () => {
       await service.assignSeller(ORG, ACTOR, ACCOUNT, {});
-      expect(repo.assignSeller).toHaveBeenCalledWith(ACCOUNT, null, ACTOR);
+      expect(repo.assignSeller).toHaveBeenCalledWith(TX, ACCOUNT, null, ACTOR);
     });
 
     it('🔴 account thuộc tổ chức khác → không tìm thấy, KHÔNG ghi gì', async () => {
@@ -126,6 +139,71 @@ describe('PodTiktokAccountService — Seller phụ trách', () => {
         service.assignSeller(ORG, ACTOR, ACCOUNT, { sellerId: EMPLOYEE }),
       ).rejects.toThrow();
       expect(repo.assignSeller).not.toHaveBeenCalled();
+      expect(accountHandover.creditTiktokAccountHandover).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('assignSeller — 💵 Tiền giao account (ADMIN_ASSIGN)', () => {
+    it('account CHƯA có người phụ trách → cộng cho Employee ĐƯỢC GIAO (không phải Admin), cùng transaction', async () => {
+      await service.assignSeller(ORG, ACTOR, ACCOUNT, { sellerId: EMPLOYEE });
+
+      expect(repo.lockSellerId).toHaveBeenCalledWith(TX, ORG, ACCOUNT);
+      expect(accountHandover.creditTiktokAccountHandover).toHaveBeenCalledTimes(1);
+      expect(accountHandover.creditTiktokAccountHandover).toHaveBeenCalledWith(TX, {
+        organizationId: ORG,
+        employeeId: EMPLOYEE,
+        tiktokAccountId: ACCOUNT,
+        type: 'ADMIN_ASSIGN',
+        actorUserId: ACTOR,
+      });
+    });
+
+    it('🔴 người phụ trách đọc SAU khi khoá dòng (không tin bản đọc trước transaction)', async () => {
+      // Bản đọc ngoài transaction: chưa ai phụ trách; nhưng Admin khác vừa giao cho A trước khi ta khoá.
+      repo.findById.mockResolvedValue(accountRow({ sellerId: null }));
+      repo.lockSellerId.mockResolvedValue('employee-A');
+      await service.assignSeller(ORG, ACTOR, ACCOUNT, { sellerId: EMPLOYEE });
+      expect(accountHandover.creditTiktokAccountHandover).not.toHaveBeenCalled();
+    });
+
+    it('chuyển account từ A sang B → KHÔNG cộng cho B, KHÔNG trừ của A (chưa có chính sách)', async () => {
+      repo.lockSellerId.mockResolvedValue('employee-A');
+      await service.assignSeller(ORG, ACTOR, ACCOUNT, { sellerId: EMPLOYEE });
+      expect(repo.assignSeller).toHaveBeenCalledWith(TX, ACCOUNT, EMPLOYEE, ACTOR);
+      expect(accountHandover.creditTiktokAccountHandover).not.toHaveBeenCalled();
+    });
+
+    it('giao lại đúng người đang phụ trách (retry / bấm lại) → không cộng', async () => {
+      repo.lockSellerId.mockResolvedValue(EMPLOYEE);
+      await service.assignSeller(ORG, ACTOR, ACCOUNT, { sellerId: EMPLOYEE });
+      expect(accountHandover.creditTiktokAccountHandover).not.toHaveBeenCalled();
+    });
+
+    it('bỏ phân công → không cộng, không trừ', async () => {
+      repo.lockSellerId.mockResolvedValue('employee-A');
+      await service.assignSeller(ORG, ACTOR, ACCOUNT, { sellerId: null });
+      expect(accountHandover.creditTiktokAccountHandover).not.toHaveBeenCalled();
+    });
+
+    it('Employee không hợp lệ → từ chối TRƯỚC transaction, không cộng', async () => {
+      repo.isEligibleSeller.mockResolvedValue(false);
+      await expect(service.assignSeller(ORG, ACTOR, ACCOUNT, { sellerId: EMPLOYEE })).rejects.toBeInstanceOf(
+        PodTiktokSellerInvalidException,
+      );
+      expect(prisma.$transaction).not.toHaveBeenCalled();
+      expect(accountHandover.creditTiktokAccountHandover).not.toHaveBeenCalled();
+    });
+
+    it('account bị xoá giữa chừng (khoá không thấy dòng) → 404, không ghi, không cộng', async () => {
+      repo.lockSellerId.mockResolvedValue(undefined);
+      await expect(service.assignSeller(ORG, ACTOR, ACCOUNT, { sellerId: EMPLOYEE })).rejects.toThrow();
+      expect(repo.assignSeller).not.toHaveBeenCalled();
+      expect(accountHandover.creditTiktokAccountHandover).not.toHaveBeenCalled();
+    });
+
+    it('ghi khoản cộng lỗi → cả lượt phân công lỗi (rollback cùng transaction)', async () => {
+      accountHandover.creditTiktokAccountHandover.mockRejectedValue(new Error('db down'));
+      await expect(service.assignSeller(ORG, ACTOR, ACCOUNT, { sellerId: EMPLOYEE })).rejects.toThrow('db down');
     });
   });
 

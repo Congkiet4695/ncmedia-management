@@ -69,5 +69,35 @@
   "subtitle": "Quản lý hồ sơ nhân sự của tổ chức",
   "title": "Nhân viên",
   "updateFailed": "Cập nhật thất bại",
-  "updateSuccess": "Cập nhật thành công"
+  "updateSuccess": "Cập nhật thành công",
+  "accountHandover": {
+    "column": "Tiền giao account",
+    "open": "Xem / chỉnh Tiền giao account",
+    "title": "Tiền giao account",
+    "amountLabel": "Tiền giao account (USD)",
+    "noteLabel": "Ghi chú",
+    "notePlaceholder": "Lý do chỉnh tay (lưu vào lịch sử)",
+    "invalid": "Số tiền phải ≥ 0, tối đa 2 chữ số thập phân",
+    "rule": "Tự động +40 USD khi nhân viên tự link một TikTok Account mới hoặc được Admin giao một account chưa có người phụ trách — mỗi account chỉ cộng một lần. Chuyển account giữa nhân viên không tự cộng / trừ.",
+    "historyTitle": "Lịch sử",
+    "historyEmpty": "Chưa có biến động nào.",
+    "saved": "Đã cập nhật Tiền giao account",
+    "saveFailed": "Cập nhật Tiền giao account thất bại",
+    "noChanges": "Số tiền không thay đổi",
+    "current": "Số dư hiện tại: {{amount}}",
+    "col": {
+      "time": "Thời điểm",
+      "type": "Loại",
+      "account": "TikTok Account",
+      "amount": "Biến động",
+      "balance": "Trước → Sau",
+      "actor": "Người thực hiện",
+      "note": "Ghi chú"
+    },
+    "type": {
+      "EMPLOYEE_LINK": "Tự link account",
+      "ADMIN_ASSIGN": "Admin giao account",
+      "MANUAL_ADJUSTMENT": "Chỉnh tay"
+    }
+  }
 }

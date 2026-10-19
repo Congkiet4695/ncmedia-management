@@ -234,6 +234,7 @@ export class PodDashboardService {
           baseCost: money(row.baseCost),
           shippingFee: money(row.shippingFee),
           label: row.label === null ? null : money(row.label),
+          designAmount: row.designAmount === null ? null : money(row.designAmount),
           shippingIncluded: money(row.shippingIncluded),
           profit: profit === null ? null : money(profit),
           currentProfit: currentProfit === null ? null : money(currentProfit),

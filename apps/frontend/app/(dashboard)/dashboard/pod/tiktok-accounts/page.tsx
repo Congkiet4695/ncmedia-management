@@ -18,6 +18,7 @@ import { useApiError } from '@/hooks/use-api-error';
 import { AccountShopTotalCard } from '@/features/pod-tiktok/components/account-shop-total-card';
 import { LinkAccountDialog } from '@/features/pod-tiktok/components/link-account-dialog';
 import { ShopSyncResultDialog } from '@/features/pod-tiktok/components/shop-sync-result-dialog';
+import { TiktokLoginInfoDialog } from '@/features/pod-tiktok/components/tiktok-login-info-dialog';
 import { TiktokAccountTable } from '@/features/pod-tiktok/components/tiktok-account-table';
 import {
   usePodAssignedSellerOptions,
@@ -57,6 +58,8 @@ function PodTiktokAccountsView() {
   const debouncedSearch = useDebouncedValue(searchInput, 350);
   const [linkOpen, setLinkOpen] = useState(false);
   const [unlinking, setUnlinking] = useState<PodTiktokAccountListItem | null>(null);
+  /** Kết nối đang mở dialog Thông tin đăng nhập. `null` = đóng. */
+  const [editingLoginInfo, setEditingLoginInfo] = useState<PodTiktokAccountListItem | null>(null);
   /** Kết quả lượt Sync Shops gần nhất — mở dialog chi tiết từng shop. `null` = đóng. */
   const [shopSyncResult, setShopSyncResult] = useState<PodTiktokShopSyncResult | null>(null);
 
@@ -67,6 +70,10 @@ function PodTiktokAccountsView() {
   const canAssignSeller = hasPermission('pod.tiktok.account.update');
   // 🔴 Chỉ để ẩn/hiện nút. Phạm vi (Seller chỉ kết nối được gán) do BACKEND chặn ở mọi request.
   const canSyncShops = hasPermission('pod.tiktok.shop.sync');
+  // Tiktok mail / Password / 2FA / Ngày về tiền: sửa = quyền update; XEM giá trị thật = quyền riêng (có audit).
+  // 🔴 Chỉ để ẩn/hiện. Backend kiểm lại quyền + phạm vi ở mọi request.
+  const canEditLoginInfo = hasPermission('pod.tiktok.account.update');
+  const canRevealCredentials = hasPermission('pod.tiktok.account.credentials.read');
 
   const accountsQuery = usePodTiktokAccounts(query);
   const assignedSellers = usePodAssignedSellerOptions();
@@ -243,6 +250,7 @@ function PodTiktokAccountsView() {
               loading={accountsQuery.isLoading}
               canUnlink={canUnlink}
               canAssignSeller={canAssignSeller}
+              onEditLoginInfo={canEditLoginInfo || canRevealCredentials ? setEditingLoginInfo : undefined}
               onUnlink={setUnlinking}
             />
           )}
@@ -258,6 +266,13 @@ function PodTiktokAccountsView() {
       <LinkAccountDialog open={linkOpen} onClose={() => setLinkOpen(false)} />
 
       <ShopSyncResultDialog result={shopSyncResult} onClose={() => setShopSyncResult(null)} />
+
+      <TiktokLoginInfoDialog
+        account={editingLoginInfo}
+        canEdit={canEditLoginInfo}
+        canReveal={canRevealCredentials}
+        onClose={() => setEditingLoginInfo(null)}
+      />
 
       <Modal
         open={Boolean(unlinking)}

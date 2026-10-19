@@ -236,3 +236,63 @@ describe('calculateOrderFinancials', () => {
     expect(result.status).toBe('NO_PROCEEDS');
   });
 });
+
+describe('calculateOrderFinancials — Design Amount', () => {
+  it('Design Amount = 0 / thiếu (đơn cũ) ⇒ lợi nhuận y như trước', () => {
+    const base = calculateOrderFinancials(input({ settled: [tx(8.64)] }));
+    expect(calculateOrderFinancials(input({ settled: [tx(8.64)], designAmount: 0 })).profit).toBe(base.profit);
+    expect(calculateOrderFinancials(input({ settled: [tx(8.64)], designAmount: null })).profit).toBe(base.profit);
+    expect(base.designAmount).toBe(0);
+    expect(base.designAmountCurrency).toBe('USD');
+  });
+
+  it('trừ ĐÚNG MỘT lần: 8.64 − 4 − 0.5 − 1.25 = 2.89; margin tính trên lợi nhuận mới', () => {
+    const result = calculateOrderFinancials(input({ settled: [tx(8.64)], designAmount: 1.25 }));
+    expect(result.profit).toBe(2.89);
+    expect(result.designAmount).toBe(1.25);
+    expect(result.margin).toBeCloseTo(2.89 / 8.64, 4);
+    expect(result.status).toBe('OK');
+  });
+
+  it('phí ship CHƯA trong proceeds vẫn trừ đúng một lần, cộng thêm Design Amount', () => {
+    // est 10 − cost 4 − seller ship 2 − label 0.5 − design 3 = 0.5
+    const result = calculateOrderFinancials(input({ unsettled: [notChargedYet(10, '-2')], designAmount: 3 }));
+    expect(result.sellerShipping).toMatchObject({ amount: 2, includedInProceeds: false });
+    expect(result.profit).toBe(0.5);
+  });
+
+  it('lợi nhuận âm giữ dấu', () => {
+    expect(calculateOrderFinancials(input({ settled: [tx(8.64)], designAmount: 10 })).profit).toBe(-5.86);
+  });
+
+  it('Design Amount ≠ 0 trên đơn tiền khác USD ⇒ DESIGN_CURRENCY_MISMATCH (không quy đổi)', () => {
+    const gbp = { currency: 'GBP' };
+    const result = calculateOrderFinancials(
+      input({
+        settled: [tx(8.64, gbp)],
+        cost: { ...COST, currency: 'GBP' },
+        labelCost: { amount: 0.5, currency: 'GBP' },
+        designAmount: 2,
+      }),
+    );
+    expect(result).toMatchObject({ profit: null, margin: null, status: 'DESIGN_CURRENCY_MISMATCH', designAmount: 2 });
+  });
+
+  it('Design Amount = 0 trên đơn GBP ⇒ vẫn tính được (không ràng buộc đơn vị tiền)', () => {
+    const result = calculateOrderFinancials(
+      input({
+        settled: [tx(8.64, { currency: 'GBP' })],
+        cost: { ...COST, currency: 'GBP' },
+        labelCost: { amount: 0.5, currency: 'GBP' },
+        designAmount: 0,
+      }),
+    );
+    expect(result.status).toBe('OK');
+    expect(result.profit).toBe(4.14);
+  });
+
+  it('thiếu dữ kiện khác ⇒ vẫn trả designAmount để hiển thị, profit null', () => {
+    const result = calculateOrderFinancials(input({ settled: [], designAmount: 4 }));
+    expect(result).toMatchObject({ status: 'NO_PROCEEDS', profit: null, designAmount: 4 });
+  });
+});

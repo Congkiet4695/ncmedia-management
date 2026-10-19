@@ -106,6 +106,31 @@
       },
       "allSellers": "All sellers",
       "unassigned": "Unassigned"
+    },
+    "loginInfo": {
+      "title": "TikTok login info",
+      "mail": "Tiktok mail",
+      "password": "Password tiktok",
+      "twoFactor": "2FA Code",
+      "twoFactorHint": "2FA key / secret of the TikTok account — encrypted and protected like the password.",
+      "onhold": "Onhold Amount",
+      "moneyReturnDate": "Money return date",
+      "keepPlaceholder": "Saved — leave blank to keep",
+      "emptyPlaceholder": "Not set — type to save",
+      "clearPassword": "Remove saved Password tiktok",
+      "clearTwoFactor": "Remove saved 2FA Code",
+      "clearDate": "Clear money return date",
+      "showTyped": "Show typed characters",
+      "hideTyped": "Hide typed characters",
+      "reveal": "View saved Password / 2FA",
+      "revealHint": "Every view is recorded in the audit log. Values are shown only in this window and are discarded when it closes.",
+      "revealedTitle": "Saved values",
+      "hideRevealed": "Hide",
+      "revealFailed": "Could not load login info",
+      "saved": "Login info saved",
+      "saveFailed": "Failed to save login info",
+      "noChanges": "Nothing changed",
+      "storedHint": "Saved (encrypted) — open Login info to view if permitted"
     }
   },
   "design": {
@@ -1464,7 +1489,8 @@
         "COST_CURRENCY_UNKNOWN": "The provider did not state the currency of the base cost — profit is not calculated.",
         "CURRENCY_MISMATCH": "Proceeds and base cost use different currencies — profit is not calculated.",
         "SHIPPING_UNKNOWN": "Seller shipping cost is not known yet — profit not calculated (not treated as $0).",
-        "LABEL_CURRENCY_MISMATCH": "Label cost is configured for a different currency — profit not calculated (no FX conversion)."
+        "LABEL_CURRENCY_MISMATCH": "Label cost is configured for a different currency — profit not calculated (no FX conversion).",
+        "DESIGN_CURRENCY_MISMATCH": "Design Amount (USD) cannot be deducted from an order in another currency — profit not calculated (no FX conversion)."
       },
       "section": {
         "revenue": "Revenue",
@@ -1520,7 +1546,13 @@
         "TIKTOK_CHARGED": "Source: TikTok Finance — TikTok shipping fee already in the estimate.",
         "SELLER_SHIPPING_DISCOUNT": "Source: TikTok Finance — seller_shipping_fee_discount_amount (seller-funded free shipping).",
         "ORDER_DETAIL": "Source: Get Order Detail — shipping_fee_seller_discount (transaction has no breakdown)."
-      }
+      },
+      "designAmount": "Design Amount",
+      "designAmountHint": "Design cost of the order — deducted from Profit. Defaults to 0.",
+      "designAmountEdit": "Edit Design Amount",
+      "designAmountSaved": "Design Amount saved",
+      "designAmountFailed": "Failed to save Design Amount",
+      "designAmountInvalid": "Design Amount must be a number ≥ 0 with at most 2 decimals"
     },
     "fulfillment": {
       "notFulfilled": "Not Fulfilled",
