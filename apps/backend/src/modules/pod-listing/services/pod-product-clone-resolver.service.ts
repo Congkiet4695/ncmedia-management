@@ -631,12 +631,29 @@ export class PodProductCloneResolverService {
     targetShopId: string,
     excludeItemId?: string,
   ): Promise<CloneInProgress | null> {
+    // 🔴 Chỉ CHỜ item được tạo TRƯỚC mình (hoà thì so id). Không có thứ tự này thì hai lượt cùng cặp
+    // (bấm lại / retry / clone hàng loạt trùng cặp) chờ LẪN NHAU tới hết lượt thử ⇒ cả hai FAILED. Có thứ tự:
+    // item cũ chạy, item mới chờ rồi thấy ALREADY_CLONED ⇒ SKIPPED — không bao giờ tạo bản trùng.
+    const self = excludeItemId
+      ? await this.prisma.podListingJobItem.findUnique({
+          where: { id: excludeItemId },
+          select: { id: true, createdAt: true },
+        })
+      : null;
     const other = await this.prisma.podListingJobItem.findFirst({
       where: {
         organizationId,
         productId,
         shopId: targetShopId,
         ...(excludeItemId ? { id: { not: excludeItemId } } : {}),
+        ...(self
+          ? {
+              OR: [
+                { createdAt: { lt: self.createdAt } },
+                { createdAt: self.createdAt, id: { lt: self.id } },
+              ],
+            }
+          : {}),
         status: {
           in: [
             PodListingJobItemStatus.PENDING,

@@ -33,6 +33,7 @@ import {
 } from '@/features/pod-product/hooks/use-pod-products';
 import type { ProductGalleryImage } from '@/features/pod-product/product-images';
 import {
+  CLONE_MAX_PRODUCTS,
   POD_PRODUCT_STATUS_ALL,
   type PodProductListItem,
   type PodProductQuery,
@@ -56,8 +57,8 @@ export default function PodProductsPage() {
  *   - **Sửa** — Partial Edit Product rồi đồng bộ lại (`EditProductDialog`).
  *   - **Ngừng bán** / **Xoá** — Deactivate / Delete Products, có hộp xác nhận, chạy được
  *     hàng loạt trên các dòng đã tick (tuần tự từng sản phẩm, kết quả gộp vào một toast).
- *   - **Nhân bản sản phẩm** — ĐÚNG MỘT sản phẩm nguồn → NHIỀU shop đích (`CloneProductDialog`):
- *     backend tạo Listing Job type CLONE, dialog theo dõi kết quả từng shop.
+ *   - **Nhân bản sản phẩm** — MỘT hoặc NHIỀU sản phẩm (đã tick, cùng MỘT shop) → NHIỀU shop đích
+ *     (`CloneProductDialog`): backend tạo MỘT Listing Job type CLONE, dialog theo dõi từng cặp sản phẩm/shop.
  */
 function PodProductsView() {
   const { t } = useTranslation(['pod', 'common']);
@@ -93,7 +94,7 @@ function PodProductsView() {
   /** Tiến độ của lượt hàng loạt đang chạy — hiện trên nút xác nhận. */
   const [bulkProgress, setBulkProgress] = useState<{ done: number; total: number } | null>(null);
   /** Sản phẩm NGUỒN đang mở dialog nhân bản. `null` = đóng. */
-  const [cloning, setCloning] = useState<PodProductListItem | null>(null);
+  const [cloning, setCloning] = useState<PodProductListItem[] | null>(null);
   /**
    * Các dòng đang được tick ở bảng.
    *
@@ -264,13 +265,26 @@ function PodProductsView() {
     }
   };
 
-  /** "Nhân bản" đòi ĐÚNG MỘT sản phẩm nguồn — nhiều hơn thì báo, không đoán. */
+  /**
+   * "Nhân bản" từ các dòng đã tick: mọi sản phẩm phải cùng MỘT shop nguồn (một lượt = một shop nguồn) —
+   * lẫn shop thì báo, không đoán shop nào là nguồn. Backend kiểm lại.
+   */
+  const selectionShops = new Set(selectedProducts.map((product) => product.shopId));
+  const cloneSelectionProblem =
+    selectedProducts.length === 0
+      ? null
+      : selectionShops.size > 1
+        ? t('products.clone.bulk.oneShopOnly')
+        : selectedProducts.length > CLONE_MAX_PRODUCTS
+          ? t('products.clone.bulk.tooManyProducts', { max: CLONE_MAX_PRODUCTS })
+          : null;
   const openCloneFromSelection = () => {
-    if (selectedProducts.length !== 1) {
-      toast.error(t('products.clone.onlyOne'));
+    if (selectedProducts.length === 0) return;
+    if (cloneSelectionProblem) {
+      toast.error(cloneSelectionProblem);
       return;
     }
-    setCloning(selectedProducts[0]);
+    setCloning(selectedProducts);
   };
 
   return (
@@ -397,10 +411,10 @@ function PodProductsView() {
                       variant="outline"
                       size="sm"
                       onClick={openCloneFromSelection}
-                      // Vẫn bấm được khi chọn nhiều để nhận thông báo "chỉ chọn một" — nút
-                      // chết lặng không nói cho người dùng biết vì sao.
-                      title={selectedProducts.length === 1 ? undefined : t('products.clone.onlyOne')}
-                      className={selectedProducts.length === 1 ? undefined : 'opacity-60'}
+                      // Vẫn bấm được khi chọn lẫn shop để nhận thông báo vì sao — nút chết lặng không nói
+                      // cho người dùng biết lý do.
+                      title={cloneSelectionProblem ?? undefined}
+                      className={cloneSelectionProblem ? 'opacity-60' : undefined}
                     >
                       <Copy className="size-3.5" />
                       {t('products.actions.clone')}
@@ -439,7 +453,7 @@ function PodProductsView() {
                 onSelectionChange={setSelectedIds}
                 onOpenImages={openLightbox}
                 onEdit={canEdit ? setEditingId : undefined}
-                onClone={canClone ? setCloning : undefined}
+                onClone={canClone ? (product) => setCloning([product]) : undefined}
                 onDeactivate={
                   canDeactivate
                     ? (product) => setConfirm({ action: 'DEACTIVATE', products: [product] })
@@ -492,7 +506,7 @@ function PodProductsView() {
       {cloning && (
         <CloneProductDialog
           open
-          product={cloning}
+          products={cloning}
           onClose={(hadResult) => {
             setCloning(null);
             // Sản phẩm mới về sau lượt đồng bộ được hẹn — nhưng làm mới ngay để danh sách

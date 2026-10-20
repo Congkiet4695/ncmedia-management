@@ -1,12 +1,32 @@
 'use client';
 
-import { useRef, useState } from 'react';
+import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import {
+  DndContext,
+  KeyboardSensor,
+  PointerSensor,
+  TouchSensor,
+  closestCenter,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+} from '@dnd-kit/core';
+import {
+  SortableContext,
+  rectSortingStrategy,
+  sortableKeyboardCoordinates,
+  useSortable,
+} from '@dnd-kit/sortable';
+import { CSS } from '@dnd-kit/utilities';
 import {
   ArrowLeft,
   ArrowRight,
   FileVideo,
+  GripVertical,
   ImageOff,
+  Link2,
   Loader2,
+  Plus,
   Star,
   Trash2,
   Upload,
@@ -15,9 +35,13 @@ import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { useApiError } from '@/hooks/use-api-error';
+import { cn } from '@/lib/utils';
 import { usePodAsset } from '@/features/pod-listing/hooks/use-pod-listing';
 import { podListingService } from '@/features/pod-listing/services/pod-listing.service';
+import { imageKeys, moveImage, normalizeImageUrl, parseImageUrls } from '../media-image-order';
 import type { ManualVideo, SessionImageInput } from '../types';
 
 /**
@@ -66,6 +90,7 @@ export function MediaEditor({
   video,
   onVideoChange,
   removable,
+  allowUrlImages,
 }: {
   images: SessionImageInput[];
   onImagesChange: (next: SessionImageInput[]) => void;
@@ -82,9 +107,25 @@ export function MediaEditor({
    * vẫn còn. Thay được thì vẫn thay được, chỉ là không gỡ trắng được.
    */
   removable?: { sizeChart?: boolean; video?: boolean };
+  /**
+   * Cho thêm ảnh sản phẩm bằng URL (Custom Listing). Ảnh URL được server tải về + lưu Storage ⇒ thành ảnh
+   * `fileId` như ảnh tải từ máy. Tắt ở màn Sửa sản phẩm (luồng ảnh `uri` đã đăng riêng của nó).
+   */
+  allowUrlImages?: boolean;
 }) {
   const { t } = useTranslation('pod');
+  const translateApiError = useApiError();
   const [busy, setBusy] = useState<'IMAGES' | 'SIZE_CHART' | 'VIDEO' | null>(null);
+  const [urlDraft, setUrlDraft] = useState('');
+  const [urlErrors, setUrlErrors] = useState<string[]>([]);
+  /**
+   * 🔴 Danh sách ảnh MỚI NHẤT. Tải ảnh là bất đồng bộ; người dùng vẫn kéo thả / xoá trong lúc chờ. Nối kết quả
+   * vào `images` của lúc BẮT ĐẦU tải là âm thầm hoàn tác thao tác vừa làm — luôn nối vào bản mới nhất.
+   */
+  const latestImages = useRef(images);
+  latestImages.current = images;
+  /** URL gốc của ảnh đã thêm bằng URL trong lần mở form này — chống thêm trùng (ảnh lưu là URL Storage). */
+  const sourceUrls = useRef(new Map<string, string>());
   // Bảng size áp từ Category Template chỉ mang `fileId` (template không lưu URL) — tra Storage
   // để xem trước. State/payload không đổi: thứ gửi đi vẫn là `fileId`, backend upload theo file.
   const chartAsset = usePodAsset(sizeChart && !sizeChart.imageUrl ? sizeChart.fileId : undefined);
@@ -144,7 +185,7 @@ export function MediaEditor({
           fileName: asset.originalName,
         });
       }
-      onImagesChange([...images, ...uploadedFiles]);
+      onImagesChange([...latestImages.current, ...uploadedFiles]);
       toast.success(t('listing.media.uploaded', { count: uploadedFiles.length }));
     } catch (error) {
       toast.error(t('listing.media.uploadFailed'), {
@@ -194,13 +235,108 @@ export function MediaEditor({
     }
   };
 
-  /** Đổi chỗ hai ảnh. Ảnh đầu tiên là ảnh CHÍNH — đó là quy ước của TikTok, không phải cờ riêng. */
+  /**
+   * Đổi vị trí một ảnh. Ảnh đầu tiên là ảnh CHÍNH — quy ước của TikTok, không phải cờ riêng. Nút ← → là cách
+   * thao tác KHÔNG cần chuột (song song với kéo thả và phím Space/mũi tên trên tay cầm kéo).
+   */
   const move = (index: number, delta: number) => {
     const target = index + delta;
     if (target < 0 || target >= images.length) return;
-    const next = [...images];
-    [next[index], next[target]] = [next[target], next[index]];
-    onImagesChange(next);
+    onImagesChange(moveImage(images, index, target));
+  };
+
+  const keys = imageKeys(images);
+  // Kéo bằng chuột chỉ bắt đầu sau 6px ⇒ bấm (xem, nút) không bao giờ bị hiểu là kéo; cảm ứng giữ 200ms để
+  // không cướp thao tác cuộn trang; bàn phím: Space nhấc, mũi tên di chuyển, Space thả, Esc huỷ.
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 200, tolerance: 6 } }),
+    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates }),
+  );
+  const onDragEnd = ({ active, over }: DragEndEvent) => {
+    if (!over || active.id === over.id) return;
+    const from = keys.indexOf(String(active.id));
+    const to = keys.indexOf(String(over.id));
+    if (from < 0 || to < 0) return;
+    onImagesChange(moveImage(images, from, to));
+  };
+
+  const removeImage = (index: number) => {
+    const removed = images[index];
+    if (removed?.fileId) sourceUrls.current.delete(removed.fileId);
+    onImagesChange(images.filter((_, i) => i !== index));
+  };
+
+  /**
+   * Thêm ảnh bằng URL (một hoặc nhiều link). Từng link được server kiểm + tải TUẦN TỰ; link lỗi báo riêng và
+   * KHÔNG vào danh sách — link tốt vẫn được thêm.
+   */
+  const addFromUrls = async () => {
+    if (busy !== null) return;
+    const parsed = parseImageUrls(urlDraft);
+    if (parsed.length === 0) return;
+    const problems: string[] = [];
+    const room = IMAGE_MAX - latestImages.current.length;
+    if (room <= 0) {
+      toast.error(t('listing.media.imageLimit', { max: IMAGE_MAX }));
+      return;
+    }
+    const known = new Set([
+      ...[...sourceUrls.current.values()].map(normalizeImageUrl),
+      ...latestImages.current.map((image) => normalizeImageUrl(image.imageUrl)),
+    ]);
+    const queue: string[] = [];
+    for (const { url, problem } of parsed) {
+      const key = normalizeImageUrl(url);
+      if (problem) problems.push(`${url} — ${t(`listing.media.url.problem.${problem}`)}`);
+      else if (known.has(key)) problems.push(`${url} — ${t('listing.media.url.duplicate')}`);
+      else if (queue.length >= room)
+        problems.push(`${url} — ${t('listing.media.imageLimit', { max: IMAGE_MAX })}`);
+      else {
+        known.add(key);
+        queue.push(url);
+      }
+    }
+
+    setBusy('IMAGES');
+    const added: SessionImageInput[] = [];
+    try {
+      for (const url of queue) {
+        try {
+          const asset = await podListingService.importAssetFromUrl(url);
+          sourceUrls.current.set(asset.id, url);
+          added.push({
+            imageUrl: asset.publicUrl ?? '',
+            fileId: asset.id,
+            imageType: 'MAIN',
+            fileName: asset.originalName,
+          });
+        } catch (error) {
+          problems.push(`${url} — ${translateApiError(error)}`);
+        }
+      }
+    } finally {
+      setBusy(null);
+    }
+    if (added.length > 0) {
+      onImagesChange([...latestImages.current, ...added].slice(0, IMAGE_MAX));
+      toast.success(t('listing.media.uploaded', { count: added.length }));
+    }
+    setUrlErrors(problems);
+    // Giữ lại đúng những link lỗi trong ô để sửa; link đã thêm thì xoá khỏi ô.
+    const addedUrls = new Set(added.map((image) => sourceUrls.current.get(image.fileId ?? '')));
+    setUrlDraft(
+      parsed
+        .map(({ url }) => url)
+        .filter((url) => !addedUrls.has(url))
+        .join(' '),
+    );
+  };
+  const onUrlKeyDown = (event: KeyboardEvent<HTMLInputElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      void addFromUrls();
+    }
   };
 
   return (
@@ -251,64 +387,125 @@ export function MediaEditor({
             {t('listing.media.dropHint')}
           </button>
         ) : (
-          <div className="flex flex-wrap gap-3">
-            {images.map((image, index) => (
-              <figure key={image.fileId ?? `${image.imageUrl}-${index}`} className="w-[128px] space-y-1">
-                <div className="relative">
-                  {image.imageUrl ? (
-                    // eslint-disable-next-line @next/next/no-img-element
-                    <img
-                      src={image.imageUrl}
-                      alt={image.fileName ?? ''}
-                      className="size-[128px] rounded-md border object-cover"
-                    />
-                  ) : (
-                    <div className="flex size-[128px] items-center justify-center rounded-md border bg-muted">
-                      <ImageOff className="size-6 text-muted-foreground" />
-                    </div>
-                  )}
-                  {index === 0 && (
-                    <Badge variant="success" className="absolute left-1 top-1 gap-1">
-                      <Star className="size-3" />
-                      {t('listing.media.primary')}
-                    </Badge>
-                  )}
-                </div>
-                <div className="flex items-center justify-between">
-                  <div className="flex gap-0.5">
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="size-7 p-0"
-                      aria-label={t('listing.media.moveLeft')}
-                      disabled={index === 0}
-                      onClick={() => move(index, -1)}
-                    >
-                      <ArrowLeft className="size-3.5" />
-                    </Button>
-                    <Button
-                      variant="ghost"
-                      size="sm"
-                      className="size-7 p-0"
-                      aria-label={t('listing.media.moveRight')}
-                      disabled={index === images.length - 1}
-                      onClick={() => move(index, 1)}
-                    >
-                      <ArrowRight className="size-3.5" />
-                    </Button>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    className="size-7 p-0"
-                    aria-label={t('listing.media.removeImage')}
-                    onClick={() => onImagesChange(images.filter((_, i) => i !== index))}
+          <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
+            <SortableContext items={keys} strategy={rectSortingStrategy}>
+              <div className="flex flex-wrap gap-3">
+                {images.map((image, index) => (
+                  <SortableImage
+                    key={keys[index]}
+                    id={keys[index]}
+                    label={t('listing.media.dragHandle', { index: index + 1 })}
                   >
-                    <Trash2 className="size-3.5 text-destructive" />
-                  </Button>
-                </div>
-              </figure>
-            ))}
+                    <div className="relative">
+                      {image.imageUrl ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img
+                          src={image.imageUrl}
+                          alt={image.fileName ?? ''}
+                          className="size-[128px] rounded-md border object-cover"
+                        />
+                      ) : (
+                        <div className="flex size-[128px] items-center justify-center rounded-md border bg-muted">
+                          <ImageOff className="size-6 text-muted-foreground" />
+                        </div>
+                      )}
+                      {index === 0 && (
+                        <Badge variant="success" className="absolute left-1 top-1 gap-1">
+                          <Star className="size-3" />
+                          {t('listing.media.primary')}
+                        </Badge>
+                      )}
+                    </div>
+                    <div className="flex items-center justify-between">
+                      <div className="flex gap-0.5">
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="size-7 p-0"
+                          aria-label={t('listing.media.moveLeft')}
+                          disabled={index === 0}
+                          onClick={() => move(index, -1)}
+                        >
+                          <ArrowLeft className="size-3.5" />
+                        </Button>
+                        <Button
+                          variant="ghost"
+                          size="sm"
+                          className="size-7 p-0"
+                          aria-label={t('listing.media.moveRight')}
+                          disabled={index === images.length - 1}
+                          onClick={() => move(index, 1)}
+                        >
+                          <ArrowRight className="size-3.5" />
+                        </Button>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        className="size-7 p-0"
+                        aria-label={t('listing.media.removeImage')}
+                        onClick={() => removeImage(index)}
+                      >
+                        <Trash2 className="size-3.5 text-destructive" />
+                      </Button>
+                    </div>
+                  </SortableImage>
+                ))}
+              </div>
+            </SortableContext>
+          </DndContext>
+        )}
+
+        {allowUrlImages && (
+          <div className="space-y-1">
+            <div className="flex gap-2">
+              <div className="relative min-w-0 flex-1">
+                <Link2 className="pointer-events-none absolute left-2.5 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={urlDraft}
+                  onChange={(event) => setUrlDraft(event.target.value)}
+                  onKeyDown={onUrlKeyDown}
+                  onPaste={(event) => {
+                    // Dán nhiều link (mỗi dòng một link) vào ô một dòng: giữ chúng cách nhau thay vì dính liền.
+                    const text = event.clipboardData.getData('text');
+                    if (/\n/.test(text)) {
+                      event.preventDefault();
+                      setUrlDraft((prev) =>
+                        [prev, ...text.split(/\r?\n/)].filter(Boolean).join(' '),
+                      );
+                    }
+                  }}
+                  disabled={busy !== null || images.length >= IMAGE_MAX}
+                  placeholder={t('listing.media.url.placeholder')}
+                  aria-label={t('listing.media.url.label')}
+                  className="pl-8"
+                />
+              </div>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-9"
+                disabled={busy !== null || images.length >= IMAGE_MAX || urlDraft.trim() === ''}
+                onClick={() => void addFromUrls()}
+              >
+                {busy === 'IMAGES' ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <Plus className="size-4" />
+                )}
+                {t('listing.media.url.add')}
+              </Button>
+            </div>
+            {urlErrors.length > 0 && (
+              <ul className="space-y-0.5 text-xs text-destructive">
+                {urlErrors.map((line) => (
+                  <li key={line} className="break-all">
+                    {line}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-xs text-muted-foreground">{t('listing.media.url.hint')}</p>
           </div>
         )}
 
@@ -453,6 +650,55 @@ export function MediaEditor({
         </div>
       </div>
     </div>
+  );
+}
+
+/**
+ * Một ô ảnh kéo được. Tay cầm kéo là NÚT riêng (góc phải trên) — nút xoá / ← → không nằm trong vùng kéo nên bấm
+ * chúng không bao giờ khởi động kéo; bàn phím: Tab tới tay cầm, Space nhấc, mũi tên di chuyển, Space thả.
+ */
+function SortableImage({
+  id,
+  label,
+  children,
+}: {
+  id: string;
+  label: string;
+  children: ReactNode;
+}) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    setActivatorNodeRef,
+    transform,
+    transition,
+    isDragging,
+    isOver,
+  } = useSortable({ id });
+  return (
+    <figure
+      ref={setNodeRef}
+      style={{ transform: CSS.Transform.toString(transform), transition }}
+      className={cn(
+        'relative w-[128px] space-y-1 rounded-md',
+        isDragging && 'z-10 opacity-60 shadow-lg ring-2 ring-primary',
+        isOver && !isDragging && 'ring-2 ring-primary/50 ring-offset-2',
+      )}
+    >
+      {children}
+      <button
+        type="button"
+        ref={setActivatorNodeRef}
+        {...attributes}
+        {...listeners}
+        aria-label={label}
+        title={label}
+        className="absolute right-1 top-1 cursor-grab touch-none rounded bg-background/80 p-0.5 text-muted-foreground shadow-sm hover:text-foreground active:cursor-grabbing"
+      >
+        <GripVertical className="size-4" />
+      </button>
+    </figure>
   );
 }
 

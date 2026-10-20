@@ -213,7 +213,8 @@
     "title": "Send order to the print shop",
     "total": "Total",
     "useAccountDefault": "Provider default",
-    "shippingLoadFailed": "Could not load shipping methods"
+    "shippingLoadFailed": "Could not load shipping methods",
+    "orderId": "Order ID"
   },
   "fulfillNow": "Fulfill now",
   "history": "History",

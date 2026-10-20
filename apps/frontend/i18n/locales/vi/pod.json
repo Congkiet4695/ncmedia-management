@@ -1341,7 +1341,20 @@
       "uploadFailed": "Tải file lên thất bại",
       "badFormat": "Định dạng không được hỗ trợ: {{name}} ({{type}})",
       "tooLarge": "{{name}} nặng {{size}} — vượt giới hạn {{max}}",
-      "replace": "Thay"
+      "replace": "Thay",
+      "dragHandle": "Kéo để đổi vị trí ảnh {{index}} (Space để nhấc, phím mũi tên để di chuyển)",
+      "url": {
+        "label": "URL ảnh",
+        "placeholder": "Dán URL ảnh — https://…",
+        "add": "Thêm từ URL",
+        "hint": "Link công khai tới ảnh JPEG / PNG / WEBP, tối đa 5 MB mỗi ảnh. Hệ thống tải ảnh về và lưu lại (link cần đăng nhập, đã hết hạn hoặc chặn liên kết ngoài sẽ bị từ chối). Dán nhiều link cách nhau bởi khoảng trắng hoặc xuống dòng.",
+        "duplicate": "đã có trong danh sách",
+        "problem": {
+          "INVALID": "URL không hợp lệ",
+          "NOT_HTTP": "chỉ nhận link http/https",
+          "TOO_LONG": "URL quá dài"
+        }
+      }
     },
     "variantImages": {
       "action": "Cập nhật ảnh biến thể",
@@ -1945,6 +1958,25 @@
         "FAILED": "Thất bại",
         "SKIPPED": "Bỏ qua",
         "CANCELLED": "Đã huỷ"
+      },
+      "bulk": {
+        "title": "Nhân bản {{count}} sản phẩm",
+        "description": "Tạo các sản phẩm đã chọn trên nhiều shop TikTok cùng lúc. Mỗi cặp sản phẩm × shop là một kết quả độc lập — cặp lỗi không ảnh hưởng cặp khác.",
+        "sourceProducts": "Sản phẩm nguồn ({{count}})",
+        "sourceShop": "Shop nguồn",
+        "productCount": "Số sản phẩm",
+        "shopCount": "Số shop đích",
+        "totalOps": "Thao tác nhân bản",
+        "formula": "{{products}} sản phẩm × {{shops}} shop = {{total}} thao tác nhân bản",
+        "tooMany": "vượt {{max}} thao tác mỗi lượt, hãy chia thành nhiều lượt",
+        "tooManyProducts": "Chỉ chọn tối đa {{max}} sản phẩm mỗi lượt nhân bản.",
+        "oneShopOnly": "Các sản phẩm đã chọn thuộc nhiều shop — mỗi lượt chỉ nhân bản sản phẩm của MỘT shop nguồn.",
+        "review": "Xem lại",
+        "reviewHint": "Chưa có gì được gửi cho tới khi bạn xác nhận. Cặp đã có trên shop đích (đã nhân bản trước / trùng Seller SKU) sẽ được bỏ qua.",
+        "back": "Quay lại",
+        "confirm": "Xác nhận nhân bản ({{count}})",
+        "started": "Đã bắt đầu {{count}} thao tác nhân bản",
+        "onlyProblems": "Chỉ hiện thất bại / bỏ qua"
       }
     },
     "edit": {

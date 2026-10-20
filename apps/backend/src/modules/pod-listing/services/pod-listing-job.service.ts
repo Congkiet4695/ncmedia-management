@@ -46,6 +46,7 @@ import {
   POD_LISTING_SWEEP_INTERVAL_MS,
   POD_LISTING_BLOCKER_CODES,
   POD_PRODUCT_CLONE_LOCK_MS,
+  POD_PRODUCT_CLONE_MAX_ITEMS,
   POD_PRODUCT_CLONE_WAIT_MS,
   POD_PUBLISH_BLOCKER_CODES,
   POD_PUBLISHABLE_PAYLOAD_STATUSES,
@@ -58,7 +59,7 @@ import type {
   PodListingLogQueryDto,
   RetryListingJobDto,
 } from '../dto/pod-listing-job.dto';
-import type { CloneProductDto } from '../dto/pod-product-clone.dto';
+import type { BulkCloneProductsDto, CloneProductDto } from '../dto/pod-product-clone.dto';
 import { mapReviewStatus } from '../mappers/pod-review-status.mapper';
 import { PodListingPayloadService } from './pod-listing-payload.service';
 import { toJson, type ResolvedListing } from './pod-listing-resolver.service';
@@ -80,6 +81,7 @@ import {
   PodProductCloneResolverService,
   marketOfRegion,
   type CloneInProgress,
+  type CloneSourceProduct,
 } from './pod-product-clone-resolver.service';
 import { PodProductSyncService } from '../../pod-product/services/pod-product-sync.service';
 import { PodListingValidatorService } from './pod-listing-validator.service';
@@ -653,38 +655,147 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
     const market = marketOfRegion(product.shop.region);
     if (!market) throw new PodCloneMarketUnknownException(product.shop.region);
 
-    const created = await this.lock.withLock(
-      `pod:product-clone:${product.id}`,
-      POD_PRODUCT_CLONE_LOCK_MS,
-      async () => {
-        // Kiểm "đã có" (chống trùng — lý do cuối cùng) cho từng shop TRONG khoá: hai request
-        // song song không cùng thấy "chưa có".
-        const skips = new Map<string, string>();
+    return this.persistCloneJob({
+      organizationId,
+      userId,
+      products: [product],
+      shops,
+      market,
+      lockKey: `pod:product-clone:${product.id}`,
+      name: `Nhân bản · ${(product.title ?? product.tiktokProductId).slice(0, 200)} → ${shops.length} shop`,
+    });
+  }
+
+  /**
+   * **Nhân bản HÀNG LOẠT**: NHIỀU sản phẩm của MỘT shop nguồn ⇒ NHIỀU shop đích, trong MỘT lượt CLONE.
+   *
+   * Mỗi cặp (sản phẩm, shop đích) là một item độc lập — đúng pipeline `processCloneItem` của nhân bản đơn
+   * (hàng đợi `POD_LISTING_JOB_CONCURRENCY` luồng, retry lỗi tạm thời, chống trùng). 5 sản phẩm × 3 shop ⇒
+   * tối đa 15 item; cặp nào hỏng chỉ hỏng cặp đó.
+   *
+   * 🔴 Không tin danh sách từ client (kiểm hết TRƯỚC khi tạo bất kỳ bản ghi nào):
+   *  - shop nguồn và MỌI shop đích phải trong phạm vi người gọi (một shop lạ ⇒ 403 cả request);
+   *  - shop nguồn không được nằm trong danh sách đích (400);
+   *  - MỌI sản phẩm phải tồn tại trong tổ chức (404) và thuộc ĐÚNG shop nguồn đã chọn (400);
+   *  - giới hạn số sản phẩm / số cặp mỗi lượt.
+   *
+   * 🔴 Chống bấm đúp: khoá Redis theo shop nguồn quanh bước tạo job. Lượt trùng cặp lọt qua khoá (gửi lại sau
+   * khi lượt trước đã tạo) ⇒ item mới CHỜ item cũ (`findInProgress`) rồi thấy ALREADY_CLONED ⇒ SKIPPED.
+   */
+  async createBulkCloneJob(
+    organizationId: string,
+    userId: string,
+    dto: BulkCloneProductsDto,
+    scope: PodAccessScope,
+  ) {
+    this.accessScope.assertShopAllowed(scope, dto.sourceShopId);
+    const productIds = [...new Set(dto.productIds)];
+    const targetShopIds = [...new Set(dto.targetShopIds)];
+    for (const shopId of targetShopIds) this.accessScope.assertShopAllowed(scope, shopId);
+
+    if (targetShopIds.includes(dto.sourceShopId)) {
+      throw new BadRequestException({
+        code: 'POD_PRODUCT_CLONE_SOURCE_AS_TARGET',
+        message: 'Shop nguồn không được chọn làm shop đích.',
+      });
+    }
+    const pairs = productIds.length * targetShopIds.length;
+    if (pairs > POD_PRODUCT_CLONE_MAX_ITEMS) {
+      throw new BadRequestException({
+        code: 'POD_PRODUCT_CLONE_TOO_MANY',
+        message:
+          `Lượt nhân bản có ${productIds.length} sản phẩm × ${targetShopIds.length} shop = ${pairs} thao tác, ` +
+          `vượt giới hạn ${POD_PRODUCT_CLONE_MAX_ITEMS} — hãy chia thành nhiều lượt.`,
+      });
+    }
+
+    const loaded = await Promise.all(
+      productIds.map((id) => this.cloneResolver.loadSource(organizationId, id)),
+    );
+    const products = loaded.filter((product): product is NonNullable<typeof product> => product !== null);
+    if (products.length !== productIds.length) throw new PodCloneSourceNotFoundException();
+    const foreign = products.filter((product) => product.shopId !== dto.sourceShopId);
+    if (foreign.length > 0) {
+      throw new BadRequestException({
+        code: 'POD_PRODUCT_CLONE_SOURCE_MISMATCH',
+        message: `${foreign.length} sản phẩm không thuộc shop nguồn đã chọn — chỉ nhân bản sản phẩm của MỘT shop mỗi lượt.`,
+      });
+    }
+
+    const shops = await this.prisma.podTiktokShop.findMany({
+      where: { id: { in: targetShopIds }, organizationId, deletedAt: null },
+      select: { id: true, accountId: true, name: true, region: true },
+    });
+    if (shops.length !== targetShopIds.length) {
+      throw new BadRequestException({
+        code: 'POD_LISTING_JOB_INVALID_SHOP',
+        message: 'Có shop không tồn tại hoặc không thuộc tổ chức này.',
+      });
+    }
+
+    const sourceShop = products[0].shop;
+    const market = marketOfRegion(sourceShop.region);
+    if (!market) throw new PodCloneMarketUnknownException(sourceShop.region);
+
+    return this.persistCloneJob({
+      organizationId,
+      userId,
+      products,
+      shops,
+      market,
+      lockKey: `pod:product-clone-bulk:${dto.sourceShopId}`,
+      name: `Nhân bản · ${products.length} sản phẩm từ ${sourceShop.name ?? 'shop nguồn'} → ${shops.length} shop`.slice(0, 255),
+    });
+  }
+
+  /**
+   * Tạo lượt CLONE cho MỌI cặp (sản phẩm × shop) trong khoá `lockKey`, rồi chạy nền. Dùng chung cho nhân bản
+   * đơn và hàng loạt. Cặp đã có trên shop đích (chống trùng, lý do CUỐI CÙNG) ⇒ item SKIPPED ngay lúc tạo.
+   */
+  private async persistCloneJob(params: {
+    organizationId: string;
+    userId: string;
+    products: CloneSourceProduct[];
+    shops: Array<{ id: string; name: string | null }>;
+    market: PodListingMarket;
+    lockKey: string;
+    name: string;
+  }) {
+    const { organizationId, userId, products, shops, market } = params;
+    const pairKey = (productId: string, shopId: string) => `${productId}:${shopId}`;
+
+    const created = await this.lock.withLock(params.lockKey, POD_PRODUCT_CLONE_LOCK_MS, async () => {
+      // Kiểm "đã có" TRONG khoá: hai request song song không cùng thấy "chưa có".
+      const skips = new Map<string, string>();
+      for (const product of products) {
         for (const shop of shops) {
           const reason = await this.cloneResolver.findSkipReason(organizationId, product, shop.id);
-          if (reason) skips.set(shop.id, reason.message);
+          if (reason) skips.set(pairKey(product.id, shop.id), reason.message);
         }
+      }
+      const totalItems = products.length * shops.length;
 
-        return this.prisma.$transaction(async (tx) => {
-          const now = new Date();
-          const job = await tx.podListingJob.create({
-            data: {
-              organizationId,
-              name: `Nhân bản · ${(product.title ?? product.tiktokProductId).slice(0, 200)} → ${shops.length} shop`,
-              market,
-              type: PodListingJobType.CLONE,
-              totalItems: shops.length,
-              failedItems: skips.size,
-              concurrency: POD_LISTING_JOB_CONCURRENCY,
-              maxRetries: POD_LISTING_JOB_MAX_RETRIES,
-              createdBy: userId,
-            },
-            select: { id: true },
-          });
+      return this.prisma.$transaction(async (tx) => {
+        const now = new Date();
+        const job = await tx.podListingJob.create({
+          data: {
+            organizationId,
+            name: params.name,
+            market,
+            type: PodListingJobType.CLONE,
+            totalItems,
+            failedItems: skips.size,
+            concurrency: POD_LISTING_JOB_CONCURRENCY,
+            maxRetries: POD_LISTING_JOB_MAX_RETRIES,
+            createdBy: userId,
+          },
+          select: { id: true },
+        });
 
-          await tx.podListingJobItem.createMany({
-            data: shops.map((shop) => {
-              const skip = skips.get(shop.id);
+        await tx.podListingJobItem.createMany({
+          data: products.flatMap((product) =>
+            shops.map((shop) => {
+              const skip = skips.get(pairKey(product.id, shop.id));
               return {
                 organizationId,
                 jobId: job.id,
@@ -702,33 +813,40 @@ export class PodListingJobService implements OnModuleInit, OnModuleDestroy {
                   : {}),
               };
             }),
-          });
-
-          await tx.podListingLog.create({
-            data: {
-              organizationId,
-              jobId: job.id,
-              level: PodListingLogLevel.INFO,
-              step: PodListingStep.LOAD_PRODUCT,
-              message: `Đã tạo lượt nhân bản: "${product.title ?? product.tiktokProductId}" → ${shops.length} shop (bỏ qua ${skips.size})`,
-              payload: toJson({
-                sourceProductId: product.id,
-                sourceTiktokProductId: product.tiktokProductId,
-                sourceShopId: product.shopId,
-                market,
-                shops: shops.map((shop) => ({
-                  id: shop.id,
-                  name: shop.name,
-                  skipped: skips.get(shop.id) ?? null,
-                })),
-              }),
-            },
-          });
-
-          return job;
+          ),
         });
-      },
-    );
+
+        const [first] = products;
+        await tx.podListingLog.create({
+          data: {
+            organizationId,
+            jobId: job.id,
+            level: PodListingLogLevel.INFO,
+            step: PodListingStep.LOAD_PRODUCT,
+            message:
+              products.length === 1
+                ? `Đã tạo lượt nhân bản: "${first.title ?? first.tiktokProductId}" → ${shops.length} shop (bỏ qua ${skips.size})`
+                : `Đã tạo lượt nhân bản hàng loạt: ${products.length} sản phẩm × ${shops.length} shop = ${totalItems} thao tác (bỏ qua ${skips.size})`,
+            payload: toJson({
+              sourceProductId: products.length === 1 ? first.id : undefined,
+              sourceTiktokProductId: products.length === 1 ? first.tiktokProductId : undefined,
+              sourceProductIds: products.length === 1 ? undefined : products.map((product) => product.id),
+              sourceShopId: first.shopId,
+              market,
+              shops: shops.map((shop) => ({
+                id: shop.id,
+                name: shop.name,
+                skipped:
+                  products.length === 1 ? (skips.get(pairKey(first.id, shop.id)) ?? null) : undefined,
+              })),
+              skipped: skips.size,
+            }),
+          },
+        });
+
+        return job;
+      });
+    });
     if (!created) throw new PodCloneBusyException();
 
     this.runInBackground(organizationId, created.id);

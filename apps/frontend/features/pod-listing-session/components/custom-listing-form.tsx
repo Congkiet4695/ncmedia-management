@@ -798,6 +798,7 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
           onSizeChartChange={(sizeChart) => patch({ sizeChart })}
           video={form.video}
           onVideoChange={(video) => patch({ video })}
+          allowUrlImages
         />
       </Section>
 

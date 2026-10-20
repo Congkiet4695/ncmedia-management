@@ -3,6 +3,7 @@ import { apiClient } from '@/services/api-client';
 import type { ApiResponse } from '@/types/api';
 import type { PodListingJob } from '@/features/pod-listing/types';
 import type {
+  BulkCloneProductsPayload,
   CloneProductPayload,
   PodProductDeleteResult,
   PodProductVariantListResult,
@@ -88,6 +89,12 @@ export const podProductService = {
    */
   async clone(id: string, payload: CloneProductPayload): Promise<PodListingJob> {
     const res = await apiClient.post<ApiResponse<PodListingJob>>(`${BASE_PATH}/${id}/clone`, payload);
+    return res.data.data;
+  },
+
+  /** Nhân bản NHIỀU sản phẩm của một shop sang nhiều shop — một Listing Job, mỗi cặp một item. */
+  async bulkClone(payload: BulkCloneProductsPayload): Promise<PodListingJob> {
+    const res = await apiClient.post<ApiResponse<PodListingJob>>(`${BASE_PATH}/clone`, payload);
     return res.data.data;
   },
 

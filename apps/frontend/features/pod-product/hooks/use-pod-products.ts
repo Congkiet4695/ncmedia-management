@@ -4,6 +4,7 @@ import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tansta
 import { POD_SYNC_STATUS_KEY } from '@/features/pod-tiktok/hooks/use-pod-orders';
 import { podProductService } from '../services/pod-product.service';
 import type {
+  BulkCloneProductsPayload,
   CloneProductPayload,
   PodProductQuery,
   PodProductSyncPayload,
@@ -148,6 +149,16 @@ export function useDeletePodProduct() {
  * Làm mới cache Listing (job vừa xuất hiện ở Publish History / Draft Listing). Danh sách sản
  * phẩm CHƯA đổi ngay: sản phẩm mới chỉ về sau lượt đồng bộ được hẹn — modal kết quả nói rõ.
  */
+export function useBulkClonePodProducts() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (payload: BulkCloneProductsPayload) => podProductService.bulkClone(payload),
+    onSuccess: () => {
+      void queryClient.invalidateQueries({ queryKey: [POD_LISTING_KEY] });
+    },
+  });
+}
+
 export function useClonePodProduct() {
   const queryClient = useQueryClient();
   return useMutation({

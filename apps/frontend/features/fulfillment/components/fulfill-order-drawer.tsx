@@ -9,7 +9,6 @@ import {
   ExternalLink,
   ChevronRight,
   Factory,
-  ImageOff,
   Loader2,
   Package,
   RotateCw,
@@ -440,13 +439,15 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
   };
 
   const items = order?.items ?? [];
-  const firstItem = items[0];
 
   return (
     <>
       <Drawer
         open={open}
         onClose={submitting ? () => undefined : onClose}
+        // Chỉ drawer Fulfill rộng hơn (Drawer dùng chung giữ 560px): cấu hình 2 cột + bảng ánh xạ/design cần chỗ.
+        // Mobile vẫn tràn hết bề ngang; desktop tối đa 960px và không bao giờ vượt 92% màn hình.
+        className="sm:w-[min(960px,92vw)]"
         title={t('fulfill.drawerTitle', { orderId: order?.tiktokOrderId ?? '' })}
         description={t('fulfill.subtitle')}
         headerExtra={
@@ -548,44 +549,27 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
               title={t('fulfill.section.order')}
               issues={[...messagesOf('ORDER'), ...messagesOf('ADDRESS')]}
             >
-              <div className="flex gap-3">
-                {firstItem?.productImage ? (
-                  // eslint-disable-next-line @next/next/no-img-element
-                  <img
-                    src={firstItem.productImage}
-                    alt=""
-                    className="size-16 shrink-0 rounded-md border object-cover"
-                  />
-                ) : (
-                  <div className="flex size-16 shrink-0 items-center justify-center rounded-md border bg-muted">
-                    <ImageOff className="size-5 text-muted-foreground" />
-                  </div>
-                )}
-                <div className="min-w-0 space-y-1 text-sm">
-                  <p className="line-clamp-2 font-medium leading-snug">
-                    {firstItem?.productName ?? order?.tiktokOrderId}
-                  </p>
-                  <dl className="grid grid-cols-1 gap-x-4 gap-y-0.5 text-xs text-muted-foreground sm:grid-cols-2">
-                    <Field label={t('pod:product.productId')} value={firstItem?.productId} mono />
-                    <Field
-                      label={t('pod:product.sku')}
-                      value={firstItem?.sellerSku ?? firstItem?.skuId}
-                      mono
-                    />
-                    <Field label={t('pod:product.variant')} value={firstItem?.skuName} />
-                    <Field label={t('pod:product.qty')} value={String(items.length)} />
-                    <Field label={t('fulfill.shop')} value={order?.shop.connectionName} />
-                    <Field
-                      label={t('fulfill.orderAmount')}
-                      value={
-                        order?.totalAmount === null || order?.totalAmount === undefined
-                          ? undefined
-                          : formatCurrency(order.totalAmount, order.currency)
-                      }
-                    />
-                  </dl>
-                </div>
-              </div>
+              {/* Chỉ ĐÚNG 3 thông tin: Order ID · Shop · Order amount. Sản phẩm / SKU / biến thể của từng dòng
+                  vẫn hiện ở mục Cấu hình Design bên dưới — không mất dữ liệu nghiệp vụ. */}
+              <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
+                <InfoField label={t('fulfill.orderId')} value={order?.tiktokOrderId} mono />
+                <InfoField
+                  label={t('fulfill.shop')}
+                  value={order?.shop.connectionName}
+                  // Tên gian hàng TikTok khác tên kết nối ⇒ hiện thêm để đối chiếu với Seller Center.
+                  secondary={
+                    order?.shop.name && order.shop.name !== order.shop.connectionName ? order.shop.name : undefined
+                  }
+                />
+                <InfoField
+                  label={t('fulfill.orderAmount')}
+                  value={
+                    order?.totalAmount === null || order?.totalAmount === undefined
+                      ? undefined
+                      : formatCurrency(order.totalAmount, order.currency)
+                  }
+                />
+              </dl>
               {/* PII người nhận KHÔNG được trả về giao diện; địa chỉ chỉ được backend xác thực. */}
               <p className="text-[11px] text-muted-foreground">{t('fulfill.addressCheckedHint')}</p>
               {/* 🔴 Nói rõ hai tình huống khác hẳn nhau, thay vì một câu "đã che" chung chung:
@@ -1073,6 +1057,30 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
       {/* Xem phóng to file design đang gắn cho một vị trí in. */}
       <ImageLightbox open={Boolean(preview)} src={preview} onClose={() => setPreview(null)} />
     </>
+  );
+}
+
+/**
+ * Một ô của mục Thông tin đơn hàng: nhãn trên, giá trị dưới. Giá trị dài (mã đơn 18 chữ số, tên shop dài) được
+ * `break-all` / xuống dòng thay vì cắt mất hoặc đẩy tràn ngang.
+ */
+function InfoField({
+  label,
+  value,
+  secondary,
+  mono,
+}: {
+  label: string;
+  value?: string | null;
+  secondary?: string;
+  mono?: boolean;
+}) {
+  return (
+    <div className="min-w-0">
+      <dt className="text-xs text-muted-foreground">{label}</dt>
+      <dd className={cn('font-medium', mono ? 'break-all font-mono' : 'break-words')}>{value || '—'}</dd>
+      {secondary && <dd className="break-words text-xs text-muted-foreground">{secondary}</dd>}
+    </div>
   );
 }
 

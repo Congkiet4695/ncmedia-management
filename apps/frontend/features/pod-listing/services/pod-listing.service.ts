@@ -521,6 +521,20 @@ export const podListingService = {
     >('/storage/upload', form, { headers: { 'Content-Type': undefined } });
     return res.data.data.files[0];
   },
+
+  /**
+   * Thêm ảnh sản phẩm bằng URL: server tải ảnh (hàng rào SSRF, kiểm chữ ký JPEG/PNG/WEBP, ≤ 5 MB) rồi lưu Storage
+   * ĐÚNG như `uploadAsset` ⇒ trả cùng hình dạng, form giữ `fileId` như ảnh tải từ máy.
+   */
+  async importAssetFromUrl(
+    url: string,
+  ): Promise<{ id: string; publicUrl: string | null; originalName: string }> {
+    const res = await apiClient.post<ApiResponse<{ id: string; publicUrl: string | null; originalName: string }>>(
+      `${POD}/listing-assets/from-url`,
+      { url },
+    );
+    return res.data.data;
+  },
 };
 
 /**

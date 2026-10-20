@@ -262,6 +262,112 @@ describe('PodListingJobService.createCloneJob', () => {
   });
 });
 
+describe('PodListingJobService.createBulkCloneJob (nhiều sản phẩm × nhiều shop)', () => {
+  const PRODUCT_2 = 'prod-2';
+  const SOURCE_2 = { ...SOURCE, id: PRODUCT_2, tiktokProductId: 'TT-SRC-2', title: 'Xmas Tee' };
+  const bulk = (over: Partial<{ sourceShopId: string; productIds: string[]; targetShopIds: string[] }> = {}) => ({
+    sourceShopId: SHOP_SRC,
+    productIds: [PRODUCT, PRODUCT_2],
+    targetShopIds: [SHOP_A, SHOP_B],
+    ...over,
+  });
+  /** `loadSource` trả đúng sản phẩm theo id (thiếu ⇒ null). */
+  const withSources = (h: ReturnType<typeof buildService>, sources: Array<typeof SOURCE>) =>
+    h.cloneResolver.loadSource.mockImplementation((_org: string, id: string) =>
+      Promise.resolve(sources.find((source) => source.id === id) ?? null),
+    );
+
+  it.each([
+    ['1 sản phẩm → 1 shop', [PRODUCT], [SHOP_A], 1],
+    ['nhiều sản phẩm → 1 shop', [PRODUCT, PRODUCT_2], [SHOP_A], 2],
+    ['1 sản phẩm → nhiều shop', [PRODUCT], [SHOP_A, SHOP_B], 2],
+    ['nhiều sản phẩm → nhiều shop', [PRODUCT, PRODUCT_2], [SHOP_A, SHOP_B], 4],
+  ])('%s ⇒ MỘT job CLONE, một item cho MỖI cặp (sản phẩm, shop)', async (_label, productIds, shopIds, pairs) => {
+    const h = buildService();
+    withSources(h, [SOURCE, SOURCE_2]);
+    h.prisma.podTiktokShop.findMany.mockResolvedValue(
+      shopIds.map((id) => ({ id, accountId: 'acc-1', name: id, region: 'US' })),
+    );
+
+    await h.service.createBulkCloneJob(ORG, USER, bulk({ productIds, targetShopIds: shopIds }), ADMIN);
+
+    expect(h.createdJobs).toHaveLength(1);
+    expect(h.createdJobs[0]).toMatchObject({ type: PodListingJobType.CLONE, totalItems: pairs, market: 'US' });
+    const keys = (h.createdItems as Array<{ productId: string; shopId: string }>).map((i) => `${i.productId}>${i.shopId}`);
+    expect(keys.sort()).toEqual(productIds.flatMap((p) => shopIds.map((s) => `${p}>${s}`)).sort());
+    expect(h.lock.withLock).toHaveBeenCalledWith(`pod:product-clone-bulk:${SHOP_SRC}`, expect.any(Number), expect.any(Function));
+  });
+
+  it('cặp đã có trên shop đích ⇒ CHỈ cặp đó SKIPPED, cặp khác vẫn chạy', async () => {
+    const h = buildService();
+    withSources(h, [SOURCE, SOURCE_2]);
+    h.cloneResolver.findSkipReason.mockImplementation((_org: string, product: unknown, shopId: string) =>
+      Promise.resolve(
+        (product as { id: string }).id === PRODUCT_2 && shopId === SHOP_B ? { code: 'ALREADY_CLONED', message: 'Đã nhân bản trước đó' } : null,
+      ),
+    );
+
+    await h.service.createBulkCloneJob(ORG, USER, bulk(), ADMIN);
+
+    expect(h.createdJobs[0]).toMatchObject({ totalItems: 4, failedItems: 1 });
+    const items = h.createdItems as Array<{ productId: string; shopId: string; status?: string }>;
+    expect(items.filter((i) => i.status === PodListingJobItemStatus.SKIPPED)).toEqual([
+      expect.objectContaining({ productId: PRODUCT_2, shopId: SHOP_B }),
+    ]);
+  });
+
+  it('shop nguồn trong danh sách đích ⇒ 400, không tạo gì', async () => {
+    const h = buildService();
+    withSources(h, [SOURCE, SOURCE_2]);
+    await expect(
+      h.service.createBulkCloneJob(ORG, USER, bulk({ targetShopIds: [SHOP_A, SHOP_SRC] }), ADMIN),
+    ).rejects.toMatchObject({ response: { code: 'POD_PRODUCT_CLONE_SOURCE_AS_TARGET' } });
+    expect(h.createdJobs).toHaveLength(0);
+  });
+
+  it('Seller: shop đích ngoài phạm vi ⇒ 403; shop nguồn ngoài phạm vi ⇒ 403 (không tạo gì)', async () => {
+    const h = buildService();
+    withSources(h, [SOURCE, SOURCE_2]);
+    await expect(h.service.createBulkCloneJob(ORG, USER, bulk(), SELLER)).rejects.toBeInstanceOf(
+      PodShopForbiddenException,
+    );
+    const outsider = { allShops: false, accountIds: [], shopIds: [SHOP_A] };
+    await expect(
+      h.service.createBulkCloneJob(ORG, USER, bulk({ targetShopIds: [SHOP_A] }), outsider),
+    ).rejects.toBeInstanceOf(PodShopForbiddenException);
+    expect(h.createdJobs).toHaveLength(0);
+    expect(h.cloneResolver.loadSource).not.toHaveBeenCalled();
+  });
+
+  it('sản phẩm không thuộc shop nguồn ⇒ 400; sản phẩm không tồn tại ⇒ 404', async () => {
+    const h = buildService();
+    withSources(h, [SOURCE, { ...SOURCE_2, shopId: SHOP_A, shop: { id: SHOP_A, name: 'A', region: 'US' } }]);
+    await expect(h.service.createBulkCloneJob(ORG, USER, bulk(), ADMIN)).rejects.toMatchObject({
+      response: { code: 'POD_PRODUCT_CLONE_SOURCE_MISMATCH' },
+    });
+    withSources(h, [SOURCE]);
+    await expect(h.service.createBulkCloneJob(ORG, USER, bulk(), ADMIN)).rejects.toBeInstanceOf(NotFoundException);
+    expect(h.createdJobs).toHaveLength(0);
+  });
+
+  it('quá số thao tác (sản phẩm × shop) ⇒ 400 trước khi nạp sản phẩm', async () => {
+    const h = buildService();
+    const productIds = Array.from({ length: 41 }, (_, i) => `p-${i}`);
+    const targetShopIds = Array.from({ length: 5 }, (_, i) => `s-${i}`);
+    await expect(h.service.createBulkCloneJob(ORG, USER, bulk({ productIds, targetShopIds }), ADMIN)).rejects.toMatchObject({
+      response: { code: 'POD_PRODUCT_CLONE_TOO_MANY' },
+    });
+    expect(h.cloneResolver.loadSource).not.toHaveBeenCalled();
+  });
+
+  it('bấm hai lần (khoá đang giữ) ⇒ 409, không tạo job thứ hai', async () => {
+    const h = buildService({ lockBusy: true });
+    withSources(h, [SOURCE, SOURCE_2]);
+    await expect(h.service.createBulkCloneJob(ORG, USER, bulk(), ADMIN)).rejects.toBeInstanceOf(ConflictException);
+    expect(h.createdJobs).toHaveLength(0);
+  });
+});
+
 const ITEM = { id: 'item-1', productId: PRODUCT, sessionProductId: null, shopId: SHOP_A, payloadId: null, retryCount: 0 };
 
 async function runItem(service: PodListingJobService) {

@@ -32,9 +32,13 @@
     "test:fulfill-config": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-fulfill-config.ts",
     "test:login-info": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-login-info-design-amount.ts",
     "test:group-template": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-group-template.ts",
-    "test:base-cost": "node --experimental-strip-types scripts/verify-order-base-cost.ts"
+    "test:base-cost": "node --experimental-strip-types scripts/verify-order-base-cost.ts",
+    "test:media-images": "node --experimental-strip-types scripts/verify-media-images.ts"
   },
   "dependencies": {
+    "@dnd-kit/core": "6.3.1",
+    "@dnd-kit/sortable": "10.0.0",
+    "@dnd-kit/utilities": "3.2.2",
     "@hookform/resolvers": "^3.10.0",
     "@radix-ui/react-slot": "^1.1.2",
     "@tanstack/react-query": "^5.66.0",

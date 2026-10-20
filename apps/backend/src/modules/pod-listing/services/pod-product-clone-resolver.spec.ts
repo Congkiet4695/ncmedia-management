@@ -268,7 +268,10 @@ describe('PodProductCloneResolverService.findSkipReason / findInProgress', () =>
     const prisma = {
       podListingPayload: { findFirst: jest.fn().mockResolvedValue(null) },
       podProduct: { findFirst: jest.fn().mockResolvedValue(null) },
-      podListingJobItem: { findFirst: jest.fn().mockResolvedValue(itemRow) },
+      podListingJobItem: {
+        findFirst: jest.fn().mockResolvedValue(itemRow),
+        findUnique: jest.fn().mockResolvedValue({ id: 'item-self', createdAt: new Date('2026-10-20T01:00:00Z') }),
+      },
     };
     return { service: new PodProductCloneResolverService(prisma as never), prisma };
   }
@@ -298,6 +301,14 @@ describe('PodProductCloneResolverService.findSkipReason / findInProgress', () =>
       status: { in: ['PENDING', 'PROCESSING', 'RETRYING'] },
       job: { type: 'CLONE', deletedAt: null },
     });
+  });
+
+  it('🔴 findInProgress chỉ chờ item tạo TRƯỚC mình (hoà thì id nhỏ hơn) ⇒ hai lượt trùng cặp không chờ lẫn nhau', async () => {
+    const { service, prisma } = build();
+    await service.findInProgress('org-1', 'prod-1', 'shop-b', 'item-self');
+    const where = ((prisma.podListingJobItem.findFirst.mock.calls as unknown[][])[0][0] as { where: Record<string, unknown> }).where;
+    const createdAt = new Date('2026-10-20T01:00:00Z');
+    expect(where.OR).toEqual([{ createdAt: { lt: createdAt } }, { createdAt, id: { lt: 'item-self' } }]);
   });
 
   it('findInProgress: có item của lượt KHÁC ⇒ trả về jobId/itemId/startedAt để báo lỗi có ngữ cảnh', async () => {

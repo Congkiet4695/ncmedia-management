@@ -1341,7 +1341,20 @@
       "uploadFailed": "Upload failed",
       "badFormat": "Unsupported format: {{name}} ({{type}})",
       "tooLarge": "{{name}} is {{size}} — over the {{max}} limit",
-      "replace": "Replace"
+      "replace": "Replace",
+      "dragHandle": "Drag to reorder image {{index}} (Space to pick up, arrow keys to move)",
+      "url": {
+        "label": "Image URL",
+        "placeholder": "Paste image URL(s) — https://…",
+        "add": "Add from URL",
+        "hint": "Public JPEG / PNG / WEBP links, max 5 MB each. The server downloads and stores the image (links that need login, have expired or block hotlinking are rejected). Paste several links separated by spaces or new lines.",
+        "duplicate": "already added",
+        "problem": {
+          "INVALID": "not a valid URL",
+          "NOT_HTTP": "only http/https links are allowed",
+          "TOO_LONG": "URL is too long"
+        }
+      }
     },
     "variantImages": {
       "action": "Update variant images",
@@ -1945,6 +1958,25 @@
         "FAILED": "Failed",
         "SKIPPED": "Skipped",
         "CANCELLED": "Cancelled"
+      },
+      "bulk": {
+        "title": "Clone {{count}} products",
+        "description": "Create the selected products on several TikTok shops at once. Every product × shop pair is an independent result — a failed pair does not affect the others.",
+        "sourceProducts": "Source products ({{count}})",
+        "sourceShop": "Source shop",
+        "productCount": "Products",
+        "shopCount": "Target shops",
+        "totalOps": "Clone operations",
+        "formula": "{{products}} product(s) × {{shops}} shop(s) = {{total}} clone operation(s)",
+        "tooMany": "more than {{max}} per run, split it into several runs",
+        "tooManyProducts": "Select at most {{max}} products per clone run.",
+        "oneShopOnly": "Selected products belong to different shops — clone products of ONE source shop per run.",
+        "review": "Review",
+        "reviewHint": "Nothing is sent until you confirm. Pairs that already exist on the target shop (cloned before / same Seller SKU) are skipped.",
+        "back": "Back",
+        "confirm": "Confirm clone ({{count}})",
+        "started": "Started {{count}} clone operation(s)",
+        "onlyProblems": "Show only failed / skipped"
       }
     },
     "edit": {

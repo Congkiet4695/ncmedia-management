@@ -3,6 +3,8 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { AuthModule } from '../auth/auth.module';
 import { PodProductModule } from '../pod-product/pod-product.module';
 import { PodTiktokModule } from '../pod-tiktok/pod-tiktok.module';
+import { PodListingAssetController } from './pod-listing-asset.controller';
+import { PodListingImageUrlService } from './services/pod-listing-image-url.service';
 import { PodListingController } from './pod-listing.controller';
 import { PodListingJobController } from './pod-listing-job.controller';
 import { PodProductCloneController } from './pod-product-clone.controller';
@@ -59,6 +61,8 @@ import { PodProductCloneHistoryService } from './services/pod-product-clone-hist
     PodProductCloneController,
     // Clone Products / Clone History (GET /pod/product-clones, retry FAILED).
     PodProductCloneHistoryController,
+    // Thêm ảnh sản phẩm bằng URL (POST /pod/listing-assets/from-url) — tải qua hàng rào SSRF rồi lưu Storage.
+    PodListingAssetController,
   ],
   providers: [
     PodTemplateService,
@@ -73,6 +77,7 @@ import { PodProductCloneHistoryService } from './services/pod-product-clone-hist
     PodSkuExcelService,
     PodListingTemplateService,
     PodGroupTemplateService,
+    PodListingImageUrlService,
     PodListingResolverService,
     PodListingPayloadService,
     PodWarehouseService,

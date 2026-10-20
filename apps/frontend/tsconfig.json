@@ -43,6 +43,7 @@
     "scripts/verify-dashboard.ts",
     "scripts/verify-login-info-design-amount.ts",
     "scripts/verify-group-template.ts",
-    "scripts/verify-order-base-cost.ts"
+    "scripts/verify-order-base-cost.ts",
+    "scripts/verify-media-images.ts"
   ]
 }

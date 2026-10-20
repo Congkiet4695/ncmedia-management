@@ -336,6 +336,17 @@ export interface CloneProductPayload {
   targetShopIds: string[];
 }
 
+/** Nhân bản HÀNG LOẠT: nhiều sản phẩm của MỘT shop nguồn → nhiều shop đích (`POST /pod/products/clone`). */
+export interface BulkCloneProductsPayload {
+  sourceShopId: string;
+  productIds: string[];
+  targetShopIds: string[];
+}
+
+/** Khớp `POD_PRODUCT_CLONE_MAX_PRODUCTS` / `POD_PRODUCT_CLONE_MAX_ITEMS` của backend (backend vẫn kiểm lại). */
+export const CLONE_MAX_PRODUCTS = 100;
+export const CLONE_MAX_ITEMS = 200;
+
 // ---------------------------------------------------------------------------
 // Clone Products / Clone History
 // ---------------------------------------------------------------------------

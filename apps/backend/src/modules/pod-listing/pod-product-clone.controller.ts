@@ -9,7 +9,9 @@ import {
   UseGuards,
 } from '@nestjs/common';
 import {
+  ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOperation,
@@ -24,7 +26,7 @@ import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import { PodScope } from '../pod-tiktok/decorators/pod-scope.decorator';
 import { PodScopeGuard } from '../pod-tiktok/guards/pod-scope.guard';
 import type { PodAccessScope } from '../pod-tiktok/services/pod-access-scope.service';
-import { CloneProductDto } from './dto/pod-product-clone.dto';
+import { BulkCloneProductsDto, CloneProductDto } from './dto/pod-product-clone.dto';
 import { PodListingJobService } from './services/pod-listing-job.service';
 
 /**
@@ -47,6 +49,30 @@ import { PodListingJobService } from './services/pod-listing-job.service';
 @Controller('pod/products')
 export class PodProductCloneController {
   constructor(private readonly jobs: PodListingJobService) {}
+
+  @Post('clone')
+  @HttpCode(HttpStatus.CREATED)
+  @RequirePermissions('pod.product.clone')
+  @ApiOperation({
+    summary: 'Nhân bản NHIỀU sản phẩm của MỘT shop sang NHIỀU shop TikTok',
+    description:
+      'Một lượt `type = CLONE`, mỗi cặp (sản phẩm, shop đích) là một item độc lập (SUCCESS / SKIPPED / FAILED) — ' +
+      'cùng pipeline, hàng đợi giới hạn luồng, retry và chống trùng với nhân bản đơn. Theo dõi tiến độ / kết quả ' +
+      'từng cặp qua `GET /pod/listing-jobs/:id`. ' +
+      '🔴 Shop nguồn / shop đích ngoài phạm vi ⇒ 403 cả request; shop nguồn trong danh sách đích ⇒ 400 ' +
+      'POD_PRODUCT_CLONE_SOURCE_AS_TARGET; sản phẩm không thuộc shop nguồn ⇒ 400 POD_PRODUCT_CLONE_SOURCE_MISMATCH; ' +
+      'quá số thao tác ⇒ 400 POD_PRODUCT_CLONE_TOO_MANY; bấm hai lần liên tiếp ⇒ 409 POD_PRODUCT_CLONE_BUSY.',
+  })
+  @ApiBadRequestResponse({ description: 'Lỗi validate / nghiệp vụ (xem mô tả)' })
+  @ApiNotFoundResponse({ description: 'POD_PRODUCT_NOT_FOUND' })
+  @ApiConflictResponse({ description: 'POD_PRODUCT_CLONE_BUSY' })
+  bulkClone(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Body() dto: BulkCloneProductsDto,
+  ) {
+    return this.jobs.createBulkCloneJob(user.organizationId, user.userId, dto, scope);
+  }
 
   @Post(':id/clone')
   @HttpCode(HttpStatus.CREATED)

@@ -330,6 +330,16 @@ export const POD_PUBLISH_BLOCKER_CODES = {
  */
 export const POD_PRODUCT_CLONE_MAX_SHOPS = 50;
 
+/** Số sản phẩm nguồn tối đa trong MỘT lượt nhân bản hàng loạt (khớp trang lớn nhất của màn hình Products). */
+export const POD_PRODUCT_CLONE_MAX_PRODUCTS = 100;
+
+/**
+ * Số thao tác (sản phẩm × shop đích) tối đa trong MỘT lượt nhân bản hàng loạt. Mỗi thao tác ≈ vài lần upload ảnh
+ * + 1 Create Product; 200 thao tác qua hàng đợi `POD_LISTING_JOB_CONCURRENCY` luồng đã là một lượt dài — nhiều
+ * hơn thì chia lượt, không để một cú bấm sinh hàng nghìn request tới TikTok.
+ */
+export const POD_PRODUCT_CLONE_MAX_ITEMS = 200;
+
 /**
  * Khoá chống bấm "Đăng sản phẩm" / "Publish Live TikTok" hai lần liên tiếp cho cùng Listing
  * Session (ms). Bọc bước kiểm trạng thái + tạo job; TTL để tiến trình chết không khoá vĩnh viễn.
@@ -377,3 +387,13 @@ export const POD_LISTING_CREATE_RETRY_DELAY_MS = 2_000;
  * hao lệch giờ giữa hai server) mới được nhận là kết quả của lượt gửi hiện tại.
  */
 export const POD_LISTING_RECONCILE_WINDOW_SEC = 300;
+
+/**
+ * Thêm ảnh sản phẩm bằng URL (Custom Listing / Listing Session). Cùng giới hạn với ảnh tải từ máy: TikTok nhận
+ * JPEG/PNG/WEBP tối đa 5 MB mỗi ảnh. Ảnh được TẢI VỀ qua `fetchRemoteFile` (hàng rào SSRF) rồi lưu Storage như
+ * một file upload — publisher không bao giờ tự đi lấy URL người dùng nhập.
+ */
+export const POD_LISTING_IMAGE_URL_MAX_BYTES = 5 * 1024 * 1024;
+export const POD_LISTING_IMAGE_URL_TIMEOUT_MS = 20_000;
+export const POD_LISTING_IMAGE_URL_MAX_REDIRECTS = 5;
+export const POD_LISTING_IMAGE_URL_MAX_LENGTH = 2048;
