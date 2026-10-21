@@ -950,9 +950,12 @@ export class FulfillmentController {
   @RequirePermissions('fulfillment.read')
   @ApiOperation({
     summary: 'Lịch sử fulfillment (append-only)',
-    description: 'Toàn bộ request/response/retry/webhook/chuyển trạng thái — không ghi đè.',
+    description:
+      'Toàn bộ request/response/retry/webhook/chuyển trạng thái — không ghi đè. ' +
+      'Đơn chưa gửi lần nào ⇒ mảng rỗng.',
   })
   @ApiOkResponse({ type: FulfillmentHistoryDto, isArray: true })
+  @ApiNotFoundResponse({ description: 'FULFILLMENT_ORDER_NOT_FOUND (đơn POD không có / tổ chức khác)' })
   listHistory(
     @CurrentUser() user: AuthenticatedUser,
     @PodScope() scope: PodAccessScope,
@@ -963,8 +966,12 @@ export class FulfillmentController {
 
   @Get('orders/:podOrderId/errors')
   @RequirePermissions('fulfillment.read')
-  @ApiOperation({ summary: 'Chi tiết lỗi gần đây (HTTP status, code, validation)' })
+  @ApiOperation({
+    summary: 'Chi tiết lỗi gần đây (HTTP status, code, validation)',
+    description: 'Đơn chưa gửi lần nào ⇒ mảng rỗng.',
+  })
   @ApiOkResponse({ type: FulfillmentErrorDto, isArray: true })
+  @ApiNotFoundResponse({ description: 'FULFILLMENT_ORDER_NOT_FOUND (đơn POD không có / tổ chức khác)' })
   listErrors(
     @CurrentUser() user: AuthenticatedUser,
     @PodScope() scope: PodAccessScope,

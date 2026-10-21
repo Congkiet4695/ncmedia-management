@@ -121,6 +121,8 @@ function buildStateService(
     listAccounts: jest.fn().mockResolvedValue(accounts),
     listMappingsForOrganization: jest.fn().mockResolvedValue([]),
     listProductDesigns: jest.fn().mockResolvedValue([]),
+    listMappingsForProducts: jest.fn().mockResolvedValue([]),
+    listProductDesignsForProducts: jest.fn().mockResolvedValue([]),
   } as unknown as FulfillmentRepository;
 
   const service = new FulfillmentService(
@@ -237,6 +239,8 @@ function buildFulfillService(
     touchAccountUsed: jest.fn().mockResolvedValue(undefined),
     listMappingsForOrganization: jest.fn().mockResolvedValue([]),
     listProductDesigns: jest.fn().mockResolvedValue([]),
+    listMappingsForProducts: jest.fn().mockResolvedValue([]),
+    listProductDesignsForProducts: jest.fn().mockResolvedValue([]),
   } as unknown as FulfillmentRepository;
 
   const order = {

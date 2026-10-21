@@ -160,6 +160,9 @@ export function OrderExpand({ orderId, canViewFulfillment }: OrderExpandProps) {
           <Section title={t('pod:orders.expand.timeline')}>
             {history.isLoading ? (
               <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            ) : history.isError ? (
+              // Lỗi KHÁC danh sách rỗng: không được báo "chưa có sự kiện" khi thực ra không đọc được.
+              <p className="text-destructive">{translateApiError(history.error)}</p>
             ) : (history.data ?? []).length === 0 ? (
               <p className="text-muted-foreground">{t('pod:orders.expand.timelineEmpty')}</p>
             ) : (
@@ -184,6 +187,8 @@ export function OrderExpand({ orderId, canViewFulfillment }: OrderExpandProps) {
           <Section title={t('pod:orders.expand.logs')}>
             {errors.isLoading ? (
               <Loader2 className="size-4 animate-spin text-muted-foreground" />
+            ) : errors.isError ? (
+              <p className="text-destructive">{translateApiError(errors.error)}</p>
             ) : (errors.data ?? []).length === 0 ? (
               <p className="text-muted-foreground">{t('pod:orders.expand.logsEmpty')}</p>
             ) : (

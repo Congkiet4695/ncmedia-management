@@ -6,6 +6,7 @@ import {
   createMappingIndex,
   findMappingInIndex,
   mappingKeyOf,
+  productIdsOf,
 } from '../../fulfillment/shared/mapping-match';
 import { PodDesignDto } from '../dto/pod-design.dto';
 import { toPodDesignDto, type DesignPresentable } from '../mappers/pod-design.presenter';
@@ -117,13 +118,17 @@ export class PodOrderDesignResolver {
     const result = new Map<string, ResolvedItemDesigns>();
     if (orders.length === 0) return result;
 
+    // 🔴 Chỉ đọc những sản phẩm CÓ trên trang này — không nạp design/ánh xạ/kết quả rà của cả tổ
+    // chức cho mỗi lần mở danh sách. Ghép chính xác theo cặp khoá vẫn làm trong bộ nhớ bên dưới.
+    const productIds = productIdsOf(orders.flatMap((order) => order.items));
+
     const [designRows, mappings, candidateRows] = await Promise.all([
       // 🔴 Design tra THẲNG theo cặp khoá sản phẩm — không đi qua ánh xạ.
       this.prisma.fulfillmentProductDesign.findMany({
         where: {
           organizationId,
           deletedAt: null,
-          tiktokProductId: { not: null },
+          tiktokProductId: { in: productIds },
           sellerSku: { not: null },
         },
         orderBy: { placement: 'asc' },
@@ -154,14 +159,14 @@ export class PodOrderDesignResolver {
           deletedAt: null,
           isActive: true,
           // Thiếu khoá ⇒ không ghép được với đơn nào; lọc ngay ở DB cho khỏi tải về vô ích.
-          tiktokProductId: { not: null },
+          tiktokProductId: { in: productIds },
           sellerSku: { not: null },
         },
         select: { id: true, tiktokProductId: true, sellerSku: true, isActive: true },
       }),
       // Kết quả rà ánh xạ tự động gần nhất. Không có bản ghi ⇒ chưa rà bao giờ ⇒ `MISSING`.
       this.prisma.fulfillmentMappingCandidate.findMany({
-        where: { organizationId },
+        where: { organizationId, tiktokProductId: { in: productIds } },
         select: { tiktokProductId: true, sellerSku: true, status: true, candidates: true },
       }),
     ]);

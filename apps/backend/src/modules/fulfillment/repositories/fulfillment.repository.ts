@@ -322,6 +322,40 @@ export class FulfillmentRepository {
   }
 
   /**
+   * Ánh xạ của tổ chức nhưng CHỈ cho các Product ID truyền vào (vd các sản phẩm của một đơn).
+   *
+   * 🔴 Lọc theo Product ID chứ không theo cặp (Product ID + Seller SKU): Seller SKU dùng để ghép là
+   * khoá HIỆU LỰC (có thể lấy từ catalog, đã `trim`) — so khớp chính xác cặp đó vẫn do
+   * `createMappingIndex` làm trong bộ nhớ, đúng luật duy nhất ở `mapping-match.ts`. Ở đây chỉ bỏ
+   * bớt những ánh xạ chắc chắn không ghép được với đơn. Dùng index (organization_id, tiktok_product_id, …).
+   */
+  listMappingsForProducts(
+    organizationId: string,
+    productIds: string[],
+  ): Promise<MappingWithDesigns[]> {
+    if (productIds.length === 0) return Promise.resolve([]);
+    return this.prisma.fulfillmentProductMapping.findMany({
+      where: { organizationId, deletedAt: null, tiktokProductId: { in: productIds } },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  /** Design đang hiệu lực cho các Product ID truyền vào — cùng lý do lọc với `listMappingsForProducts`. */
+  listProductDesignsForProducts(organizationId: string, productIds: string[]) {
+    if (productIds.length === 0) return Promise.resolve([]);
+    return this.prisma.fulfillmentProductDesign.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        tiktokProductId: { in: productIds },
+        sellerSku: { not: null },
+      },
+      include: { storageFile: { include: { uploader: { select: { fullName: true } } } } },
+      orderBy: { placement: 'asc' },
+    });
+  }
+
+  /**
    * Design đang hiệu lực của MỘT tổ chức, tra theo (Product ID + Seller SKU).
    *
    * 🔴 MỘT truy vấn cho cả trang. Design không còn là quan hệ của ánh xạ nên không

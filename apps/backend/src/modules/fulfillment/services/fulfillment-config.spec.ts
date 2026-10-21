@@ -5,6 +5,7 @@ import { PodOrderRepository } from '../../pod-tiktok/repositories/pod-order.repo
 import { POD_SCOPE_SYSTEM, type PodAccessScopeService } from '../../pod-tiktok/services/pod-access-scope.service';
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
 import { StorageMapper } from '../../storage/storage.mapper';
+import { FulfillmentOrderNotFoundException } from '../exceptions/fulfillment.exceptions';
 import { ProductDesignMapper } from '../mappers/product-design.mapper';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import { FulfillmentCatalogRepository } from '../repositories/fulfillment-catalog.repository';
@@ -170,7 +171,16 @@ function mappingRow(over: Record<string, unknown> = {}) {
   };
 }
 
-function buildStateService(over: { mappings?: unknown[]; account?: unknown; ready?: boolean } = {}) {
+function buildStateService(
+  over: {
+    mappings?: unknown[];
+    account?: unknown;
+    ready?: boolean;
+    /** `null` ⇒ đơn không tồn tại trong tổ chức. */
+    podOrder?: unknown;
+    attemptIds?: string[];
+  } = {},
+) {
   const order = {
     id: 'order-1',
     shopId: 'shop-1',
@@ -194,8 +204,11 @@ function buildStateService(over: { mappings?: unknown[]; account?: unknown; read
           ? over.account
           : { id: 'acc-1', name: 'Mango US', provider: FulfillmentProvider.MANGO, isActive: true },
       ),
-    listMappingsForOrganization: jest.fn().mockResolvedValue(over.mappings ?? [mappingRow()]),
-    listProductDesigns: jest.fn().mockResolvedValue([]),
+    listMappingsForProducts: jest.fn().mockResolvedValue(over.mappings ?? [mappingRow()]),
+    listProductDesignsForProducts: jest.fn().mockResolvedValue([]),
+    listAttemptIds: jest.fn().mockResolvedValue((over.attemptIds ?? []).map((id) => ({ id }))),
+    listHistory: jest.fn().mockResolvedValue([]),
+    listErrors: jest.fn().mockResolvedValue([]),
     // Danh sách nhà cung cấp khả dụng (riêng của tổ chức + dùng chung) — `getState` dựng ô
     // chọn nhà cung cấp từ đây.
     listAccounts: jest.fn().mockResolvedValue(
@@ -221,7 +234,9 @@ function buildStateService(over: { mappings?: unknown[]; account?: unknown; read
     { get: (_key: string, fallback?: string) => fallback ?? '' } as unknown as ConfigService,
     { user: { findMany: jest.fn().mockResolvedValue([]) } } as unknown as PrismaService,
     repo,
-    { findById: jest.fn().mockResolvedValue(order) } as unknown as PodOrderRepository,
+    {
+      findById: jest.fn().mockResolvedValue('podOrder' in over ? over.podOrder : order),
+    } as unknown as PodOrderRepository,
     readiness,
     new ProductDesignMapper({
       buildDownloadUrl: (id: string) => `/api/v1/storage/${id}/download`,
@@ -278,8 +293,17 @@ describe('FulfillmentService.getState — ánh xạ theo từng dòng hàng', ()
 
     await service.getState('org-1', 'order-1', POD_SCOPE_SYSTEM);
 
-    expect(repo.listMappingsForOrganization).toHaveBeenCalledTimes(1);
-    expect(repo.listProductDesigns).toHaveBeenCalledTimes(1);
+    expect(repo.listMappingsForProducts).toHaveBeenCalledTimes(1);
+    expect(repo.listProductDesignsForProducts).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 chỉ nạp ánh xạ/design của ĐÚNG các sản phẩm trong đơn — không nạp cả tổ chức', async () => {
+    const { service, repo } = buildStateService();
+
+    await service.getState('org-1', 'order-1', POD_SCOPE_SYSTEM);
+
+    expect(repo.listMappingsForProducts).toHaveBeenCalledWith('org-1', ['TT-P1', 'TT-P2']);
+    expect(repo.listProductDesignsForProducts).toHaveBeenCalledWith('org-1', ['TT-P1', 'TT-P2']);
   });
 
   it('chưa gán nhà cung cấp ⇒ vẫn trả đủ dòng hàng (giao diện dựng được khối cấu hình)', async () => {
@@ -301,5 +325,37 @@ describe('FulfillmentService.getState — ánh xạ theo từng dòng hàng', ()
     expect(state.canFulfill).toBe(true);
     expect(state.fulfillment).toBeNull();
     expect(FulfillmentStatus.DRAFT).toBe('DRAFT');
+  });
+});
+
+describe('FulfillmentService.listHistory / listErrors — đơn chưa gửi lần nào', () => {
+  it('🔴 đơn có thật nhưng chưa có lần thử ⇒ `[]` (200), KHÔNG phải 404', async () => {
+    const { service, repo } = buildStateService({ attemptIds: [] });
+
+    await expect(service.listHistory('org-1', 'order-1', POD_SCOPE_SYSTEM)).resolves.toEqual([]);
+    await expect(service.listErrors('org-1', 'order-1', POD_SCOPE_SYSTEM)).resolves.toEqual([]);
+    expect(repo.listHistory).not.toHaveBeenCalled();
+    expect(repo.listErrors).not.toHaveBeenCalled();
+  });
+
+  it('đơn KHÔNG tồn tại trong tổ chức ⇒ 404, kể cả với người xem được mọi shop', async () => {
+    const { service } = buildStateService({ podOrder: null });
+
+    await expect(service.listHistory('org-1', 'order-x', POD_SCOPE_SYSTEM)).rejects.toBeInstanceOf(
+      FulfillmentOrderNotFoundException,
+    );
+    await expect(service.listErrors('org-1', 'order-x', POD_SCOPE_SYSTEM)).rejects.toBeInstanceOf(
+      FulfillmentOrderNotFoundException,
+    );
+  });
+
+  it('có lần thử ⇒ đọc lịch sử/lỗi của MỌI lần thử', async () => {
+    const { service, repo } = buildStateService({ attemptIds: ['att-1', 'att-2'] });
+
+    await service.listHistory('org-1', 'order-1', POD_SCOPE_SYSTEM);
+    await service.listErrors('org-1', 'order-1', POD_SCOPE_SYSTEM);
+
+    expect(repo.listHistory).toHaveBeenCalledWith('org-1', ['att-1', 'att-2']);
+    expect(repo.listErrors).toHaveBeenCalledWith('org-1', ['att-1', 'att-2']);
   });
 });

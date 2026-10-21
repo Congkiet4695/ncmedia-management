@@ -94,13 +94,12 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
   const data = state.data;
   const fulfillment = data?.fulfillment ?? null;
 
-  const drawer = (
-    <FulfillOrderDrawer
-      open={drawerOpen}
-      onClose={() => setDrawerOpen(false)}
-      podOrderId={podOrderId}
-    />
-  );
+  // 🔴 Chỉ MOUNT khi mở: drawer mang hàng chục hook (query, mutation, effect). Mount sẵn cho mọi
+  // dòng là cả trang chạy chừng đó hook ×số đơn ở mỗi lần render dù không ai mở drawer nào.
+  // Mở lại luôn là một lần gửi mới, nên mount mới không làm mất trạng thái nào cần giữ.
+  const drawer = drawerOpen ? (
+    <FulfillOrderDrawer open onClose={() => setDrawerOpen(false)} podOrderId={podOrderId} />
+  ) : null;
 
   // ----------------------------------------------------------------- Chưa gửi
   if (!fulfillment) {

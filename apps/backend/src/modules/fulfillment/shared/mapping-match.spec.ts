@@ -1,4 +1,4 @@
-import { createMappingIndex, findMappingForItem, mappingKeyOf } from './mapping-match';
+import { createMappingIndex, findMappingForItem, mappingKeyOf, productIdsOf } from './mapping-match';
 
 /**
  * Luật ghép là hợp đồng dùng chung giữa hai module (Fulfillment quyết định gửi đơn,
@@ -90,5 +90,23 @@ describe('mapping-match — danh tính ánh xạ là (Product ID + Seller SKU)',
       const index = createMappingIndex([mapping({ id: 'dau-tien' }), mapping({ id: 'thu-hai' })]);
       expect(index.get(mappingKeyOf('PROD-1', 'SELLER-1')!)?.id).toBe('dau-tien');
     });
+  });
+});
+
+describe('productIdsOf — bộ lọc thô theo Product ID', () => {
+  it('giữ cả bản gốc lẫn bản đã trim, bỏ trùng và bỏ giá trị rỗng', () => {
+    expect(
+      productIdsOf([
+        { productId: 'P1' },
+        { productId: ' P2 ' },
+        { productId: 'P1' },
+        { productId: null },
+        { productId: '   ' },
+      ]),
+    ).toEqual(['P1', ' P2 ', 'P2']);
+  });
+
+  it('không có line item ⇒ mảng rỗng', () => {
+    expect(productIdsOf([])).toEqual([]);
   });
 });

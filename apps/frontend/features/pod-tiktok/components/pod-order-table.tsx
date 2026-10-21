@@ -4,6 +4,7 @@ import { Package } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
+import { useMediaQuery } from '@/hooks/use-media-query';
 import { cn } from '@/lib/utils';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PodOrderCard } from './orders/pod-order-card';
@@ -28,6 +29,9 @@ interface PodOrderTableProps {
   onPreviewImages: (request: LightboxRequest) => void;
 }
 
+/** Breakpoint `md` của Tailwind — ranh giới giữa bảng và card. */
+const DESKTOP_QUERY = '(min-width: 768px)';
+
 /** Số dòng skeleton khi tải — xấp xỉ một trang để bố cục không nhảy khi dữ liệu về. */
 const SKELETON_ROWS = 6;
 
@@ -42,6 +46,10 @@ const SKELETON_ROWS = 6;
  *
  * 🔴 Hai bố cục dựng từ CÙNG một bộ cell (xem `pod-order-card.tsx`), nên không có nguy cơ
  * desktop và mobile hiển thị khác nhau.
+ *
+ * 🔴 Chỉ RENDER bố cục đang hiển thị (theo media query), không render cả hai rồi ẩn bằng CSS.
+ * Render cả hai là mỗi đơn dựng hai lần mọi cell (ảnh, tooltip, menu, hook fulfillment) và hai
+ * lần `OrderExpand` khi mở rộng — gấp đôi DOM và công render cho phần không ai nhìn thấy.
  *
  * 🔴 Không có dòng nào render sẵn phần chi tiết: `OrderExpand` chỉ tồn tại khi người dùng mở
  * dòng đó. Đây là lý do một trang 50 đơn vẫn nhẹ.
@@ -61,6 +69,7 @@ export function PodOrderTable({
   onPreviewImages,
 }: PodOrderTableProps) {
   const { t } = useTranslation('pod');
+  const isDesktop = useMediaQuery(DESKTOP_QUERY, true);
 
   if (loading) return <TableSkeleton />;
 
@@ -76,85 +85,83 @@ export function PodOrderTable({
   const allSelected = orders.every((order) => selectedIds.has(order.id));
   const someSelected = !allSelected && orders.some((order) => selectedIds.has(order.id));
 
-  return (
-    <>
-      {/* ---------------------------------------------------------------- Desktop / Tablet */}
-      <div className="hidden md:block">
-        <Table>
-          <TableHeader>
-            <TableRow className="hover:bg-transparent">
-              <TableHead className="w-9 pr-0">
-                <Checkbox
-                  checked={allSelected}
-                  indeterminate={someSelected}
-                  aria-label={t('orders.bulk.selectAll')}
-                  onChange={onToggleSelectAll}
-                />
-              </TableHead>
-              <TableHead className="w-8 px-1" />
-              <TableHead className={ORDER_COLUMNS.info.cell}>{t('orders.columns.info')}</TableHead>
-              <TableHead className={ORDER_COLUMNS.products.cell}>
-                {t('orders.columns.products')}
-              </TableHead>
-              {/* Mọi cột luôn hiện; thiếu chỗ ⇒ bảng cuộn ngang trong khung `Table` (không ép cột, không giấu giá). */}
-              <TableHead className={ORDER_COLUMNS.price.cell}>
-                {t('orders.columns.price')}
-              </TableHead>
-              <TableHead className={ORDER_COLUMNS.status.cell}>
-                {t('orders.columns.status')}
-              </TableHead>
-              <TableHead className={ORDER_COLUMNS.tracking.cell}>
-                {t('orders.columns.tracking')}
-              </TableHead>
-              <TableHead className={ORDER_COLUMNS.fulfillment.cell}>
-                {t('orders.columns.fulfillment')}
-              </TableHead>
-              <TableHead className={cn(ORDER_COLUMNS.action.cell, 'text-right')}>
-                {t('orders.columns.action')}
-              </TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {orders.map((order) => (
-              <PodOrderRow
-                key={order.id}
-                order={order}
-                accountId={order.accountId}
-                selected={selectedIds.has(order.id)}
-                expanded={expandedIds.has(order.id)}
-                canViewFulfillment={canViewFulfillment}
-                canFulfill={canFulfill}
-                canCancelFulfillment={canCancelFulfillment}
-                onToggleSelect={onToggleSelect}
-                onToggleExpand={onToggleExpand}
-                onUploadDesign={onUploadDesign}
-                onPreviewImages={onPreviewImages}
+  if (isDesktop) {
+    return (
+      // ---------------------------------------------------------------- Desktop / Tablet
+      <Table>
+        <TableHeader>
+          <TableRow className="hover:bg-transparent">
+            <TableHead className="w-9 pr-0">
+              <Checkbox
+                checked={allSelected}
+                indeterminate={someSelected}
+                aria-label={t('orders.bulk.selectAll')}
+                onChange={onToggleSelectAll}
               />
-            ))}
-          </TableBody>
-        </Table>
-      </div>
+            </TableHead>
+            <TableHead className="w-8 px-1" />
+            <TableHead className={ORDER_COLUMNS.info.cell}>{t('orders.columns.info')}</TableHead>
+            <TableHead className={ORDER_COLUMNS.products.cell}>
+              {t('orders.columns.products')}
+            </TableHead>
+            {/* Mọi cột luôn hiện; thiếu chỗ ⇒ bảng cuộn ngang trong khung `Table` (không ép cột, không giấu giá). */}
+            <TableHead className={ORDER_COLUMNS.price.cell}>{t('orders.columns.price')}</TableHead>
+            <TableHead className={ORDER_COLUMNS.status.cell}>
+              {t('orders.columns.status')}
+            </TableHead>
+            <TableHead className={ORDER_COLUMNS.tracking.cell}>
+              {t('orders.columns.tracking')}
+            </TableHead>
+            <TableHead className={ORDER_COLUMNS.fulfillment.cell}>
+              {t('orders.columns.fulfillment')}
+            </TableHead>
+            <TableHead className={cn(ORDER_COLUMNS.action.cell, 'text-right')}>
+              {t('orders.columns.action')}
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {orders.map((order) => (
+            <PodOrderRow
+              key={order.id}
+              order={order}
+              accountId={order.accountId}
+              selected={selectedIds.has(order.id)}
+              expanded={expandedIds.has(order.id)}
+              canViewFulfillment={canViewFulfillment}
+              canFulfill={canFulfill}
+              canCancelFulfillment={canCancelFulfillment}
+              onToggleSelect={onToggleSelect}
+              onToggleExpand={onToggleExpand}
+              onUploadDesign={onUploadDesign}
+              onPreviewImages={onPreviewImages}
+            />
+          ))}
+        </TableBody>
+      </Table>
+    );
+  }
 
-      {/* ---------------------------------------------------------------- Mobile */}
-      <div className="space-y-3 md:hidden">
-        {orders.map((order) => (
-          <PodOrderCard
-            key={order.id}
-            order={order}
-            accountId={order.accountId}
-            selected={selectedIds.has(order.id)}
-            expanded={expandedIds.has(order.id)}
-            canViewFulfillment={canViewFulfillment}
-            canFulfill={canFulfill}
-            canCancelFulfillment={canCancelFulfillment}
-            onToggleSelect={onToggleSelect}
-            onToggleExpand={onToggleExpand}
-            onUploadDesign={onUploadDesign}
-            onPreviewImages={onPreviewImages}
-          />
-        ))}
-      </div>
-    </>
+  return (
+    // ---------------------------------------------------------------- Mobile
+    <div className="space-y-3">
+      {orders.map((order) => (
+        <PodOrderCard
+          key={order.id}
+          order={order}
+          accountId={order.accountId}
+          selected={selectedIds.has(order.id)}
+          expanded={expandedIds.has(order.id)}
+          canViewFulfillment={canViewFulfillment}
+          canFulfill={canFulfill}
+          canCancelFulfillment={canCancelFulfillment}
+          onToggleSelect={onToggleSelect}
+          onToggleExpand={onToggleExpand}
+          onUploadDesign={onUploadDesign}
+          onPreviewImages={onPreviewImages}
+        />
+      ))}
+    </div>
   );
 }
 

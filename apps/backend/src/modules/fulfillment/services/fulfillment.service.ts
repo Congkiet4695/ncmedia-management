@@ -62,7 +62,7 @@ import {
   FulfillmentOrderWithRelations,
   FulfillmentRepository,
 } from '../repositories/fulfillment.repository';
-import { createMappingIndex, findMappingInIndex, mappingKeyOf } from '../shared/mapping-match';
+import { createMappingIndex, findMappingInIndex, mappingKeyOf, productIdsOf } from '../shared/mapping-match';
 import {
   FulfillmentReadinessService,
   MappingWithDesigns,
@@ -404,7 +404,12 @@ export class FulfillmentService {
    * được nữa; đọc theo từng dòng sẽ là N+1 trên cả màn hình ánh xạ lẫn luồng kiểm tra đơn.
    */
   private async loadDesignsByKey(organizationId: string): Promise<Map<string, DesignForDto[]>> {
-    const rows = await this.repo.listProductDesigns(organizationId);
+    return this.groupDesignsByKey(await this.repo.listProductDesigns(organizationId));
+  }
+
+  private groupDesignsByKey(
+    rows: Array<DesignForDto & { tiktokProductId: string | null; sellerSku: string | null }>,
+  ): Map<string, DesignForDto[]> {
     const byKey = new Map<string, DesignForDto[]>();
     for (const row of rows) {
       const key = mappingKeyOf(row.tiktokProductId, row.sellerSku);
@@ -969,8 +974,17 @@ export class FulfillmentService {
     // tài khoản sẽ khiến màn hình đơn (tra org-wide) và luồng gửi đơn nhìn thấy hai kết quả
     // khác nhau — đúng triệu chứng "danh sách báo đã ánh xạ mà bấm Fulfill lại bảo thiếu".
     // Ánh xạ khai cho nhà cung cấp khác được `check()` báo bằng MAPPING_PROVIDER_MISMATCH.
-    const mappings = await this.repo.listMappingsForOrganization(organizationId);
-    const designsByKey = await this.loadDesignsByKey(organizationId);
+    //
+    // 🔴 Chỉ nạp ánh xạ/design của ĐÚNG các sản phẩm trong đơn. Màn hình danh sách gọi endpoint
+    // này cho từng dòng; nạp cả tổ chức (kèm biến thể catalog của mọi SKU ở Sellerwix) là
+    // N × toàn bộ dữ liệu ánh xạ cho mỗi lần mở trang. Kết quả ghép không đổi: `check()` chỉ
+    // tra ánh xạ theo khoá của từng dòng hàng.
+    const productIds = productIdsOf(order.items);
+    const [mappings, designRows] = await Promise.all([
+      this.repo.listMappingsForProducts(organizationId, productIds),
+      this.repo.listProductDesignsForProducts(organizationId, productIds),
+    ]);
+    const designsByKey = this.groupDesignsByKey(designRows);
     // Luật vị trí in của ĐÚNG nhà cung cấp đang chọn (Sellerwix: `print_areas` của biến thể).
     const check = this.readiness.check(
       order,
@@ -1088,11 +1102,12 @@ export class FulfillmentService {
     podOrderId: string,
     scope: PodAccessScope,
   ): Promise<FulfillmentHistoryDto[]> {
-    await this.assertPodOrderInScope(organizationId, podOrderId, scope);
+    await this.requirePodOrderInScope(organizationId, podOrderId, scope);
     // 🔴 MỌI lần thử của đơn, kể cả lần đã huỷ rồi được lưu trữ khi fulfill lại — lịch sử của
     // lần gửi trước không được biến mất chỉ vì đơn đã được gửi lại.
     const attempts = await this.repo.listAttemptIds(organizationId, podOrderId);
-    if (attempts.length === 0) throw new FulfillmentOrderNotFoundException();
+    // Đơn có thật nhưng chưa gửi lần nào ⇒ lịch sử RỖNG (200), không phải 404.
+    if (attempts.length === 0) return [];
     const histories = await this.repo.listHistory(
       organizationId,
       attempts.map((attempt) => attempt.id),
@@ -1118,9 +1133,9 @@ export class FulfillmentService {
     podOrderId: string,
     scope: PodAccessScope,
   ): Promise<FulfillmentErrorDto[]> {
-    await this.assertPodOrderInScope(organizationId, podOrderId, scope);
+    await this.requirePodOrderInScope(organizationId, podOrderId, scope);
     const attempts = await this.repo.listAttemptIds(organizationId, podOrderId);
-    if (attempts.length === 0) throw new FulfillmentOrderNotFoundException();
+    if (attempts.length === 0) return [];
     const errors = await this.repo.listErrors(
       organizationId,
       attempts.map((attempt) => attempt.id),
@@ -1142,6 +1157,22 @@ export class FulfillmentService {
   // ---------------------------------------------------------------------------
   // Private
   // ---------------------------------------------------------------------------
+
+  /**
+   * Đơn POD phải TỒN TẠI trong tổ chức (và thuộc shop được gán với Seller).
+   *
+   * Khác `assertPodOrderInScope` (bỏ qua khi xem được mọi shop): lịch sử/lỗi trả `[]` cho đơn
+   * chưa gửi, nên 404 phải đến từ việc đơn không có thật — không phải từ "chưa có lần thử".
+   */
+  private async requirePodOrderInScope(
+    organizationId: string,
+    podOrderId: string,
+    scope: PodAccessScope,
+  ): Promise<void> {
+    const order = await this.podOrderRepo.findById(organizationId, podOrderId);
+    if (!order) throw new FulfillmentOrderNotFoundException();
+    this.accessScope.assertShopAllowed(scope, order.shopId);
+  }
 
   private async requireAccount(
     organizationId: string,

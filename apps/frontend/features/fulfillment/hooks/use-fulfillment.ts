@@ -23,6 +23,15 @@ import type {
 } from '../types';
 
 const KEY = 'fulfillment';
+
+/**
+ * Chỉ thử lại lỗi TẠM THỜI (mất kết nối / 5xx), tối đa 2 lần. Lỗi 4xx là câu trả lời cố định
+ * (không có quyền, không tồn tại, dữ liệu không hợp lệ) — gọi lại chỉ nhân đôi request lỗi.
+ */
+function retryTransientOnly(failureCount: number, error: unknown): boolean {
+  const status = (error as { response?: { status?: number } }).response?.status;
+  return failureCount < 2 && (status === undefined || status >= 500);
+}
 /** Cache của khu vực quản trị NỀN TẢNG — tách khỏi cache của tổ chức. */
 const PLATFORM_KEY = 'platform-fulfillment-providers';
 
@@ -38,6 +47,7 @@ export function useFulfillmentState(podOrderId?: string, enabled = true, provide
     queryKey: [KEY, 'state', podOrderId, providerId ?? null],
     queryFn: () => fulfillmentService.getState(podOrderId as string, providerId),
     enabled: Boolean(podOrderId) && enabled,
+    retry: retryTransientOnly,
   });
 }
 
@@ -109,6 +119,7 @@ export function useFulfillmentHistory(podOrderId?: string, enabled = false) {
     queryKey: [KEY, 'history', podOrderId],
     queryFn: () => fulfillmentService.history(podOrderId as string),
     enabled: Boolean(podOrderId) && enabled,
+    retry: retryTransientOnly,
   });
 }
 
@@ -117,6 +128,7 @@ export function useFulfillmentErrors(podOrderId?: string, enabled = false) {
     queryKey: [KEY, 'errors', podOrderId],
     queryFn: () => fulfillmentService.errors(podOrderId as string),
     enabled: Boolean(podOrderId) && enabled,
+    retry: retryTransientOnly,
   });
 }
 
@@ -436,10 +448,7 @@ export function useProviderVariantPrice(accountId?: string, variantId?: string) 
     queryFn: () => productMappingService.variantPrice(accountId as string, variantId as string),
     enabled: Boolean(accountId) && Boolean(variantId),
     staleTime: 5 * 60 * 1000,
-    retry: (failureCount, error) => {
-      const status = (error as { response?: { status?: number } }).response?.status;
-      return failureCount < 2 && (status === undefined || status >= 500);
-    },
+    retry: retryTransientOnly,
   });
 }
 

@@ -1020,6 +1020,10 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                       <Loader2 className="size-3 animate-spin" />
                       {t('loadingState')}
                     </div>
+                  ) : historyQuery.isError || errorsQuery.isError ? (
+                    <p className="py-2 text-xs text-destructive">
+                      {translateApiError(historyQuery.error ?? errorsQuery.error)}
+                    </p>
                   ) : (
                     <ul className="space-y-1 text-[11px]">
                       {(historyQuery.data ?? []).map((entry) => (
