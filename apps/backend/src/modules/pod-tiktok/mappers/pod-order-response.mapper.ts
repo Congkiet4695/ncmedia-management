@@ -161,6 +161,9 @@ export class PodOrderResponseMapper {
       skuId: item.skuId,
       skuName: item.skuName,
       sellerSku: item.sellerSku,
+      // Bản ghi chưa qua repository (không gắn khoá) ⇒ suy từ chính Seller SKU của đơn.
+      sellerSkuSource: item.sellerSkuSource ?? (item.sellerSku?.trim() ? 'ORDER' : null),
+      productKeyIssue: item.productKeyIssue ?? null,
       skuImage: item.skuImage,
       // Ảnh CHÍNH của sản phẩm — do `PodOrderProductImageResolver` ghép theo
       // (shop, mã sản phẩm TikTok). Không có ⇒ null, KHÔNG rơi về `skuImage`.

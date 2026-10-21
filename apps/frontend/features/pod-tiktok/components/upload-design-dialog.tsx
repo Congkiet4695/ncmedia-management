@@ -9,6 +9,7 @@ import { DesignSlot } from '@/features/fulfillment/components/design-slot';
 import { MAX_UPLOAD_MB } from '@/lib/file-size';
 import { ImageLightbox } from './image-lightbox';
 import { POD_ACTIVE_PLACEMENTS, type PodOrderItem } from '../order-types';
+import { productKeyMessageKey } from '../product-key';
 
 interface UploadDesignDialogProps {
   open: boolean;
@@ -97,7 +98,7 @@ function DialogBody({ item, onPreview }: { item: PodOrderItem; onPreview: (src: 
         <div className="flex flex-col items-center gap-2 rounded-md border border-dashed p-6 text-center">
           <KeyRound className="size-8 text-destructive" />
           <p className="text-sm font-medium">{t('design.noKeyTitle')}</p>
-          <p className="max-w-md text-xs text-muted-foreground">{t('design.noKeyHint')}</p>
+          <p className="max-w-md text-xs text-muted-foreground">{item.productKeyIssue ? t(productKeyMessageKey(item.productKeyIssue)) : t('design.noKeyHint')}</p>
         </div>
       ) : (
         <>

@@ -9,6 +9,7 @@ import {
   ResolvedItem,
   type ResolvedPrintFile,
 } from '../mango/mappers/mango-order.mapper';
+import { PRODUCT_KEY_ISSUE_MESSAGE } from '../../pod-tiktok/shared/order-item-product-key';
 import { createMappingIndex, findMappingInIndex, mappingKeyOf } from '../shared/mapping-match';
 import {
   FulfillmentShippingLabelService,
@@ -120,6 +121,12 @@ export const READINESS_CODES = {
   TIKTOK_SHIPPING_LABEL_REQUIRED: 'TIKTOK_SHIPPING_LABEL_REQUIRED',
   MAPPING_MISSING: 'MAPPING_MISSING',
   /**
+   * Dòng đơn KHÔNG có khoá sản phẩm (TikTok Product ID + Seller SKU) — kể cả sau khi đã thử lấy Seller SKU từ danh
+   * mục Products. Tách khỏi `MAPPING_MISSING`: không khai ánh xạ được cho tới khi có khoá, nên câu "vào Product
+   * Mapping khai đi" là sai hướng. `message` nói đúng lý do và chỗ phải sửa (`order-item-product-key.ts`).
+   */
+  MAPPING_KEY_MISSING: 'MAPPING_KEY_MISSING',
+  /**
    * Sản phẩm ĐÃ có ánh xạ, nhưng ánh xạ đó khai cho một nhà cung cấp KHÁC với nhà cung cấp
    * mà kết nối TikTok của đơn đang dùng.
    *
@@ -171,6 +178,7 @@ const SECTION_BY_CODE: Readonly<Record<string, FulfillmentIssueSection>> = {
   ADDRESS_INCOMPLETE: 'ADDRESS',
   TIKTOK_SHIPPING_LABEL_REQUIRED: 'SHIPPING',
   MAPPING_MISSING: 'MAPPING',
+  MAPPING_KEY_MISSING: 'MAPPING',
   MAPPING_PROVIDER_MISMATCH: 'MAPPING',
   PRODUCTION_LINE_CONFLICT: 'MAPPING',
   DESIGN_MISSING: 'DESIGN',
@@ -374,6 +382,27 @@ export class FulfillmentReadinessService {
     const index = createMappingIndex(mappings);
 
     for (const item of order.items) {
+      // 🔴 Không có khoá ⇒ không thể có ánh xạ lẫn design: báo ĐÚNG MỘT lỗi kèm lý do, thay vì cặp "chưa khai ánh
+      // xạ" + "chưa có design" (cả hai đều không sửa được khi chưa có khoá).
+      if (!mappingKeyOf(item.productId, item.sellerSku)) {
+        const reason =
+          item.productKeyIssue ?? (item.productId?.trim() ? 'SELLER_SKU_EMPTY_ON_TIKTOK' : 'NO_PRODUCT_ID');
+        issues.push({
+          code: READINESS_CODES.MAPPING_KEY_MISSING,
+          podOrderItemId: item.id,
+          tiktokProductId: item.productId,
+          tiktokSkuId: item.skuId,
+          sellerSku: null,
+          productName: item.productName,
+          skuName: item.skuName,
+          productCategory: item.productCategory,
+          message:
+            `"${item.productName ?? item.id}"${item.skuName ? ` (${item.skuName})` : ''} — ` +
+            `${PRODUCT_KEY_ISSUE_MESSAGE[reason]} (Product ID: ${item.productId ?? '—'} · SKU ID: ${item.skuId ?? '—'})`,
+        });
+        continue;
+      }
+
       const mapping = findMappingInIndex(item, index);
       if (!mapping) {
         issues.push({

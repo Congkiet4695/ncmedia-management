@@ -3,6 +3,7 @@ import { FulfillmentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { SUBMITTABLE_FULFILLMENT_STATUSES } from '../../fulfillment/shared/fulfillment-lifecycle';
 import { accountScopeFilter, shopScopeFilter } from '../shared/shop-scope';
+import { needsCatalogLookup, resolveItemProductKeys } from '../shared/order-item-product-key';
 import { POD_ORDER_INCLUDE, PodOrderWithRelations } from '../types/pod-order-with-relations.type';
 
 /** Ảnh chụp tối thiểu của đơn đã có trong DB — dùng để so sánh, KHÔNG tải nguyên bản ghi. */
@@ -275,10 +276,64 @@ export class PodOrderRepository {
     });
   }
 
-  findById(organizationId: string, id: string): Promise<PodOrderWithRelations | null> {
-    return this.prisma.podOrder.findFirst({
+  async findById(organizationId: string, id: string): Promise<PodOrderWithRelations | null> {
+    const order = await this.prisma.podOrder.findFirst({
       where: { id, organizationId, deletedAt: null },
       include: POD_ORDER_INCLUDE,
+    });
+    if (!order) return null;
+    const [resolved] = await this.withProductKeys(organizationId, [order]);
+    return resolved;
+  }
+
+  /**
+   * Gắn khoá sản phẩm HIỆU LỰC cho mọi dòng đơn (MỘT truy vấn cho cả trang) — xem `order-item-product-key.ts`.
+   *
+   * 🔴 Đặt ở repository để MỌI nơi đọc đơn (readiness, ánh xạ, design, gửi Sellerwix/Mango, màn hình) thấy CÙNG một
+   * Seller SKU — không nơi nào tự tra lại theo kiểu riêng. Dữ liệu đơn trong DB không bị sửa.
+   */
+  private async withProductKeys(
+    organizationId: string,
+    orders: Array<Omit<PodOrderWithRelations, 'items'> & { items: PodOrderWithRelations['items'] }>,
+  ): Promise<PodOrderWithRelations[]> {
+    const lookups = orders.flatMap((order) =>
+      order.items.filter(needsCatalogLookup).map((item) => ({ shopId: order.shopId, item })),
+    );
+    const variants =
+      lookups.length === 0
+        ? []
+        : await this.prisma.podProductVariant.findMany({
+            where: {
+              organizationId,
+              deletedAt: null,
+              tiktokSkuId: { in: [...new Set(lookups.map(({ item }) => item.skuId as string))] },
+              product: {
+                organizationId,
+                deletedAt: null,
+                shopId: { in: [...new Set(lookups.map(({ shopId }) => shopId))] },
+                tiktokProductId: { in: [...new Set(lookups.map(({ item }) => item.productId as string))] },
+              },
+            },
+            select: { tiktokSkuId: true, sellerSku: true, product: { select: { shopId: true, tiktokProductId: true } } },
+          });
+    const catalog = variants.map((variant) => ({
+      shopId: variant.product.shopId,
+      tiktokProductId: variant.product.tiktokProductId,
+      tiktokSkuId: variant.tiktokSkuId,
+      sellerSku: variant.sellerSku,
+    }));
+
+    return orders.map((order) => {
+      const keys = resolveItemProductKeys(order.shopId, order.items, catalog);
+      return {
+        ...order,
+        items: order.items.map((item) => {
+          const key = keys.get(item.id);
+          return key
+            ? { ...item, sellerSku: key.sellerSku, sellerSkuSource: key.sellerSkuSource, productKeyIssue: key.productKeyIssue }
+            : item;
+        }),
+      };
     });
   }
 
@@ -466,7 +521,7 @@ export class PodOrderRepository {
       }),
       this.prisma.podOrder.count({ where }),
     ]);
-    return { items, total };
+    return { items: await this.withProductKeys(organizationId, items), total };
   }
 
   /**

@@ -127,6 +127,20 @@ export class PodOrderItemDto {
   @ApiProperty({ nullable: true, type: String, description: 'Biến thể (màu/size)' })
   skuName!: string | null;
   @ApiProperty({ nullable: true, type: String }) sellerSku!: string | null;
+  @ApiProperty({
+    nullable: true,
+    enum: ['ORDER', 'CATALOG'],
+    description:
+      'Nguồn của `sellerSku`: ORDER = đơn TikTok; CATALOG = đơn rỗng, lấy từ danh mục Products (khớp đúng shop + ' +
+      'Product ID + SKU ID, duy nhất). null = không xác định được.',
+  })
+  sellerSkuSource!: 'ORDER' | 'CATALOG' | null;
+  @ApiProperty({
+    nullable: true,
+    enum: ['NO_PRODUCT_ID', 'NO_SKU_ID', 'VARIANT_NOT_SYNCED', 'SELLER_SKU_EMPTY_ON_TIKTOK', 'SELLER_SKU_AMBIGUOUS'],
+    description: 'Vì sao dòng đơn KHÔNG có khoá sản phẩm (Product ID + Seller SKU). null = đủ khoá.',
+  })
+  productKeyIssue!: string | null;
   /**
    * `line_items[].sku_image` của TikTok — ảnh của **BIẾN THỂ** khách đã đặt (đúng màu/size).
    *

@@ -1,4 +1,5 @@
 import { Prisma } from '@prisma/client';
+import type { ProductKeyIssue, SellerSkuSource } from '../shared/order-item-product-key';
 
 /**
  * Include chuẩn khi đọc đơn TikTok: kèm items, packages và thông tin shop
@@ -31,6 +32,18 @@ export const POD_ORDER_INCLUDE = {
   },
 } as const satisfies Prisma.PodOrderInclude;
 
-export type PodOrderWithRelations = Prisma.PodOrderGetPayload<{
-  include: typeof POD_ORDER_INCLUDE;
-}>;
+type PodOrderPayload = Prisma.PodOrderGetPayload<{ include: typeof POD_ORDER_INCLUDE }>;
+
+/**
+ * Khoá sản phẩm ĐÃ GIẢI của dòng đơn (`PodOrderRepository` gắn lúc đọc — xem `order-item-product-key.ts`).
+ * `sellerSku` của item là Seller SKU HIỆU LỰC (đơn, hoặc danh mục Products khi đơn rỗng). Tuỳ chọn: bản ghi dựng
+ * tay (test, luồng nội bộ) không có thì coi như Seller SKU lấy từ đơn.
+ */
+export interface PodOrderItemKeyAnnotation {
+  sellerSkuSource?: SellerSkuSource | null;
+  productKeyIssue?: ProductKeyIssue | null;
+}
+
+export type PodOrderItemWithKey = PodOrderPayload['items'][number] & PodOrderItemKeyAnnotation;
+
+export type PodOrderWithRelations = Omit<PodOrderPayload, 'items'> & { items: PodOrderItemWithKey[] };

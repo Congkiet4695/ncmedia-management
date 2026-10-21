@@ -123,6 +123,53 @@ describe('FulfillmentReadinessService', () => {
     });
   });
 
+  describe('🔴 dòng đơn KHÔNG có khoá sản phẩm (Product ID + Seller SKU)', () => {
+    const keyless = (over: Record<string, unknown>) =>
+      order({
+        items: [
+          {
+            id: 'item-1',
+            skuId: '1732716272490942940',
+            sellerSku: null,
+            productId: '1732716254750544348',
+            productName: 'GTA 6 Poster',
+            skuName: '27x40 (UNFRAMED)',
+            ...over,
+          },
+        ],
+      });
+
+    it.each([
+      ['SELLER_SKU_EMPTY_ON_TIKTOK', 'Seller Center'],
+      ['VARIANT_NOT_SYNCED', 'đồng bộ sản phẩm'],
+      ['SELLER_SKU_AMBIGUOUS', 'không tự chọn'],
+    ])('%s ⇒ MỘT lỗi MAPPING_KEY_MISSING nêu đúng chỗ sửa (không báo "khai ánh xạ" / "thiếu design")', (issue, hint) => {
+      const result = service.check(keyless({ productKeyIssue: issue }) as never, [mapping()] as never, designs());
+      expect(result.ready).toBe(false);
+      expect(result.issues.map((i) => i.code)).toEqual([READINESS_CODES.MAPPING_KEY_MISSING]);
+      expect(result.issues[0]).toMatchObject({ podOrderItemId: 'item-1', tiktokSkuId: '1732716272490942940' });
+      expect(result.issues[0].message).toContain(hint);
+      expect(result.issues[0].message).toContain('1732716254750544348');
+    });
+
+    it('bản ghi không gắn lý do (luồng cũ) vẫn báo MAPPING_KEY_MISSING; thiếu Product ID nói đúng là Product ID', () => {
+      const noSku = service.check(keyless({}) as never, [], designs());
+      expect(noSku.issues.map((i) => i.code)).toEqual([READINESS_CODES.MAPPING_KEY_MISSING]);
+      const noProduct = service.check(keyless({ productId: null, sellerSku: 'SELLER-1' }) as never, [], designs());
+      expect(noProduct.issues[0].message).toContain('Product ID');
+    });
+
+    it('Seller SKU khôi phục từ danh mục (CATALOG) ⇒ ghép ánh xạ + design như dòng bình thường', () => {
+      const result = service.check(
+        keyless({ sellerSku: 'SELLER-1', productId: 'PROD-1', sellerSkuSource: 'CATALOG' }) as never,
+        [mapping()] as never,
+        designs(),
+      );
+      expect(result.ready).toBe(true);
+      expect(result.items?.[0].providerSku).toBe('MANGO-1');
+    });
+  });
+
   describe('🔴 chặn khi thiếu dữ liệu — mỗi lý do phải nêu rõ', () => {
     it('chưa khai ánh xạ sản phẩm', () => {
       const result = service.check(order() as never, [], designs());

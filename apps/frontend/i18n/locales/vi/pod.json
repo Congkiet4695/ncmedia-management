@@ -2240,5 +2240,17 @@
       "failed": "Không chạy lại được",
       "hint": "Chỉ shop THẤT BẠI được chạy lại; shop đã thành công không bị tạo lại. Muốn nhân bản thêm shop, dùng Nhân bản ở màn hình Sản phẩm (tạo lượt mới)."
     }
+  },
+  "productKey": {
+    "fromCatalog": "lấy từ Products",
+    "fromCatalogHint": "Đơn TikTok không có Seller SKU cho dòng này; hệ thống lấy Seller SKU của đúng biến thể (cùng Product ID + SKU ID) trong danh mục Products đã đồng bộ.",
+    "issue": {
+      "NO_PRODUCT_ID": "Dòng hàng không có TikTok Product ID — đồng bộ lại đơn từ TikTok.",
+      "NO_SKU_ID": "Dòng hàng không có Seller SKU và không có TikTok SKU ID để tra danh mục — đồng bộ lại đơn từ TikTok.",
+      "VARIANT_NOT_SYNCED": "Dòng hàng không có Seller SKU, và biến thể này chưa có trong danh mục Products — đồng bộ sản phẩm của shop (Products → Đồng bộ) rồi mở lại đơn.",
+      "SELLER_SKU_EMPTY_ON_TIKTOK": "Biến thể này trên TikTok chưa có Seller SKU (cả trong đơn lẫn danh mục Products). Đặt Seller SKU cho biến thể ở TikTok Seller Center hoặc màn Sửa sản phẩm, đồng bộ sản phẩm, rồi mở lại đơn để khai ánh xạ và design.",
+      "SELLER_SKU_AMBIGUOUS": "Danh mục Products có nhiều Seller SKU khác nhau cho cùng biến thể — hệ thống không tự chọn. Kiểm tra Seller SKU của biến thể trên TikTok rồi đồng bộ sản phẩm.",
+      "UNKNOWN": "Dòng hàng thiếu Product ID hoặc Seller SKU nên không khai ánh xạ được."
+    }
   }
 }

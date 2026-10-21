@@ -26,6 +26,7 @@ import {
   variantsForProductionLine,
 } from '../features/fulfillment/product-config.ts';
 import { baseCostSaveWarning } from '../features/fulfillment/base-cost.ts';
+import { productKeyMessageKey } from '../features/pod-tiktok/product-key.ts';
 import {
   shippingServiceLabel,
   tiktokLabelErrorView,
@@ -529,6 +530,12 @@ check(
 check('phản hồi cũ không có trạng thái ⇒ không cảnh báo', baseCostSaveWarning({}), null);
 
 // ---------------------------------------------------------------------------
+console.log('thiếu khoá sản phẩm ⇒ nói đúng lý do');
+check('Seller SKU rỗng trên TikTok', productKeyMessageKey('SELLER_SKU_EMPTY_ON_TIKTOK'), 'pod:productKey.issue.SELLER_SKU_EMPTY_ON_TIKTOK');
+check('biến thể chưa đồng bộ', productKeyMessageKey('VARIANT_NOT_SYNCED'), 'pod:productKey.issue.VARIANT_NOT_SYNCED');
+check('phản hồi cũ không có lý do ⇒ câu chung', productKeyMessageKey(undefined), 'pod:productKey.issue.UNKNOWN');
+check('lý do lạ ⇒ câu chung', productKeyMessageKey('WHATEVER'), 'pod:productKey.issue.UNKNOWN');
+
 console.log('');
 console.log(`${passed} pass · ${failed} fail`);
 if (failed > 0) process.exit(1);

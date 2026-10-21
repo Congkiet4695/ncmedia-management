@@ -2240,5 +2240,17 @@
       "failed": "Retry failed",
       "hint": "Only FAILED shops are retried; successful shops are never re-created. To clone to more shops, use Clone on the Products screen (creates a new run)."
     }
+  },
+  "productKey": {
+    "fromCatalog": "from Products",
+    "fromCatalogHint": "The TikTok order has no Seller SKU for this line; the Seller SKU of the exact variant (same Product ID + SKU ID) was taken from the synced Products catalog.",
+    "issue": {
+      "NO_PRODUCT_ID": "This line has no TikTok Product ID — re-sync the order from TikTok.",
+      "NO_SKU_ID": "This line has no Seller SKU and no TikTok SKU ID to look it up — re-sync the order from TikTok.",
+      "VARIANT_NOT_SYNCED": "This line has no Seller SKU and the variant is not in the synced Products catalog — sync the shop products (Products → Sync), then reopen the order.",
+      "SELLER_SKU_EMPTY_ON_TIKTOK": "This variant has no Seller SKU on TikTok (neither in the order nor in Products). Set a Seller SKU for the variant in TikTok Seller Center or Edit product, sync products, then reopen the order to configure mapping and design.",
+      "SELLER_SKU_AMBIGUOUS": "The Products catalog has several different Seller SKUs for this variant — the system will not pick one. Check the variant Seller SKU on TikTok, then sync products.",
+      "UNKNOWN": "This line has no Product ID or Seller SKU, so it cannot be mapped."
+    }
   }
 }

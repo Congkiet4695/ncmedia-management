@@ -1,3 +1,4 @@
+import type { ProductKeyIssue, SellerSkuSource } from './product-key';
 import type { Paginated, PaginationParams } from '@/types/api';
 
 /** Trạng thái đơn của TikTok (Order API overview). */
@@ -149,7 +150,12 @@ export interface PodOrderItem {
   productName: string | null;
   skuId: string | null;
   skuName: string | null;
+  /** Seller SKU HIỆU LỰC (khoá ánh xạ/design): của đơn, hoặc lấy từ danh mục Products khi đơn rỗng. */
   sellerSku: string | null;
+  /** `CATALOG` = đơn TikTok không có Seller SKU, hệ thống lấy từ danh mục Products (khớp duy nhất). */
+  sellerSkuSource?: SellerSkuSource | null;
+  /** Vì sao dòng đơn KHÔNG có khoá sản phẩm — `null` = đủ khoá. */
+  productKeyIssue?: ProductKeyIssue | null;
   /**
    * `line_items[].sku_image` — ảnh của BIẾN THỂ khách đặt (dữ liệu thô TikTok).
    *

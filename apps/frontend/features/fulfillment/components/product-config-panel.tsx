@@ -39,6 +39,7 @@ import {
   type ConfigBlocker,
   type PlacementMap,
 } from '../product-config';
+import { productKeyMessageKey } from '@/features/pod-tiktok/product-key';
 import { baseCostSaveWarning } from '../base-cost';
 import type { ProductMapping, ProviderCatalogProduct, UpsertProductMappingInput } from '../types';
 import { CatalogSyncNotice } from './catalog-sync-notice';
@@ -109,6 +110,9 @@ export function ProductConfigPanel({
   onPreviewDesign,
 }: ProductConfigPanelProps) {
   const { t } = useTranslation(['fulfillment', 'pod', 'common']);
+  /** Lý do chưa lưu được — thiếu khoá thì nói ĐÚNG lý do backend đã xác định (không phải câu chung). */
+  const blockerText = (code: ConfigBlocker): string =>
+    code === 'MISSING_PRODUCT_KEY' ? t(productKeyMessageKey(item.productKeyIssue)) : t(BLOCKER_KEY[code]);
   const translateApiError = useApiError();
   const actions = useProductMappingActions();
 
@@ -359,7 +363,7 @@ export function ProductConfigPanel({
 
   const save = () => {
     if (blockers.length > 0) {
-      toast.error(t(BLOCKER_KEY[blockers[0]]));
+      toast.error(blockerText(blockers[0]));
       return;
     }
     // `blockers` rỗng ⇒ ba giá trị dưới đây chắc chắn có; ép kiểu một chỗ thay vì rải `!`.
@@ -430,6 +434,13 @@ export function ProductConfigPanel({
             <span className="font-mono">{item.productId ?? '—'}</span>
             {' · '}
             <span className="font-mono">{item.sellerSku ?? '—'}</span>
+            {/* Đơn TikTok không có Seller SKU — khoá lấy từ danh mục Products (khớp đúng biến thể, duy nhất). */}
+            {item.sellerSkuSource === 'CATALOG' && (
+              <span className="text-warning" title={t('pod:productKey.fromCatalogHint')}>
+                {' '}
+                ({t('pod:productKey.fromCatalog')})
+              </span>
+            )}
             {item.skuName && <span> · {item.skuName}</span>}
             <span> · × {item.quantity}</span>
           </p>
@@ -642,7 +653,7 @@ export function ProductConfigPanel({
             )}
           >
             {blockers.length > 0
-              ? blockers.map((code) => t(BLOCKER_KEY[code])).join(' · ')
+              ? blockers.map(blockerText).join(' · ')
               : t('fulfill.config.resolvedSku', {
                   sku: selectedVariant?.sku,
                   variant: selectedVariant?.productionLine
@@ -734,7 +745,7 @@ export function ProductConfigPanel({
                 )}
               </div>
             ) : (
-              <p className="text-xs text-destructive">{t('fulfill.config.missingKey')}</p>
+              <p className="text-xs text-destructive">{t(productKeyMessageKey(item.productKeyIssue))}</p>
             )}
             <p className="text-[11px] text-muted-foreground">
               {t('fulfill.config.artworkHint', {
