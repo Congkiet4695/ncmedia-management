@@ -92,7 +92,7 @@ async function main() {
     createdId = record.id;
 
     const day = new Date(order.orderedAt);
-    const window = { from: new Date(day.getTime() - 86_400_000), to: new Date(day.getTime() + 86_400_000) };
+    const window = { from: new Date(day.getTime() - 86_400_000), before: new Date(day.getTime() + 86_400_000) };
     const dashboardBaseCost = async () => {
       const stats = await dashboard.sellerStats(
         { organizationId: order.organizationId, currency: order.currency ?? 'USD', accountIds: [order.accountId] },

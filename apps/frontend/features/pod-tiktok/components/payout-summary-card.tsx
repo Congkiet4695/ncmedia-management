@@ -45,7 +45,7 @@ function SummarySkeleton() {
 export function PayoutSummaryCard({ data, loading, error }: PayoutSummaryCardProps) {
   const { t } = useTranslation('pod');
   const translateApiError = useApiError();
-  const { formatCurrency, formatDate, formatNumber } = useLocaleFormat();
+  const { formatCurrency, formatCalendarDay, formatNumber } = useLocaleFormat();
 
   if (loading && !data) return <SummarySkeleton />;
 
@@ -76,8 +76,9 @@ export function PayoutSummaryCard({ data, loading, error }: PayoutSummaryCardPro
             {formatCurrency(data.totalPayout, data.currency)}
           </p>
           <p className="mt-2 text-xs text-muted-foreground">
-            {data.range.from && data.range.to
-              ? `${formatDate(data.range.from)} → ${formatDate(data.range.to)}`
+            {/* Ngày NGHIỆP VỤ backend đã quy đổi (múi giờ US) — không dịch lại theo giờ trình duyệt. */}
+            {data.range.fromDay && data.range.toDay
+              ? `${formatCalendarDay(data.range.fromDay)} → ${formatCalendarDay(data.range.toDay)}`
               : t('payout.allTime')}
             {' · '}
             {t('payout.payments', { count: data.paymentCount })}

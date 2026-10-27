@@ -3,13 +3,16 @@
  */
 
 import { Prisma } from '@prisma/client';
+import {
+  businessDayOf,
+  businessDayRange,
+  firstDayOfMonth,
+  isCalendarDay,
+  type BusinessDayRange,
+} from '../../../common/time/business-time';
 
 /** Ngày tối đa của một khoảng thống kê theo ngày (chặn truy vấn / series vô hạn). */
 export const DASHBOARD_MAX_RANGE_DAYS = 366;
-
-const DAY_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
-const MS_PER_DAY = 86_400_000;
-const MS_PER_MINUTE = 60_000;
 
 /**
  * % thay đổi = (hiện tại − kỳ trước) / kỳ trước × 100.
@@ -21,19 +24,23 @@ export function percentChange(current: number, previous: number): number | null 
   return Math.round(((current - previous) / previous) * 10_000) / 100;
 }
 
-/** Ngày "YYYY-MM-DD" của một thời điểm theo múi giờ vận hành. */
-export function localDay(date: Date, offsetMinutes: number): string {
-  return new Date(date.getTime() + offsetMinutes * MS_PER_MINUTE).toISOString().slice(0, 10);
+/** Ngày nghiệp vụ "YYYY-MM-DD" của một thời điểm (múi giờ IANA `APP_BUSINESS_TIMEZONE`). */
+export function localDay(date: Date, timeZone: string): string {
+  return businessDayOf(date, timeZone);
 }
 
-/** Khoảng ngày (theo múi giờ vận hành) đã kiểm tra — gồm cả mốc UTC để lọc DB. */
+/**
+ * Khoảng ngày (theo múi giờ nghiệp vụ) đã kiểm tra — gồm cả mốc thời điểm NỬA MỞ để lọc DB:
+ * `from <= cột < before`. Mọi thẻ / biểu đồ / bảng của Dashboard dùng CÙNG một object này.
+ */
 export interface DashboardDayRange {
-  /** "YYYY-MM-DD" (giờ vận hành). */
+  /** "YYYY-MM-DD" (giờ nghiệp vụ), gồm trọn cả hai ngày. */
   fromDay: string;
   toDay: string;
-  /** 00:00 ngày đầu và 23:59:59.999 ngày cuối, quy về UTC. */
+  /** 00:00 ngày đầu (giờ nghiệp vụ) ⇒ thời điểm UTC. */
   from: Date;
-  to: Date;
+  /** 00:00 ngày SAU ngày cuối (giờ nghiệp vụ) ⇒ thời điểm UTC. */
+  before: Date;
   days: number;
 }
 
@@ -44,54 +51,38 @@ export interface DashboardDayRange {
 export function resolveDayRange(
   fromDay: string | undefined,
   toDay: string | undefined,
-  offsetMinutes: number,
+  timeZone: string,
   now: Date = new Date(),
 ): DashboardDayRange {
-  const today = localDay(now, offsetMinutes);
-  const to = toDay ?? today;
-  const from = fromDay ?? `${today.slice(0, 8)}01`;
-  if (!DAY_PATTERN.test(from) || !DAY_PATTERN.test(to)) {
-    throw new RangeError('Ngày phải có dạng YYYY-MM-DD');
-  }
-  const fromUtcMidnight = Date.parse(`${from}T00:00:00.000Z`);
-  const toUtcMidnight = Date.parse(`${to}T00:00:00.000Z`);
-  if (Number.isNaN(fromUtcMidnight) || Number.isNaN(toUtcMidnight)) {
-    throw new RangeError('Ngày không hợp lệ');
-  }
-  if (fromUtcMidnight > toUtcMidnight) throw new RangeError('Ngày bắt đầu sau ngày kết thúc');
-  const days = Math.round((toUtcMidnight - fromUtcMidnight) / MS_PER_DAY) + 1;
-  if (days > DASHBOARD_MAX_RANGE_DAYS) {
+  const today = localDay(now, timeZone);
+  const range = businessDayRange(fromDay ?? firstDayOfMonth(today), toDay ?? today, timeZone);
+  if (range.days > DASHBOARD_MAX_RANGE_DAYS) {
     throw new RangeError(`Khoảng thời gian tối đa ${DASHBOARD_MAX_RANGE_DAYS} ngày`);
   }
-  return dayRangeOf(from, to, offsetMinutes);
+  return toDashboardRange(range);
 }
 
 /**
- * "Tất cả thời gian": từ ngày có dữ liệu sớm nhất (`earliestDay`, giờ vận hành) đến HÔM NAY — KHÔNG áp giới hạn
+ * "Tất cả thời gian": từ ngày có dữ liệu sớm nhất (`earliestDay`, giờ nghiệp vụ) đến HÔM NAY — KHÔNG áp giới hạn
  * `DASHBOARD_MAX_RANGE_DAYS`. Chưa có dữ liệu (`null`) hoặc ngày sớm nhất ở tương lai ⇒ chỉ hôm nay.
  */
 export function resolveAllTimeRange(
   earliestDay: string | null,
-  offsetMinutes: number,
+  timeZone: string,
   now: Date = new Date(),
 ): DashboardDayRange {
-  const today = localDay(now, offsetMinutes);
-  const from =
-    earliestDay && DAY_PATTERN.test(earliestDay) && earliestDay < today ? earliestDay : today;
-  return dayRangeOf(from, today, offsetMinutes);
+  const today = localDay(now, timeZone);
+  const from = earliestDay && isCalendarDay(earliestDay) && earliestDay < today ? earliestDay : today;
+  return toDashboardRange(businessDayRange(from, today, timeZone));
 }
 
-/** Khoảng đã kiểm tra (`from` ≤ `to`, đúng định dạng) ⇒ mốc UTC 00:00 ngày đầu → 23:59:59.999 ngày cuối. */
-function dayRangeOf(from: string, to: string, offsetMinutes: number): DashboardDayRange {
-  const fromUtcMidnight = Date.parse(`${from}T00:00:00.000Z`);
-  const toUtcMidnight = Date.parse(`${to}T00:00:00.000Z`);
-  const offsetMs = offsetMinutes * MS_PER_MINUTE;
+function toDashboardRange(range: BusinessDayRange): DashboardDayRange {
   return {
-    fromDay: from,
-    toDay: to,
-    from: new Date(fromUtcMidnight - offsetMs),
-    to: new Date(toUtcMidnight + MS_PER_DAY - 1 - offsetMs),
-    days: Math.round((toUtcMidnight - fromUtcMidnight) / MS_PER_DAY) + 1,
+    fromDay: range.fromDay,
+    toDay: range.toDay,
+    from: range.start,
+    before: range.endExclusive,
+    days: range.days,
   };
 }
 

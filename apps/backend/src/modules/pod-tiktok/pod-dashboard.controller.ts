@@ -56,7 +56,7 @@ export class PodDashboardController {
     summary: 'Tổng quan: Hold · trạng thái shop · Hold theo seller · đơn Hôm nay / Hôm qua / Tháng này / Tháng trước',
     description:
       'Hold = Σ est_settlement_amount của giao dịch TikTok CHƯA quyết toán (ảnh chụp hiện tại, không theo ngày). ' +
-      'Kỳ theo múi giờ vận hành (APP_TIMEZONE_OFFSET_MINUTES).',
+      'Kỳ theo múi giờ nghiệp vụ IANA (APP_BUSINESS_TIMEZONE, mặc định America/Los_Angeles).',
   })
   @ApiOkResponse({ type: DashboardOverviewDto })
   overview(

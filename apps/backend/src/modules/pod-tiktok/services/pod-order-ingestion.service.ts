@@ -260,6 +260,8 @@ export class PodOrderIngestionService {
       eventType: 'ORDER_CREATED',
       entityType: 'POD_ORDER',
       entityId: orderId,
+      // Phạm vi = TikTok Account / Shop của CHÍNH đơn vừa tạo — outbox chọn kênh cá nhân được nhận theo đây.
+      scope: { accountId: ctx.accountId, shopId: ctx.shopId },
       payload: {
         tiktokOrderId: mapped.tiktokOrderId,
         sellerName: notify.sellerName,

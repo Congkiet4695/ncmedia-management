@@ -18,6 +18,11 @@ import { ConfigService } from '@nestjs/config';
 import { SchedulerRegistry } from '@nestjs/schedule';
 import { PodListingJobItemStatus, PodListingJobType, PodListingMarket, Prisma } from '@prisma/client';
 import { AppModule } from '../../src/app.module';
+import {
+  addCalendarDays,
+  DEFAULT_BUSINESS_TIMEZONE,
+  startOfBusinessDay,
+} from '../../src/common/time/business-time';
 import { PrismaService } from '../../src/database/prisma.service';
 import { PodEmployeeWorkService } from '../../src/modules/pod-tiktok/services/pod-employee-work.service';
 import { PodOrderFinanceService } from '../../src/modules/pod-tiktok/services/pod-order-finance.service';
@@ -27,7 +32,8 @@ async function main() {
   const app = await NestFactory.createApplicationContext(AppModule, { logger: ['error'] });
   app.get(SchedulerRegistry).getCronJobs().forEach((job) => void job.stop());
   const prisma = app.get(PrismaService);
-  const offsetMinutes = app.get(ConfigService).get<number>('timezoneOffsetMinutes', 420);
+  // CÙNG múi giờ nghiệp vụ mà service đang dùng (APP_BUSINESS_TIMEZONE) — fixture đặt đúng giữa ngày đó.
+  const timeZone = app.get(ConfigService).get<string>('businessTimeZone', DEFAULT_BUSINESS_TIMEZONE);
   const results: Array<[string, boolean, string]> = [];
   const check = (label: string, ok: boolean, detail: unknown) => results.push([label, ok, JSON.stringify(detail)]);
   const cleanup: Array<() => Promise<unknown>> = [];
@@ -61,11 +67,11 @@ async function main() {
 
     // ------------------------------------------------------------- Dữ liệu tạm
     const day = (await prisma.$queryRaw<Array<{ d: string }>>`
-      SELECT to_char(ordered_at + make_interval(mins => ${offsetMinutes}::int), 'YYYY-MM-DD') AS d
+      SELECT to_char(ordered_at AT TIME ZONE ${timeZone}::text, 'YYYY-MM-DD') AS d
         FROM pod_orders WHERE shop_id = ${shop1.id}::uuid AND deleted_at IS NULL
        GROUP BY 1 ORDER BY COUNT(*) DESC, 1 DESC LIMIT 1`)[0].d;
     const at = (hour: number, dayShift = 0) =>
-      new Date(Date.parse(`${day}T00:00:00.000Z`) + dayShift * 86_400_000 + hour * 3_600_000 - offsetMinutes * 60_000);
+      new Date(startOfBusinessDay(addCalendarDays(day, dayShift), timeZone).getTime() + hour * 3_600_000);
 
     const role = await prisma.role.findFirstOrThrow({ where: { organizationId: org, code: 'EMPLOYEE', deletedAt: null } });
     const makeUser = async (label: string) => {

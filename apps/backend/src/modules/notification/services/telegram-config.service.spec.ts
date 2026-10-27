@@ -17,12 +17,16 @@ import { NotificationEncryptionService } from './notification-encryption.service
 import { TelegramConfigService } from './telegram-config.service';
 
 const ORG = 'org-1';
+/** Kênh TỔ CHỨC (Admin) — chủ sở hữu mà controller dựng từ JWT. */
+const OWNER = { organizationId: ORG, userId: null };
 const TOKEN = '123456789:AAHdqTcvCH1vGWJxfSeofSAs0K5PALDsawWXYZ';
 
 function saved(overrides: Partial<OrganizationTelegramConfig> = {}): OrganizationTelegramConfig {
   return {
     id: 'cfg',
     organizationId: ORG,
+    ownerKey: 'ORGANIZATION',
+    userId: null,
     botTokenEnc: `enc:${TOKEN}`,
     botTokenHint: 'WXYZ',
     botUsername: 'nc_bot',
@@ -43,7 +47,7 @@ function saved(overrides: Partial<OrganizationTelegramConfig> = {}): Organizatio
 
 function build(existing: OrganizationTelegramConfig | null = saved()) {
   const configs = {
-    findByOrganization: jest.fn().mockResolvedValue(existing),
+    findByOwner: jest.fn().mockResolvedValue(existing),
     findOrganizationName: jest.fn().mockResolvedValue('HN Media'),
     create: jest.fn((_org: string, _actor: string, data: Record<string, unknown>) =>
       Promise.resolve({ ...saved(), ...data, lastDeliveryOk: null }),
@@ -87,13 +91,13 @@ function build(existing: OrganizationTelegramConfig | null = saved()) {
     config,
     preferences as unknown as NotificationPreferenceRepository,
   );
-  return { service, configs, events, telegram, dispatcher, preferences };
+  return { service, configs, events, telegram, dispatcher, preferences, redis };
 }
 
 describe('TelegramConfigService', () => {
   it('GET không bao giờ trả Bot Token — chỉ bản che 4 ký tự cuối', async () => {
     const { service } = build();
-    const dto = await service.get(ORG);
+    const dto = await service.get(OWNER);
     expect(JSON.stringify(dto)).not.toContain(TOKEN);
     expect(JSON.stringify(dto)).not.toContain('enc:');
     expect(dto.botTokenMasked).toBe('••••••••WXYZ');
@@ -101,15 +105,15 @@ describe('TelegramConfigService', () => {
   });
 
   it('trạng thái: tắt ⇒ DISABLED; lỗi gần nhất ⇒ DISCONNECTED; chưa có ⇒ NOT_CONFIGURED', async () => {
-    expect((await build(saved({ enabled: false })).service.get(ORG)).status).toBe('DISABLED');
-    expect((await build(saved({ lastDeliveryOk: false })).service.get(ORG)).status).toBe('DISCONNECTED');
-    expect((await build(saved({ lastDeliveryOk: null })).service.get(ORG)).status).toBe('UNTESTED');
-    expect((await build(null).service.get(ORG)).status).toBe('NOT_CONFIGURED');
+    expect((await build(saved({ enabled: false })).service.get(OWNER)).status).toBe('DISABLED');
+    expect((await build(saved({ lastDeliveryOk: false })).service.get(OWNER)).status).toBe('DISCONNECTED');
+    expect((await build(saved({ lastDeliveryOk: null })).service.get(OWNER)).status).toBe('UNTESTED');
+    expect((await build(null).service.get(OWNER)).status).toBe('NOT_CONFIGURED');
   });
 
   it('cấu hình lần đầu thiếu token ⇒ lỗi TELEGRAM_BOT_TOKEN_REQUIRED', async () => {
     const { service, configs } = build(null);
-    await expect(service.save(ORG, 'admin', { chatId: '-100', enabled: true })).rejects.toBeInstanceOf(
+    await expect(service.save(OWNER, 'admin', { chatId: '-100', enabled: true })).rejects.toBeInstanceOf(
       TelegramBotTokenRequiredException,
     );
     expect(configs.create).not.toHaveBeenCalled();
@@ -117,8 +121,8 @@ describe('TelegramConfigService', () => {
 
   it('cấu hình lần đầu có token ⇒ create với bản mã hoá', async () => {
     const { service, configs } = build(null);
-    await service.save(ORG, 'admin', { botToken: TOKEN, chatId: '-100', enabled: true });
-    expect(configs.create).toHaveBeenCalledWith(ORG, 'admin', {
+    await service.save(OWNER, 'admin', { botToken: TOKEN, chatId: '-100', enabled: true });
+    expect(configs.create).toHaveBeenCalledWith(OWNER, 'admin', {
       botTokenEnc: `enc:${TOKEN}`,
       botTokenHint: 'WXYZ',
       chatId: '-100',
@@ -128,7 +132,7 @@ describe('TelegramConfigService', () => {
 
   it('chỉ đổi Chat ID ⇒ KHÔNG ghi đè token; kết quả gửi cũ bị xoá', async () => {
     const { service, configs } = build();
-    await service.save(ORG, 'admin', { chatId: '-100999', enabled: true });
+    await service.save(OWNER, 'admin', { chatId: '-100999', enabled: true });
     expect(configs.create).not.toHaveBeenCalled();
     const update = configs.update.mock.calls[0][2];
     expect(update).not.toHaveProperty('botTokenEnc');
@@ -138,7 +142,7 @@ describe('TelegramConfigService', () => {
   it('đổi token ⇒ lưu bản MÃ HOÁ, không lưu plaintext', async () => {
     const { service, configs } = build();
     const newToken = '987654321:BBHdqTcvCH1vGWJxfSeofSAs0K5PALDsawNEWT';
-    await service.save(ORG, 'admin', { botToken: newToken, chatId: '-100111', enabled: true });
+    await service.save(OWNER, 'admin', { botToken: newToken, chatId: '-100111', enabled: true });
     const update = configs.update.mock.calls[0][2];
     expect(update.botTokenEnc).toBe(`enc:${newToken}`);
     expect(update.botTokenHint).toBe('NEWT');
@@ -147,10 +151,10 @@ describe('TelegramConfigService', () => {
 
   it('gửi thử thành công với cấu hình đã lưu ⇒ success + ghi Connected', async () => {
     const { service, telegram, configs } = build();
-    const result = await service.test(ORG, {});
+    const result = await service.test(OWNER, {});
     expect(result).toMatchObject({ success: true, botUsername: 'nc_bot' });
     expect(telegram.sendMessage).toHaveBeenCalledWith(TOKEN, '-100111', expect.stringContaining('successful'));
-    expect(configs.recordDelivery).toHaveBeenCalledWith(ORG, expect.anything(), expect.objectContaining({ ok: true }));
+    expect(configs.recordDelivery).toHaveBeenCalledWith(OWNER, expect.anything(), expect.objectContaining({ ok: true }));
   });
 
   it('gửi thử lỗi (bot chưa vào group) ⇒ success=false + nguyên nhân, không ném 500', async () => {
@@ -158,28 +162,28 @@ describe('TelegramConfigService', () => {
     telegram.sendMessage.mockRejectedValue(
       new TelegramApiError(NOTIFICATION_ERROR_CODES.CHAT_NOT_FOUND, 'chat not found', false, 'NOT_DELIVERED', 400),
     );
-    const result = await service.test(ORG, {});
+    const result = await service.test(OWNER, {});
     expect(result).toMatchObject({ success: false, errorCode: NOTIFICATION_ERROR_CODES.CHAT_NOT_FOUND });
   });
 
   it('gửi thử với giá trị CHƯA lưu ⇒ không ghi đè trạng thái kết nối của cấu hình đã lưu', async () => {
     const { service, configs, telegram } = build();
-    await service.test(ORG, { chatId: '-100555' });
+    await service.test(OWNER, { chatId: '-100555' });
     expect(telegram.sendMessage).toHaveBeenCalledWith(TOKEN, '-100555', expect.any(String));
     expect(configs.recordDelivery).not.toHaveBeenCalled();
   });
 
   it('gửi thử quá 5 lần / phút ⇒ 429', async () => {
     const { service } = build();
-    for (let i = 0; i < 5; i += 1) await service.test(ORG, {});
-    await expect(service.test(ORG, {})).rejects.toBeInstanceOf(TelegramTestRateLimitedException);
+    for (let i = 0; i < 5; i += 1) await service.test(OWNER, {});
+    await expect(service.test(OWNER, {})).rejects.toBeInstanceOf(TelegramTestRateLimitedException);
   });
 
   it('gửi lại sự kiện đã SENT ⇒ 409, không xếp hàng lại', async () => {
     const { service, events, dispatcher } = build();
     events.findStatus.mockResolvedValue({ status: 'SENT' });
     events.requeue.mockResolvedValue(false);
-    await expect(service.retryEvent(ORG, 'e1')).rejects.toBeInstanceOf(NotificationEventNotRetryableException);
+    await expect(service.retryEvent(OWNER, 'e1')).rejects.toBeInstanceOf(NotificationEventNotRetryableException);
     expect(dispatcher.kick).not.toHaveBeenCalled();
   });
 });
@@ -187,28 +191,70 @@ describe('TelegramConfigService', () => {
 describe('TelegramConfigService — tuỳ chọn loại thông báo', () => {
   it('đọc / lưu theo ĐÚNG tổ chức của người gọi', async () => {
     const { service, preferences } = build();
-    await service.getPreferences(ORG);
-    expect(preferences.find).toHaveBeenCalledWith(ORG);
+    await service.getPreferences(OWNER);
+    expect(preferences.find).toHaveBeenCalledWith(OWNER);
 
-    const saved = await service.savePreferences(ORG, 'admin', { newOrder: false, fulfillment: true });
+    const saved = await service.savePreferences(OWNER, 'admin', { newOrder: false, fulfillment: true });
     // Client cũ không gửi returnRefund ⇒ GIỮ giá trị đang lưu (false), không tự bật lại.
-    expect(preferences.save).toHaveBeenCalledWith(ORG, 'admin', { newOrder: false, fulfillment: true, returnRefund: false });
+    expect(preferences.save).toHaveBeenCalledWith(OWNER, 'admin', { newOrder: false, fulfillment: true, returnRefund: false });
     expect(saved).toEqual({ newOrder: false, fulfillment: true, returnRefund: false });
   });
 
   it('gửi returnRefund tường minh ⇒ lưu đúng giá trị đó', async () => {
     const { service, preferences } = build();
-    await service.savePreferences(ORG, 'admin', { newOrder: true, fulfillment: true, returnRefund: true });
-    expect(preferences.save).toHaveBeenCalledWith(ORG, 'admin', { newOrder: true, fulfillment: true, returnRefund: true });
+    await service.savePreferences(OWNER, 'admin', { newOrder: true, fulfillment: true, returnRefund: true });
+    expect(preferences.save).toHaveBeenCalledWith(OWNER, 'admin', { newOrder: true, fulfillment: true, returnRefund: true });
   });
 
   it('lưu được cả khi tổ chức CHƯA cấu hình Telegram', async () => {
     const { service, preferences } = build(null);
-    await expect(service.savePreferences(ORG, 'admin', { newOrder: true, fulfillment: false })).resolves.toEqual({
+    await expect(service.savePreferences(OWNER, 'admin', { newOrder: true, fulfillment: false })).resolves.toEqual({
       newOrder: true,
       fulfillment: false,
       returnRefund: false,
     });
     expect(preferences.save).toHaveBeenCalled();
+  });
+});
+
+describe('TelegramConfigService — kênh CÁ NHÂN', () => {
+  const ME = { organizationId: ORG, userId: 'user-emp-1' };
+
+  it('mọi thao tác đi với ĐÚNG chủ sở hữu (tổ chức + người dùng) — không chạm kênh của tổ chức', async () => {
+    const { service, configs, events, preferences } = build(null);
+    await service.save(ME, 'user-emp-1', { botToken: TOKEN, chatId: '-100', enabled: true });
+    expect(configs.findByOwner).toHaveBeenCalledWith(ME);
+    expect(configs.create).toHaveBeenCalledWith(ME, 'user-emp-1', expect.objectContaining({ chatId: '-100' }));
+
+    events.list.mockResolvedValue([[], 0]);
+    await service.listEvents(ME, {});
+    expect(events.list).toHaveBeenCalledWith(ME, expect.anything(), 1, 20);
+
+    await service.getPreferences(ME);
+    expect(preferences.find).toHaveBeenCalledWith(ME);
+  });
+
+  it('gửi lại chỉ tìm sự kiện trong kênh của CHÍNH người đó (id của người khác ⇒ 404)', async () => {
+    const { service, events } = build();
+    events.findStatus.mockResolvedValue(null);
+    await expect(service.retryEvent(ME, 'event-of-someone-else')).rejects.toThrow();
+    expect(events.findStatus).toHaveBeenCalledWith(ME, 'event-of-someone-else');
+    expect(events.requeue).not.toHaveBeenCalled();
+  });
+
+  it('giới hạn gửi thử tính RIÊNG từng kênh (Employee bấm thử không ăn hạn mức của Admin)', async () => {
+    const { service, redis } = build();
+    await service.test(ME, {});
+    await service.test(OWNER, {});
+    const keys = (redis.client.incr.mock.calls as unknown as string[][]).map((call) => call[0]);
+    expect(keys[0]).toContain('user-emp-1');
+    expect(keys[1]).toContain('ORGANIZATION');
+    expect(keys[0]).not.toBe(keys[1]);
+  });
+
+  it('tin gửi thử của kênh cá nhân nói rõ phạm vi: chỉ đơn của shop được gán', async () => {
+    const { service, telegram } = build();
+    await service.test(ME, {});
+    expect((telegram.sendMessage.mock.calls as string[][])[0][2]).toContain('shop đang được gán cho bạn');
   });
 });

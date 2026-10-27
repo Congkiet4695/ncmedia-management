@@ -44,14 +44,14 @@ export class PodDashboardFilterDto {
 }
 
 /**
- * Bộ lọc + khoảng ngày (theo giờ vận hành, gồm trọn hai ngày mút). Bỏ trống ⇒ tháng hiện tại.
+ * Bộ lọc + khoảng ngày (theo múi giờ nghiệp vụ `APP_BUSINESS_TIMEZONE`, gồm trọn hai ngày mút). Bỏ trống ⇒ tháng hiện tại.
  * `allTime=true` ⇒ "Tất cả thời gian": bỏ qua from / to, không giới hạn số ngày.
  */
 export class PodDashboardRangeDto extends PodDashboardFilterDto {
   @ApiPropertyOptional({
     description:
       'Tất cả thời gian: bỏ qua from / to và giới hạn 366 ngày — khoảng = từ ngày có dữ liệu sớm nhất (đơn / payout / ' +
-      'statement) trong phạm vi người xem đến hôm nay (giờ vận hành).',
+      'statement) trong phạm vi người xem đến hôm nay (giờ nghiệp vụ).',
     default: false,
   })
   @IsOptional()
@@ -239,8 +239,13 @@ export class DashboardOverviewDto {
   @ApiProperty({ type: DashboardHoldSellerDto, isArray: true }) holdBySeller!: DashboardHoldSellerDto[];
   @ApiProperty({ type: DashboardShopStatusDto }) shopStatus!: DashboardShopStatusDto;
   @ApiProperty({ type: DashboardPeriodsDto }) periods!: DashboardPeriodsDto;
-  @ApiProperty({ description: 'Múi giờ dùng để tính "Hôm nay / Tháng này" (phút so với UTC).' })
-  timezoneOffsetMinutes!: number;
+  @ApiProperty({
+    example: 'America/Los_Angeles',
+    description:
+      'Múi giờ nghiệp vụ IANA dùng để tính "Hôm nay / Tháng này" (APP_BUSINESS_TIMEZONE, tự đổi PST/PDT). ' +
+      'Mọi ngày YYYY-MM-DD gửi lên / trả về là ngày lịch ở múi giờ này.',
+  })
+  timeZone!: string;
 }
 
 export class DashboardOrderGroupDto {

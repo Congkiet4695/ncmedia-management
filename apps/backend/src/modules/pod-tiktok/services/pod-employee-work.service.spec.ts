@@ -143,12 +143,12 @@ describe('PodEmployeeWorkService', () => {
     expect(repo.users).toHaveBeenCalledWith(ORG, expect.any(Array));
   });
 
-  it('khoảng ngày theo giờ vận hành: 06/10 (+07) = 05/10 17:00Z → 06/10 16:59:59.999Z', async () => {
+  it('khoảng ngày theo giờ nghiệp vụ: 06/10 ở LA (PDT) = [06/10 07:00Z, 07/10 07:00Z) — nửa mở', async () => {
     const { service, repo } = setup([], users);
     await service.page(ORG, { from: '2026-10-06', to: '2026-10-06' });
-    const filter = (repo.pairs.mock.calls[0] as [{ from: Date; to: Date }])[0];
-    expect(filter.from.toISOString()).toBe('2026-10-05T17:00:00.000Z');
-    expect(filter.to.toISOString()).toBe('2026-10-06T16:59:59.999Z');
+    const filter = (repo.pairs.mock.calls[0] as [{ from: Date; before: Date }])[0];
+    expect(filter.from.toISOString()).toBe('2026-10-06T07:00:00.000Z');
+    expect(filter.before.toISOString()).toBe('2026-10-07T07:00:00.000Z');
   });
 
   it('khoảng ngày ngược ⇒ 400 EMPLOYEE_WORK_RANGE_INVALID', async () => {

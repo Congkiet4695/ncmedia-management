@@ -6,6 +6,7 @@ import type {
   PodOrderItem,
   PodOrderListItem,
 } from './order-types';
+import { formatBusinessDateTimeFixed } from '@/utils/business-time';
 
 /**
  * View-model của màn hình POD Orders — **thuần trình bày**.
@@ -19,22 +20,16 @@ import type {
 export const EMPTY = '—';
 
 /**
- * Định dạng ngày giờ `YYYY-MM-DD HH:mm` theo yêu cầu §1.
+ * Định dạng ngày giờ `YYYY-MM-DD HH:mm` theo yêu cầu §1 — theo **giờ Los Angeles** (múi giờ nghiệp vụ US).
  *
  * 🔴 KHÔNG dùng `useLocaleFormat().formatDateTime`: hàm đó đổi thứ tự ngày/tháng theo ngôn
  * ngữ (dd/MM ở vi, MM/dd ở en). Nhân viên fulfillment đọc hàng trăm đơn mỗi ngày và đối
  * chiếu với Seller Center — một định dạng cố định, sắp xếp được, không mơ hồ là thứ họ cần.
+ *
+ * 🔴 Không dùng giờ máy người xem: đơn lọc "Hôm nay" (ngày ở LA) phải hiện giờ của chính ngày đó ở LA.
  */
 export function formatOrderDateTime(iso: string | null | undefined): string {
-  if (!iso) return EMPTY;
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return EMPTY;
-
-  const pad = (value: number): string => String(value).padStart(2, '0');
-  return (
-    `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())} ` +
-    `${pad(date.getHours())}:${pad(date.getMinutes())}`
-  );
+  return formatBusinessDateTimeFixed(iso, EMPTY);
 }
 
 /**

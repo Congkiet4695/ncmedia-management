@@ -1,3 +1,5 @@
+import { DEFAULT_BUSINESS_TIMEZONE } from '../common/time/business-time';
+
 /**
  * Cấu hình tập trung — nạp qua @nestjs/config (ConfigModule).
  * Không đọc process.env rải rác trong code (KISS/DRY). Luôn qua ConfigService.
@@ -151,8 +153,15 @@ export default () => ({
   },
 
   /**
-   * Chênh lệch múi giờ (phút) dùng để quy đổi các mốc "Hôm nay / Hôm qua / Tháng này".
-   * Mặc định +420 = UTC+7 (giờ Việt Nam — nơi đội vận hành làm việc).
+   * Múi giờ NGHIỆP VỤ (IANA) xác định "ngày" của mọi bộ lọc thời gian — Orders, TikTok Payout, Dashboard,
+   * Returns, Thống kê nhân viên: Hôm nay / Hôm qua / Tháng này / khoảng ngày tuỳ chọn. Tự đổi PST/PDT.
+   * Mặc định `America/Los_Angeles` (TikTok Shop US). Xem `common/time/business-time.ts`.
+   */
+  businessTimeZone: process.env.APP_BUSINESS_TIMEZONE || DEFAULT_BUSINESS_TIMEZONE,
+
+  /**
+   * Chênh lệch múi giờ (phút) CHỈ dùng để HIỂN THỊ giờ trong tin nhắn Telegram (UTC+7 — đội vận hành).
+   * KHÔNG còn dùng cho lọc thời gian — xem `businessTimeZone`.
    */
   timezoneOffsetMinutes: parseInt(process.env.APP_TIMEZONE_OFFSET_MINUTES ?? '420', 10),
 

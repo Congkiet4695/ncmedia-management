@@ -1,4 +1,5 @@
 import * as Joi from 'joi';
+import { DEFAULT_BUSINESS_TIMEZONE, isValidTimeZone } from '../common/time/business-time';
 
 /**
  * Schema validate biến môi trường khi khởi động (fail-fast nếu thiếu/sai).
@@ -89,7 +90,13 @@ export const envValidationSchema = Joi.object({
   UPLOAD_URL_PREFIX: Joi.string().pattern(/^\/[a-zA-Z0-9/_-]*$/).default('/uploads'),
   UPLOAD_PUBLIC_BASE_URL: Joi.string().uri().allow('').default(''),
 
-  // Múi giờ quy đổi preset lọc thời gian (phút). Mặc định 420 = UTC+7.
+  // Múi giờ NGHIỆP VỤ (IANA) của mọi bộ lọc thời gian. Sai tên ⇒ không khởi động (không âm thầm lọc lệch ngày).
+  APP_BUSINESS_TIMEZONE: Joi.string()
+    .trim()
+    .custom((value: string, helpers) => (isValidTimeZone(value) ? value : helpers.error('any.invalid')))
+    .default(DEFAULT_BUSINESS_TIMEZONE),
+
+  // Chênh lệch (phút) CHỈ để hiển thị giờ trong tin nhắn Telegram. Mặc định 420 = UTC+7.
   APP_TIMEZONE_OFFSET_MINUTES: Joi.number().integer().min(-720).max(840).default(420),
 
   // Chi phí label MỖI ĐƠN trừ vào lợi nhuận đơn POD (mặc định 0.50 USD). Đơn khác đơn vị tiền ⇒ lợi nhuận "—".

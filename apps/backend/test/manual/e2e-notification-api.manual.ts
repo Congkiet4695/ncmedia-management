@@ -58,7 +58,7 @@ async function main(): Promise<void> {
       status: 'ACTIVE',
     },
   });
-  const existing = await prisma.organizationTelegramConfig.findUnique({ where: { organizationId: org.id } });
+  const existing = await prisma.organizationTelegramConfig.findUnique({ where: { organizationId_ownerKey: { organizationId: org.id, ownerKey: 'ORGANIZATION' } } });
   if (existing) await prisma.organizationTelegramConfig.delete({ where: { id: existing.id } });
 
   const adminToken = sign(admin.id, org.id, 'ADMIN');
@@ -86,11 +86,11 @@ async function main(): Promise<void> {
     const saved = await call(adminToken, 'PUT', '/notifications/telegram', { botToken: FAKE_TOKEN, chatId: '-1001234567890', enabled: true });
     check('lưu ⇒ 200, UNTESTED, token đã che', saved.status === 200 && saved.json.data.status === 'UNTESTED' && saved.json.data.botTokenMasked === '••••••••ZZZZ', saved.json);
     check('🔴 response KHÔNG chứa Bot Token', !saved.text.includes(FAKE_TOKEN) && !saved.text.includes('Z'.repeat(10)));
-    const row = await prisma.organizationTelegramConfig.findUniqueOrThrow({ where: { organizationId: org.id } });
+    const row = await prisma.organizationTelegramConfig.findUniqueOrThrow({ where: { organizationId_ownerKey: { organizationId: org.id, ownerKey: 'ORGANIZATION' } } });
     check('DB lưu bản MÃ HOÁ (v1.…), không plaintext', row.botTokenEnc.startsWith('v1.') && !row.botTokenEnc.includes(FAKE_TOKEN));
 
     const chatOnly = await call(adminToken, 'PUT', '/notifications/telegram', { chatId: '-1009999999999', enabled: false });
-    const rowAfter = await prisma.organizationTelegramConfig.findUniqueOrThrow({ where: { organizationId: org.id } });
+    const rowAfter = await prisma.organizationTelegramConfig.findUniqueOrThrow({ where: { organizationId_ownerKey: { organizationId: org.id, ownerKey: 'ORGANIZATION' } } });
     check('chỉ đổi Chat ID (token trống) ⇒ GIỮ token cũ', chatOnly.status === 200 && rowAfter.botTokenEnc === row.botTokenEnc && rowAfter.chatId === '-1009999999999');
     check('tắt ⇒ DISABLED', chatOnly.json.data.status === 'DISABLED', chatOnly.json.data);
     const got = await call(adminToken, 'GET', '/notifications/telegram');

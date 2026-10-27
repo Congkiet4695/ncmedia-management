@@ -3,7 +3,7 @@
 import type { ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Tooltip } from '@/components/ui/tooltip';
-import { useLocaleFormat } from '@/hooks/use-locale-format';
+import { useBusinessLocaleFormat, useLocaleFormat } from '@/hooks/use-locale-format';
 import { cn } from '@/lib/utils';
 import { EMPTY, type OrderPriceBreakdown } from '../../order-view-model';
 import type { FinanceBreakdown, PodOrderProceeds } from '../../order-types';
@@ -134,7 +134,8 @@ function useFieldLabel() {
  */
 function ProceedsBreakdown({ proceeds }: { proceeds: PodOrderProceeds }) {
   const { t } = useTranslation('pod');
-  const { formatCurrency, formatDateTime } = useLocaleFormat();
+  // Giờ Los Angeles (múi giờ nghiệp vụ US) — cùng múi giờ với bộ lọc ngày, không theo giờ máy người xem.
+  const { formatCurrency, formatDateTime } = useBusinessLocaleFormat();
   const money = (value: number) => formatCurrency(value, proceeds.currency);
   // `estimated_settlement`: Unix timestamp (đơn đã giao) hoặc câu "x days after delivery" — giữ nguyên câu chữ.
   const settlement = proceeds.estimatedSettlement;

@@ -7,7 +7,7 @@ import { PodDashboardRepository, type DashboardFilter, type SellerSortField } fr
  */
 describe('PodDashboardRepository.sellerStats — Shipping Fee / Current Profit', () => {
   const FILTER: DashboardFilter = { organizationId: 'org-1', currency: 'USD', accountIds: null };
-  const WINDOW = { from: new Date('2026-10-01T00:00:00Z'), to: new Date('2026-10-14T23:59:59Z') };
+  const WINDOW = { from: new Date('2026-10-01T07:00:00Z'), before: new Date('2026-10-15T07:00:00Z') };
   const OPTIONS = {
     activeOnly: false,
     sort: 'orders' as const,
@@ -177,13 +177,17 @@ describe('PodDashboardRepository.earliestActivityDay — mốc đầu của "T�
   it('MIN trên cả ba mốc (đơn / payout / statement), trong phạm vi, KHÔNG lọc đơn vị tiền', async () => {
     const prisma = { $queryRaw: jest.fn().mockResolvedValue([{ day: '2025-01-23' }]) };
     const repo = new PodDashboardRepository(prisma as never);
-    const day = await repo.earliestActivityDay({ organizationId: 'org-1', currency: 'USD', accountIds: ['acc-1'] }, 420);
+    const day = await repo.earliestActivityDay({ organizationId: 'org-1', currency: 'USD', accountIds: ['acc-1'] }, 'America/Los_Angeles');
     expect(day).toBe('2025-01-23');
     const query = (prisma.$queryRaw.mock.calls[0] as [Prisma.Sql])[0];
     const sql = query.sql.replace(/\s+/g, ' ');
     expect(sql).toContain('SELECT MIN(po.ordered_at) FROM pod_orders po');
     expect(sql).toContain('SELECT MIN(COALESCE(p.paid_at, p.payment_created_at)) FROM pod_tiktok_payments p');
     expect(sql).toContain('SELECT MIN(st.statement_at) FROM pod_tiktok_statements st');
+    // 🔴 Ngày nghiệp vụ theo múi giờ IANA (tự đổi PST/PDT) — tham số, không offset cố định.
+    expect(sql).toContain('AT TIME ZONE ?::text');
+    expect(sql).not.toContain('make_interval');
+    expect(query.values).toContain('America/Los_Angeles');
     expect(sql).toContain('po.account_id IN (?::uuid)');
     expect(sql).not.toMatch(/\.currency = /);
   });
@@ -191,6 +195,58 @@ describe('PodDashboardRepository.earliestActivityDay — mốc đầu của "T�
   it('chưa có dữ liệu ⇒ null', async () => {
     const prisma = { $queryRaw: jest.fn().mockResolvedValue([{ day: null }]) };
     const repo = new PodDashboardRepository(prisma as never);
-    expect(await repo.earliestActivityDay({ organizationId: 'org-1', currency: 'USD', accountIds: null }, 420)).toBeNull();
+    expect(await repo.earliestActivityDay({ organizationId: 'org-1', currency: 'USD', accountIds: null }, 'America/Los_Angeles')).toBeNull();
+  });
+});
+
+describe('PodDashboardRepository — khoảng thời gian NỬA MỞ + ngày theo múi giờ IANA', () => {
+  const FILTER = { organizationId: 'org-1', currency: 'USD', accountIds: null };
+  const WINDOW = { from: new Date('2026-10-01T07:00:00Z'), before: new Date('2026-10-15T07:00:00Z') };
+  const sqlOf = (prisma: { $queryRaw: jest.Mock }, call = 0) => {
+    const query = (prisma.$queryRaw.mock.calls[call] as [Prisma.Sql])[0];
+    return { sql: query.sql.replace(/\s+/g, ' '), values: query.values };
+  };
+
+  it('🔴 orderTrend lọc ordered_at >= from AND < before (không BETWEEN … 23:59:59.999) và gom ngày AT TIME ZONE', async () => {
+    const prisma = { $queryRaw: jest.fn().mockResolvedValue([]) };
+    await new PodDashboardRepository(prisma as never).orderTrend(
+      FILTER,
+      WINDOW,
+      { fromDay: '2026-10-01', toDay: '2026-10-14' },
+      'America/Los_Angeles',
+    );
+    const { sql, values } = sqlOf(prisma);
+    expect(sql).toContain('po.ordered_at >= ? AND po.ordered_at < ?');
+    expect(sql).not.toContain('BETWEEN');
+    expect(sql).toContain('(po.ordered_at AT TIME ZONE ?::text)::date');
+    expect(values).toEqual(expect.arrayContaining([WINDOW.from, WINDOW.before, 'America/Los_Angeles']));
+  });
+
+  it('🔴 financeTrend: payout PAID và statement PROCESSING cùng dùng mốc nửa mở và cùng múi giờ', async () => {
+    const prisma = { $queryRaw: jest.fn().mockResolvedValue([]) };
+    await new PodDashboardRepository(prisma as never).financeTrend(
+      FILTER,
+      WINDOW,
+      { fromDay: '2026-10-01', toDay: '2026-10-14' },
+      'America/Los_Angeles',
+    );
+    const { sql } = sqlOf(prisma);
+    expect(sql).toContain('COALESCE(p.paid_at, p.payment_created_at) >= ? AND COALESCE(p.paid_at, p.payment_created_at) < ?');
+    expect(sql).toContain('st.statement_at >= ? AND st.statement_at < ?');
+    expect(sql).toContain('(COALESCE(p.paid_at, p.payment_created_at) AT TIME ZONE ?::text)::date');
+    expect(sql).toContain('(st.statement_at AT TIME ZONE ?::text)::date');
+    expect(sql).not.toContain('BETWEEN');
+  });
+
+  it('🔴 periods (thẻ Hôm nay / Hôm qua / Tháng này / Tháng trước) dùng FILTER nửa mở cho từng kỳ', async () => {
+    const prisma = { $queryRaw: jest.fn().mockResolvedValue([{}]) };
+    const windows = [
+      { from: new Date('2026-10-27T07:00:00Z'), before: new Date('2026-10-28T07:00:00Z') },
+      { from: new Date('2026-10-26T07:00:00Z'), before: new Date('2026-10-27T07:00:00Z') },
+    ];
+    await new PodDashboardRepository(prisma as never).periods(FILTER, windows).catch(() => undefined);
+    const all = prisma.$queryRaw.mock.calls.map((_, i) => sqlOf(prisma, i).sql).join(' ');
+    expect(all).toContain('fin.ordered_at >= ? AND fin.ordered_at < ?');
+    expect(all).not.toContain('BETWEEN');
   });
 });

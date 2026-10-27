@@ -153,7 +153,7 @@ async function main() {
     const dash = new PodDashboardRepository(prisma);
     const filter = { organizationId: shop.organizationId, currency: real.currency, accountIds: null, shopId: shop.id };
     const day = order.orderedAt!;
-    const window = { from: new Date(day.getTime() - 86_400_000), to: new Date(day.getTime() + 86_400_000) };
+    const window = { from: new Date(day.getTime() - 86_400_000), before: new Date(day.getTime() + 86_400_000) };
     check('returnsAvailable = true sau khi đồng bộ RETURN thành công', await dash.returnsAvailable(filter));
     const stats = await dash.returnStats(filter, window);
     check('returnStats: 2 yêu cầu, 1 đơn hoàn, settled đúng', stats.requests === 2 && stats.refundedOrders === 1 && stats.returnedOrders === 1 && new Prisma.Decimal(stats.settledRefund).equals(expected.amount), stats);

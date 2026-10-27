@@ -19,8 +19,11 @@ COPY . .
 # NEXT_PUBLIC_* inline lúc build. Mặc định gọi API same-origin qua Nginx (/api/v1).
 ARG NEXT_PUBLIC_API_BASE_URL=/api/v1
 ARG NEXT_PUBLIC_APP_NAME="NCMedia Management Platform"
+# Múi giờ nghiệp vụ hiển thị trên UI — PHẢI trùng APP_BUSINESS_TIMEZONE của backend (compose truyền từ cùng biến).
+ARG NEXT_PUBLIC_BUSINESS_TIMEZONE=America/Los_Angeles
 ENV NEXT_PUBLIC_API_BASE_URL=$NEXT_PUBLIC_API_BASE_URL \
     NEXT_PUBLIC_APP_NAME=$NEXT_PUBLIC_APP_NAME \
+    NEXT_PUBLIC_BUSINESS_TIMEZONE=$NEXT_PUBLIC_BUSINESS_TIMEZONE \
     NEXT_TELEMETRY_DISABLED=1
 
 # Đảm bảo có thư mục public (Next standalone copy /public). Repo chưa có → tạo rỗng (chỉ trong image).

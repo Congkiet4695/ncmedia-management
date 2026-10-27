@@ -9,7 +9,7 @@ const DAY = /^\d{4}-\d{2}-\d{2}$/;
 
 /** Bộ lọc màn "Thống kê công việc nhân viên". Tổ chức luôn lấy từ JWT — không nhận từ client. */
 export class EmployeeWorkQueryDto {
-  @ApiPropertyOptional({ example: '2026-10-06', description: 'Từ ngày (giờ vận hành). Bỏ trống ⇒ hôm nay.' })
+  @ApiPropertyOptional({ example: '2026-10-06', description: 'Từ ngày YYYY-MM-DD (múi giờ nghiệp vụ APP_BUSINESS_TIMEZONE). Bỏ trống ⇒ hôm nay.' })
   @IsOptional()
   @Matches(DAY, { message: 'from phải có dạng YYYY-MM-DD' })
   from?: string;
@@ -109,7 +109,8 @@ export class EmployeeWorkPageDto {
   @ApiProperty() from!: string;
   @ApiProperty() to!: string;
   @ApiProperty({ nullable: true, type: String }) currency!: string | null;
-  @ApiProperty() timezoneOffsetMinutes!: number;
+  @ApiProperty({ example: 'America/Los_Angeles', description: 'Múi giờ nghiệp vụ IANA của from / to.' })
+  timeZone!: string;
   @ApiProperty({ type: EmployeeWorkSummaryDto }) summary!: EmployeeWorkSummaryDto;
   @ApiProperty({ type: [EmployeeWorkRowDto] }) items!: EmployeeWorkRowDto[];
   @ApiProperty() meta!: { total: number; page: number; limit: number; totalPages: number };

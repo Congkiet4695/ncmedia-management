@@ -194,6 +194,9 @@ export const EMPLOYEE_DEFAULT_PERMISSIONS = [
   // Design nằm trên Storage Module.
   'storage.read',
   'storage.upload',
+  // 🔴 Kênh Telegram CÁ NHÂN: chỉ cấu hình của CHÍNH mình (owner lấy từ JWT) và chỉ nhận đơn thuộc shop đang
+  // được gán (kiểm lúc ghi sự kiện VÀ lúc gửi) — xem NotificationRecipientRepository.
+  'notification.self',
 ] as const;
 
 /**

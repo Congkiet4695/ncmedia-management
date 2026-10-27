@@ -63,7 +63,7 @@ async function main() {
   const seller = await prisma.user.create({
     data: { organizationId: orgId, roleId: employeeRole.id, email: `swx-e2e-${Date.now()}@e2e-test.local`, fullName: 'E2E', passwordHash: 'x', status: 'ACTIVE' },
   });
-  const prefBefore = await prisma.organizationNotificationPreference.findUnique({ where: { organizationId: orgId } });
+  const prefBefore = await prisma.organizationNotificationPreference.findUnique({ where: { organizationId_ownerKey: { organizationId: orgId, ownerKey: 'ORGANIZATION' } } });
 
   try {
     // ---------------------------------------------------------------- tìm đơn chưa cấu hình

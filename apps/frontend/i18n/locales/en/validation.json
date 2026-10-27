@@ -108,6 +108,7 @@
     "NOTIFICATION_EVENT_NOT_FOUND": "Notification not found.",
     "NOTIFICATION_EVENT_NOT_RETRYABLE": "Only failed or skipped notifications can be resent.",
     "DASHBOARD_RANGE_INVALID": "Invalid date range (max 366 days, start ≤ end).",
+    "DATE_RANGE_INVALID": "Start date cannot be later than end date.",
     "POD_RETURN_NOT_FOUND": "Return / refund request not found."
   }
 }

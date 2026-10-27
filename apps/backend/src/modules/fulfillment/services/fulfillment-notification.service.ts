@@ -2,7 +2,10 @@ import { Injectable, Logger } from '@nestjs/common';
 import { FulfillmentStatus, FulfillmentTrigger } from '@prisma/client';
 import { NotificationOutboxService } from '../../notification/services/notification-outbox.service';
 import { groupOrderLines } from '../../notification/shared/order-items';
-import type { NotificationOrderItem } from '../../notification/types/notification-payload.types';
+import type {
+  NotificationOrderItem,
+  NotificationScope,
+} from '../../notification/types/notification-payload.types';
 import { PodOrderRepository } from '../../pod-tiktok/repositories/pod-order.repository';
 import { FULFILLMENT_PROVIDER_LABELS } from '../constants/fulfillment-provider.constants';
 import {
@@ -53,8 +56,9 @@ export class FulfillmentNotificationService {
   ): Promise<void> {
     if (!ACCEPTED_BY_PROVIDER.includes(record.status)) return;
     try {
-      const order = await this.orderContext(record);
-      if (!order) return;
+      const context = await this.orderContext(record);
+      if (!context) return;
+      const { scope, ...order } = context;
       const cost = productCostOf(true, record.items);
       await this.outbox.publish({
         organizationId: record.organizationId,
@@ -62,6 +66,7 @@ export class FulfillmentNotificationService {
         entityType: 'FULFILLMENT_ORDER',
         entityId: record.id,
         actorUserId,
+        scope,
         payload: {
           ...order,
           provider: FULFILLMENT_PROVIDER_LABELS[record.provider],
@@ -93,8 +98,9 @@ export class FulfillmentNotificationService {
     // Chỉ khi nhà cung cấp ĐÃ XÁC NHẬN huỷ — "đã gửi yêu cầu, đang chờ" không phải huỷ thành công.
     if (record.status !== FulfillmentStatus.CANCELLED) return;
     try {
-      const order = await this.orderContext(record);
-      if (!order) return;
+      const context = await this.orderContext(record);
+      if (!context) return;
+      const { scope, ...order } = context;
       const cancelledBy = await this.repo.findUserDisplayName(record.organizationId, actorUserId);
       await this.outbox.publish({
         organizationId: record.organizationId,
@@ -102,6 +108,7 @@ export class FulfillmentNotificationService {
         entityType: 'FULFILLMENT_ORDER',
         entityId: record.id,
         actorUserId,
+        scope,
         payload: {
           ...order,
           provider: FULFILLMENT_PROVIDER_LABELS[record.provider],
@@ -128,6 +135,8 @@ export class FulfillmentNotificationService {
     sellerName: string | null;
     shopName: string | null;
     items: NotificationOrderItem[];
+    /** TikTok Account / Shop của ĐƠN (từ DB) — phạm vi người nhận kênh cá nhân. Không đi vào payload. */
+    scope: NotificationScope;
   } | null> {
     const order = await this.podOrderRepo.findById(record.organizationId, record.podOrderId);
     if (!order) return null;
@@ -140,6 +149,7 @@ export class FulfillmentNotificationService {
       sellerName: order.account?.seller?.user?.fullName?.trim() || order.account?.seller?.user?.email || null,
       shopName: order.shop?.name ?? null,
       items: groupOrderLines(lines),
+      scope: { accountId: order.accountId, shopId: order.shopId },
     };
   }
 

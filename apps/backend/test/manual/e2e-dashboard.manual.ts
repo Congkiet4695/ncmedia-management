@@ -27,7 +27,7 @@ const near = (a: number, b: number) => Math.abs(a - b) < 0.011;
 
 async function main() {
   const prisma = new PrismaService();
-  const config = { get: (key: string, fallback: unknown) => (key === 'timezoneOffsetMinutes' ? 420 : fallback) } as unknown as ConfigService;
+  const config = { get: (key: string, fallback: unknown) => (key === 'businessTimeZone' ? 'Asia/Ho_Chi_Minh' : fallback) } as unknown as ConfigService;
   const repo = new PodDashboardRepository(prisma);
   const service = new PodDashboardService(repo, config);
   const finance = new PodOrderFinanceService(prisma, config);

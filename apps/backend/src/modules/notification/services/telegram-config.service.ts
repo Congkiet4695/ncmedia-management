@@ -30,15 +30,17 @@ import {
   type NotificationPreferences,
 } from '../repositories/notification-preference.repository';
 import { TelegramConfigRepository } from '../repositories/telegram-config.repository';
+import { ownerKeyOf, type NotificationOwner } from '../types/notification-owner';
 import { NotificationDispatcherService, maskChatId } from './notification-dispatcher.service';
 import { NotificationEncryptionService } from './notification-encryption.service';
 import { ConfigService } from '@nestjs/config';
 
 /**
- * TelegramConfigService — cấu hình Telegram của tổ chức + màn hình "Thông báo gần đây".
+ * TelegramConfigService — cấu hình Telegram + màn hình "Thông báo gần đây" của MỘT kênh: kênh tổ chức
+ * (`notification.config`) hoặc kênh cá nhân của người đang đăng nhập (`notification.self`).
  *
- * 🔴 Mọi thao tác nhận `organizationId` từ JWT (controller) — không có tham số nào cho phép chạm
- * cấu hình / sự kiện của tổ chức khác. Bot Token chỉ đi MỘT chiều: vào (mã hoá ngay), không bao giờ ra.
+ * 🔴 Mọi thao tác nhận CHỦ SỞ HỮU dựng từ JWT (controller) — không có tham số nào cho phép chạm cấu hình /
+ * sự kiện của tổ chức khác hay của NGƯỜI khác. Bot Token chỉ đi MỘT chiều: vào (mã hoá ngay), không bao giờ ra.
  */
 @Injectable()
 export class TelegramConfigService {
@@ -55,18 +57,18 @@ export class TelegramConfigService {
     private readonly preferences: NotificationPreferenceRepository,
   ) {}
 
-  getPreferences(organizationId: string): Promise<NotificationPreferences> {
-    return this.preferences.find(organizationId);
+  getPreferences(owner: NotificationOwner): Promise<NotificationPreferences> {
+    return this.preferences.find(owner);
   }
 
   async savePreferences(
-    organizationId: string,
+    owner: NotificationOwner,
     actorUserId: string,
     dto: Omit<NotificationPreferences, 'returnRefund'> & { returnRefund?: boolean },
   ): Promise<NotificationPreferences> {
     // Client cũ không gửi `returnRefund` ⇒ giữ giá trị đang lưu, không tự tắt.
-    const current = dto.returnRefund === undefined ? await this.preferences.find(organizationId) : null;
-    const saved = await this.preferences.save(organizationId, actorUserId, {
+    const current = dto.returnRefund === undefined ? await this.preferences.find(owner) : null;
+    const saved = await this.preferences.save(owner, actorUserId, {
       newOrder: dto.newOrder,
       fulfillment: dto.fulfillment,
       returnRefund: dto.returnRefund ?? current?.returnRefund ?? true,
@@ -74,23 +76,23 @@ export class TelegramConfigService {
     this.logger.log({
       module: 'notification',
       operation: 'preferences.save',
-      organizationId,
+      ...logOwner(owner),
       ...saved,
-      msg: 'Đã lưu loại thông báo của tổ chức',
+      msg: 'Đã lưu loại thông báo',
     });
     return saved;
   }
 
-  async get(organizationId: string): Promise<TelegramConfigDto> {
-    return this.toDto(await this.configs.findByOrganization(organizationId));
+  async get(owner: NotificationOwner): Promise<TelegramConfigDto> {
+    return this.toDto(await this.configs.findByOwner(owner));
   }
 
   async save(
-    organizationId: string,
+    owner: NotificationOwner,
     actorUserId: string,
     dto: SaveTelegramConfigDto,
   ): Promise<TelegramConfigDto> {
-    const existing = await this.configs.findByOrganization(organizationId);
+    const existing = await this.configs.findByOwner(owner);
     // Mã hoá NGAY tại điểm nhận — giá trị thô không đi xa hơn dòng này.
     const token = dto.botToken
       ? {
@@ -103,7 +105,7 @@ export class TelegramConfigService {
     if (!existing) {
       // Lần đầu bắt buộc có token.
       if (!token) throw new TelegramBotTokenRequiredException();
-      saved = await this.configs.create(organizationId, actorUserId, {
+      saved = await this.configs.create(owner, actorUserId, {
         ...token,
         chatId: dto.chatId,
         enabled: dto.enabled,
@@ -115,7 +117,7 @@ export class TelegramConfigService {
         token || existing.chatId !== dto.chatId
           ? { lastDeliveryOk: null, lastDeliveryAt: null, lastErrorCode: null, lastErrorMessage: null }
           : {};
-      saved = await this.configs.update(organizationId, actorUserId, {
+      saved = await this.configs.update(owner, actorUserId, {
         ...(token ? { ...token, botUsername: null } : {}),
         ...resetDelivery,
         chatId: dto.chatId,
@@ -129,7 +131,7 @@ export class TelegramConfigService {
     this.logger.log({
       module: 'notification',
       operation: 'telegram.config.save',
-      organizationId,
+      ...logOwner(owner),
       enabled: saved.enabled,
       tokenChanged,
       telegramChatId: maskChatId(saved.chatId),
@@ -138,13 +140,13 @@ export class TelegramConfigService {
     return this.toDto(saved);
   }
 
-  async remove(organizationId: string, actorUserId: string): Promise<void> {
-    const removed = await this.configs.softDelete(organizationId, actorUserId);
+  async remove(owner: NotificationOwner, actorUserId: string): Promise<void> {
+    const removed = await this.configs.softDelete(owner, actorUserId);
     if (!removed) throw new TelegramConfigNotFoundException();
     this.logger.log({
       module: 'notification',
       operation: 'telegram.config.delete',
-      organizationId,
+      ...logOwner(owner),
       msg: 'Đã xoá cấu hình Telegram',
     });
   }
@@ -155,9 +157,9 @@ export class TelegramConfigService {
    * Dùng giá trị trên form nếu có (thử trước khi lưu), còn lại dùng cấu hình đã lưu. Lỗi của
    * Telegram trả về `success: false` + nguyên nhân (HTTP 200) để giao diện hiển thị rõ ràng.
    */
-  async test(organizationId: string, dto: TestTelegramDto): Promise<TelegramTestResultDto> {
-    await this.assertTestRate(organizationId);
-    const existing = await this.configs.findByOrganization(organizationId);
+  async test(owner: NotificationOwner, dto: TestTelegramDto): Promise<TelegramTestResultDto> {
+    await this.assertTestRate(owner);
+    const existing = await this.configs.findByOwner(owner);
 
     const chatId = dto.chatId ?? existing?.chatId;
     if (!existing && (!dto.botToken || !chatId)) throw new TelegramConfigNotFoundException();
@@ -173,7 +175,7 @@ export class TelegramConfigService {
     try {
       const identity = await this.telegram.getMe(botToken);
       botUsername = identity.username;
-      const orgName = await this.configs.findOrganizationName(organizationId);
+      const orgName = await this.configs.findOrganizationName(owner.organizationId);
       const when = formatDateTime(
         new Date().toISOString(),
         this.config.get<number>('timezoneOffsetMinutes', 420),
@@ -184,16 +186,18 @@ export class TelegramConfigService {
         [
           '✅ <b>Telegram connection successful</b>',
           '',
-          `NCMedia sẽ gửi thông báo đơn mới / fulfillment${orgName ? ` của <b>${escapeHtml(orgName)}</b>` : ''} vào chat này.`,
+          owner.userId
+            ? 'NCMedia sẽ gửi vào chat này thông báo về đơn thuộc các shop đang được gán cho bạn.'
+            : `NCMedia sẽ gửi thông báo đơn mới / fulfillment${orgName ? ` của <b>${escapeHtml(orgName)}</b>` : ''} vào chat này.`,
           when ? `📅 ${when}` : '',
         ]
           .filter(Boolean)
           .join('\n'),
       );
       if (testsSaved && existing) {
-        await this.configs.recordDelivery(organizationId, existing, { ok: true, botUsername });
+        await this.configs.recordDelivery(owner, existing, { ok: true, botUsername });
       }
-      this.logTest(organizationId, chatId, true);
+      this.logTest(owner, chatId, true);
       return {
         success: true,
         message: 'Telegram connection successful.',
@@ -203,25 +207,25 @@ export class TelegramConfigService {
     } catch (error) {
       if (!(error instanceof TelegramApiError)) throw error;
       if (testsSaved && existing) {
-        await this.configs.recordDelivery(organizationId, existing, {
+        await this.configs.recordDelivery(owner, existing, {
           ok: false,
           errorCode: error.code,
           errorMessage: error.message,
         });
       }
-      this.logTest(organizationId, chatId, false, error);
+      this.logTest(owner, chatId, false, error);
       return { success: false, message: error.message, errorCode: error.code, botUsername };
     }
   }
 
   async listEvents(
-    organizationId: string,
+    owner: NotificationOwner,
     query: NotificationEventQueryDto,
   ): Promise<PaginatedNotificationEventDto> {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
     const [items, total] = await this.events.list(
-      organizationId,
+      owner,
       { status: query.status, eventType: query.eventType },
       page,
       limit,
@@ -232,36 +236,36 @@ export class TelegramConfigService {
     };
   }
 
-  async retryEvent(organizationId: string, id: string): Promise<void> {
-    const current = await this.events.findStatus(organizationId, id);
+  async retryEvent(owner: NotificationOwner, id: string): Promise<void> {
+    const current = await this.events.findStatus(owner, id);
     if (!current) throw new NotificationEventNotFoundException();
-    if (!(await this.events.requeue(organizationId, id))) {
+    if (!(await this.events.requeue(owner, id))) {
       throw new NotificationEventNotRetryableException(current.status);
     }
     this.dispatcher.kick();
   }
 
-  async retryAllFailed(organizationId: string): Promise<number> {
-    const requeued = await this.events.requeueAllFailed(organizationId);
+  async retryAllFailed(owner: NotificationOwner): Promise<number> {
+    const requeued = await this.events.requeueAllFailed(owner);
     if (requeued > 0) this.dispatcher.kick();
     return requeued;
   }
 
   // ---------------------------------------------------------------------------
 
-  /** Chống bấm "Gửi thử" liên tục (spam group, đốt giới hạn tần suất của bot). */
-  private async assertTestRate(organizationId: string): Promise<void> {
-    const key = `notification:telegram:test:${organizationId}`;
+  /** Chống bấm "Gửi thử" liên tục (spam group, đốt giới hạn tần suất của bot) — theo TỪNG kênh. */
+  private async assertTestRate(owner: NotificationOwner): Promise<void> {
+    const key = `notification:telegram:test:${owner.organizationId}:${ownerKeyOf(owner)}`;
     const count = await this.redis.client.incr(key);
     if (count === 1) await this.redis.client.expire(key, TELEGRAM_TEST_RATE_LIMIT.windowSeconds);
     if (count > TELEGRAM_TEST_RATE_LIMIT.limit) throw new TelegramTestRateLimitedException();
   }
 
-  private logTest(organizationId: string, chatId: string, ok: boolean, error?: TelegramApiError): void {
+  private logTest(owner: NotificationOwner, chatId: string, ok: boolean, error?: TelegramApiError): void {
     this.logger.log({
       module: 'notification',
       operation: 'telegram.test',
-      organizationId,
+      ...logOwner(owner),
       telegramChatId: maskChatId(chatId),
       status: ok ? 'SENT' : 'FAILED',
       ...(error ? { errorCode: error.code, httpStatus: error.httpStatus, error: error.message } : {}),
@@ -325,4 +329,11 @@ export class TelegramConfigService {
       createdAt: event.createdAt,
     };
   }
+}
+
+/** Trường log nhận diện kênh — id người dùng chỉ có với kênh cá nhân. Không bao giờ log token / Chat ID đầy đủ. */
+function logOwner(owner: NotificationOwner): { organizationId: string; userId?: string } {
+  return owner.userId
+    ? { organizationId: owner.organizationId, userId: owner.userId }
+    : { organizationId: owner.organizationId };
 }

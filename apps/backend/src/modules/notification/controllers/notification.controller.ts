@@ -39,22 +39,24 @@ import {
   TestTelegramDto,
 } from '../dto/notification.dto';
 import { TelegramConfigService } from '../services/telegram-config.service';
+import {
+  NOTIFICATION_SELF_PERMISSION,
+  organizationOwner,
+  type NotificationOwner,
+} from '../types/notification-owner';
 
 /**
- * Cấu hình thông báo Telegram của TỔ CHỨC hiện tại.
+ * Các route của MỘT kênh thông báo — dùng chung cho kênh tổ chức và kênh cá nhân (cùng nghiệp vụ, cùng
+ * validation, cùng service). Lớp con chỉ quyết định hai điều: quyền cần có và CHỦ SỞ HỮU lấy từ JWT.
  *
- * 🔴 `organizationId` luôn lấy từ JWT — không route nào nhận id tổ chức từ client. Toàn bộ route
- * cần `notification.config` (mặc định chỉ Admin): Seller không xem / sửa được cấu hình và không
- * bao giờ thấy Bot Token (GET cũng không trả token cho Admin).
+ * 🔴 Không route nào nhận id tổ chức / id người dùng từ client: đổi id trong request không chạm được cấu
+ * hình hay thông báo của người khác.
  */
-@ApiTags('Notifications — Telegram')
-@ApiBearerAuth()
-@ApiForbiddenResponse({ description: 'FORBIDDEN — thiếu quyền notification.config' })
-@UseGuards(JwtAuthGuard, PermissionsGuard)
-@RequirePermissions('notification.config')
-@Controller('notifications')
-export class NotificationController {
-  constructor(private readonly service: TelegramConfigService) {}
+abstract class NotificationChannelController {
+  constructor(protected readonly service: TelegramConfigService) {}
+
+  /** Chủ sở hữu kênh — CHỈ dựng từ người dùng đã xác thực. */
+  protected abstract ownerOf(user: AuthenticatedUser): NotificationOwner;
 
   @Get('preferences')
   @ApiOperation({
@@ -63,7 +65,7 @@ export class NotificationController {
   })
   @ApiOkResponse({ type: NotificationPreferencesDto })
   getPreferences(@CurrentUser() user: AuthenticatedUser): Promise<NotificationPreferencesDto> {
-    return this.service.getPreferences(user.organizationId);
+    return this.service.getPreferences(this.ownerOf(user));
   }
 
   @Put('preferences')
@@ -78,7 +80,7 @@ export class NotificationController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: NotificationPreferencesDto,
   ): Promise<NotificationPreferencesDto> {
-    return this.service.savePreferences(user.organizationId, user.userId, dto);
+    return this.service.savePreferences(this.ownerOf(user), user.userId, dto);
   }
 
   @Get('telegram')
@@ -88,7 +90,7 @@ export class NotificationController {
   })
   @ApiOkResponse({ type: TelegramConfigDto })
   get(@CurrentUser() user: AuthenticatedUser): Promise<TelegramConfigDto> {
-    return this.service.get(user.organizationId);
+    return this.service.get(this.ownerOf(user));
   }
 
   @Put('telegram')
@@ -104,7 +106,7 @@ export class NotificationController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: SaveTelegramConfigDto,
   ): Promise<TelegramConfigDto> {
-    return this.service.save(user.organizationId, user.userId, dto);
+    return this.service.save(this.ownerOf(user), user.userId, dto);
   }
 
   @Delete('telegram')
@@ -112,7 +114,7 @@ export class NotificationController {
   @ApiOperation({ summary: 'Xoá cấu hình Telegram (xoá mềm, tắt gửi thông báo)' })
   @ApiNotFoundResponse({ description: 'TELEGRAM_CONFIG_NOT_FOUND' })
   remove(@CurrentUser() user: AuthenticatedUser): Promise<void> {
-    return this.service.remove(user.organizationId, user.userId);
+    return this.service.remove(this.ownerOf(user), user.userId);
   }
 
   @Post('telegram/test')
@@ -130,7 +132,7 @@ export class NotificationController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: TestTelegramDto,
   ): Promise<TelegramTestResultDto> {
-    return this.service.test(user.organizationId, dto ?? {});
+    return this.service.test(this.ownerOf(user), dto ?? {});
   }
 
   @Get('events')
@@ -140,7 +142,7 @@ export class NotificationController {
     @CurrentUser() user: AuthenticatedUser,
     @Query() query: NotificationEventQueryDto,
   ): Promise<PaginatedNotificationEventDto> {
-    return this.service.listEvents(user.organizationId, query);
+    return this.service.listEvents(this.ownerOf(user), query);
   }
 
   @Post('events/retry-failed')
@@ -148,7 +150,7 @@ export class NotificationController {
   @ApiOperation({ summary: 'Gửi lại mọi thông báo FAILED của tổ chức (sau khi sửa cấu hình)' })
   @ApiOkResponse({ type: RequeueResultDto })
   async retryFailed(@CurrentUser() user: AuthenticatedUser): Promise<RequeueResultDto> {
-    return { requeued: await this.service.retryAllFailed(user.organizationId) };
+    return { requeued: await this.service.retryAllFailed(this.ownerOf(user)) };
   }
 
   @Post('events/:id/retry')
@@ -161,7 +163,52 @@ export class NotificationController {
     @CurrentUser() user: AuthenticatedUser,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<RequeueResultDto> {
-    await this.service.retryEvent(user.organizationId, id);
+    await this.service.retryEvent(this.ownerOf(user), id);
     return { requeued: 1 };
+  }
+}
+
+/**
+ * Cấu hình thông báo Telegram của TỔ CHỨC hiện tại — nhận MỌI đơn của tổ chức.
+ *
+ * Toàn bộ route cần `notification.config` (mặc định chỉ Admin): Seller không xem / sửa được cấu hình này
+ * và không bao giờ thấy Bot Token (GET cũng không trả token cho Admin).
+ */
+@ApiTags('Notifications — Telegram')
+@ApiBearerAuth()
+@ApiForbiddenResponse({ description: 'FORBIDDEN — thiếu quyền notification.config' })
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermissions('notification.config')
+@Controller('notifications')
+export class NotificationController extends NotificationChannelController {
+  constructor(service: TelegramConfigService) {
+    super(service);
+  }
+
+  protected ownerOf(user: AuthenticatedUser): NotificationOwner {
+    return organizationOwner(user.organizationId);
+  }
+}
+
+/**
+ * Kênh Telegram CÁ NHÂN của người đang đăng nhập (mặc định: Employee) — cùng chức năng với kênh tổ chức,
+ * nhưng CHỈ nhận đơn thuộc shop đang được gán cho chính người đó (kiểm ở backend lúc ghi VÀ lúc gửi).
+ *
+ * 🔴 Chủ sở hữu = (tổ chức, user) trong JWT — không có tham số id nào: không đọc / sửa được kênh của Admin
+ * hay của nhân viên khác, và không có ô "chọn shop" nào để giả mạo — phạm vi shop lấy từ phân công trong DB.
+ */
+@ApiTags('Notifications — Telegram (cá nhân)')
+@ApiBearerAuth()
+@ApiForbiddenResponse({ description: 'FORBIDDEN — thiếu quyền notification.self' })
+@UseGuards(JwtAuthGuard, PermissionsGuard)
+@RequirePermissions(NOTIFICATION_SELF_PERMISSION)
+@Controller('notifications/me')
+export class MyNotificationController extends NotificationChannelController {
+  constructor(service: TelegramConfigService) {
+    super(service);
+  }
+
+  protected ownerOf(user: AuthenticatedUser): NotificationOwner {
+    return { organizationId: user.organizationId, userId: user.userId };
   }
 }

@@ -31,6 +31,7 @@ import {
 } from '../shared/dashboard-metrics';
 import { labelCostOf } from '../shared/label-cost';
 import { ORDER_STATUS_GROUP_KEYS } from '../shared/order-status-groups';
+import { DEFAULT_BUSINESS_TIMEZONE } from '../../../common/time/business-time';
 import { resolveDateRange } from '../utils/date-range.util';
 import type { PodAccessScope } from './pod-access-scope.service';
 
@@ -39,7 +40,7 @@ const money = (value: string): number => Math.round(Number(value) * 100) / 100;
 /**
  * PodDashboardService — Dashboard quản trị (Hold · trạng thái shop · đơn theo kỳ · tài chính · seller ·
  * xu hướng). Mọi con số do `PodDashboardRepository` tổng hợp ở DB; lớp này chỉ dựng phạm vi, khoảng
- * thời gian (giờ vận hành `APP_TIMEZONE_OFFSET_MINUTES`) và định dạng response.
+ * thời gian (múi giờ nghiệp vụ `APP_BUSINESS_TIMEZONE`) và định dạng response.
  */
 @Injectable()
 export class PodDashboardService {
@@ -67,10 +68,11 @@ export class PodDashboardService {
     now: Date = new Date(),
   ): Promise<DashboardOverviewDto> {
     const { filter, currencies } = await this.filterOf(organizationId, scope, query);
-    const offset = this.offset();
+    const timeZone = this.timeZone();
+    // CÙNG hàm preset với Orders / TikTok Payout ⇒ "Hôm nay" của thẻ trùng "Hôm nay" của màn Orders.
     const windows = (['TODAY', 'YESTERDAY', 'THIS_MONTH', 'LAST_MONTH'] as const).map((preset) => {
-      const range = resolveDateRange(preset, offset, undefined, undefined, now);
-      return { from: range.from as Date, to: range.to as Date };
+      const range = resolveDateRange(preset, timeZone, undefined, undefined, now);
+      return { from: range.from as Date, before: range.before as Date };
     });
 
     const [holdRows, holdBySeller, shopRows, periodRows] = await Promise.all([
@@ -118,7 +120,7 @@ export class PodDashboardService {
         thisMonth: period(thisMonth, lastMonth),
         lastMonth: period(lastMonth),
       },
-      timezoneOffsetMinutes: offset,
+      timeZone,
     };
   }
 
@@ -162,6 +164,8 @@ export class PodDashboardService {
     scope: PodAccessScope,
     query: PodDashboardRangeDto,
   ): Promise<DashboardSummaryDto> {
+    // Khoảng ngày sai ⇒ 400 NGAY, trước mọi truy vấn DB (kể cả truy vấn đơn vị tiền của bộ lọc).
+    this.assertRange(query);
     const { filter } = await this.filterOf(organizationId, scope, query);
     const range = await this.range(query, filter);
     const window = this.window(range);
@@ -205,6 +209,8 @@ export class PodDashboardService {
     scope: PodAccessScope,
     query: PodDashboardSellerQueryDto,
   ): Promise<DashboardSellerPageDto> {
+    // Khoảng ngày sai ⇒ 400 NGAY, trước mọi truy vấn DB (kể cả truy vấn đơn vị tiền của bộ lọc).
+    this.assertRange(query);
     const { filter } = await this.filterOf(organizationId, scope, query);
     const range = await this.range(query, filter);
     const page = query.page ?? 1;
@@ -252,13 +258,15 @@ export class PodDashboardService {
     scope: PodAccessScope,
     query: PodDashboardRangeDto,
   ): Promise<DashboardTrendsDto> {
+    // Khoảng ngày sai ⇒ 400 NGAY, trước mọi truy vấn DB (kể cả truy vấn đơn vị tiền của bộ lọc).
+    this.assertRange(query);
     const { filter } = await this.filterOf(organizationId, scope, query);
     const range = await this.range(query, filter);
     const window = this.window(range);
-    const offset = this.offset();
+    const timeZone = this.timeZone();
     const [finance, orders] = await Promise.all([
-      this.repo.financeTrend(filter, window, range, offset),
-      this.repo.orderTrend(filter, window, range, offset),
+      this.repo.financeTrend(filter, window, range, timeZone),
+      this.repo.orderTrend(filter, window, range, timeZone),
     ]);
     return {
       currency: filter.currency || null,
@@ -307,11 +315,11 @@ export class PodDashboardService {
     filter: DashboardFilter,
   ): Promise<DashboardDayRange> {
     if (query.allTime) {
-      const offset = this.offset();
-      return resolveAllTimeRange(await this.repo.earliestActivityDay(filter, offset), offset);
+      const timeZone = this.timeZone();
+      return resolveAllTimeRange(await this.repo.earliestActivityDay(filter, timeZone), timeZone);
     }
     try {
-      return resolveDayRange(query.from, query.to, this.offset());
+      return resolveDayRange(query.from, query.to, this.timeZone());
     } catch (error) {
       throw new BadRequestException({
         code: 'DASHBOARD_RANGE_INVALID',
@@ -320,11 +328,22 @@ export class PodDashboardService {
     }
   }
 
-  private window(range: DashboardDayRange): Window {
-    return { from: range.from, to: range.to };
+  /** Kiểm tra khoảng from / to tường minh (không gồm allTime — cần dữ liệu) mà KHÔNG chạm DB. */
+  private assertRange(query: PodDashboardRangeDto): void {
+    if (query.allTime) return;
+    try {
+      resolveDayRange(query.from, query.to, this.timeZone());
+    } catch (error) {
+      throw new BadRequestException({ code: 'DASHBOARD_RANGE_INVALID', message: (error as Error).message });
+    }
   }
 
-  private offset(): number {
-    return this.config.get<number>('timezoneOffsetMinutes', 420);
+  private window(range: DashboardDayRange): Window {
+    return { from: range.from, before: range.before };
+  }
+
+  /** Múi giờ nghiệp vụ IANA (`APP_BUSINESS_TIMEZONE`) — CÙNG cấu hình với Orders / TikTok Payout. */
+  private timeZone(): string {
+    return this.config.get<string>('businessTimeZone', DEFAULT_BUSINESS_TIMEZONE);
   }
 }

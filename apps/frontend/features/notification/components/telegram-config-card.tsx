@@ -15,6 +15,7 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { useApiError } from '@/hooks/use-api-error';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { useTelegramActions, useTelegramConfig } from '../hooks/use-notification';
+import type { NotificationChannelScope } from '../types';
 import {
   TELEGRAM_BOT_TOKEN_PATTERN,
   TELEGRAM_CHAT_ID_PATTERN,
@@ -37,12 +38,12 @@ const STATUS_VARIANT: Record<TelegramIntegrationStatus, 'success' | 'warning' | 
  * rỗng; để trống khi lưu ⇒ backend GIỮ token cũ. Nhờ vậy token không nằm trong state / DOM / cache
  * của trình duyệt sau khi đã lưu.
  */
-export function TelegramConfigCard() {
+export function TelegramConfigCard({ scope = 'organization' }: { scope?: NotificationChannelScope } = {}) {
   const { t } = useTranslation(['notification', 'common']);
   const translateApiError = useApiError();
   const { formatDateTime } = useLocaleFormat();
-  const query = useTelegramConfig();
-  const actions = useTelegramActions();
+  const query = useTelegramConfig(scope);
+  const actions = useTelegramActions(scope);
   const config = query.data;
 
   const [botToken, setBotToken] = useState('');

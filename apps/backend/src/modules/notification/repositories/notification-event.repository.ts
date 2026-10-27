@@ -7,7 +7,12 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { NOTIFICATION_ERROR_CODES } from '../constants/notification.constants';
-import type { NotificationEventInput } from '../types/notification-payload.types';
+import {
+  ORGANIZATION_OWNER_KEY,
+  ownerKeyOf,
+  type NotificationOwner,
+} from '../types/notification-owner';
+import type { NotificationEventRow } from '../types/notification-payload.types';
 
 /** Trạng thái được phép "Gửi lại" thủ công. */
 export const REQUEUEABLE_NOTIFICATION_STATUSES: readonly NotificationEventStatus[] = [
@@ -30,8 +35,8 @@ export interface EventResult {
  *
  * Ba cơ chế chống gửi trùng nằm ở đây:
  *  1. **Idempotency khi ghi** — `createMany … skipDuplicates` (ON CONFLICT DO NOTHING) trên UNIQUE
- *     (organization_id, event_type, entity_type, entity_id, channel): phát lại cùng sự kiện là no-op
- *     và KHÔNG làm hỏng transaction của bên gọi.
+ *     (organization_id, event_type, entity_type, entity_id, channel, recipient_key): phát lại cùng sự kiện
+ *     là no-op với MỖI người nhận và KHÔNG làm hỏng transaction của bên gọi.
  *  2. **Claim nguyên tử** — `FOR UPDATE SKIP LOCKED`: hai worker (hai instance / hai nhịp cron) không
  *     bao giờ cùng nhận một sự kiện. Sự kiện PROCESSING quá `locked_until` (worker chết) được claim
  *     lại ⇒ không kẹt vĩnh viễn, không mất sự kiện khi restart.
@@ -42,9 +47,9 @@ export interface EventResult {
 export class NotificationEventRepository {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** Ghi sự kiện (idempotent). Trả số dòng THỰC SỰ được tạo. */
+  /** Ghi sự kiện (idempotent, mỗi dòng một người nhận). Trả số dòng THỰC SỰ được tạo. */
   async enqueue(
-    events: NotificationEventInput[],
+    events: NotificationEventRow[],
     client: Prisma.TransactionClient = this.prisma,
   ): Promise<number> {
     if (events.length === 0) return 0;
@@ -56,6 +61,10 @@ export class NotificationEventRepository {
         entityId: event.entityId,
         payload: event.payload as unknown as Prisma.InputJsonValue,
         createdBy: event.actorUserId ?? null,
+        recipientKey: event.recipientUserId ?? ORGANIZATION_OWNER_KEY,
+        recipientUserId: event.recipientUserId,
+        accountId: event.scope.accountId,
+        shopId: event.scope.shopId,
       })),
       skipDuplicates: true,
     });
@@ -156,14 +165,16 @@ export class NotificationEventRepository {
     });
   }
 
+  /** "Thông báo gần đây" của ĐÚNG một kênh (tổ chức, hoặc kênh cá nhân của người đang đăng nhập). */
   list(
-    organizationId: string,
+    owner: NotificationOwner,
     filter: { status?: NotificationEventStatus; eventType?: NotificationEventType },
     page: number,
     limit: number,
   ): Promise<[NotificationEvent[], number]> {
     const where: Prisma.NotificationEventWhereInput = {
-      organizationId,
+      organizationId: owner.organizationId,
+      recipientKey: ownerKeyOf(owner),
       ...(filter.status ? { status: filter.status } : {}),
       ...(filter.eventType ? { eventType: filter.eventType } : {}),
     };
@@ -180,12 +191,17 @@ export class NotificationEventRepository {
 
   /**
    * Đưa sự kiện lỗi / bị bỏ qua về hàng đợi (người dùng bấm "Gửi lại"). Điều kiện trạng thái nằm
-   * TRONG câu UPDATE và lọc theo `organization_id`: bấm hai lần chỉ xếp hàng một lần, và không
-   * chạm được sự kiện của tổ chức khác.
+   * TRONG câu UPDATE và lọc theo `organization_id` + `recipient_key`: bấm hai lần chỉ xếp hàng một lần,
+   * và không chạm được sự kiện của tổ chức khác hay kênh của người khác (đoán id cũng vô ích).
    */
-  async requeue(organizationId: string, id: string): Promise<boolean> {
+  async requeue(owner: NotificationOwner, id: string): Promise<boolean> {
     const result = await this.prisma.notificationEvent.updateMany({
-      where: { id, organizationId, status: { in: [...REQUEUEABLE_NOTIFICATION_STATUSES] } },
+      where: {
+        id,
+        organizationId: owner.organizationId,
+        recipientKey: ownerKeyOf(owner),
+        status: { in: [...REQUEUEABLE_NOTIFICATION_STATUSES] },
+      },
       data: {
         status: NotificationEventStatus.PENDING,
         attemptCount: 0,
@@ -197,10 +213,14 @@ export class NotificationEventRepository {
     return result.count === 1;
   }
 
-  /** "Gửi lại tất cả lỗi" của MỘT tổ chức (sau khi sửa token / Chat ID). */
-  async requeueAllFailed(organizationId: string): Promise<number> {
+  /** "Gửi lại tất cả lỗi" của MỘT kênh (sau khi sửa token / Chat ID). */
+  async requeueAllFailed(owner: NotificationOwner): Promise<number> {
     const result = await this.prisma.notificationEvent.updateMany({
-      where: { organizationId, status: NotificationEventStatus.FAILED },
+      where: {
+        organizationId: owner.organizationId,
+        recipientKey: ownerKeyOf(owner),
+        status: NotificationEventStatus.FAILED,
+      },
       data: {
         status: NotificationEventStatus.PENDING,
         attemptCount: 0,
@@ -212,9 +232,9 @@ export class NotificationEventRepository {
     return result.count;
   }
 
-  findStatus(organizationId: string, id: string): Promise<{ status: NotificationEventStatus } | null> {
+  findStatus(owner: NotificationOwner, id: string): Promise<{ status: NotificationEventStatus } | null> {
     return this.prisma.notificationEvent.findFirst({
-      where: { id, organizationId },
+      where: { id, organizationId: owner.organizationId, recipientKey: ownerKeyOf(owner) },
       select: { status: true },
     });
   }

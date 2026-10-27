@@ -86,6 +86,7 @@
   "preferences": {
     "title": "Loại thông báo",
     "description": "Chọn những sự kiện tổ chức muốn nhận qua Telegram. Áp dụng riêng cho tổ chức này.",
+    "descriptionMe": "Chọn những sự kiện bạn muốn nhận qua Telegram của riêng mình. Chỉ áp dụng cho bạn.",
     "saved": "Đã lưu loại thông báo",
     "saveFailed": "Không lưu được loại thông báo",
     "telegramNotReady": "Telegram chưa được cấu hình hoặc đang tắt — lựa chọn vẫn được lưu và sẽ áp dụng khi bật Telegram.",
@@ -101,5 +102,11 @@
       "label": "Return / Refund",
       "hint": "Nhận thông báo khi phát hiện yêu cầu Return / Refund mới trên TikTok (một lần cho mỗi yêu cầu — không gửi lại khi đổi trạng thái)."
     }
+  },
+  "me": {
+    "pageTitle": "Thông báo Telegram của tôi",
+    "pageDescription": "Kết nối bot / chat Telegram của riêng bạn để nhận thông báo về đơn hàng của bạn.",
+    "scopeNote": "Bạn chỉ nhận thông báo về đơn hàng thuộc các shop TikTok đang được gán cho bạn. Khi shop được chuyển cho người khác, thông báo của shop đó dừng ngay — kể cả tin còn đang chờ gửi.",
+    "noPermission": "Bạn không có quyền cấu hình thông báo cá nhân."
   }
 }

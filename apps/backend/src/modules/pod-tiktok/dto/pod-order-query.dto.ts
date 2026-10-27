@@ -134,20 +134,20 @@ export class PodOrderQueryDto {
   @ApiPropertyOptional({
     enum: POD_DATE_PRESETS,
     description:
-      'Bộ lọc nhanh theo Ngày đặt đơn. Backend tự quy đổi theo múi giờ vận hành ' +
-      '(APP_TIMEZONE_OFFSET_MINUTES). Chọn CUSTOM thì dùng kèm orderedFrom/orderedTo.',
+      'Bộ lọc nhanh theo Ngày đặt đơn (`ordered_at` = TikTok create_time). Backend tự quy đổi theo múi giờ ' +
+      'nghiệp vụ IANA (APP_BUSINESS_TIMEZONE, mặc định America/Los_Angeles). Chọn CUSTOM thì dùng kèm orderedFrom/orderedTo.',
   })
   @IsOptional()
   @IsIn(POD_DATE_PRESETS, { message: 'Khoảng thời gian không hợp lệ' })
   datePreset?: PodDatePreset;
 
-  @ApiPropertyOptional({ description: 'Đơn đặt từ ngày (ISO date) — dùng với preset CUSTOM' })
+  @ApiPropertyOptional({ description: 'Đơn đặt từ ngày `YYYY-MM-DD` — ngày lịch theo múi giờ nghiệp vụ. Dùng với preset CUSTOM.' })
   @IsOptional()
   @IsISO8601()
   orderedFrom?: string;
 
   @ApiPropertyOptional({
-    description: 'Đơn đặt đến ngày (ISO date) — dùng với preset CUSTOM. Bao gồm TRỌN ngày này.',
+    description: 'Đơn đặt đến ngày `YYYY-MM-DD` (múi giờ nghiệp vụ) — dùng với preset CUSTOM. Bao gồm TRỌN ngày này.',
   })
   @IsOptional()
   @IsISO8601()

@@ -1,6 +1,8 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
+import { AlertTriangle } from 'lucide-react';
+import { useTranslation } from 'react-i18next';
 import { useAuth } from '@/hooks/use-auth';
 import {
   useDashboardFilterOptions,
@@ -9,7 +11,7 @@ import {
   useDashboardTrends,
 } from '../hooks/use-dashboard';
 import type { DashboardDatePreset, DashboardRange } from '../types';
-import { currentMonthRange, presetRange } from '../utils';
+import { currentMonthRange, isReversedRange, presetRange } from '../utils';
 import { DashboardFilterBar } from './dashboard-filter-bar';
 import { FinanceOrderSummary } from './finance-order-summary';
 import { HoldBySellerCard, HoldCard, ShopStatusCard } from './overview-cards';
@@ -29,6 +31,7 @@ import { TrendChartCard } from './trend-chart-card';
  * Mỗi widget có query riêng ⇒ một widget lỗi không làm trắng cả màn hình.
  */
 export function AdminDashboard() {
+  const { t } = useTranslation(['dashboard', 'common']);
   const { hasPermission } = useAuth();
   const canView = hasPermission('report.read') || hasPermission('pod.dashboard.read');
 
@@ -37,14 +40,15 @@ export function AdminDashboard() {
   const overview = useDashboardOverview(filters, canView);
   /** Bộ lọc thời gian: lựa chọn nhanh + khoảng ngày nó điền ("ALL" ⇒ hai ngày trống, gửi `allTime`). */
   const [period, setPeriod] = useState<{ preset: DashboardDatePreset; from: string; to: string } | null>(null);
-  const offsetMinutes = overview.data?.timezoneOffsetMinutes;
+  /** Múi giờ nghiệp vụ IANA của backend — "Hôm nay" là hôm nay ở đó, không phải ở máy người xem. */
+  const timeZone = overview.data?.timeZone;
 
-  // Khoảng ngày mặc định ("Tháng này") cần múi giờ vận hành ⇒ dựng khi overview đã về.
+  // Khoảng ngày mặc định ("Tháng này") cần múi giờ nghiệp vụ ⇒ dựng khi overview đã về.
   useEffect(() => {
-    if (!period && offsetMinutes !== undefined) {
-      setPeriod({ preset: 'THIS_MONTH', ...currentMonthRange(offsetMinutes) });
+    if (!period && timeZone) {
+      setPeriod({ preset: 'THIS_MONTH', ...currentMonthRange(timeZone) });
     }
-  }, [period, offsetMinutes]);
+  }, [period, timeZone]);
 
   // Đơn vị tiền mặc định = đơn vị phổ biến nhất (backend sắp sẵn) — để ô chọn hiển thị đúng giá trị.
   useEffect(() => {
@@ -59,11 +63,24 @@ export function AdminDashboard() {
       ? { ...filters, from: '', to: '', allTime: true }
       : { ...filters, from: period.from, to: period.to };
   }, [period, filters]);
-  const rangeReady = canView && range !== null;
+  // 🔴 Ngày bắt đầu sau ngày kết thúc ⇒ KHÔNG gọi API (không chờ backend trả 400), giữ nguyên ô người dùng đã nhập
+  // để họ sửa, và không hiển thị số liệu của khoảng trước như thể là của khoảng sai này.
+  const rangeInvalid = range !== null && isReversedRange(range);
+  const rangeReady = canView && range !== null && !rangeInvalid;
   const summary = useDashboardSummary(range ?? { from: '', to: '' }, rangeReady);
   const trends = useDashboardTrends(range ?? { from: '', to: '' }, rangeReady);
 
   if (!canView) return null;
+
+  const rangeWidgets = rangeInvalid ? (
+    <p
+      role="alert"
+      className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive"
+    >
+      <AlertTriangle className="size-4 shrink-0" aria-hidden />
+      {t('common:date.rangeInvalid')}
+    </p>
+  ) : null;
 
   const overviewState = {
     data: overview.data,
@@ -83,7 +100,8 @@ export function AdminDashboard() {
             setPeriod(
               preset === 'ALL'
                 ? { preset, from: '', to: '' }
-                : { preset, ...presetRange(preset, offsetMinutes ?? 0) },
+                : // `range` chỉ có khi `timeZone` đã về (xem effect trên) ⇒ không bao giờ rơi về giờ máy.
+                  { preset, ...presetRange(preset, timeZone as string) },
             )
           }
           onChange={(next) => {
@@ -103,22 +121,26 @@ export function AdminDashboard() {
 
       <div className="grid gap-4 xl:grid-cols-[3fr_2fr]">
         <PeriodCards {...overviewState} />
-        <FinanceOrderSummary
-          data={summary.data}
-          loading={!range || summary.isLoading}
-          error={summary.isError ? summary.error : undefined}
-          onRetry={() => void summary.refetch()}
-        />
+        {rangeWidgets ?? (
+          <FinanceOrderSummary
+            data={summary.data}
+            loading={!range || summary.isLoading}
+            error={summary.isError ? summary.error : undefined}
+            onRetry={() => void summary.refetch()}
+          />
+        )}
       </div>
 
-      {range && <SellerStatsTable range={range} enabled={rangeReady} />}
+      {range && !rangeInvalid && <SellerStatsTable range={range} enabled={rangeReady} />}
 
-      <TrendChartCard
-        data={trends.data}
-        loading={!range || trends.isLoading}
-        error={trends.isError ? trends.error : undefined}
-        onRetry={() => void trends.refetch()}
-      />
+      {!rangeInvalid && (
+        <TrendChartCard
+          data={trends.data}
+          loading={!range || trends.isLoading}
+          error={trends.isError ? trends.error : undefined}
+          onRetry={() => void trends.refetch()}
+        />
+      )}
     </section>
   );
 }

@@ -29,6 +29,7 @@
     "scripts/verify-pagination.ts",
     "scripts/verify-navigation.ts",
     "scripts/verify-fulfill-config.ts",
+    "scripts/verify-business-time.ts",
     "scripts/verify-issue-grouping.ts",
     "scripts/verify-selection.ts",
     "scripts/verify-description-editor.ts",

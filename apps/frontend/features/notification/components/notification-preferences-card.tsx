@@ -10,7 +10,7 @@ import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
 import { useApiError } from '@/hooks/use-api-error';
 import { useNotificationPreferences, useSaveNotificationPreferences, useTelegramConfig } from '../hooks/use-notification';
-import type { NotificationPreferences } from '../types';
+import type { NotificationPreferences, NotificationChannelScope } from '../types';
 
 const OPTIONS: Array<keyof NotificationPreferences> = ['newOrder', 'fulfillment', 'returnRefund'];
 
@@ -21,12 +21,12 @@ const OPTIONS: Array<keyof NotificationPreferences> = ['newOrder', 'fulfillment'
  * Backend áp dụng ở cả hai đầu: không ghi sự kiện cho loại đã tắt, worker bỏ qua sự kiện đã ghi
  * trước khi tắt — giao diện chỉ hiển thị, không tự lọc gì.
  */
-export function NotificationPreferencesCard() {
+export function NotificationPreferencesCard({ scope = 'organization' }: { scope?: NotificationChannelScope } = {}) {
   const { t } = useTranslation(['notification', 'common']);
   const translateApiError = useApiError();
-  const query = useNotificationPreferences();
-  const telegram = useTelegramConfig();
-  const save = useSaveNotificationPreferences();
+  const query = useNotificationPreferences(scope);
+  const telegram = useTelegramConfig(scope);
+  const save = useSaveNotificationPreferences(scope);
   const [draft, setDraft] = useState<NotificationPreferences | null>(null);
 
   useEffect(() => {
@@ -53,7 +53,9 @@ export function NotificationPreferencesCard() {
     <Card>
       <CardHeader className="space-y-1">
         <CardTitle className="text-base">{t('preferences.title')}</CardTitle>
-        <CardDescription>{t('preferences.description')}</CardDescription>
+        <CardDescription>
+          {t(scope === 'me' ? 'preferences.descriptionMe' : 'preferences.description')}
+        </CardDescription>
       </CardHeader>
       <CardContent className="space-y-4">
         {query.isLoading || !draft ? (

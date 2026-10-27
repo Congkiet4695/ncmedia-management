@@ -68,7 +68,8 @@ export interface EmployeeWorkPage {
   from: string;
   to: string;
   currency: string | null;
-  timezoneOffsetMinutes: number;
+  /** Múi giờ nghiệp vụ IANA của `from` / `to` (vd `America/Los_Angeles`). */
+  timeZone: string;
   summary: EmployeeWorkSummary;
   items: EmployeeWorkRow[];
   meta: PaginationMeta;

@@ -41,8 +41,12 @@ export const POD_PAYOUT_SORT_FIELDS = [
 export type PodPayoutSortField = (typeof POD_PAYOUT_SORT_FIELDS)[number];
 
 export interface PodPayoutRange {
+  /** Thời điểm đầu / cuối (UTC, bao gồm). */
   from: string | null;
   to: string | null;
+  /** Ngày nghiệp vụ `YYYY-MM-DD` (múi giờ US của backend) — dùng để HIỂN THỊ. */
+  fromDay: string | null;
+  toDay: string | null;
 }
 
 export interface PodPayoutSummary {

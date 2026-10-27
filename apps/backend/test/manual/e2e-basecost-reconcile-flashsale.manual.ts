@@ -118,7 +118,7 @@ async function main() {
     const finance = app.get(PodOrderFinanceService);
     const dashboard = app.get(PodDashboardRepository);
     const financials = async () => (await finance.summarize(org, [{ id: order.id, tiktokOrderId: order.tiktokOrderId }])).get(order.id);
-    const window = { from: new Date(order.orderedAt.getTime() - 86_400_000), to: new Date(order.orderedAt.getTime() + 86_400_000) };
+    const window = { from: new Date(order.orderedAt.getTime() - 86_400_000), before: new Date(order.orderedAt.getTime() + 86_400_000) };
     const dashboardCost = async () =>
       (
         await dashboard.sellerStats(

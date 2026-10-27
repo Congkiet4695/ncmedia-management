@@ -62,7 +62,7 @@ async function main(): Promise<void> {
         ];
 
         for (const scenario of scenarios) {
-          const window = { from: scenario.from, to: end };
+          const window = { from: scenario.from, before: end };
           const filter = { organizationId: org, currency, accountIds: null, shopId: scenario.shopId };
           const tag = `[${scenario.name}]`;
 
@@ -72,7 +72,7 @@ async function main(): Promise<void> {
                      WHERE f.pod_order_id = po.id AND f.deleted_at IS NULL AND i.deleted_at IS NULL)::bigint AS items
               FROM pod_orders po JOIN pod_tiktok_accounts a ON a.id = po.account_id
              WHERE po.organization_id = ${org}::uuid AND po.deleted_at IS NULL AND po.currency = ${currency}
-               AND po.ordered_at BETWEEN ${window.from} AND ${window.to}
+               AND po.ordered_at >= ${window.from} AND po.ordered_at < ${window.before}
                ${scenario.shopId ? Prisma.sql`AND po.shop_id = ${scenario.shopId}::uuid` : Prisma.empty}`);
           const multiItem = orders.filter((o) => Number(o.items) > 1).length;
 

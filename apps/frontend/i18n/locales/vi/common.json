@@ -1,4 +1,7 @@
 {
+  "usClock": {
+    "label": "Giờ US"
+  },
   "action": {
     "apply": "Áp dụng",
     "assign": "Phân công",

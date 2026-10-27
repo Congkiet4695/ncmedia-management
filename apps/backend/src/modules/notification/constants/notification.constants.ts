@@ -63,6 +63,11 @@ export const NOTIFICATION_ERROR_CODES = {
   DISABLED: 'NOTIFICATION_CHANNEL_DISABLED',
   /** Tổ chức đã tắt LOẠI thông báo này (New Order / Fulfill) trong Cài đặt thông báo. */
   CATEGORY_DISABLED: 'NOTIFICATION_CATEGORY_DISABLED',
+  /**
+   * Kênh CÁ NHÂN: lúc gửi, người nhận KHÔNG còn được xem đơn này (shop đã được gán cho người khác, tài khoản
+   * bị khoá / xoá, role mất quyền). Tin bị bỏ qua — không gửi dữ liệu ngoài phạm vi.
+   */
+  SCOPE_REVOKED: 'NOTIFICATION_RECIPIENT_SCOPE_REVOKED',
   /** Máy chủ thiếu / sai NOTIFICATION_ENCRYPTION_KEY. */
   ENCRYPTION_KEY_MISSING: 'NOTIFICATION_ENCRYPTION_KEY_MISSING',
   /** Payload không dựng được tin nhắn (dữ liệu hỏng). */

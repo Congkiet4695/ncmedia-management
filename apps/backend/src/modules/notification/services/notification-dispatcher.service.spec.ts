@@ -8,11 +8,19 @@ import type {
   NotificationPreferenceRepository,
   NotificationPreferences,
 } from '../repositories/notification-preference.repository';
+import type { NotificationRecipientRepository } from '../repositories/notification-recipient.repository';
+import type { NotificationOwner } from '../types/notification-owner';
 import { backoffMs, maskChatId, NotificationDispatcherService } from './notification-dispatcher.service';
 import { NotificationEncryptionService } from './notification-encryption.service';
 
 const ORG_A = 'aaaaaaaa-0000-0000-0000-000000000000';
 const ORG_B = 'bbbbbbbb-0000-0000-0000-000000000000';
+const EMP_1 = 'eeeeeeee-0000-0000-0000-000000000001';
+const EMP_2 = 'eeeeeeee-0000-0000-0000-000000000002';
+const ACC_1 = 'acc00000-0000-0000-0000-000000000001';
+
+/** Khoá tra cấu hình / tuỳ chọn của một kênh trong test: `ORG` (kênh tổ chức) hoặc `ORG:USER` (kênh cá nhân). */
+const channelKey = (owner: NotificationOwner) => (owner.userId ? `${owner.organizationId}:${owner.userId}` : owner.organizationId);
 
 function event(id: string, organizationId = ORG_A, overrides: Partial<NotificationEvent> = {}): NotificationEvent {
   return {
@@ -45,14 +53,25 @@ function event(id: string, organizationId = ORG_A, overrides: Partial<Notificati
     createdAt: new Date(),
     updatedAt: new Date(),
     createdBy: null,
+    recipientKey: 'ORGANIZATION',
+    recipientUserId: null,
+    accountId: null,
+    shopId: null,
     ...overrides,
   };
+}
+
+/** Sự kiện của kênh CÁ NHÂN `userId`, đơn thuộc TikTok Account `ACC_1`. */
+function personalEvent(id: string, userId: string, overrides: Partial<NotificationEvent> = {}): NotificationEvent {
+  return event(id, ORG_A, { recipientKey: userId, recipientUserId: userId, accountId: ACC_1, shopId: 'shop-1', ...overrides });
 }
 
 function telegramConfig(organizationId: string, overrides: Partial<OrganizationTelegramConfig> = {}): OrganizationTelegramConfig {
   return {
     id: `cfg-${organizationId}`,
     organizationId,
+    ownerKey: 'ORGANIZATION',
+    userId: null,
     botTokenEnc: `enc:${organizationId}-token`,
     botTokenHint: 'abcd',
     botUsername: null,
@@ -77,6 +96,8 @@ function build(options: {
   encryptionReady?: boolean;
   maxAttempts?: number;
   preferences?: Record<string, NotificationPreferences>;
+  /** Người dùng còn được xem đơn LÚC GỬI (kênh cá nhân). Bỏ trống = mọi người đều còn quyền. */
+  allowedUsers?: string[];
 }) {
   const settings: Record<string, unknown> = {
     'notification.dispatch.batchSize': 50,
@@ -92,8 +113,10 @@ function build(options: {
     release: jest.fn().mockResolvedValue(undefined),
   };
   const configs = {
-    findByOrganization: jest.fn((org: string) =>
-      Promise.resolve(options.configs ? (options.configs[org] ?? null) : telegramConfig(org)),
+    findByOwner: jest.fn((owner: NotificationOwner) =>
+      Promise.resolve(
+        options.configs ? (options.configs[channelKey(owner)] ?? null) : telegramConfig(owner.organizationId),
+      ),
     ),
     findOrganizationName: jest.fn().mockResolvedValue('Org'),
     recordDelivery: jest.fn().mockResolvedValue(undefined),
@@ -104,8 +127,15 @@ function build(options: {
     decrypt: (value: string) => value.replace('enc:', ''),
   };
   const preferences = {
-    find: jest.fn((org: string) =>
-      Promise.resolve(options.preferences?.[org] ?? { newOrder: true, fulfillment: true, returnRefund: true }),
+    find: jest.fn((owner: NotificationOwner) =>
+      Promise.resolve(options.preferences?.[channelKey(owner)] ?? { newOrder: true, fulfillment: true, returnRefund: true }),
+    ),
+  };
+  const recipients = {
+    allowedUserIds: jest.fn((params: { userIds: string[] }) =>
+      Promise.resolve(
+        new Set(params.userIds.filter((userId) => !options.allowedUsers || options.allowedUsers.includes(userId))),
+      ),
     ),
   };
   const service = new NotificationDispatcherService(
@@ -115,10 +145,11 @@ function build(options: {
     telegram as unknown as TelegramBotClient,
     encryption as unknown as NotificationEncryptionService,
     preferences as unknown as NotificationPreferenceRepository,
+    recipients as unknown as NotificationRecipientRepository,
   );
   const finishCall = (index: number) =>
     events.finish.mock.calls[index] as [string, string, { status: NotificationEventStatus; nextAttemptAt?: Date; lastErrorCode?: string }];
-  return { service, events, configs, telegram, finishCall };
+  return { service, events, configs, telegram, recipients, finishCall };
 }
 
 describe('NotificationDispatcherService', () => {
@@ -131,7 +162,7 @@ describe('NotificationDispatcherService', () => {
     expect(events.beginAttempt).toHaveBeenCalledWith('e1', expect.any(String), 60_000);
     expect(telegram.sendMessage).toHaveBeenCalledWith(`${ORG_A}-token`, '-100111', expect.stringContaining('NEW ORDER'));
     expect(finishCall(0)[2]).toMatchObject({ status: 'SENT', providerMessageId: '99' });
-    expect(configs.recordDelivery).toHaveBeenCalledWith(ORG_A, expect.anything(), { ok: true });
+    expect(configs.recordDelivery).toHaveBeenCalledWith({ organizationId: ORG_A, userId: null }, expect.anything(), { ok: true });
   });
 
   it('TEST 16 — cô lập tổ chức: sự kiện của A gửi bằng bot/chat của A, của B bằng của B', async () => {
@@ -268,7 +299,11 @@ describe('NotificationDispatcherService', () => {
     expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
     expect(finishCall(0)[2]).toMatchObject({ status: 'FAILED', lastErrorCode: NOTIFICATION_ERROR_CODES.INVALID_TOKEN });
     expect(finishCall(1)[2]).toMatchObject({ status: 'FAILED', lastErrorCode: NOTIFICATION_ERROR_CODES.INVALID_TOKEN });
-    expect(configs.recordDelivery).toHaveBeenCalledWith(ORG_A, expect.anything(), expect.objectContaining({ ok: false }));
+    expect(configs.recordDelivery).toHaveBeenCalledWith(
+      { organizationId: ORG_A, userId: null },
+      expect.anything(),
+      expect.objectContaining({ ok: false }),
+    );
   });
 
   it('TEST 7/8 — mất lease trước khi gửi (worker khác đã nhận lại) ⇒ KHÔNG gửi', async () => {
@@ -399,5 +434,85 @@ describe('NotificationDispatcherService — tuỳ chọn loại thông báo (ki�
     await service.runOnce();
     expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
     expect((telegram.sendMessage.mock.calls as string[][])[0][0]).toBe(`${ORG_B}-token`);
+  });
+});
+
+describe('NotificationDispatcherService — kênh CÁ NHÂN (Employee)', () => {
+  const personalConfig = (userId: string) =>
+    telegramConfig(ORG_A, {
+      id: `cfg-${userId}`,
+      ownerKey: userId,
+      userId,
+      botTokenEnc: `enc:${userId}-token`,
+      chatId: `chat-${userId}`,
+    });
+
+  it('gửi bằng bot / chat CỦA NGƯỜI NHẬN (không phải của tổ chức) và ghi trạng thái vào kênh của người đó', async () => {
+    const { service, telegram, configs, finishCall } = build({
+      claimed: [personalEvent('p1', EMP_1)],
+      configs: { [ORG_A]: telegramConfig(ORG_A), [`${ORG_A}:${EMP_1}`]: personalConfig(EMP_1) },
+    });
+    await service.runOnce();
+    expect(telegram.sendMessage).toHaveBeenCalledWith(`${EMP_1}-token`, `chat-${EMP_1}`, expect.stringContaining('NEW ORDER'));
+    expect(finishCall(0)[2]).toMatchObject({ status: 'SENT' });
+    expect(configs.recordDelivery).toHaveBeenCalledWith({ organizationId: ORG_A, userId: EMP_1 }, expect.anything(), { ok: true });
+  });
+
+  it('🔴 lúc gửi người nhận KHÔNG còn được gán shop ⇒ SKIPPED SCOPE_REVOKED, KHÔNG gọi Telegram', async () => {
+    const { service, telegram, recipients, finishCall } = build({
+      claimed: [personalEvent('p1', EMP_1)],
+      configs: { [`${ORG_A}:${EMP_1}`]: personalConfig(EMP_1) },
+      allowedUsers: [],
+    });
+    await service.runOnce();
+    expect(recipients.allowedUserIds).toHaveBeenCalledWith(
+      expect.objectContaining({ organizationId: ORG_A, accountId: ACC_1, userIds: [EMP_1], eventType: 'ORDER_CREATED' }),
+    );
+    expect(telegram.sendMessage).not.toHaveBeenCalled();
+    expect(finishCall(0)[2]).toMatchObject({ status: 'SKIPPED', lastErrorCode: NOTIFICATION_ERROR_CODES.SCOPE_REVOKED });
+  });
+
+  it('🔴 shop chuyển từ A sang B trong lúc tin chờ gửi: tin của A bị bỏ, tin của B vẫn đi', async () => {
+    const { service, telegram, finishCall } = build({
+      claimed: [personalEvent('pa', EMP_1), personalEvent('pb', EMP_2)],
+      configs: {
+        [`${ORG_A}:${EMP_1}`]: personalConfig(EMP_1),
+        [`${ORG_A}:${EMP_2}`]: personalConfig(EMP_2),
+      },
+      allowedUsers: [EMP_2],
+    });
+    await service.runOnce();
+    expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
+    expect((telegram.sendMessage.mock.calls as string[][])[0][1]).toBe(`chat-${EMP_2}`);
+    expect(finishCall(0)[2].status).toBe('SKIPPED');
+    expect(finishCall(1)[2].status).toBe('SENT');
+  });
+
+  it('kênh TỔ CHỨC không bị kiểm phạm vi shop (Admin nhận mọi đơn như trước)', async () => {
+    const { service, telegram, recipients } = build({ claimed: [event('o1')], allowedUsers: [] });
+    await service.runOnce();
+    expect(recipients.allowedUserIds).not.toHaveBeenCalled();
+    expect(telegram.sendMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it('người nhận đã tắt / xoá kênh cá nhân ⇒ SKIPPED, không gửi', async () => {
+    const { service, telegram, finishCall } = build({
+      claimed: [personalEvent('p1', EMP_1)],
+      configs: { [`${ORG_A}:${EMP_1}`]: { ...personalConfig(EMP_1), enabled: false } },
+    });
+    await service.runOnce();
+    expect(telegram.sendMessage).not.toHaveBeenCalled();
+    expect(finishCall(0)[2]).toMatchObject({ status: 'SKIPPED', lastErrorCode: NOTIFICATION_ERROR_CODES.DISABLED });
+  });
+
+  it('tuỳ chọn RIÊNG của kênh cá nhân: người nhận tắt New Order ⇒ SKIPPED dù tổ chức bật', async () => {
+    const { service, telegram, finishCall } = build({
+      claimed: [personalEvent('p1', EMP_1)],
+      configs: { [`${ORG_A}:${EMP_1}`]: personalConfig(EMP_1) },
+      preferences: { [`${ORG_A}:${EMP_1}`]: { newOrder: false, fulfillment: true, returnRefund: true } },
+    });
+    await service.runOnce();
+    expect(telegram.sendMessage).not.toHaveBeenCalled();
+    expect(finishCall(0)[2]).toMatchObject({ status: 'SKIPPED', lastErrorCode: NOTIFICATION_ERROR_CODES.CATEGORY_DISABLED });
   });
 });

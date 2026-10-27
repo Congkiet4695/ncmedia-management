@@ -1,4 +1,7 @@
 {
+  "usClock": {
+    "label": "US Time"
+  },
   "action": {
     "apply": "Apply",
     "assign": "Assign",

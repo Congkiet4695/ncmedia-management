@@ -13,7 +13,7 @@ import {
 } from '@/components/ui/table';
 import { useTranslation } from 'react-i18next';
 import { useApiError } from '@/hooks/use-api-error';
-import { useLocaleFormat } from '@/hooks/use-locale-format';
+import { useBusinessLocaleFormat } from '@/hooks/use-locale-format';
 import { useLatestSyncStatus } from '../hooks/use-pod-orders';
 import type { PodShopSyncType } from '../order-types';
 import { PodSyncStatusBadge } from './pod-order-status-badge';
@@ -44,7 +44,8 @@ function formatDuration(ms: number | null): string {
 export function LatestSyncStatusDialog({ open, onClose, syncType }: LatestSyncStatusDialogProps) {
   const { t } = useTranslation(['pod', 'common']);
   const translateApiError = useApiError();
-  const { formatDateTime } = useLocaleFormat();
+  // Giờ Los Angeles (múi giờ nghiệp vụ US) — cùng múi giờ với bộ lọc ngày, không theo giờ máy người xem.
+  const { formatDateTime } = useBusinessLocaleFormat();
   const statusQuery = useLatestSyncStatus(syncType, open);
   const items = statusQuery.data ?? [];
   // Dòng đang mở danh sách sản phẩm lỗi (chỉ đồng bộ SẢN PHẨM có chi tiết theo từng sản phẩm).

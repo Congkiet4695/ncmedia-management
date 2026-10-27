@@ -52,7 +52,8 @@ export interface DashboardOverview {
     thisMonth: DashboardPeriod;
     lastMonth: DashboardPeriod;
   };
-  timezoneOffsetMinutes: number;
+  /** Múi giờ nghiệp vụ IANA (vd `America/Los_Angeles`) — "Hôm nay / Tháng này" tính theo múi giờ này. */
+  timeZone: string;
 }
 
 export type OrderStatusGroup =

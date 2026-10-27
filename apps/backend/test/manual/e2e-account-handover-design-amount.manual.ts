@@ -404,7 +404,7 @@ async function main(): Promise<void> {
   check('CHECK DB: Design Amount không âm', negativeDesign === 'rejected');
 
   const dashboard = new PodDashboardRepository(prisma);
-  const window = { from: new Date('2026-10-01T00:00:00.000Z'), to: new Date('2026-10-31T23:59:59.999Z') };
+  const window = { from: new Date('2026-10-01T00:00:00.000Z'), before: new Date('2026-11-01T00:00:00.000Z') };
   const stats = async (filter: Partial<{ shopId: string; sellerId: string }> = {}, w = window) =>
     (await dashboard.sellerStats({ organizationId: org.id, currency: 'USD', accountIds: null, ...filter }, w, {
       activeOnly: false, sort: 'designAmount', order: 'desc', page: 1, limit: 50, label,
@@ -425,7 +425,7 @@ async function main(): Promise<void> {
   check('lọc seller B ⇒ chỉ dòng B', onlyB.length === 1 && onlyB[0].sellerId === empB.id);
   const shopFilter = await stats({ shopId: shop.id });
   check('lọc shop A ⇒ B có Design Amount 0', Number(shopFilter.find((r) => r.sellerId === empB.id)?.designAmount ?? 0) === 0 && Number(shopFilter.find((r) => r.sellerId === empA.id)!.designAmount) === 6.75);
-  const septStats = await stats({}, { from: new Date('2026-09-01T00:00:00.000Z'), to: new Date('2026-09-30T23:59:59.999Z') });
+  const septStats = await stats({}, { from: new Date('2026-09-01T00:00:00.000Z'), before: new Date('2026-10-01T00:00:00.000Z') });
   check('khoảng tháng 9 ⇒ chỉ O3 (design 10)', Number(septStats.find((r) => r.sellerId === empA.id)!.designAmount) === 10);
   const gbp = (await dashboard.sellerStats({ organizationId: org.id, currency: 'GBP', accountIds: null }, window, { activeOnly: false, sort: 'orders', order: 'desc', page: 1, limit: 50, label })).items;
   const gbpB = gbp.find((r) => r.sellerId === empB.id)!;

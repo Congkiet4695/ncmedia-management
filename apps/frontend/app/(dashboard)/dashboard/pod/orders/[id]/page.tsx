@@ -10,7 +10,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTranslation } from 'react-i18next';
 import { RequirePermission } from '@/components/require-permission';
 import { useApiError } from '@/hooks/use-api-error';
-import { useLocaleFormat } from '@/hooks/use-locale-format';
+import { useBusinessLocaleFormat } from '@/hooks/use-locale-format';
 import { ImageLightbox } from '@/features/pod-tiktok/components/image-lightbox';
 import { OrderProductList } from '@/features/pod-tiktok/components/order-product-list';
 import { OrderFinancialCard } from '@/features/pod-tiktok/components/orders/order-financial-card';
@@ -54,7 +54,8 @@ function formatMoney(value: number | null, currency: string | null): string {
 function DetailView({ id }: { id: string }) {
   const { t } = useTranslation('pod');
   const translateApiError = useApiError();
-  const { formatDateTime } = useLocaleFormat();
+  // Giờ Los Angeles (múi giờ nghiệp vụ US) — cùng múi giờ với bộ lọc ngày, không theo giờ máy người xem.
+  const { formatDateTime } = useBusinessLocaleFormat();
   const { data: order, isLoading, isError, error } = usePodOrder(id);
   const [designItem, setDesignItem] = useState<PodOrderItem | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);

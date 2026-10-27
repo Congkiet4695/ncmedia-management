@@ -76,7 +76,7 @@ export class PodReturnFilterDto {
   @IsIn(['requestedAt', 'updatedAt'])
   dateField?: 'requestedAt' | 'updatedAt' = 'requestedAt';
 
-  @ApiPropertyOptional({ enum: POD_DATE_PRESETS, description: 'Quy đổi ở backend theo múi giờ vận hành' })
+  @ApiPropertyOptional({ enum: POD_DATE_PRESETS, description: 'Quy đổi ở backend theo múi giờ nghiệp vụ (APP_BUSINESS_TIMEZONE)' })
   @IsOptional()
   @IsIn(POD_DATE_PRESETS)
   datePreset?: PodDatePreset;

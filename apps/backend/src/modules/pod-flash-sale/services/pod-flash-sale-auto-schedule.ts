@@ -1,3 +1,4 @@
+import { fromZonedParts, toZonedParts } from '../../../common/time/business-time';
 import { FLASH_SALE_AUTO_MINUTES_PER_DAY, FLASH_SALE_AUTO_RULES } from '../constants/pod-flash-sale.constants';
 
 const MS_PER_MINUTE = 60_000;
@@ -10,77 +11,8 @@ const MS_PER_MINUTE = 60_000;
  * của Node có sẵn dữ liệu IANA đầy đủ và là thứ các phép tính dưới đây cần.
  */
 
-interface ZonedParts {
-  year: number;
-  month: number;
-  day: number;
-  hour: number;
-  minute: number;
-  second: number;
-}
-
-const formatterCache = new Map<string, Intl.DateTimeFormat>();
-
-function formatterFor(timeZone: string): Intl.DateTimeFormat {
-  let formatter = formatterCache.get(timeZone);
-  if (!formatter) {
-    formatter = new Intl.DateTimeFormat('en-US', {
-      timeZone,
-      hourCycle: 'h23',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-    formatterCache.set(timeZone, formatter);
-  }
-  return formatter;
-}
-
-/** Múi giờ IANA hợp lệ không (\`America/Los_Angeles\`, \`Asia/Ho_Chi_Minh\`, \`UTC\` …). */
-export function isValidTimeZone(timeZone: string): boolean {
-  try {
-    formatterFor(timeZone);
-    return true;
-  } catch {
-    return false;
-  }
-}
-
-/** Một thời điểm ⇒ ngày giờ treo tường ở \`timeZone\`. */
-export function toZonedParts(instant: Date, timeZone: string): ZonedParts {
-  const parts: Record<string, number> = {};
-  for (const part of formatterFor(timeZone).formatToParts(instant)) {
-    if (part.type !== 'literal') parts[part.type] = Number(part.value);
-  }
-  return {
-    year: parts.year,
-    month: parts.month,
-    day: parts.day,
-    hour: parts.hour,
-    minute: parts.minute,
-    second: parts.second,
-  };
-}
-
-/**
- * Ngày giờ treo tường ở \`timeZone\` ⇒ thời điểm (UTC).
- *
- * Lấy độ lệch của múi giờ TẠI thời điểm đoán, rồi sửa một lần nữa: hai vòng là đủ cho mọi múi
- * giờ kể cả khi đoán đầu tiên rơi vào phía bên kia mốc đổi giờ mùa hè.
- */
-export function fromZonedParts(parts: ZonedParts, timeZone: string): Date {
-  const asUtc = Date.UTC(parts.year, parts.month - 1, parts.day, parts.hour, parts.minute, parts.second);
-  let guess = asUtc;
-  for (let i = 0; i < 2; i++) {
-    const seen = toZonedParts(new Date(guess), timeZone);
-    const seenAsUtc = Date.UTC(seen.year, seen.month - 1, seen.day, seen.hour, seen.minute, seen.second);
-    guess += asUtc - seenAsUtc;
-  }
-  return new Date(guess);
-}
+// Phép đổi múi giờ IANA dùng chung với lọc ngày nghiệp vụ (Orders / Payout / Dashboard) — MỘT bản cài đặt.
+export { fromZonedParts, isValidTimeZone, toZonedParts } from '../../../common/time/business-time';
 
 /** Cộng \`days\` ngày LỊCH ở \`timeZone\` — giữ nguyên giờ treo tường qua mốc đổi giờ. */
 export function addCalendarDays(instant: Date, days: number, timeZone: string): Date {

@@ -122,16 +122,29 @@ export interface NotificationPayloadMap {
   RETURN_REFUND_REQUEST: ReturnRefundRequestPayload;
 }
 
+/**
+ * Phạm vi dữ liệu của sự kiện — TikTok Account / Shop của ĐƠN. Bên phát lấy từ chính bản ghi đơn (không từ
+ * request); outbox dùng nó để chọn kênh CÁ NHÂN được nhận, và worker kiểm lại lúc gửi.
+ */
+export interface NotificationScope {
+  accountId: string | null;
+  shopId: string | null;
+}
+
 /** Một sự kiện cần phát — đầu vào của `NotificationOutboxService`. */
 export type NotificationEventInput = {
   [K in NotificationEventType]: {
     organizationId: string;
     eventType: K;
     entityType: NotificationEntityType;
-    /** Id của thực thể (khoá idempotency cùng `eventType` + `entityType`). */
+    /** Id của thực thể (khoá idempotency cùng `eventType` + `entityType` + người nhận). */
     entityId: string;
     payload: NotificationPayloadMap[K];
+    scope: NotificationScope;
     /** Người dùng gây ra sự kiện; bỏ trống = hệ thống. */
     actorUserId?: string | null;
   };
 }[NotificationEventType];
+
+/** Một dòng outbox = một sự kiện cho MỘT người nhận. `null` = kênh của tổ chức. */
+export type NotificationEventRow = NotificationEventInput & { recipientUserId: string | null };

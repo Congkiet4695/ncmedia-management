@@ -18,8 +18,9 @@ export interface EmployeeWorkFilter {
   organizationId: string;
   /** Mọi số tiền chỉ cộng trong MỘT đơn vị tiền (không quy đổi) — như Dashboard. */
   currency: string;
+  /** Nửa mở: `from <= cột < before` (00:00 ngày sau ngày cuối, giờ nghiệp vụ). */
   from: Date;
-  to: Date;
+  before: Date;
   shopId?: string;
   /** Chi phí label mỗi đơn — trừ vào lợi nhuận (cùng nguồn với màn Order). */
   label: LabelCostConfig;
@@ -104,7 +105,7 @@ export class PodEmployeeWorkRepository {
          WHERE i.organization_id = ${org}::uuid
            AND i.status = ${success}
            AND i.remote_product_id IS NOT NULL
-           AND i.finished_at BETWEEN ${filter.from} AND ${filter.to}
+           AND i.finished_at >= ${filter.from} AND i.finished_at < ${filter.before}
            AND j.type IN (${listingTypes})
            AND j.created_by IS NOT NULL
            ${shopCond('i.shop_id')}
@@ -144,7 +145,7 @@ export class PodEmployeeWorkRepository {
          WHERE po.organization_id = ${org}::uuid
            AND po.deleted_at IS NULL
            AND po.currency = ${filter.currency}
-           AND po.ordered_at BETWEEN ${filter.from} AND ${filter.to}
+           AND po.ordered_at >= ${filter.from} AND po.ordered_at < ${filter.before}
            AND po.shop_id IN (SELECT shop_id FROM pairs)
       ),
       ${orderProfitCtes(org, filter.label)},

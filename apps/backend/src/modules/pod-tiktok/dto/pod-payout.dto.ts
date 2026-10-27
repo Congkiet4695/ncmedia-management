@@ -33,8 +33,8 @@ const toBool = ({ value }: { value: unknown }): unknown => {
 /**
  * Bộ lọc dùng chung cho cả 3 API báo cáo payout.
  *
- * Preset thời gian được quy đổi tại BACKEND theo múi giờ vận hành
- * (`APP_TIMEZONE_OFFSET_MINUTES`) — frontend KHÔNG tự lọc.
+ * Preset thời gian được quy đổi tại BACKEND theo múi giờ nghiệp vụ IANA
+ * (`APP_BUSINESS_TIMEZONE`, mặc định America/Los_Angeles) — frontend KHÔNG tự lọc.
  */
 export class PodPayoutFilterDto {
   @ApiPropertyOptional({
@@ -48,12 +48,12 @@ export class PodPayoutFilterDto {
   @IsIn(POD_DATE_PRESETS, { message: 'Khoảng thời gian không hợp lệ' })
   datePreset?: PodDatePreset;
 
-  @ApiPropertyOptional({ description: 'Ngày bắt đầu (ISO). Dùng với datePreset=CUSTOM.' })
+  @ApiPropertyOptional({ description: 'Ngày bắt đầu `YYYY-MM-DD` — ngày lịch theo múi giờ nghiệp vụ. Dùng với datePreset=CUSTOM.' })
   @IsOptional()
   @IsISO8601({}, { message: 'fromDate phải là ngày hợp lệ (ISO 8601)' })
   fromDate?: string;
 
-  @ApiPropertyOptional({ description: 'Ngày kết thúc (ISO) — bao gồm TRỌN ngày này.' })
+  @ApiPropertyOptional({ description: 'Ngày kết thúc `YYYY-MM-DD` (múi giờ nghiệp vụ) — bao gồm TRỌN ngày này.' })
   @IsOptional()
   @IsISO8601({}, { message: 'toDate phải là ngày hợp lệ (ISO 8601)' })
   toDate?: string;
@@ -149,8 +149,19 @@ export class TriggerPayoutSyncDto {
 
 /** Khoảng thời gian đã được backend quy đổi — trả về để FE hiển thị đúng thứ đã lọc. */
 export class PodPayoutRangeDto {
-  @ApiProperty({ nullable: true, type: String }) from!: string | null;
-  @ApiProperty({ nullable: true, type: String }) to!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'Thời điểm đầu (UTC, bao gồm).' })
+  from!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'Thời điểm cuối (UTC, bao gồm) = 1 ms trước 00:00 ngày kế tiếp.' })
+  to!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    example: '2026-10-01',
+    description: 'Ngày đầu theo múi giờ nghiệp vụ (APP_BUSINESS_TIMEZONE) — dùng để HIỂN THỊ.',
+  })
+  fromDay!: string | null;
+  @ApiProperty({ nullable: true, type: String, example: '2026-10-27', description: 'Ngày cuối (gồm trọn ngày).' })
+  toDay!: string | null;
 }
 
 export class PodPayoutSummaryDto {

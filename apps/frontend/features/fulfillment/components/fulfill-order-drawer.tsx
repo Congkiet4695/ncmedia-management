@@ -24,7 +24,7 @@ import { Drawer, DrawerSection } from '@/components/ui/drawer';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useApiError } from '@/hooks/use-api-error';
-import { useLocaleFormat } from '@/hooks/use-locale-format';
+import { useBusinessLocaleFormat, useLocaleFormat } from '@/hooks/use-locale-format';
 import { ImageLightbox } from '@/features/pod-tiktok/components/image-lightbox';
 import { usePodOrder } from '@/features/pod-tiktok/hooks/use-pod-orders';
 import { POD_DESIGN_PLACEMENTS } from '@/features/pod-tiktok/order-types';
@@ -141,7 +141,8 @@ function isHttpUrl(value: string): boolean {
 export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDrawerProps) {
   const { t } = useTranslation(['fulfillment', 'pod', 'common']);
   const translateApiError = useApiError();
-  const { formatCurrency, formatDateTime } = useLocaleFormat();
+  // Giờ Los Angeles (múi giờ nghiệp vụ US) — cùng múi giờ với bộ lọc ngày, không theo giờ máy người xem.
+  const { formatCurrency, formatDateTime } = useBusinessLocaleFormat();
 
   /**
    * Nhà cung cấp fulfillment người dùng CHỌN cho đơn này.

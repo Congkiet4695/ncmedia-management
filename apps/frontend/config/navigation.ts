@@ -13,6 +13,7 @@ import {
   BarChart3,
   BadgeCheck,
   Bell,
+  BellRing,
   ClipboardList,
   Copy,
   Database,
@@ -344,6 +345,14 @@ export const NAVIGATION: NavItemConfig[] = [
         href: '/dashboard/settings/notifications',
         icon: Bell,
         permission: 'notification.config',
+      },
+      // Kênh Telegram CÁ NHÂN (Employee) — chỉ nhận đơn của shop được gán. API `/notifications/me/*` tự chặn bằng
+      // cùng quyền `notification.self`; menu chỉ ẩn/hiện.
+      {
+        labelKey: 'settingsMyNotifications',
+        href: '/dashboard/settings/my-notifications',
+        icon: BellRing,
+        permission: 'notification.self',
       },
       // 🔴 Menu chỉ ẩn/hiện. API `/pod/flash-sale-auto/*` tự chặn bằng cùng quyền `pod.flashsale.auto.config`.
       {

@@ -7,7 +7,11 @@ export interface PayoutReportFilter {
   organizationId: string;
   /** Lọc theo `payment_created_at` (thời điểm TikTok khởi tạo chi trả). */
   from?: Date;
-  to?: Date;
+  /** Mốc NỬA MỞ: `payment_created_at < before` (00:00 ngày sau ngày cuối, giờ nghiệp vụ). */
+  before?: Date;
+  /** Ngày nghiệp vụ của khoảng (chỉ để hiển thị) — xem `ResolvedDateRange`. */
+  fromDay?: string;
+  toDay?: string;
   status?: PodPayoutStatus;
   /** Row-level: chỉ tính account do user này quản lý. `undefined` = toàn Organization. */
   sellerScope?: string;
@@ -78,7 +82,8 @@ export class PodPayoutReportRepository {
       Prisma.sql`a.deleted_at IS NULL`,
     ];
     if (filter.from) conds.push(Prisma.sql`p.payment_created_at >= ${filter.from}`);
-    if (filter.to) conds.push(Prisma.sql`p.payment_created_at <= ${filter.to}`);
+    // Nửa mở: `before` = 00:00 ngày SAU ngày cuối (giờ nghiệp vụ).
+    if (filter.before) conds.push(Prisma.sql`p.payment_created_at < ${filter.before}`);
     if (filter.status) {
       conds.push(Prisma.sql`p.status = ${filter.status}::"pod_payout_status"`);
     }

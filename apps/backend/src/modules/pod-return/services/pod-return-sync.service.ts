@@ -475,6 +475,8 @@ export class PodReturnSyncService {
       eventType: 'RETURN_REFUND_REQUEST',
       entityType: 'POD_RETURN_REQUEST',
       entityId: id,
+      // Phạm vi = TikTok Account / Shop đang đồng bộ (yêu cầu thuộc đơn của shop này).
+      scope: { accountId: batch.shop.accountId, shopId: batch.shop.id },
       payload: {
         tiktokReturnId: row.tiktokReturnId,
         tiktokOrderId: row.tiktokOrderId,

@@ -9,9 +9,9 @@ import { callArg } from '../../../testing/mock-call.util';
 const ORG = '11111111-1111-1111-1111-111111111111';
 const SELLER = '22222222-2222-2222-2222-222222222222';
 
-/** Múi giờ vận hành: UTC+7 — mọi mốc "Hôm nay/Tháng trước" phải tính theo giờ này. */
-const CONFIG: Record<string, number> = {
-  timezoneOffsetMinutes: 420,
+/** Múi giờ nghiệp vụ: America/Los_Angeles — mọi mốc "Hôm nay/Tháng trước" tính theo ngày ở LA. */
+const CONFIG: Record<string, number | string> = {
+  businessTimeZone: 'America/Los_Angeles',
   'tiktok.sync.runDeadlineMs': 240_000,
 };
 
@@ -53,7 +53,7 @@ describe('PodPayoutService', () => {
 
     service = new PodPayoutService(
       {
-        get: jest.fn((key: string, fallback?: number) => CONFIG[key] ?? fallback),
+        get: jest.fn((key: string, fallback?: number | string) => CONFIG[key] ?? fallback),
       } as unknown as ConfigService,
       reportRepo as unknown as PodPayoutReportRepository,
       accountRepo as unknown as PodTiktokAccountRepository,
@@ -81,25 +81,34 @@ describe('PodPayoutService', () => {
         fromDate: '2026-08-01',
         toDate: '2026-08-05',
       });
-      // 00:00 ngày 01/08 giờ VN = 17:00Z ngày 31/07.
-      expect(result.range.from).toBe('2026-07-31T17:00:00.000Z');
-      expect(result.range.to).toBe('2026-08-05T16:59:59.999Z');
+      // 00:00 ngày 01/08 ở LA (PDT, UTC−7) = 07:00Z; ngày cuối gồm TRỌN 05/08 (đến trước 00:00 06/08 PDT).
+      expect(result.range.from).toBe('2026-08-01T07:00:00.000Z');
+      expect(result.range.to).toBe('2026-08-06T06:59:59.999Z');
+      // Ngày nghiệp vụ để hiển thị — không dịch qua múi giờ trình duyệt.
+      expect(result.range).toMatchObject({ fromDay: '2026-08-01', toDay: '2026-08-05' });
     });
   });
 
   describe('bộ lọc gửi xuống repository', () => {
-    it('quy đổi preset thời gian tại BACKEND theo múi giờ vận hành', async () => {
+    it('quy đổi preset thời gian tại BACKEND theo múi giờ nghiệp vụ — khoảng NỬA MỞ', async () => {
       await service.summary(ORG, { datePreset: 'TODAY' });
-      const filter = callArg<{ from: Date; to: Date }>(reportRepo.summary, 0, 0);
+      const filter = callArg<{ from: Date; before: Date }>(reportRepo.summary, 0, 0);
       expect(filter.from).toBeInstanceOf(Date);
-      expect(filter.to.getTime()).toBeGreaterThan(filter.from.getTime());
+      expect(filter.before.getTime()).toBeGreaterThan(filter.from.getTime());
+    });
+
+    it('🔴 ngày cuối gồm trọn ngày, kể cả ngày 25 giờ (01/11/2026 hết PDT)', async () => {
+      await service.summary(ORG, { datePreset: 'CUSTOM', fromDate: '2026-11-01', toDate: '2026-11-01' });
+      const filter = callArg<{ from: Date; before: Date }>(reportRepo.summary, 0, 0);
+      expect(filter.from.toISOString()).toBe('2026-11-01T07:00:00.000Z');
+      expect(filter.before.toISOString()).toBe('2026-11-02T08:00:00.000Z');
     });
 
     it('preset ALL → không giới hạn thời gian', async () => {
       await service.summary(ORG, { datePreset: 'ALL' });
-      const filter = callArg<{ from?: Date; to?: Date }>(reportRepo.summary, 0, 0);
+      const filter = callArg<{ from?: Date; before?: Date }>(reportRepo.summary, 0, 0);
       expect(filter.from).toBeUndefined();
-      expect(filter.to).toBeUndefined();
+      expect(filter.before).toBeUndefined();
     });
 
     it('chuyển tiếp trạng thái payout và từ khoá tìm kiếm', async () => {

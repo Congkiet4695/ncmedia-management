@@ -18,7 +18,8 @@ export interface PodReturnFilterParams {
   reason?: string;
   dateField: 'requestedAt' | 'updatedAt';
   from?: Date;
-  to?: Date;
+  /** Mốc NỬA MỞ: `cột < before` (00:00 ngày sau ngày cuối, giờ nghiệp vụ). */
+  before?: Date;
 }
 
 export interface ExistingReturnSnapshot {
@@ -331,7 +332,7 @@ export class PodReturnRepository {
     if (params.reason) conds.push(Prisma.sql`r.return_reason = ${params.reason}`);
     const column = Prisma.raw(params.dateField === 'updatedAt' ? 'r.tiktok_updated_at' : 'r.requested_at');
     if (params.from) conds.push(Prisma.sql`${column} >= ${params.from}`);
-    if (params.to) conds.push(Prisma.sql`${column} <= ${params.to}`);
+    if (params.before) conds.push(Prisma.sql`${column} < ${params.before}`);
     return Prisma.join(conds, ' AND ');
   }
 

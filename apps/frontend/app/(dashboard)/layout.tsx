@@ -9,6 +9,7 @@ import { BrandLogo } from '@/components/brand-logo';
 import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { LanguageSwitcher } from '@/components/language-switcher';
+import { UsClock } from '@/components/us-clock';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { resolveNavigation } from '@/config/navigation';
 import { cn } from '@/lib/utils';
@@ -144,6 +145,8 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </Button>
 
           <div className="ml-auto flex items-center gap-1 sm:gap-2">
+            {/* Giờ US (Los Angeles) — bên trái nút đổi ngôn ngữ; cùng múi giờ với Orders / Payout / Dashboard. */}
+            <UsClock />
             <LanguageSwitcher />
             <ThemeToggle />
             <div className="mx-1 hidden h-8 w-px bg-border sm:block" aria-hidden />

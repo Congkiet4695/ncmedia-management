@@ -38,6 +38,7 @@
   "superAdminOrganizations": "Organizations",
   "settings": "Settings",
   "settingsNotifications": "Notifications",
+  "settingsMyNotifications": "My Telegram notifications",
   "settingsAutoFlashSale": "Auto Flash Sale Scheduler",
   "employeeWorkStatistics": "Employee Work Statistics",
   "orderGroup": "Order",

@@ -21,7 +21,8 @@ import { resolveAllTimeRange } from '../../src/modules/pod-tiktok/shared/dashboa
 const results: string[] = [];
 const check = (label: string, ok: boolean, detail: unknown = '') =>
   results.push(`${ok ? '✅' : '❌'} ${label}${detail ? ` — ${JSON.stringify(detail)}` : ''}`);
-const OFFSET = 420;
+/** Múi giờ của fixture gốc (UTC+7, không đổi giờ mùa hè) — giữ nguyên ý nghĩa các phép so. */
+const TIME_ZONE = 'Asia/Ho_Chi_Minh';
 
 async function main(): Promise<void> {
   const prisma = new PrismaService();
@@ -53,7 +54,7 @@ async function main(): Promise<void> {
           const filter = { organizationId: org, currency, accountIds: null };
 
           // --- Tất cả thời gian ---------------------------------------------------------------
-          const earliest = await dash.earliestActivityDay(filter, OFFSET);
+          const earliest = await dash.earliestActivityDay(filter, TIME_ZONE);
           const [naive] = await db.$queryRaw<Array<{ day: string | null }>>(Prisma.sql`
             SELECT to_char((MIN(at) AT TIME ZONE 'UTC') + INTERVAL '7 hours', 'YYYY-MM-DD') AS day FROM (
               SELECT ordered_at AS at FROM pod_orders WHERE organization_id = ${org}::uuid AND deleted_at IS NULL
@@ -61,8 +62,8 @@ async function main(): Promise<void> {
               UNION ALL SELECT statement_at FROM pod_tiktok_statements WHERE organization_id = ${org}::uuid AND deleted_at IS NULL) x`);
           check(`${tag} Ngày sớm nhất (all-time) == truy vấn độc lập (${earliest})`, earliest === naive.day, { earliest, naive: naive.day });
 
-          const all = resolveAllTimeRange(earliest, OFFSET);
-          const unbounded = { from: new Date('2000-01-01T00:00:00Z'), to: all.to };
+          const all = resolveAllTimeRange(earliest, TIME_ZONE);
+          const unbounded = { from: new Date('2000-01-01T00:00:00Z'), before: all.before };
           const opts = { activeOnly: false, sort: 'orders' as const, order: 'desc' as const, page: 1, limit: 500, label };
           const [a, b] = [await dash.sellerStats(filter, all, opts), await dash.sellerStats(filter, unbounded, opts)];
           const sum = (rows: typeof a.items, key: 'orders' | 'revenue' | 'paid') => rows.reduce((s, r) => s + Number(r[key]), 0);

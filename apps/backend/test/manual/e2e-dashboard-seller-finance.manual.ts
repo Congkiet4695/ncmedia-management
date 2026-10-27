@@ -36,7 +36,7 @@ const TAG = `E2EDSF${Date.now()}`;
 
 async function main(): Promise<void> {
   const prisma = new PrismaService();
-  const config = { get: (key: string, fallback: unknown) => (key === 'timezoneOffsetMinutes' ? 420 : fallback) } as unknown as ConfigService;
+  const config = { get: (key: string, fallback: unknown) => (key === 'businessTimeZone' ? 'Asia/Ho_Chi_Minh' : fallback) } as unknown as ConfigService;
   const service = new PodDashboardService(new PodDashboardRepository(prisma), config);
   const finance = new PodOrderFinanceService(prisma, config);
   const label = finance.labelCost();

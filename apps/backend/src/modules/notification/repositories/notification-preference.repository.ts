@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { NotificationEventType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
+import { ownerKeyOf, type NotificationOwner } from '../types/notification-owner';
 
 /** Nhóm tuỳ chọn mà người dùng bật / tắt trên màn hình Cài đặt thông báo. */
 export type NotificationCategory = 'NEW_ORDER' | 'FULFILL' | 'RETURN_REFUND';
@@ -47,25 +48,43 @@ function toPreferences(row: { notifyNewOrder: boolean; notifyFulfillment: boolea
 }
 
 /**
- * Data access cho `organization_notification_preferences` — MỌI truy vấn theo `organizationId`.
+ * Data access cho `organization_notification_preferences` — MỌI truy vấn theo CHỦ SỞ HỮU (tổ chức hoặc
+ * một người dùng — xem `NotificationOwner`). Chưa có dòng ⇒ mặc định bật tất cả.
  */
 @Injectable()
 export class NotificationPreferenceRepository {
   constructor(private readonly prisma: PrismaService) {}
 
   async find(
-    organizationId: string,
+    owner: NotificationOwner,
     client: Prisma.TransactionClient = this.prisma,
   ): Promise<NotificationPreferences> {
     const row = await client.organizationNotificationPreference.findFirst({
-      where: { organizationId, deletedAt: null },
+      where: { organizationId: owner.organizationId, ownerKey: ownerKeyOf(owner), deletedAt: null },
       select: SELECT,
     });
     return row ? toPreferences(row) : { ...DEFAULT_NOTIFICATION_PREFERENCES };
   }
 
-  async save(
+  /** Tuỳ chọn của NHIỀU kênh cá nhân trong MỘT truy vấn (lúc ghi sự kiện — không N+1 theo người). */
+  async findForUsers(
     organizationId: string,
+    userIds: string[],
+    client: Prisma.TransactionClient = this.prisma,
+  ): Promise<Map<string, NotificationPreferences>> {
+    const result = new Map<string, NotificationPreferences>();
+    if (userIds.length === 0) return result;
+    const rows = await client.organizationNotificationPreference.findMany({
+      where: { organizationId, ownerKey: { in: userIds }, deletedAt: null },
+      select: { ...SELECT, ownerKey: true },
+    });
+    const byKey = new Map(rows.map((row) => [row.ownerKey, toPreferences(row)]));
+    for (const userId of userIds) result.set(userId, byKey.get(userId) ?? { ...DEFAULT_NOTIFICATION_PREFERENCES });
+    return result;
+  }
+
+  async save(
+    owner: NotificationOwner,
     actorUserId: string,
     preferences: NotificationPreferences,
   ): Promise<NotificationPreferences> {
@@ -74,9 +93,17 @@ export class NotificationPreferenceRepository {
       notifyFulfillment: preferences.fulfillment,
       notifyReturnRefund: preferences.returnRefund,
     };
+    const ownerKey = ownerKeyOf(owner);
     const row = await this.prisma.organizationNotificationPreference.upsert({
-      where: { organizationId },
-      create: { ...data, organizationId, createdBy: actorUserId, updatedBy: actorUserId },
+      where: { organizationId_ownerKey: { organizationId: owner.organizationId, ownerKey } },
+      create: {
+        ...data,
+        organizationId: owner.organizationId,
+        ownerKey,
+        userId: owner.userId,
+        createdBy: actorUserId,
+        updatedBy: actorUserId,
+      },
       update: { ...data, deletedAt: null, updatedBy: actorUserId },
       select: SELECT,
     });

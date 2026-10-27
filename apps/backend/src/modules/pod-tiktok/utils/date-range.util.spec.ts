@@ -1,181 +1,246 @@
-import { resolveDateRange } from './date-range.util';
+import { BadRequestException } from '@nestjs/common';
+import { resolveDateRange, resolvePresetDays } from './date-range.util';
 
 /**
- * Múi giờ vận hành mặc định: UTC+7 (giờ Việt Nam).
- * Mọi mốc "Hôm nay / Hôm qua / Tháng này" phải tính theo giờ này, KHÔNG theo UTC.
+ * Múi giờ nghiệp vụ mặc định: America/Los_Angeles (PST UTC−8 / PDT UTC−7).
+ * Mọi mốc "Hôm nay / Hôm qua / Tháng này" tính theo ngày ở Los Angeles — KHÔNG theo UTC, không theo máy.
+ *
+ * Năm 2026: PDT bắt đầu 08/03 (02:00 PST → 03:00 PDT, ngày 23 giờ), kết thúc 01/11 (02:00 PDT → 01:00 PST,
+ * ngày 25 giờ).
  */
-const VN = 420;
+const LA = 'America/Los_Angeles';
 
-/** 2026-08-06 09:30 giờ VN  ⇔  2026-08-06T02:30:00Z */
-const NOW = new Date('2026-08-06T02:30:00.000Z');
+/** 2026-10-27 11:00 PDT  ⇔  2026-10-27T18:00:00Z */
+const NOW = new Date('2026-10-27T18:00:00.000Z');
 
-/** Rút gọn để so sánh dễ đọc. */
+const HOUR = 3_600_000;
 const iso = (d?: Date) => d?.toISOString() ?? null;
+const lengthHours = (range: { from?: Date; before?: Date }) =>
+  ((range.before as Date).getTime() - (range.from as Date).getTime()) / HOUR;
+/** Bản ghi có lọt vào khoảng nửa mở không — đúng điều kiện SQL `from <= t < before`. */
+const contains = (range: { from?: Date; before?: Date }, at: string) => {
+  const time = Date.parse(at);
+  return (!range.from || range.from.getTime() <= time) && (!range.before || time < range.before.getTime());
+};
 
-describe('resolveDateRange', () => {
+describe('resolveDateRange — America/Los_Angeles', () => {
   describe('TODAY', () => {
-    it('bắt đầu 00:00 và kết thúc 23:59:59.999 giờ VN', () => {
-      const range = resolveDateRange('TODAY', VN, undefined, undefined, NOW);
-      // 00:00 VN ngày 06/08 = 17:00Z ngày 05/08
-      expect(iso(range.from)).toBe('2026-08-05T17:00:00.000Z');
-      expect(iso(range.to)).toBe('2026-08-06T16:59:59.999Z');
+    it('00:00 → 00:00 hôm sau theo giờ Los Angeles (PDT = UTC−7), nửa mở', () => {
+      const range = resolveDateRange('TODAY', LA, undefined, undefined, NOW);
+      expect(iso(range.from)).toBe('2026-10-27T07:00:00.000Z');
+      expect(iso(range.before)).toBe('2026-10-28T07:00:00.000Z');
+      expect([range.fromDay, range.toDay]).toEqual(['2026-10-27', '2026-10-27']);
     });
 
     it('bao trùm chính thời điểm hiện tại', () => {
-      const range = resolveDateRange('TODAY', VN, undefined, undefined, NOW);
-      expect(range.from!.getTime()).toBeLessThanOrEqual(NOW.getTime());
-      expect(range.to!.getTime()).toBeGreaterThanOrEqual(NOW.getTime());
+      expect(contains(resolveDateRange('TODAY', LA, undefined, undefined, NOW), NOW.toISOString())).toBe(true);
     });
 
-    it('🔴 sát nửa đêm giờ VN vẫn ra đúng ngày (không lệch sang hôm trước theo UTC)', () => {
-      // 00:30 giờ VN ngày 06/08 = 17:30Z ngày 05/08 — theo UTC vẫn là ngày 05.
-      const nearMidnight = new Date('2026-08-05T17:30:00.000Z');
-      const range = resolveDateRange('TODAY', VN, undefined, undefined, nearMidnight);
-      expect(iso(range.from)).toBe('2026-08-05T17:00:00.000Z');
-      expect(iso(range.to)).toBe('2026-08-06T16:59:59.999Z');
+    it('🔴 23:59:59 ở LA (UTC đã sang ngày hôm sau) vẫn là HÔM NAY của LA', () => {
+      const lateNight = new Date('2026-10-28T06:59:59.000Z'); // 27/10 23:59:59 PDT — UTC là 28/10
+      const range = resolveDateRange('TODAY', LA, undefined, undefined, lateNight);
+      expect(range.fromDay).toBe('2026-10-27');
+      expect(iso(range.from)).toBe('2026-10-27T07:00:00.000Z');
+    });
+
+    it('🔴 đúng 00:00 ở LA ⇒ đã sang ngày mới', () => {
+      const midnight = new Date('2026-10-28T07:00:00.000Z');
+      expect(resolveDateRange('TODAY', LA, undefined, undefined, midnight).fromDay).toBe('2026-10-28');
+    });
+
+    it('🔴 sáng sớm ở Việt Nam (UTC+7) vẫn là "hôm qua" của LA — không dùng ngày của máy người xem', () => {
+      // 2026-10-27 08:00 giờ VN = 2026-10-27T01:00Z = 2026-10-26 18:00 PDT
+      const vnMorning = new Date('2026-10-27T01:00:00.000Z');
+      expect(resolveDateRange('TODAY', LA, undefined, undefined, vnMorning).fromDay).toBe('2026-10-26');
     });
   });
 
   describe('YESTERDAY', () => {
-    it('trọn ngày hôm qua theo giờ VN', () => {
-      const range = resolveDateRange('YESTERDAY', VN, undefined, undefined, NOW);
-      expect(iso(range.from)).toBe('2026-08-04T17:00:00.000Z');
-      expect(iso(range.to)).toBe('2026-08-05T16:59:59.999Z');
-    });
-
-    it('không chồng lấn với TODAY', () => {
-      const yesterday = resolveDateRange('YESTERDAY', VN, undefined, undefined, NOW);
-      const today = resolveDateRange('TODAY', VN, undefined, undefined, NOW);
-      expect(yesterday.to!.getTime()).toBeLessThan(today.from!.getTime());
+    it('trọn ngày hôm qua ở LA, nối tiếp KHÍT với TODAY (không chồng, không hở)', () => {
+      const yesterday = resolveDateRange('YESTERDAY', LA, undefined, undefined, NOW);
+      const today = resolveDateRange('TODAY', LA, undefined, undefined, NOW);
+      expect(iso(yesterday.from)).toBe('2026-10-26T07:00:00.000Z');
+      expect(iso(yesterday.before)).toBe(iso(today.from));
     });
   });
 
   describe('LAST_7_DAYS / LAST_30_DAYS', () => {
-    it('7 ngày = hôm nay + 6 ngày trước', () => {
-      const range = resolveDateRange('LAST_7_DAYS', VN, undefined, undefined, NOW);
-      expect(iso(range.from)).toBe('2026-07-30T17:00:00.000Z');
-      expect(iso(range.to)).toBe('2026-08-06T16:59:59.999Z');
+    it('7 ngày = hôm nay + 6 ngày LỊCH trước', () => {
+      expect(resolvePresetDays('LAST_7_DAYS', LA, NOW)).toEqual({ fromDay: '2026-10-21', toDay: '2026-10-27' });
     });
 
-    it('30 ngày = hôm nay + 29 ngày trước', () => {
-      const range = resolveDateRange('LAST_30_DAYS', VN, undefined, undefined, NOW);
-      // 00:00 giờ VN ngày 08/07 (= 06/08 lùi 29 ngày) ứng với 17:00Z ngày 07/07.
-      expect(iso(range.from)).toBe('2026-07-07T17:00:00.000Z');
-      expect(iso(range.to)).toBe('2026-08-06T16:59:59.999Z');
+    it('30 ngày = hôm nay + 29 ngày LỊCH trước', () => {
+      expect(resolvePresetDays('LAST_30_DAYS', LA, NOW)).toEqual({ fromDay: '2026-09-28', toDay: '2026-10-27' });
     });
 
-    it('khoảng 30 ngày đúng bằng 30 ngày tròn', () => {
-      const range = resolveDateRange('LAST_30_DAYS', VN, undefined, undefined, NOW);
-      const days = (range.to!.getTime() - range.from!.getTime() + 1) / (24 * 3600 * 1000);
-      expect(days).toBeCloseTo(30, 5);
-    });
-
-    it('khoảng 7 ngày đúng bằng 7 ngày tròn', () => {
-      const range = resolveDateRange('LAST_7_DAYS', VN, undefined, undefined, NOW);
-      const days = (range.to!.getTime() - range.from!.getTime() + 1) / (24 * 3600 * 1000);
-      expect(days).toBeCloseTo(7, 5);
+    it('🔴 7 ngày chứa ngày đổi giờ (08/03) dài 7×24 − 1 giờ — không cộng cố định 24 giờ', () => {
+      const range = resolveDateRange('LAST_7_DAYS', LA, undefined, undefined, new Date('2026-03-10T20:00:00.000Z'));
+      expect(iso(range.from)).toBe('2026-03-04T08:00:00.000Z'); // 00:00 PST
+      expect(iso(range.before)).toBe('2026-03-11T07:00:00.000Z'); // 00:00 PDT
+      expect(lengthHours(range)).toBe(7 * 24 - 1);
     });
   });
 
   describe('THIS_MONTH', () => {
-    it('từ 00:00 ngày 1 của tháng theo giờ VN', () => {
-      const range = resolveDateRange('THIS_MONTH', VN, undefined, undefined, NOW);
-      // 00:00 VN ngày 01/08 = 17:00Z ngày 31/07
-      expect(iso(range.from)).toBe('2026-07-31T17:00:00.000Z');
-      expect(iso(range.to)).toBe('2026-08-06T16:59:59.999Z');
+    it('từ 00:00 ngày 01 ở LA đến hết hôm nay', () => {
+      const range = resolveDateRange('THIS_MONTH', LA, undefined, undefined, NOW);
+      expect(iso(range.from)).toBe('2026-10-01T07:00:00.000Z');
+      expect(iso(range.before)).toBe('2026-10-28T07:00:00.000Z');
     });
 
-    it('ngày đầu tháng: from và to nằm trong cùng một ngày', () => {
-      const firstDay = new Date('2026-08-01T03:00:00.000Z'); // 10:00 VN ngày 01/08
-      const range = resolveDateRange('THIS_MONTH', VN, undefined, undefined, firstDay);
-      expect(iso(range.from)).toBe('2026-07-31T17:00:00.000Z');
-      expect(iso(range.to)).toBe('2026-08-01T16:59:59.999Z');
+    it('🔴 tháng có ngày đổi giờ: đầu tháng PDT (UTC−7), cuối khoảng PST (UTC−8)', () => {
+      const range = resolveDateRange('THIS_MONTH', LA, undefined, undefined, new Date('2026-11-15T20:00:00.000Z'));
+      expect(iso(range.from)).toBe('2026-11-01T07:00:00.000Z');
+      expect(iso(range.before)).toBe('2026-11-16T08:00:00.000Z');
+    });
+
+    it('ngày 01 lúc 00:30 ở LA ⇒ "Tháng này" đúng một ngày', () => {
+      const range = resolveDateRange('THIS_MONTH', LA, undefined, undefined, new Date('2026-10-01T07:30:00.000Z'));
+      expect([range.fromDay, range.toDay]).toEqual(['2026-10-01', '2026-10-01']);
+    });
+
+    it('🔴 30/09 21:00 ở LA (UTC đã là 01/10) vẫn thuộc THÁNG 9', () => {
+      const range = resolveDateRange('THIS_MONTH', LA, undefined, undefined, new Date('2026-10-01T04:00:00.000Z'));
+      expect([range.fromDay, range.toDay]).toEqual(['2026-09-01', '2026-09-30']);
     });
   });
 
   describe('LAST_MONTH', () => {
-    it('trọn tháng LIỀN TRƯỚC theo giờ VN (không phải 30 ngày gần nhất)', () => {
-      const range = resolveDateRange('LAST_MONTH', VN, undefined, undefined, NOW);
-      // 00:00 VN ngày 01/07 = 17:00Z ngày 30/06 · hết ngày 31/07 VN = 16:59:59.999Z ngày 31/07
-      expect(iso(range.from)).toBe('2026-06-30T17:00:00.000Z');
-      expect(iso(range.to)).toBe('2026-07-31T16:59:59.999Z');
+    it('trọn tháng LIỀN TRƯỚC ở LA, nối khít với THIS_MONTH', () => {
+      const last = resolveDateRange('LAST_MONTH', LA, undefined, undefined, NOW);
+      const thisMonth = resolveDateRange('THIS_MONTH', LA, undefined, undefined, NOW);
+      expect([last.fromDay, last.toDay]).toEqual(['2026-09-01', '2026-09-30']);
+      expect(iso(last.from)).toBe('2026-09-01T07:00:00.000Z');
+      expect(iso(last.before)).toBe(iso(thisMonth.from));
     });
 
-    it('không chồng lấn với THIS_MONTH', () => {
-      const last = resolveDateRange('LAST_MONTH', VN, undefined, undefined, NOW);
-      const current = resolveDateRange('THIS_MONTH', VN, undefined, undefined, NOW);
-      expect(last.to!.getTime()).toBeLessThan(current.from!.getTime());
+    it('🔴 đang ở tháng 1 ⇒ tháng 12 năm trước (PST, UTC−8)', () => {
+      const range = resolveDateRange('LAST_MONTH', LA, undefined, undefined, new Date('2027-01-05T20:00:00.000Z'));
+      expect(iso(range.from)).toBe('2026-12-01T08:00:00.000Z');
+      expect(iso(range.before)).toBe('2027-01-01T08:00:00.000Z');
     });
 
-    it('🔴 đang ở tháng 1 → lùi đúng sang tháng 12 năm trước', () => {
-      const january = new Date('2026-01-10T03:00:00.000Z'); // 10:00 VN ngày 10/01/2026
-      const range = resolveDateRange('LAST_MONTH', VN, undefined, undefined, january);
-      expect(iso(range.from)).toBe('2025-11-30T17:00:00.000Z');
-      expect(iso(range.to)).toBe('2025-12-31T16:59:59.999Z');
+    it('tháng 2 năm nhuận đủ 29 ngày', () => {
+      expect(resolvePresetDays('LAST_MONTH', LA, new Date('2028-03-10T20:00:00.000Z'))).toEqual({
+        fromDay: '2028-02-01',
+        toDay: '2028-02-29',
+      });
+    });
+  });
+
+  describe('🔴 ngày đổi giờ mùa hè', () => {
+    it('08/03/2026 (bắt đầu PDT) dài 23 giờ', () => {
+      const range = resolveDateRange('CUSTOM', LA, '2026-03-08', '2026-03-08');
+      expect(iso(range.from)).toBe('2026-03-08T08:00:00.000Z');
+      expect(iso(range.before)).toBe('2026-03-09T07:00:00.000Z');
+      expect(lengthHours(range)).toBe(23);
     });
 
-    it('ngày đầu tháng vẫn ra trọn tháng trước', () => {
-      const firstDay = new Date('2026-08-01T03:00:00.000Z');
-      const range = resolveDateRange('LAST_MONTH', VN, undefined, undefined, firstDay);
-      expect(iso(range.from)).toBe('2026-06-30T17:00:00.000Z');
-      expect(iso(range.to)).toBe('2026-07-31T16:59:59.999Z');
+    it('01/11/2026 (kết thúc PDT) dài 25 giờ', () => {
+      const range = resolveDateRange('CUSTOM', LA, '2026-11-01', '2026-11-01');
+      expect(iso(range.from)).toBe('2026-11-01T07:00:00.000Z');
+      expect(iso(range.before)).toBe('2026-11-02T08:00:00.000Z');
+      expect(lengthHours(range)).toBe(25);
+    });
+
+    it('YESTERDAY vào sáng 09/03 = trọn ngày 23 giờ 08/03', () => {
+      const range = resolveDateRange('YESTERDAY', LA, undefined, undefined, new Date('2026-03-09T16:00:00.000Z'));
+      expect(range.fromDay).toBe('2026-03-08');
+      expect(lengthHours(range)).toBe(23);
+    });
+
+    it('bản ghi 01:30 lần THỨ HAI (PST) của ngày 01/11 vẫn thuộc ngày 01/11', () => {
+      const range = resolveDateRange('CUSTOM', LA, '2026-11-01', '2026-11-01');
+      expect(contains(range, '2026-11-01T08:30:00.000Z')).toBe(true); // 01:30 PDT
+      expect(contains(range, '2026-11-01T09:30:00.000Z')).toBe(true); // 01:30 PST
+      expect(contains(range, '2026-11-02T07:59:59.999Z')).toBe(true); // 23:59:59.999 PST
+    });
+  });
+
+  describe('🔴 ranh giới nửa mở', () => {
+    const range = resolveDateRange('CUSTOM', LA, '2026-10-27', '2026-10-27');
+
+    it('bản ghi ĐÚNG 00:00 đầu ngày được tính', () => {
+      expect(contains(range, '2026-10-27T07:00:00.000Z')).toBe(true);
+    });
+
+    it('bản ghi 23:59:59.999999 cuối ngày được tính (không bỏ sót micro giây)', () => {
+      // `Date` chỉ có mili giây — kiểm mốc thật sự: mọi t < before đều lọt, kể cả 1 µs trước before.
+      expect(range.before!.getTime() - 1).toBeGreaterThanOrEqual(range.from!.getTime());
+      expect(contains(range, '2026-10-28T06:59:59.999Z')).toBe(true);
+    });
+
+    it('bản ghi ĐÚNG 00:00 ngày hôm sau KHÔNG được tính', () => {
+      expect(contains(range, '2026-10-28T07:00:00.000Z')).toBe(false);
+    });
+
+    it('bản ghi 23:59 ngày hôm trước KHÔNG được tính', () => {
+      expect(contains(range, '2026-10-27T06:59:59.999Z')).toBe(false);
     });
   });
 
   describe('ALL', () => {
     it('không giới hạn thời gian', () => {
-      expect(resolveDateRange('ALL', VN, undefined, undefined, NOW)).toEqual({});
+      expect(resolveDateRange('ALL', LA, undefined, undefined, NOW)).toEqual({});
     });
 
-    it('bỏ qua cả khoảng tuỳ chọn nếu chọn ALL', () => {
-      const range = resolveDateRange('ALL', VN, '2026-01-01', '2026-02-01', NOW);
-      expect(range).toEqual({});
+    it('bỏ qua khoảng tuỳ chọn khi chọn ALL', () => {
+      expect(resolveDateRange('ALL', LA, '2026-01-01', '2026-01-31', NOW)).toEqual({});
     });
   });
 
   describe('CUSTOM', () => {
-    it('bao TRỌN cả ngày bắt đầu và ngày kết thúc', () => {
-      const range = resolveDateRange('CUSTOM', VN, '2026-07-01', '2026-07-31', NOW);
-      expect(iso(range.from)).toBe('2026-06-30T17:00:00.000Z');
-      expect(iso(range.to)).toBe('2026-07-31T16:59:59.999Z');
+    it('nhiều ngày ⇒ từ 00:00 ngày đầu đến 00:00 sau ngày cuối (gồm trọn ngày cuối)', () => {
+      const range = resolveDateRange('CUSTOM', LA, '2026-10-01', '2026-10-15');
+      expect(iso(range.from)).toBe('2026-10-01T07:00:00.000Z');
+      expect(iso(range.before)).toBe('2026-10-16T07:00:00.000Z');
+      expect([range.fromDay, range.toDay]).toEqual(['2026-10-01', '2026-10-15']);
     });
 
-    it('chọn cùng một ngày → trọn 24 giờ của ngày đó', () => {
-      const range = resolveDateRange('CUSTOM', VN, '2026-07-15', '2026-07-15', NOW);
-      const hours = (range.to!.getTime() - range.from!.getTime() + 1) / (3600 * 1000);
-      expect(hours).toBeCloseTo(24, 5);
+    it('🔴 chuỗi YYYY-MM-DD là ngày LỊCH ở LA — không bị `new Date()` (UTC) kéo lùi một ngày', () => {
+      // Lỗi cũ: new Date('2026-10-27') = 00:00Z = 26/10 17:00 PDT ⇒ lọc nhầm ngày 26.
+      expect(resolveDateRange('CUSTOM', LA, '2026-10-27', '2026-10-27').fromDay).toBe('2026-10-27');
     });
 
-    it('chỉ có ngày bắt đầu → không giới hạn ngày kết thúc', () => {
-      const range = resolveDateRange('CUSTOM', VN, '2026-07-01', undefined, NOW);
-      expect(range.from).toBeDefined();
-      expect(range.to).toBeUndefined();
+    it('chỉ có ngày bắt đầu ⇒ không giới hạn ngày kết thúc', () => {
+      const range = resolveDateRange('CUSTOM', LA, '2026-10-01', undefined);
+      expect(iso(range.from)).toBe('2026-10-01T07:00:00.000Z');
+      expect(range.before).toBeUndefined();
     });
 
-    it('không có preset nhưng có khoảng ngày → vẫn áp dụng khoảng đó', () => {
-      const range = resolveDateRange(undefined, VN, '2026-07-01', '2026-07-31', NOW);
-      expect(iso(range.from)).toBe('2026-06-30T17:00:00.000Z');
-      expect(iso(range.to)).toBe('2026-07-31T16:59:59.999Z');
+    it('không có preset nhưng có khoảng ngày ⇒ vẫn áp dụng khoảng đó', () => {
+      expect(iso(resolveDateRange(undefined, LA, '2026-10-01', '2026-10-01').from)).toBe('2026-10-01T07:00:00.000Z');
     });
 
-    it('không preset, không khoảng ngày → không lọc', () => {
-      expect(resolveDateRange(undefined, VN, undefined, undefined, NOW)).toEqual({});
+    it('không preset, không khoảng ngày ⇒ không lọc', () => {
+      expect(resolveDateRange(undefined, LA)).toEqual({ from: undefined, before: undefined });
+    });
+
+    it('🔴 ngày bắt đầu SAU ngày kết thúc ⇒ 400 DATE_RANGE_INVALID', () => {
+      expect(() => resolveDateRange('CUSTOM', LA, '2026-10-15', '2026-10-01')).toThrow(BadRequestException);
+      try {
+        resolveDateRange('CUSTOM', LA, '2026-10-15', '2026-10-01');
+      } catch (error) {
+        expect((error as BadRequestException).getResponse()).toMatchObject({ code: 'DATE_RANGE_INVALID' });
+      }
+    });
+
+    it('🔴 ngày không tồn tại (30/02) ⇒ 400, không tự "lăn" sang tháng sau', () => {
+      expect(() => resolveDateRange('CUSTOM', LA, '2026-02-30', '2026-03-01')).toThrow(BadRequestException);
+    });
+
+    it('client cũ gửi ISO có giờ ⇒ hiểu là THỜI ĐIỂM, quy về ngày ở LA chứa nó (không dịch giờ hai lần)', () => {
+      // 2026-10-28T03:00Z = 27/10 20:00 PDT
+      const range = resolveDateRange('CUSTOM', LA, '2026-10-28T03:00:00.000Z', '2026-10-28T03:00:00.000Z');
+      expect([range.fromDay, range.toDay]).toEqual(['2026-10-27', '2026-10-27']);
     });
   });
 
-  describe('Múi giờ khác', () => {
-    it('UTC (offset 0) cho mốc khác với UTC+7', () => {
-      const vn = resolveDateRange('TODAY', VN, undefined, undefined, NOW);
-      const utc = resolveDateRange('TODAY', 0, undefined, undefined, NOW);
-      expect(iso(utc.from)).toBe('2026-08-06T00:00:00.000Z');
-      expect(iso(vn.from)).not.toBe(iso(utc.from));
-    });
-
-    it('múi giờ âm (US Pacific, -420) vẫn tính đúng', () => {
-      const range = resolveDateRange('TODAY', -420, undefined, undefined, NOW);
-      // 02:30Z ngày 06/08 = 19:30 ngày 05/08 giờ PDT ⇒ "hôm nay" là ngày 05/08.
-      expect(iso(range.from)).toBe('2026-08-05T07:00:00.000Z');
-      expect(iso(range.to)).toBe('2026-08-06T06:59:59.999Z');
+  describe('múi giờ cấu hình được', () => {
+    it('Asia/Ho_Chi_Minh (UTC+7, không đổi giờ) cho mốc khác với LA', () => {
+      const range = resolveDateRange('TODAY', 'Asia/Ho_Chi_Minh', undefined, undefined, NOW);
+      expect(iso(range.from)).toBe('2026-10-27T17:00:00.000Z');
+      expect(iso(range.before)).toBe('2026-10-28T17:00:00.000Z');
     });
   });
 });

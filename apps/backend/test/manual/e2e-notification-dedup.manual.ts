@@ -126,12 +126,14 @@ async function main() {
       },
     });
     const configs = {
-      findByOrganization: () => Promise.resolve({ enabled: true, chatId: '-1001234567890', botTokenEnc: 'enc' }),
+      findByOwner: () => Promise.resolve({ enabled: true, chatId: '-1001234567890', botTokenEnc: 'enc' }),
       findOrganizationName: () => Promise.resolve('E2E'),
       recordDelivery: () => Promise.resolve(),
     };
     const encryption = { isConfigured: () => true, decrypt: () => 'token' };
     const preferences = { find: () => Promise.resolve(null) };
+    // Kịch bản dùng kênh TỔ CHỨC ⇒ không kiểm phạm vi cá nhân.
+    const recipients = { allowedUserIds: () => Promise.resolve(new Set<string>()) };
     const worker = (mode: 'OK' | 'TIMEOUT') =>
       new NotificationDispatcherService(
         config,
@@ -140,6 +142,7 @@ async function main() {
         fakeTelegram(mode) as never,
         encryption as never,
         preferences as never,
+        recipients as never,
       );
 
     let counted = 0;

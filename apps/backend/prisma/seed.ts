@@ -190,6 +190,7 @@ const PERMISSIONS: Array<{
   { code: 'fulfillment.mapping', module: 'FULFILLMENT', resource: 'fulfillment', action: 'mapping', description: 'Khai ánh xạ sản phẩm TikTok ⇄ SKU nhà cung cấp (đọc danh mục đã đồng bộ)' },
   // Notification — cấu hình Telegram của tổ chức (Bot Token là secret ⇒ chỉ ADMIN, không cấp Seller).
   { code: 'notification.config', module: 'NOTIFICATION', resource: 'notification', action: 'config', description: 'Cấu hình thông báo Telegram của tổ chức (Bot Token, Chat ID, bật/tắt, gửi thử) và xem/gửi lại thông báo' },
+  { code: 'notification.self', module: 'NOTIFICATION', resource: 'notification', action: 'self', description: 'Tự cấu hình kênh Telegram CÁ NHÂN — chỉ nhận thông báo đơn thuộc shop được gán cho chính mình' },
   // Storage Module (core) — API lưu trữ file dùng chung cho mọi module
   { code: 'storage.read',   module: 'STORAGE', resource: 'storage', action: 'read',   description: 'Xem/tải file trong kho lưu trữ' },
   { code: 'storage.upload', module: 'STORAGE', resource: 'storage', action: 'upload', description: 'Tải file lên kho lưu trữ' },

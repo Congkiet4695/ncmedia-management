@@ -17,6 +17,7 @@ import {
   TriggerPayoutSyncDto,
 } from '../dto/pod-payout.dto';
 import { PodTiktokAccountNotFoundException } from '../exceptions/pod-tiktok.exceptions';
+import { DEFAULT_BUSINESS_TIMEZONE } from '../../../common/time/business-time';
 import { resolveDateRange } from '../utils/date-range.util';
 import { PodPayoutSyncService } from './pod-payout-sync.service';
 import { SyncShopTarget } from './pod-order-sync.service';
@@ -25,7 +26,7 @@ import { SyncShopTarget } from './pod-order-sync.service';
  * PodPayoutService — nghiệp vụ báo cáo Payout TikTok.
  *
  * Trách nhiệm:
- *  - Quy đổi preset thời gian → khoảng UTC (tại backend, theo múi giờ vận hành).
+ *  - Quy đổi preset thời gian → khoảng UTC nửa mở (tại backend, theo múi giờ nghiệp vụ IANA).
  *  - Áp scope row-level: Admin xem toàn Organization, người khác chỉ xem account mình quản lý.
  *  - Gọi repository (đã aggregate sẵn bằng SQL) và đóng gói response.
  *
@@ -74,7 +75,10 @@ export class PodPayoutService {
       orderCount: summary.orderCount,
       range: {
         from: filter.from?.toISOString() ?? null,
-        to: filter.to?.toISOString() ?? null,
+        // Giữ nghĩa cũ "thời điểm CUỐI được tính" (bao gồm) = 1 ms trước mốc nửa mở.
+        to: filter.before ? new Date(filter.before.getTime() - 1).toISOString() : null,
+        fromDay: filter.fromDay ?? null,
+        toDay: filter.toDay ?? null,
       },
       currencies,
     };
@@ -173,12 +177,18 @@ export class PodPayoutService {
     query: PodPayoutFilterDto,
     sellerScope?: string,
   ): PayoutReportFilter {
-    const offsetMinutes = this.config.get<number>('timezoneOffsetMinutes', 420);
-    const range = resolveDateRange(query.datePreset, offsetMinutes, query.fromDate, query.toDate);
+    const range = resolveDateRange(
+      query.datePreset,
+      this.config.get<string>('businessTimeZone', DEFAULT_BUSINESS_TIMEZONE),
+      query.fromDate,
+      query.toDate,
+    );
     return {
       organizationId,
       from: range.from,
-      to: range.to,
+      before: range.before,
+      fromDay: range.fromDay,
+      toDay: range.toDay,
       status: query.payoutStatus,
       sellerScope,
       search: query.search || undefined,

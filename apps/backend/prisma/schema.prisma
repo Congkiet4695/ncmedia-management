@@ -320,8 +320,8 @@ model Organization {
   fulfillmentProductMappings FulfillmentProductMapping[]
   fulfillmentOrders          FulfillmentOrder[]
   approvalLogs               OrganizationApprovalLog[]
-  telegramConfig             OrganizationTelegramConfig?
-  notificationPreference     OrganizationNotificationPreference?
+  telegramConfigs            OrganizationTelegramConfig[]
+  notificationPreferences    OrganizationNotificationPreference[]
   notificationEvents         NotificationEvent[]
 
   /// Màn Super Admin lọc theo trạng thái + sắp theo thời điểm đăng ký.
@@ -421,6 +421,9 @@ model User {
   storageFilesUploaded        StorageFile[]      @relation("StorageUploader")
   // Flash Sale do User này tạo — cột "Created By" của màn hình danh sách.
   podFlashSalesCreated        PodFlashSale[]     @relation("PodFlashSaleCreator")
+  // Kênh Telegram CÁ NHÂN (owner_key = id user) và loại thông báo cá nhân — xem OrganizationTelegramConfig.
+  personalTelegramConfigs     OrganizationTelegramConfig[]
+  personalNotificationPrefs   OrganizationNotificationPreference[]
 
   @@index([organizationId])
   @@index([roleId])
@@ -6040,11 +6043,18 @@ enum NotificationEventStatus {
 //
 // 🔴 Bot Token là secret: chỉ lưu bản mã hoá AES-256-GCM (`NOTIFICATION_ENCRYPTION_KEY`, khoá
 // riêng — key separation) cùng vài ký tự cuối để nhận diện. API KHÔNG BAO GIỜ trả token.
-// Mỗi tổ chức tối đa một cấu hình (UNIQUE organization_id) — không dùng chung giữa tổ chức.
+// CHỦ SỞ HỮU (owner_key): `ORGANIZATION` = kênh của tổ chức (Admin, `notification.config`) — nhận MỌI đơn;
+// hoặc id người dùng = kênh CÁ NHÂN (`notification.self`) — CHỈ nhận đơn thuộc shop đang được gán cho
+// người đó. Mỗi chủ sở hữu tối đa một cấu hình: UNIQUE (organization_id, owner_key). Dùng giá trị
+// `ORGANIZATION` thay vì user_id NULL vì NULL không trùng nhau trong UNIQUE của PostgreSQL.
 // ---------------------------------------------------------------------------
 model OrganizationTelegramConfig {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @unique @map("organization_id") @db.Uuid
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  /// `ORGANIZATION` hoặc id người dùng (= `user_id`).
+  ownerKey       String  @default("ORGANIZATION") @map("owner_key") @db.VarChar(64)
+  /// Người dùng sở hữu kênh cá nhân. NULL = kênh của tổ chức.
+  userId         String? @map("user_id") @db.Uuid
 
   botTokenEnc  String  @map("bot_token_enc") @db.Text
   /// 4 ký tự cuối của token — đủ để đối chiếu, không đủ để dùng.
@@ -6069,7 +6079,11 @@ model OrganizationTelegramConfig {
   updatedBy String?   @map("updated_by") @db.Uuid
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
+  @@unique([organizationId, ownerKey], map: "organization_telegram_configs_owner_key")
+  /// Lúc ghi sự kiện: tìm kênh cá nhân ĐANG BẬT của tổ chức.
+  @@index([organizationId, enabled])
   @@map("organization_telegram_configs")
 }
 
@@ -6116,9 +6130,21 @@ model NotificationEvent {
   /// Người dùng gây ra sự kiện (fulfill / huỷ). NULL = hệ thống (đồng bộ theo lịch).
   createdBy String?  @map("created_by") @db.Uuid
 
+  /// NGƯỜI NHẬN: `ORGANIZATION` = kênh của tổ chức; id người dùng = kênh cá nhân (xem
+  /// OrganizationTelegramConfig.owner_key). Một sự kiện nghiệp vụ ⇒ một dòng cho MỖI người nhận.
+  recipientKey    String  @default("ORGANIZATION") @map("recipient_key") @db.VarChar(64)
+  recipientUserId String? @map("recipient_user_id") @db.Uuid
+  /// TikTok Account / Shop của đơn — phạm vi dữ liệu, kiểm LẠI lúc gửi cho kênh cá nhân (phân công có
+  /// thể đã đổi). NULL ở sự kiện ghi trước khi có kênh cá nhân (chỉ có dòng ORGANIZATION).
+  accountId       String? @map("account_id") @db.Uuid
+  shopId          String? @map("shop_id") @db.Uuid
+
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
-  @@unique([organizationId, eventType, entityType, entityId, channel], map: "notification_events_idempotency_key")
+  /// Idempotency theo NGƯỜI NHẬN: một đơn ⇒ tối đa MỘT tin cho mỗi kênh (tổ chức / từng người).
+  @@unique([organizationId, eventType, entityType, entityId, channel, recipientKey], map: "notification_events_idempotency_key")
+  /// "Thông báo gần đây" của từng kênh.
+  @@index([organizationId, recipientKey, createdAt])
   /// Worker: lấy sự kiện đến hạn.
   @@index([status, nextAttemptAt])
   /// Màn hình "Thông báo gần đây" của tổ chức.
@@ -6134,8 +6160,11 @@ model NotificationEvent {
 // Backend kiểm tuỳ chọn ở CẢ hai đầu: lúc ghi sự kiện (outbox) và lúc worker gửi.
 // ---------------------------------------------------------------------------
 model OrganizationNotificationPreference {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @unique @map("organization_id") @db.Uuid
+  id             String  @id @default(uuid()) @db.Uuid
+  organizationId String  @map("organization_id") @db.Uuid
+  /// Cùng quy ước với OrganizationTelegramConfig.owner_key: `ORGANIZATION` hoặc id người dùng.
+  ownerKey       String  @default("ORGANIZATION") @map("owner_key") @db.VarChar(64)
+  userId         String? @map("user_id") @db.Uuid
 
   /// NEW ORDER — đơn TikTok mới được tạo khi đồng bộ.
   notifyNewOrder     Boolean @default(true) @map("notify_new_order")
@@ -6151,7 +6180,9 @@ model OrganizationNotificationPreference {
   updatedBy String?   @map("updated_by") @db.Uuid
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  user         User?        @relation(fields: [userId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
+  @@unique([organizationId, ownerKey], map: "organization_notification_preferences_owner_key")
   @@map("organization_notification_preferences")
 }
 

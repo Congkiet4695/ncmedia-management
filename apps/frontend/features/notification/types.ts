@@ -1,6 +1,12 @@
 import type { Paginated } from '@/types/api';
 
 /** Trạng thái hiển thị của tích hợp Telegram (backend tính). */
+/**
+ * Kênh thông báo: `organization` = kênh của tổ chức (Admin, nhận mọi đơn); `me` = kênh cá nhân của người đang
+ * đăng nhập (chỉ nhận đơn thuộc shop được gán cho chính người đó — backend lọc).
+ */
+export type NotificationChannelScope = 'organization' | 'me';
+
 export type TelegramIntegrationStatus =
   | 'NOT_CONFIGURED'
   | 'DISABLED'

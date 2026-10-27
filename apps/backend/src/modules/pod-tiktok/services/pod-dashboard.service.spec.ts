@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { GUARDS_METADATA } from '@nestjs/common/constants';
 import { BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { businessDayOf } from '../../../common/time/business-time';
 import { Reflector } from '@nestjs/core';
 import { ForbiddenException, type ExecutionContext } from '@nestjs/common';
 import {
@@ -207,6 +208,18 @@ describe('PodDashboardService.summary', () => {
     await expect(
       service.summary(ORG, ADMIN, { from: '2026-09-30', to: '2026-09-01' }),
     ).rejects.toBeInstanceOf(BadRequestException);
+  });
+
+  it('🔴 khoảng ngày sai ⇒ từ chối TRƯỚC mọi truy vấn DB (summary / sellers / trends)', async () => {
+    const { service, repo } = build();
+    const reversed = { from: '2026-09-30', to: '2026-09-01' };
+    await expect(service.summary(ORG, ADMIN, reversed)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.sellers(ORG, ADMIN, reversed)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(service.trends(ORG, ADMIN, reversed)).rejects.toBeInstanceOf(BadRequestException);
+    const calls = Object.values(repo as Record<string, jest.Mock>)
+      .filter((fn) => typeof fn?.mock === 'object')
+      .reduce((sum, fn) => sum + fn.mock.calls.length, 0);
+    expect(calls).toBe(0);
   });
 });
 
@@ -415,22 +428,24 @@ describe('PodDashboardService — Est. profit = Revenue − Base cost − Shippi
 });
 
 describe('PodDashboardService — "Tất cả thời gian" (allTime)', () => {
-  const todayVn = () => new Date(Date.now() + 420 * 60_000).toISOString().slice(0, 10);
+  // Hôm nay theo múi giờ nghiệp vụ mặc định (config mock trả fallback ⇒ America/Los_Angeles).
+  const todayLa = () => businessDayOf(new Date(), 'America/Los_Angeles');
 
   it('bỏ qua from / to, lấy từ ngày có dữ liệu sớm nhất (trong phạm vi) đến hôm nay — không giới hạn 366 ngày', async () => {
     const { service, repo } = build();
     const result = await service.summary(ORG, SELLER, { allTime: true, from: '2026-10-01', to: '2026-10-02' });
-    expect(result).toMatchObject({ from: '2025-01-23', to: todayVn() });
+    expect(result).toMatchObject({ from: '2025-01-23', to: todayLa() });
     // Phạm vi người xem đi xuống truy vấn ngày sớm nhất (Seller không kéo mốc của shop khác).
     expect(filterOf(repo.earliestActivityDay)).toMatchObject({ organizationId: ORG, accountIds: ['acc-1'] });
-    const window = (repo.finance.mock.calls[0] as unknown[])[1] as { from: Date; to: Date };
-    expect(window.from.toISOString()).toBe('2025-01-22T17:00:00.000Z');
+    const window = (repo.finance.mock.calls[0] as unknown[])[1] as { from: Date; before: Date };
+    // 00:00 23/01/2025 ở LA (PST, UTC−8).
+    expect(window.from.toISOString()).toBe('2025-01-23T08:00:00.000Z');
   });
 
   it('chưa có dữ liệu ⇒ chỉ hôm nay', async () => {
     const { service } = build({ earliestActivityDay: jest.fn().mockResolvedValue(null) });
     const result = await service.trends(ORG, ADMIN, { allTime: true });
-    expect(result).toMatchObject({ from: todayVn(), to: todayVn() });
+    expect(result).toMatchObject({ from: todayLa(), to: todayLa() });
   });
 
   it('allTime dùng chung cho Thống kê seller và Xu hướng', async () => {
@@ -438,8 +453,8 @@ describe('PodDashboardService — "Tất cả thời gian" (allTime)', () => {
     await service.sellers(ORG, ADMIN, { allTime: true });
     await service.trends(ORG, ADMIN, { allTime: true });
     const sellerWindow = (repo.sellerStats.mock.calls[0] as unknown[])[1] as { from: Date };
-    expect(sellerWindow.from.toISOString()).toBe('2025-01-22T17:00:00.000Z');
-    expect((repo.financeTrend.mock.calls[0] as unknown[])[2]).toMatchObject({ fromDay: '2025-01-23', toDay: todayVn() });
+    expect(sellerWindow.from.toISOString()).toBe('2025-01-23T08:00:00.000Z');
+    expect((repo.financeTrend.mock.calls[0] as unknown[])[2]).toMatchObject({ fromDay: '2025-01-23', toDay: todayLa() });
   });
 
   it('không có allTime ⇒ giữ nguyên from / to và giới hạn 366 ngày như cũ', async () => {

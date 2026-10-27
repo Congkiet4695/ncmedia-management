@@ -18,9 +18,13 @@ export interface DashboardFilter {
   sellerId?: string;
 }
 
+/**
+ * Khoảng thời điểm NỬA MỞ `from <= cột < before` — `before` = 00:00 ngày SAU ngày cuối (giờ nghiệp vụ).
+ * Không dùng BETWEEN … 23:59:59.999: cột `timestamptz(6)` có micro giây.
+ */
 export interface Window {
   from: Date;
-  to: Date;
+  before: Date;
 }
 
 /** Cột của bảng Thống kê seller được phép sắp xếp (whitelist — chống SQL injection qua ORDER BY). */
@@ -408,13 +412,13 @@ export class PodDashboardRepository {
   // ---------------------------------------------------------------------------
 
   /**
-   * Ngày (giờ vận hành) có dữ liệu SỚM NHẤT trong phạm vi — mốc đầu của "Tất cả thời gian". Lấy MIN trên CẢ BA mốc
+   * Ngày (giờ nghiệp vụ) có dữ liệu SỚM NHẤT trong phạm vi — mốc đầu của "Tất cả thời gian". Lấy MIN trên CẢ BA mốc
    * mà các widget lọc theo (`ordered_at` đơn, ngày chi payout, `statement_at`) và KHÔNG lọc đơn vị tiền ⇒ khoảng
    * luôn bao trọn mọi dữ liệu mà từng widget có thể đếm. `null` = chưa có dữ liệu.
    */
-  async earliestActivityDay(filter: DashboardFilter, offsetMinutes: number): Promise<string | null> {
+  async earliestActivityDay(filter: DashboardFilter, timeZone: string): Promise<string | null> {
     const rows = await this.prisma.$queryRaw<Array<{ day: string | null }>>(Prisma.sql`
-      SELECT to_char(${this.localDate('m.at', offsetMinutes)}, 'YYYY-MM-DD') AS day
+      SELECT to_char(${this.localDate('m.at', timeZone)}, 'YYYY-MM-DD') AS day
         FROM (
           SELECT LEAST(
             (SELECT MIN(po.ordered_at) FROM pod_orders po
@@ -435,16 +439,16 @@ export class PodDashboardRepository {
   async periods(filter: DashboardFilter, windows: Window[]): Promise<PeriodRow[]> {
     const outer: Window = {
       from: new Date(Math.min(...windows.map((w) => w.from.getTime()))),
-      to: new Date(Math.max(...windows.map((w) => w.to.getTime()))),
+      before: new Date(Math.max(...windows.map((w) => w.before.getTime()))),
     };
     const orderCols = windows.map(
       (w, i) => Prisma.sql`
-        COUNT(*) FILTER (WHERE fin.ordered_at BETWEEN ${w.from} AND ${w.to})::bigint AS ${Prisma.raw(`orders_${i}`)},
-        COALESCE(SUM(fin.proceeds) FILTER (WHERE fin.ordered_at BETWEEN ${w.from} AND ${w.to}), 0) AS ${Prisma.raw(`est_${i}`)}`,
+        COUNT(*) FILTER (WHERE (fin.ordered_at >= ${w.from} AND fin.ordered_at < ${w.before}))::bigint AS ${Prisma.raw(`orders_${i}`)},
+        COALESCE(SUM(fin.proceeds) FILTER (WHERE (fin.ordered_at >= ${w.from} AND fin.ordered_at < ${w.before})), 0) AS ${Prisma.raw(`est_${i}`)}`,
     );
     const payoutCols = windows.map(
       (w, i) => Prisma.sql`
-        COALESCE(SUM(p.amount) FILTER (WHERE COALESCE(p.paid_at, p.payment_created_at) BETWEEN ${w.from} AND ${w.to}), 0)
+        COALESCE(SUM(p.amount) FILTER (WHERE (COALESCE(p.paid_at, p.payment_created_at) >= ${w.from} AND COALESCE(p.paid_at, p.payment_created_at) < ${w.before})), 0)
           AS ${Prisma.raw(`payout_${i}`)}`,
     );
     const [orderRow] = await this.prisma.$queryRaw<Array<Record<string, Prisma.Decimal | bigint | null>>>(Prisma.sql`
@@ -748,12 +752,12 @@ export class PodDashboardRepository {
     };
   }
 
-  /** Xu hướng tài chính theo NGÀY (giờ vận hành) — mọi ngày trong khoảng, ngày trống = 0. */
+  /** Xu hướng tài chính theo NGÀY (giờ nghiệp vụ) — mọi ngày trong khoảng, ngày trống = 0. */
   async financeTrend(
     filter: DashboardFilter,
     window: Window,
     days: { fromDay: string; toDay: string },
-    offsetMinutes: number,
+    timeZone: string,
   ): Promise<FinanceTrendRow[]> {
     const rows = await this.prisma.$queryRaw<
       Array<{ day: Date; paid: Prisma.Decimal | null; processing: Prisma.Decimal | null }>
@@ -762,14 +766,14 @@ export class PodDashboardRepository {
         SELECT generate_series(${days.fromDay}::date, ${days.toDay}::date, INTERVAL '1 day')::date AS day
       ),
       paid AS (
-        SELECT ${this.localDate('COALESCE(p.paid_at, p.payment_created_at)', offsetMinutes)} AS day,
+        SELECT ${this.localDate('COALESCE(p.paid_at, p.payment_created_at)', timeZone)} AS day,
                SUM(p.amount) AS amount
           FROM pod_tiktok_payments p
          WHERE ${this.paidPaymentsWhere(filter, window)}
          GROUP BY 1
       ),
       processing AS (
-        SELECT ${this.localDate('st.statement_at', offsetMinutes)} AS day, SUM(st.settlement_amount) AS amount
+        SELECT ${this.localDate('st.statement_at', timeZone)} AS day, SUM(st.settlement_amount) AS amount
           FROM pod_tiktok_statements st
          WHERE ${this.processingStatementsWhere(filter, window)}
          GROUP BY 1
@@ -786,12 +790,12 @@ export class PodDashboardRepository {
     }));
   }
 
-  /** Xu hướng đơn theo NGÀY đặt (giờ vận hành) — mọi ngày trong khoảng, ngày trống = 0. */
+  /** Xu hướng đơn theo NGÀY đặt (giờ nghiệp vụ) — mọi ngày trong khoảng, ngày trống = 0. */
   async orderTrend(
     filter: DashboardFilter,
     window: Window,
     days: { fromDay: string; toDay: string },
-    offsetMinutes: number,
+    timeZone: string,
   ): Promise<OrderTrendRow[]> {
     const inProgress = [
       ...ORDER_STATUS_GROUPS.TO_SHIP,
@@ -805,7 +809,7 @@ export class PodDashboardRepository {
         SELECT generate_series(${days.fromDay}::date, ${days.toDay}::date, INTERVAL '1 day')::date AS day
       ),
       o AS (
-        SELECT ${this.localDate('po.ordered_at', offsetMinutes)} AS day,
+        SELECT ${this.localDate('po.ordered_at', timeZone)} AS day,
                COUNT(*)::bigint AS total,
                COUNT(*) FILTER (WHERE po.status IN (${Prisma.join(ORDER_STATUS_GROUPS.DELIVERED)}))::bigint AS delivered,
                COUNT(*) FILTER (WHERE po.status IN (${Prisma.join(inProgress)}))::bigint AS in_progress,
@@ -874,7 +878,7 @@ export class PodDashboardRepository {
     return Prisma.sql`po.organization_id = ${filter.organizationId}::uuid
        AND po.deleted_at IS NULL
        AND po.currency = ${filter.currency}
-       AND po.ordered_at BETWEEN ${window.from} AND ${window.to}
+       AND po.ordered_at >= ${window.from} AND po.ordered_at < ${window.before}
        AND ${this.scope(filter, 'po', { currency: false })}`;
   }
 
@@ -882,7 +886,8 @@ export class PodDashboardRepository {
     return Prisma.sql`p.organization_id = ${filter.organizationId}::uuid
        AND p.deleted_at IS NULL
        AND p.status = 'PAID'::"pod_payout_status"
-       AND COALESCE(p.paid_at, p.payment_created_at) BETWEEN ${window.from} AND ${window.to}
+       AND COALESCE(p.paid_at, p.payment_created_at) >= ${window.from}
+       AND COALESCE(p.paid_at, p.payment_created_at) < ${window.before}
        AND ${this.scope(filter, 'p')}`;
   }
 
@@ -890,7 +895,7 @@ export class PodDashboardRepository {
     return Prisma.sql`st.organization_id = ${filter.organizationId}::uuid
        AND st.deleted_at IS NULL
        AND st."paymentStatus" = 'PROCESSING'::"pod_payout_status"
-       AND st.statement_at BETWEEN ${window.from} AND ${window.to}
+       AND st.statement_at >= ${window.from} AND st.statement_at < ${window.before}
        AND ${this.scope(filter, 'st')}`;
   }
 
@@ -939,9 +944,13 @@ export class PodDashboardRepository {
     return Prisma.sql`(CASE ${Prisma.join(whens, ' ')} ELSE 'OTHER' END)`;
   }
 
-  /** Ngày theo giờ vận hành của một cột timestamptz. */
-  private localDate(column: string, offsetMinutes: number): Prisma.Sql {
-    return Prisma.sql`((${Prisma.raw(column)} AT TIME ZONE 'UTC') + make_interval(mins => ${offsetMinutes}::int))::date`;
+  /**
+   * Ngày nghiệp vụ của một cột timestamptz — `AT TIME ZONE '<IANA>'` để PostgreSQL tự áp PST/PDT theo TỪNG
+   * thời điểm (không cộng offset cố định). Chỉ dùng ở SELECT / GROUP BY: điều kiện lọc vẫn so cột gốc với mốc
+   * UTC, nên index trên cột không bị vô hiệu.
+   */
+  private localDate(column: string, timeZone: string): Prisma.Sql {
+    return Prisma.sql`(${Prisma.raw(column)} AT TIME ZONE ${timeZone}::text)::date`;
   }
 
   private sellerOrderBy(field: SellerSortField, order: 'asc' | 'desc'): Prisma.Sql {

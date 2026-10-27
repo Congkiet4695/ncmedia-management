@@ -23,33 +23,43 @@ describe('percentChange', () => {
   });
 });
 
-describe('resolveDayRange (UTC+7)', () => {
-  const NOW = new Date('2026-09-30T18:30:00.000Z'); // 01/10/2026 01:30 giờ VN
+describe('resolveDayRange (America/Los_Angeles)', () => {
+  const LA = 'America/Los_Angeles';
+  const NOW = new Date('2026-10-01T04:30:00.000Z'); // 30/09/2026 21:30 PDT — UTC đã là 01/10
 
-  it('bỏ trống ⇒ đầu tháng (giờ VN) → hôm nay', () => {
-    const range = resolveDayRange(undefined, undefined, 420, NOW);
-    expect(range.fromDay).toBe('2026-10-01');
-    expect(range.toDay).toBe('2026-10-01');
-    expect(range.from.toISOString()).toBe('2026-09-30T17:00:00.000Z');
-    expect(range.to.toISOString()).toBe('2026-10-01T16:59:59.999Z');
+  it('bỏ trống ⇒ đầu tháng (giờ LA) → hôm nay; mốc NỬA MỞ', () => {
+    const range = resolveDayRange(undefined, undefined, LA, NOW);
+    expect(range.fromDay).toBe('2026-09-01');
+    expect(range.toDay).toBe('2026-09-30');
+    expect(range.from.toISOString()).toBe('2026-09-01T07:00:00.000Z');
+    expect(range.before.toISOString()).toBe('2026-10-01T07:00:00.000Z');
   });
 
   it('khoảng tuỳ chọn gồm trọn hai ngày mút', () => {
-    const range = resolveDayRange('2026-09-01', '2026-09-30', 420, NOW);
+    const range = resolveDayRange('2026-09-01', '2026-09-30', LA, NOW);
     expect(range.days).toBe(30);
-    expect(range.from.toISOString()).toBe('2026-08-31T17:00:00.000Z');
-    expect(range.to.toISOString()).toBe('2026-09-30T16:59:59.999Z');
+    expect(range.from.toISOString()).toBe('2026-09-01T07:00:00.000Z');
+    expect(range.before.toISOString()).toBe('2026-10-01T07:00:00.000Z');
   });
 
-  it('sai định dạng / ngược chiều / quá dài ⇒ RangeError', () => {
-    expect(() => resolveDayRange('2026/09/01', '2026-09-30', 420)).toThrow(RangeError);
-    expect(() => resolveDayRange('2026-09-30', '2026-09-01', 420)).toThrow(RangeError);
-    expect(() => resolveDayRange('2024-01-01', '2026-01-01', 420)).toThrow(`${DASHBOARD_MAX_RANGE_DAYS}`);
+  it('🔴 khoảng qua mốc hết giờ mùa hè (01/11): đầu PDT, cuối PST', () => {
+    const range = resolveDayRange('2026-10-25', '2026-11-07', LA, NOW);
+    expect(range.days).toBe(14);
+    expect(range.from.toISOString()).toBe('2026-10-25T07:00:00.000Z');
+    expect(range.before.toISOString()).toBe('2026-11-08T08:00:00.000Z');
   });
 
-  it('localDay theo múi giờ vận hành', () => {
-    expect(localDay(NOW, 420)).toBe('2026-10-01');
-    expect(localDay(NOW, 0)).toBe('2026-09-30');
+  it('sai định dạng / ngày không có thật / ngược chiều / quá dài ⇒ RangeError', () => {
+    expect(() => resolveDayRange('2026/09/01', '2026-09-30', LA)).toThrow(RangeError);
+    expect(() => resolveDayRange('2026-02-30', '2026-03-01', LA)).toThrow(RangeError);
+    expect(() => resolveDayRange('2026-09-30', '2026-09-01', LA)).toThrow(RangeError);
+    expect(() => resolveDayRange('2024-01-01', '2026-01-01', LA)).toThrow(`${DASHBOARD_MAX_RANGE_DAYS}`);
+  });
+
+  it('localDay theo múi giờ nghiệp vụ, KHÔNG theo UTC', () => {
+    expect(localDay(NOW, LA)).toBe('2026-09-30');
+    expect(localDay(NOW, 'UTC')).toBe('2026-10-01');
+    expect(localDay(NOW, 'Asia/Ho_Chi_Minh')).toBe('2026-10-01');
   });
 });
 
@@ -182,24 +192,25 @@ describe('sellerEstProfit — Est. profit = Revenue − Base cost − Shipping F
   });
 });
 
-describe('resolveAllTimeRange — "Tất cả thời gian" (UTC+7)', () => {
-  const NOW = new Date('2026-10-14T05:00:00.000Z'); // 14/10/2026 12:00 giờ VN
+describe('resolveAllTimeRange — "Tất cả thời gian" (America/Los_Angeles)', () => {
+  const LA = 'America/Los_Angeles';
+  const NOW = new Date('2026-10-14T19:00:00.000Z'); // 14/10/2026 12:00 PDT
 
   it('từ ngày có dữ liệu sớm nhất đến hôm nay, KHÔNG giới hạn DASHBOARD_MAX_RANGE_DAYS', () => {
-    const range = resolveAllTimeRange('2025-01-23', 420, NOW);
+    const range = resolveAllTimeRange('2025-01-23', LA, NOW);
     expect(range).toMatchObject({ fromDay: '2025-01-23', toDay: '2026-10-14' });
     expect(range.days).toBeGreaterThan(DASHBOARD_MAX_RANGE_DAYS);
-    expect(range.from.toISOString()).toBe('2025-01-22T17:00:00.000Z');
-    expect(range.to.toISOString()).toBe('2026-10-14T16:59:59.999Z');
+    expect(range.from.toISOString()).toBe('2025-01-23T08:00:00.000Z'); // tháng 1 = PST (UTC−8)
+    expect(range.before.toISOString()).toBe('2026-10-15T07:00:00.000Z'); // tháng 10 = PDT (UTC−7)
   });
 
   it('chưa có dữ liệu / ngày sớm nhất ở tương lai / sai định dạng ⇒ chỉ hôm nay', () => {
     for (const earliest of [null, '2026-12-01', 'abc']) {
-      expect(resolveAllTimeRange(earliest, 420, NOW)).toMatchObject({ fromDay: '2026-10-14', toDay: '2026-10-14', days: 1 });
+      expect(resolveAllTimeRange(earliest, LA, NOW)).toMatchObject({ fromDay: '2026-10-14', toDay: '2026-10-14', days: 1 });
     }
   });
 
-  it('hôm nay theo giờ vận hành (01:30 VN ngày 01/10 vẫn là 30/09 UTC)', () => {
-    expect(resolveAllTimeRange('2026-09-01', 420, new Date('2026-09-30T18:30:00.000Z')).toDay).toBe('2026-10-01');
+  it('hôm nay theo giờ LA (21:30 PDT 30/09 — UTC đã là 01/10)', () => {
+    expect(resolveAllTimeRange('2026-09-01', LA, new Date('2026-10-01T04:30:00.000Z')).toDay).toBe('2026-09-30');
   });
 });

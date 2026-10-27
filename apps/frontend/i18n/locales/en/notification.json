@@ -86,6 +86,7 @@
   "preferences": {
     "title": "Notification types",
     "description": "Choose which events this organization receives on Telegram. Applies to this organization only.",
+    "descriptionMe": "Choose which events you receive on your own Telegram. Applies to you only.",
     "saved": "Notification types saved",
     "saveFailed": "Could not save notification types",
     "telegramNotReady": "Telegram is not configured or is disabled — your choice is saved and applies once Telegram is enabled.",
@@ -101,5 +102,11 @@
       "label": "Return / Refund",
       "hint": "Receive a notification when a new TikTok return / refund request is detected (once per request — not on every status change)."
     }
+  },
+  "me": {
+    "pageTitle": "My Telegram notifications",
+    "pageDescription": "Connect your own Telegram bot / chat to receive notifications about your orders.",
+    "scopeNote": "You only receive notifications for orders of the TikTok shops currently assigned to you. When a shop is reassigned, its notifications stop immediately — including messages still waiting to be sent.",
+    "noPermission": "You do not have permission to configure personal notifications."
   }
 }

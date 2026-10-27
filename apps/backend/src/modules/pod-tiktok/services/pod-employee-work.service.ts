@@ -18,6 +18,7 @@ import {
   type EmployeeWorkPairRow,
   type EmployeeWorkUserRow,
 } from '../repositories/pod-employee-work.repository';
+import { DEFAULT_BUSINESS_TIMEZONE } from '../../../common/time/business-time';
 import { resolveDayRange, type DashboardDayRange } from '../shared/dashboard-metrics';
 import { labelCostOf } from '../shared/label-cost';
 
@@ -34,7 +35,7 @@ function sumProfit(values: Array<string | null>): Prisma.Decimal | null {
  * PodEmployeeWorkService — "Thống kê công việc nhân viên" (Admin).
  *
  * Mọi con số do `PodEmployeeWorkRepository` tổng hợp ở DB trong MỘT truy vấn; lớp này chỉ dựng khoảng ngày
- * (giờ vận hành `APP_TIMEZONE_OFFSET_MINUTES`, CÙNG hàm với Dashboard / Orders), gom cặp (người × shop) theo
+ * (múi giờ nghiệp vụ `APP_BUSINESS_TIMEZONE`, CÙNG hàm với Dashboard / Orders), gom cặp (người × shop) theo
  * người, sắp xếp, phân trang, và tính tổng.
  *
  * 🔴 Tổng ĐƠN / LỢI NHUẬN của phần tóm tắt cộng theo SHOP DUY NHẤT: một shop có thể xuất hiện dưới hai người
@@ -77,7 +78,7 @@ export class PodEmployeeWorkService {
       from: range.fromDay,
       to: range.toDay,
       currency: currency || null,
-      timezoneOffsetMinutes: this.offset(),
+      timeZone: this.timeZone(),
       summary: this.summaryOf(rows.pairs),
       items: rows.employees.slice((page - 1) * limit, page * limit),
       meta: { total: rows.employees.length, page, limit, totalPages: Math.ceil(rows.employees.length / limit) },
@@ -206,7 +207,7 @@ export class PodEmployeeWorkService {
         organizationId,
         currency,
         from: range.from,
-        to: range.to,
+        before: range.before,
         shopId: query.shopId,
         label: labelCostOf(this.config),
       })
@@ -288,17 +289,18 @@ export class PodEmployeeWorkService {
   }
 
   private range(query: EmployeeWorkQueryDto): DashboardDayRange {
-    const offset = this.offset();
+    const timeZone = this.timeZone();
     try {
-      // Mặc định HÔM NAY (giờ vận hành) — cùng hàm với Dashboard / Orders.
-      const today = resolveDayRange(undefined, undefined, offset).toDay;
-      return resolveDayRange(query.from ?? query.to ?? today, query.to ?? query.from ?? today, offset);
+      // Mặc định HÔM NAY (giờ nghiệp vụ) — cùng hàm với Dashboard / Orders.
+      const today = resolveDayRange(undefined, undefined, timeZone).toDay;
+      return resolveDayRange(query.from ?? query.to ?? today, query.to ?? query.from ?? today, timeZone);
     } catch (error) {
       throw new BadRequestException({ code: 'EMPLOYEE_WORK_RANGE_INVALID', message: (error as Error).message });
     }
   }
 
-  private offset(): number {
-    return this.config.get<number>('timezoneOffsetMinutes', 420);
+  /** Múi giờ nghiệp vụ IANA (`APP_BUSINESS_TIMEZONE`) — CÙNG cấu hình với Orders / TikTok Payout. */
+  private timeZone(): string {
+    return this.config.get<string>('businessTimeZone', DEFAULT_BUSINESS_TIMEZONE);
   }
 }

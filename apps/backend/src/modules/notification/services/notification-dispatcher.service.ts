@@ -23,7 +23,9 @@ import {
   type NotificationPreferences,
   NotificationPreferenceRepository,
 } from '../repositories/notification-preference.repository';
+import { NotificationRecipientRepository } from '../repositories/notification-recipient.repository';
 import { TelegramConfigRepository } from '../repositories/telegram-config.repository';
+import { type NotificationOwner } from '../types/notification-owner';
 import type { NotificationPayloadMap } from '../types/notification-payload.types';
 import { NotificationEncryptionService } from './notification-encryption.service';
 
@@ -45,8 +47,12 @@ export interface DispatchSummary {
   deferred: number;
 }
 
-/** Cấu hình + token đã giải mã của MỘT tổ chức trong MỘT lượt — không bao giờ log. */
+/**
+ * Cấu hình + token đã giải mã của MỘT kênh (tổ chức, hoặc kênh cá nhân của một người) trong MỘT lượt —
+ * không bao giờ log.
+ */
 interface OrgChannel {
+  owner: NotificationOwner;
   config: OrganizationTelegramConfig | null;
   botToken: string | null;
   organizationName: string | null;
@@ -103,6 +109,7 @@ export class NotificationDispatcherService {
     private readonly telegram: TelegramBotClient,
     private readonly encryption: NotificationEncryptionService,
     private readonly preferences: NotificationPreferenceRepository,
+    private readonly recipients: NotificationRecipientRepository,
   ) {}
 
   /**
@@ -152,13 +159,17 @@ export class NotificationDispatcherService {
     const claimed = await this.events.claimDue(limit, leaseMs, lockToken);
     summary.claimed += claimed.length;
 
-    // Gom theo tổ chức: cấu hình (và token) chỉ đọc + giải mã MỘT lần cho mỗi tổ chức mỗi lô.
+    // Gom theo KÊNH (tổ chức + người nhận): cấu hình (và token) chỉ đọc + giải mã MỘT lần mỗi kênh mỗi lô.
     const channels = new Map<string, OrgChannel>();
     for (const event of claimed) {
-      let channel = channels.get(event.organizationId);
+      const key = `${event.organizationId}:${event.recipientKey}`;
+      let channel = channels.get(key);
       if (!channel) {
-        channel = await this.loadChannel(event.organizationId);
-        channels.set(event.organizationId, channel);
+        channel = await this.loadChannel({
+          organizationId: event.organizationId,
+          userId: event.recipientUserId,
+        });
+        channels.set(key, channel);
       }
       await this.processOne(event, channel, lockToken, leaseMs, summary);
     }
@@ -166,10 +177,12 @@ export class NotificationDispatcherService {
     return claimed.length;
   }
 
-  /** Cấu hình Telegram của ĐÚNG tổ chức sở hữu sự kiện (ADR-004). */
-  private async loadChannel(organizationId: string): Promise<OrgChannel> {
-    const config = await this.configs.findByOrganization(organizationId);
+  /** Cấu hình Telegram của ĐÚNG kênh sở hữu sự kiện — cùng tổ chức (ADR-004), cùng người nhận. */
+  private async loadChannel(owner: NotificationOwner): Promise<OrgChannel> {
+    const { organizationId } = owner;
+    const config = await this.configs.findByOwner(owner);
     const channel: OrgChannel = {
+      owner,
       config,
       botToken: null,
       organizationName: null,
@@ -181,7 +194,9 @@ export class NotificationDispatcherService {
       channel.blocked = {
         status: NotificationEventStatus.SKIPPED,
         code: NOTIFICATION_ERROR_CODES.DISABLED,
-        message: 'Tổ chức chưa cấu hình hoặc đã tắt thông báo Telegram',
+        message: owner.userId
+          ? 'Người nhận chưa cấu hình hoặc đã tắt kênh Telegram cá nhân'
+          : 'Tổ chức chưa cấu hình hoặc đã tắt thông báo Telegram',
       };
       return channel;
     }
@@ -204,7 +219,7 @@ export class NotificationDispatcherService {
       return channel;
     }
     channel.organizationName = await this.configs.findOrganizationName(organizationId);
-    channel.preferences = await this.preferences.find(organizationId);
+    channel.preferences = await this.preferences.find(owner);
     return channel;
   }
 
@@ -239,12 +254,23 @@ export class NotificationDispatcherService {
       return;
     }
 
-    // Tổ chức đã TẮT loại thông báo này ⇒ bỏ qua, không gọi Telegram.
+    // Kênh đã TẮT loại thông báo này ⇒ bỏ qua, không gọi Telegram.
     if (channel.preferences && !allowsEvent(channel.preferences, event.eventType)) {
       await this.complete(event, lockToken, channel, {
         status: NotificationEventStatus.SKIPPED,
         lastErrorCode: NOTIFICATION_ERROR_CODES.CATEGORY_DISABLED,
-        errorMessage: 'Tổ chức đã tắt loại thông báo này trong Cài đặt thông báo',
+        errorMessage: 'Kênh này đã tắt loại thông báo này trong Cài đặt thông báo',
+      }, summary);
+      return;
+    }
+
+    // 🔴 Kênh CÁ NHÂN: kiểm LẠI phạm vi NGAY LÚC GỬI — sự kiện có thể đã nằm trong hàng đợi trong lúc shop được
+    // chuyển cho người khác / người nhận bị khoá / role mất quyền. Không còn quyền ⇒ không gửi.
+    if (channel.owner.userId && !(await this.recipientStillAllowed(event, channel.owner.userId))) {
+      await this.complete(event, lockToken, channel, {
+        status: NotificationEventStatus.SKIPPED,
+        lastErrorCode: NOTIFICATION_ERROR_CODES.SCOPE_REVOKED,
+        errorMessage: 'Người nhận không còn được xem đơn này (shop không còn được gán / tài khoản bị khoá)',
       }, summary);
       return;
     }
@@ -309,7 +335,7 @@ export class NotificationDispatcherService {
       }
       await this.complete(event, lockToken, channel, result, summary, attempt, error);
       if (error instanceof TelegramApiError && !error.retryable) {
-        await this.configs.recordDelivery(event.organizationId, config, {
+        await this.configs.recordDelivery(channel.owner, config, {
           ok: false,
           errorCode: error.code,
           errorMessage: error.message,
@@ -323,7 +349,7 @@ export class NotificationDispatcherService {
     // dấu IN_FLIGHT ⇒ lượt claim sau đánh DELIVERY_UNKNOWN chứ không gửi lần hai.
     await this.markSent(event, lockToken, channel, messageId, summary, attempt);
     try {
-      await this.configs.recordDelivery(event.organizationId, config, { ok: true });
+      await this.configs.recordDelivery(channel.owner, config, { ok: true });
     } catch (error) {
       this.logger.warn({
         module: 'notification',
@@ -333,6 +359,17 @@ export class NotificationDispatcherService {
         msg: `Không ghi được mốc gửi thành công của cấu hình Telegram: ${(error as Error).message}`,
       });
     }
+  }
+
+  /** Người nhận cá nhân còn được xem đơn của sự kiện không (cùng luật với lúc ghi — `NotificationRecipientRepository`). */
+  private async recipientStillAllowed(event: NotificationEvent, userId: string): Promise<boolean> {
+    const allowed = await this.recipients.allowedUserIds({
+      organizationId: event.organizationId,
+      eventType: event.eventType,
+      accountId: event.accountId,
+      userIds: [userId],
+    });
+    return allowed.has(userId);
   }
 
   /** Ghi SENT sau khi Telegram đã nhận — thử lại vài lần vì gửi lại tin là KHÔNG được phép. */
@@ -445,6 +482,8 @@ export class NotificationDispatcherService {
       entityId: event.entityId,
       tiktokOrderId: (event.payload as { tiktokOrderId?: string } | null)?.tiktokOrderId,
       eventType: event.eventType,
+      recipient: event.recipientUserId ? 'USER' : 'ORGANIZATION',
+      recipientUserId: event.recipientUserId ?? undefined,
       status: result.status,
       attempt,
       telegramChatId: maskChatId(channel.config?.chatId),

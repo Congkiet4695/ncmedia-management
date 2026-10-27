@@ -21,6 +21,7 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { useApiError } from '@/hooks/use-api-error';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { useNotificationEvents, useTelegramActions } from '../hooks/use-notification';
+import type { NotificationChannelScope } from '../types';
 import {
   NOTIFICATION_EVENT_STATUSES,
   NOTIFICATION_EVENT_TYPES,
@@ -40,11 +41,11 @@ const STATUS_VARIANT: Record<NotificationEventStatus, 'success' | 'warning' | 'd
 const RETRYABLE: NotificationEventStatus[] = ['FAILED', 'SKIPPED'];
 
 /** Nhật ký gửi thông báo của tổ chức — để admin tự tra lỗi (token sai, bot bị kick…). */
-export function NotificationEventsTable() {
+export function NotificationEventsTable({ scope = 'organization' }: { scope?: NotificationChannelScope } = {}) {
   const { t } = useTranslation(['notification', 'common']);
   const translateApiError = useApiError();
   const { formatDateTime } = useLocaleFormat();
-  const actions = useTelegramActions();
+  const actions = useTelegramActions(scope);
 
   const [page, setPage] = useState(1);
   const [limit, setLimit] = useState(20);
@@ -56,7 +57,7 @@ export function NotificationEventsTable() {
     limit,
     status: status || undefined,
     eventType: eventType || undefined,
-  });
+  }, scope);
   const items = query.data?.items ?? [];
 
   const retry = async (id: string) => {

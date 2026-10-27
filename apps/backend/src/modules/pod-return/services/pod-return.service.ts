@@ -7,6 +7,7 @@ import {
   type PodAccessScope,
 } from '../../pod-tiktok/services/pod-access-scope.service';
 import { PodShopSyncStatusService } from '../../pod-tiktok/services/pod-shop-sync-status.service';
+import { DEFAULT_BUSINESS_TIMEZONE } from '../../../common/time/business-time';
 import { resolveDateRange } from '../../pod-tiktok/utils/date-range.util';
 import { TiktokReturnRefundApiService } from '../../tiktok-sdk/tiktok-return-refund-api.service';
 import { POD_RETURN_HISTORY_FRESH_MS } from '../constants/pod-return.constants';
@@ -213,7 +214,7 @@ export class PodReturnService {
     this.accessScope.assertAccountAllowed(scope, query.accountId);
     const range = resolveDateRange(
       query.datePreset,
-      this.config.get<number>('timezoneOffsetMinutes', 420),
+      this.config.get<string>('businessTimeZone', DEFAULT_BUSINESS_TIMEZONE),
       query.from,
       query.to,
     );
@@ -228,7 +229,7 @@ export class PodReturnService {
       reason: query.reason,
       dateField: query.dateField ?? 'requestedAt',
       from: range.from,
-      to: range.to,
+      before: range.before,
     };
   }
 

@@ -43,7 +43,7 @@ export class PodEmployeeWorkController {
       'Listing = sản phẩm ĐƯA LÊN SÀN thành công (Publish / Clone / Publish Live) do chính người đó chạy, mỗi ' +
       '(shop, sản phẩm TikTok) chỉ tính ở lần thành công đầu tiên. Shop của một người = shop họ listing trong ' +
       'khoảng ∪ shop của TikTok Account được gán cho họ. Đơn / lợi nhuận là của SHOP trong khoảng (ordered_at, ' +
-      'giờ vận hành, một đơn vị tiền); lợi nhuận cùng công thức màn Order (đơn thiếu dữ kiện không tính, không coi là 0).',
+      'giờ nghiệp vụ, một đơn vị tiền); lợi nhuận cùng công thức màn Order (đơn thiếu dữ kiện không tính, không coi là 0).',
   })
   @ApiOkResponse({ type: EmployeeWorkPageDto })
   @ApiBadRequestResponse({ description: 'EMPLOYEE_WORK_RANGE_INVALID / lỗi validate' })

@@ -49,7 +49,8 @@ export interface PodOrderFilterParams {
   /** ID **Employee** phụ trách (qua `pod_tiktok_accounts.seller_id`). */
   sellerId?: string;
   orderedFrom?: Date;
-  orderedTo?: Date;
+  /** Mốc NỬA MỞ: `ordered_at < orderedBefore` (00:00 ngày sau ngày cuối, giờ nghiệp vụ). */
+  orderedBefore?: Date;
 }
 
 /**
@@ -484,11 +485,11 @@ export class PodOrderRepository {
       ...(params.pushedToFulfillment !== undefined
         ? this.buildFulfillmentCondition(params.pushedToFulfillment)
         : {}),
-      ...(params.orderedFrom || params.orderedTo
+      ...(params.orderedFrom || params.orderedBefore
         ? {
             orderedAt: {
               ...(params.orderedFrom ? { gte: params.orderedFrom } : {}),
-              ...(params.orderedTo ? { lte: params.orderedTo } : {}),
+              ...(params.orderedBefore ? { lt: params.orderedBefore } : {}),
             },
           }
         : {}),

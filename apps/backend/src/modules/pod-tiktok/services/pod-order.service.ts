@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PodShopSyncType, PodSyncTrigger, Prisma } from '@prisma/client';
+import { DEFAULT_BUSINESS_TIMEZONE } from '../../../common/time/business-time';
 import { resolveDateRange } from '../utils/date-range.util';
 import {
   PaginatedPodOrderResponseDto,
@@ -72,10 +73,10 @@ export class PodOrderService {
     const page = query.page ?? 1;
     const limit = query.limit ?? 20;
 
-    // Lọc thời gian quy đổi Ở BACKEND theo múi giờ vận hành (không filter ở frontend).
+    // Lọc thời gian quy đổi Ở BACKEND theo múi giờ nghiệp vụ (không filter ở frontend).
     const range = resolveDateRange(
       query.datePreset,
-      this.config.get<number>('timezoneOffsetMinutes', 420),
+      this.businessTimeZone(),
       query.orderedFrom,
       query.orderedTo,
     );
@@ -95,7 +96,7 @@ export class PodOrderService {
       pushedToFulfillment: query.pushedToFulfillment,
       sellerId: query.sellerId,
       orderedFrom: range.from,
-      orderedTo: range.to,
+      orderedBefore: range.before,
       sortBy: query.sortBy ?? 'orderedAt',
       sortOrder: query.sortOrder ?? 'desc',
     });
@@ -186,7 +187,7 @@ export class PodOrderService {
 
     const range = resolveDateRange(
       query.datePreset,
-      this.config.get<number>('timezoneOffsetMinutes', 420),
+      this.businessTimeZone(),
       query.orderedFrom,
       query.orderedTo,
     );
@@ -204,7 +205,7 @@ export class PodOrderService {
       pushedToFulfillment: query.pushedToFulfillment,
       sellerId: query.sellerId,
       orderedFrom: range.from,
-      orderedTo: range.to,
+      orderedBefore: range.before,
     });
     const byStatus = rows.reduce<Record<string, number>>((acc, row) => {
       acc[row.status] = row._count._all;
@@ -301,5 +302,10 @@ export class PodOrderService {
       durationMs: Date.now() - started,
       skippedByLock: outcome.status === 'SKIPPED',
     };
+  }
+
+  /** Múi giờ nghiệp vụ IANA của bộ lọc thời gian (`APP_BUSINESS_TIMEZONE`). */
+  private businessTimeZone(): string {
+    return this.config.get<string>('businessTimeZone', DEFAULT_BUSINESS_TIMEZONE);
   }
 }
