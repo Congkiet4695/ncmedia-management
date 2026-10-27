@@ -130,7 +130,7 @@ function buildStateService(
     { user: { findMany: jest.fn().mockResolvedValue([]) } } as unknown as PrismaService,
     repo,
     { findById: jest.fn().mockResolvedValue(order) } as unknown as PodOrderRepository,
-    { check: jest.fn().mockReturnValue({ ready: true, issues: [] }) } as unknown as FulfillmentReadinessService,
+    { check: jest.fn().mockReturnValue({ ready: true, issues: [], warnings: [] }) } as unknown as FulfillmentReadinessService,
     new ProductDesignMapper({
       buildDownloadUrl: (id: string) => `/api/v1/storage/${id}/download`,
     } as unknown as StorageMapper),
@@ -271,6 +271,7 @@ function buildFulfillService(
       check: jest.fn().mockReturnValue({
         ready: true,
         issues: [],
+        warnings: [],
         address: {
           first_name: 'John',
           last_name: null,

@@ -25,6 +25,7 @@ import {
   FulfillmentProviderOptionDto,
   FulfillmentErrorDto,
   FulfillmentHistoryDto,
+  FulfillmentIssueDto,
   FulfillmentOrderDto,
   FulfillmentCancellationDto,
   FulfillmentStateDto,
@@ -67,6 +68,7 @@ import {
   FulfillmentReadinessService,
   MappingWithDesigns,
   issueSectionOf,
+  type ReadinessIssue,
 } from './fulfillment-readiness.service';
 import { FulfillmentShippingLabelService } from './fulfillment-shipping-label.service';
 import {
@@ -81,6 +83,22 @@ import {
 } from '../shared/manual-base-cost';
 import { productCostOf } from '../shared/product-cost';
 
+/** Lý do/cảnh báo của `readiness.check()` → DTO màn hình Fulfill (kèm khối hiển thị). */
+function toIssueDto(issue: ReadinessIssue): FulfillmentIssueDto {
+  return {
+    section: issueSectionOf(issue.code),
+    code: issue.code,
+    message: issue.message,
+    podOrderItemId: issue.podOrderItemId ?? null,
+    // Ngữ cảnh để giao diện mở dialog ánh xạ nhanh (chỉ có với MAPPING_MISSING).
+    tiktokProductId: issue.tiktokProductId ?? null,
+    tiktokSkuId: issue.tiktokSkuId ?? null,
+    sellerSku: issue.sellerSku ?? null,
+    productName: issue.productName ?? null,
+    skuName: issue.skuName ?? null,
+    productCategory: issue.productCategory ?? null,
+  };
+}
 
 /**
  * FulfillmentService — nghiệp vụ KHÔNG phụ thuộc nhà cung cấp.
@@ -948,6 +966,7 @@ export class FulfillmentService {
             podOrderItemId: null,
           },
         ],
+        warnings: [],
         canFulfill: false,
         canCancel: false,
         cancellation: await this.cancellationOf(organizationId, record),
@@ -1017,22 +1036,9 @@ export class FulfillmentService {
     return {
       fulfillment: record ? this.toOrderDto(record) : null,
       ready: check.ready && !blocking,
-      issues: [
-        ...blockingIssue,
-        ...check.issues.map((issue) => ({
-        section: issueSectionOf(issue.code),
-        code: issue.code,
-        message: issue.message,
-        podOrderItemId: issue.podOrderItemId ?? null,
-        // Ngữ cảnh để giao diện mở dialog ánh xạ nhanh (chỉ có với MAPPING_MISSING).
-        tiktokProductId: issue.tiktokProductId ?? null,
-        tiktokSkuId: issue.tiktokSkuId ?? null,
-        sellerSku: issue.sellerSku ?? null,
-        productName: issue.productName ?? null,
-        skuName: issue.skuName ?? null,
-        productCategory: issue.productCategory ?? null,
-      })),
-      ],
+      issues: [...blockingIssue, ...check.issues.map(toIssueDto)],
+      // Không chặn gửi — quà tặng khuyến mãi không đi sang nhà cung cấp (xem `resolveItems`).
+      warnings: check.warnings.map(toIssueDto),
       // CANCELLED (nhà cung cấp đã xác nhận huỷ) ⇒ fulfill lại được, như một lần thử mới.
       canFulfill: check.ready && !blocking && SUBMITTABLE_FULFILLMENT_STATUSES.includes(status),
       canCancel: Boolean(record) && CANCELLABLE_FULFILLMENT_STATUSES.includes(status),

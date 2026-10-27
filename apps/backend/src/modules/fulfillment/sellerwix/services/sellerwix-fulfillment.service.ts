@@ -359,7 +359,14 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
       fromStatus: record.status,
       toStatus: FulfillmentStatus.SUBMITTING,
       message: `Gửi ${lines.length} sản phẩm sang ${LABEL} (reference_id=${referenceId})`,
-      payload: { referenceId, itemCount: lines.length, shippingMethod, rushService },
+      // Quà tặng khuyến mãi KHÔNG gửi đi (chưa có Product Mapping) — ghi lại để đối soát giao quà.
+      payload: {
+        referenceId,
+        itemCount: lines.length,
+        shippingMethod,
+        rushService,
+        skippedGiftItemIds: check.warnings.flatMap((warning) => warning.podOrderItemId ?? []),
+      },
       performedBy: actorUserId,
     });
 
@@ -880,6 +887,9 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
           )
         : undefined;
       const label = item.productName ?? item.sellerSku ?? item.id;
+      // Quà tặng khuyến mãi chưa cấu hình ⇒ không gửi sang Sellerwix (xem `FulfillmentReadinessService`),
+      // nên không tham gia chọn phương thức vận chuyển và không phải là lỗi cấu hình.
+      if (!mapping && item.isGift === true) continue;
       if (!mapping) {
         warnings.push(
           `"${label}" chưa được cấu hình sản phẩm ${LABEL} — chọn Provider Product / biến thể ở khối ` +

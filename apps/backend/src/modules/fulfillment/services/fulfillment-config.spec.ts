@@ -227,7 +227,7 @@ function buildStateService(
   } as unknown as FulfillmentRepository;
 
   const readiness = {
-    check: jest.fn().mockReturnValue({ ready: over.ready ?? false, issues: [] }),
+    check: jest.fn().mockReturnValue({ ready: over.ready ?? false, issues: [], warnings: [] }),
   } as unknown as FulfillmentReadinessService;
 
   const service = new FulfillmentService(

@@ -1793,6 +1793,8 @@
     "designNoMapping": "Missing Product Mapping",
     "designNoMappingHint": "This SKU has no Product Mapping yet, so there is nowhere to store the design. Create the mapping on the Product Mapping screen first.",
     "designMissingFront": "Missing Front",
+    "promotionGift": "Promotion Gift",
+    "promotionGiftHint": "TikTok promotion gift (is_gift). No design or Product Configuration required — it is not sent to the fulfillment provider.",
     "designMissingFrontHint": "No front design yet. Front is the minimum required to fulfil.",
     "designMissingBackHint": "Ready — front design uploaded. Back is optional and has not been uploaded.",
     "designReady": "Ready",

@@ -396,7 +396,12 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
       fromStatus: record.status,
       toStatus: FulfillmentStatus.SUBMITTING,
       message: `Gửi ${check.items.length} sản phẩm sang MangoTeePrints`,
-      payload: { externalOrderId, itemCount: check.items.length },
+      // Quà tặng khuyến mãi KHÔNG gửi đi (chưa có Product Mapping) — ghi lại để đối soát giao quà.
+      payload: {
+        externalOrderId,
+        itemCount: check.items.length,
+        skippedGiftItemIds: check.warnings.flatMap((warning) => warning.podOrderItemId ?? []),
+      },
       performedBy: actorUserId,
     });
 

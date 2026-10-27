@@ -157,6 +157,7 @@ function buildService(options: Options = {}) {
     check: jest.fn().mockReturnValue({
       ready: true,
       issues: [],
+      warnings: [],
       address: ADDRESS,
       items: options.items ?? [resolvedItem({ providerSku: options.sku ?? 'SKU-TT' })],
       // Line của ánh xạ — đây là "user selection" theo đúng luồng sản phẩm.

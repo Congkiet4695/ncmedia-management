@@ -1,10 +1,11 @@
 'use client';
 
-import { ImageIcon, ImageUp, Palette, RefreshCw } from 'lucide-react';
+import { Gift, ImageIcon, ImageUp, Palette, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
+import { isUnconfiguredPromotionGift } from '@/features/fulfillment/product-config';
 import {
   firstUndesignedSource,
   groupOrderProducts,
@@ -87,6 +88,8 @@ function ProductRow({
   const { t } = useTranslation('pod');
 
   const design = rowDesignStatus(row);
+  // Quà tặng khuyến mãi chưa cấu hình: không cần design ⇒ không hiện "thiếu design" / nút Upload.
+  const unconfiguredGift = isUnconfiguredPromotionGift(row, row.mappingId);
 
   /**
    * Bấm ảnh sản phẩm ⇒ mở bộ xem ảnh, GIỐNG HỆT bấm ảnh design.
@@ -195,45 +198,58 @@ function ProductRow({
             cung cấp nằm trong drawer Fulfill (Cấu hình sản phẩm) và màn hình Product Mapping;
             readiness ở backend vẫn chặn gửi đơn thiếu ánh xạ như cũ. */}
 
-        <Tooltip
-          content={
-            design.state === 'READY'
-              ? // Thiếu mặt sau là GHI CHÚ, không phải lỗi: §5 nói rõ sản phẩm chỉ cần
-                // Front vẫn Ready. Backend cũng cho gửi.
-                design.backMissing
-                ? t('product.designMissingBackHint')
-                : t('product.designReadyHint')
-              : t('product.designMissingFrontHint')
-          }
-        >
-          <Badge
-            variant={design.state === 'READY' ? 'success' : 'warning'}
-            className="h-6 whitespace-nowrap px-2 text-[11px]"
-          >
-            {design.state === 'READY'
-              ? design.backMissing
-                ? t('product.designReadyNoBack')
-                : t('product.designReady')
-              : t('product.designMissingFront')}
-          </Badge>
-        </Tooltip>
+        {row.isGift && (
+          <Tooltip content={t('product.promotionGiftHint')}>
+            <Badge variant="info" className="h-5 px-1.5 text-[10px]">
+              <Gift className="mr-0.5 size-2.5" />
+              {t('product.promotionGift')}
+            </Badge>
+          </Tooltip>
+        )}
 
-        <Button
-          variant={design.state === 'READY' ? 'outline' : 'default'}
-          size="sm"
-          className="h-6 whitespace-nowrap px-2 text-[11px]"
-          onClick={(event) => {
-            event.stopPropagation();
-            onUploadDesign(firstUndesignedSource(row));
-          }}
-        >
-          {design.state === 'READY' ? (
-            <RefreshCw className="size-3" />
-          ) : (
-            <ImageUp className="size-3" />
-          )}
-          {design.state === 'READY' ? t('product.manageDesign') : t('product.uploadDesign')}
-        </Button>
+        {!unconfiguredGift && (
+          <>
+            <Tooltip
+              content={
+                design.state === 'READY'
+                  ? // Thiếu mặt sau là GHI CHÚ, không phải lỗi: §5 nói rõ sản phẩm chỉ cần
+                    // Front vẫn Ready. Backend cũng cho gửi.
+                    design.backMissing
+                    ? t('product.designMissingBackHint')
+                    : t('product.designReadyHint')
+                  : t('product.designMissingFrontHint')
+              }
+            >
+              <Badge
+                variant={design.state === 'READY' ? 'success' : 'warning'}
+                className="h-6 whitespace-nowrap px-2 text-[11px]"
+              >
+                {design.state === 'READY'
+                  ? design.backMissing
+                    ? t('product.designReadyNoBack')
+                    : t('product.designReady')
+                  : t('product.designMissingFront')}
+              </Badge>
+            </Tooltip>
+
+            <Button
+              variant={design.state === 'READY' ? 'outline' : 'default'}
+              size="sm"
+              className="h-6 whitespace-nowrap px-2 text-[11px]"
+              onClick={(event) => {
+                event.stopPropagation();
+                onUploadDesign(firstUndesignedSource(row));
+              }}
+            >
+              {design.state === 'READY' ? (
+                <RefreshCw className="size-3" />
+              ) : (
+                <ImageUp className="size-3" />
+              )}
+              {design.state === 'READY' ? t('product.manageDesign') : t('product.uploadDesign')}
+            </Button>
+          </>
+        )}
       </div>
     </li>
   );

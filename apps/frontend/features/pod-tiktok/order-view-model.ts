@@ -77,6 +77,8 @@ export interface OrderProductRow {
   skuName: string | null;
   productCategory: string | null;
   isPodCustomized: boolean;
+  /** Quà tặng khuyến mãi TikTok (`is_gift`) — chỉ true khi MỌI line item gộp vào dòng này là quà. */
+  isGift: boolean;
   quantity: number;
   /** Các line item gốc tạo nên dòng này (theo đúng thứ tự API trả về). */
   sources: PodOrderItem[];
@@ -117,6 +119,7 @@ export function groupOrderProducts(items: PodOrderItem[]): OrderProductRow[] {
     if (existing) {
       existing.quantity += item.quantity;
       existing.sources.push(item);
+      existing.isGift = existing.isGift && item.isGift;
       // Design/mapping giống nhau ở mọi đơn vị cùng SKU — chỉ bù khi line item đầu thiếu.
       if (existing.mappingId === null) {
         existing.mappingId = item.mappingId;
@@ -138,6 +141,7 @@ export function groupOrderProducts(items: PodOrderItem[]): OrderProductRow[] {
       skuName: item.skuName,
       productCategory: item.productCategory,
       isPodCustomized: item.isPodCustomized,
+      isGift: item.isGift,
       quantity: item.quantity,
       sources: [item],
       mappingId: item.mappingId,

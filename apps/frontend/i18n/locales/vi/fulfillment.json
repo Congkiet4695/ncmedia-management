@@ -145,6 +145,12 @@
     "labelUrlInvalid": "Link nhãn phải là URL http(s) hợp lệ.",
     "labelUrlLabel": "Label đơn hàng (URL)",
     "mappingHint": "Provider SKU, production config và giá vốn lấy từ Ánh xạ sản phẩm — khai một lần dùng cho mọi đơn cùng Product ID + Seller SKU.",
+    "promotionGift": {
+      "label": "Quà tặng khuyến mãi",
+      "noConfig": "Quà tặng khuyến mãi — không yêu cầu Product Configuration.",
+      "notSent": "Quà này KHÔNG được gửi sang nhà cung cấp fulfillment. Quà vẫn thuộc đơn TikTok — hãy đảm bảo quà được giao tới người mua.",
+      "source": "Do TikTok xác định (line item is_gift)."
+    },
     "mappingStatus": {
       "MAPPED": "Đã ánh xạ",
       "MISSING": "Chưa ánh xạ",

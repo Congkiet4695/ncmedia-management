@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, ExternalLink, ImageOff, Info, Loader2, RefreshCw, Save } from 'lucide-react';
+import { AlertTriangle, ExternalLink, Gift, ImageOff, Info, Loader2, RefreshCw, Save } from 'lucide-react';
 import Link from 'next/link';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -452,9 +452,18 @@ export function ProductConfigPanel({
             {t('fulfill.config.viewProduct')}
           </Link>
         </div>
-        <Badge variant={mapping ? 'success' : 'destructive'} className="h-5 shrink-0">
-          {t(`fulfill.mappingStatus.${mapping ? 'MAPPED' : item.mappingStatus}`)}
-        </Badge>
+        <div className="flex shrink-0 flex-col items-end gap-1">
+          <Badge variant={mapping ? 'success' : 'destructive'} className="h-5">
+            {t(`fulfill.mappingStatus.${mapping ? 'MAPPED' : item.mappingStatus}`)}
+          </Badge>
+          {/* Quà tặng khuyến mãi mà người bán ĐÃ khai Product Mapping ⇒ xưởng sản xuất như dòng thường. */}
+          {item.isGift && (
+            <Badge variant="info" className="h-5 gap-1">
+              <Gift className="size-3" />
+              {t('fulfill.promotionGift.label')}
+            </Badge>
+          )}
+        </div>
       </div>
 
       {issues.length > 0 && (

@@ -195,6 +195,25 @@ export function isFulfillmentConfigValid(draft: ConfigDraft): boolean {
 }
 
 // ---------------------------------------------------------------------------
+// Quà tặng khuyến mãi (TikTok `line_items[].is_gift`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Dòng hàng là **quà tặng khuyến mãi chưa cấu hình sản xuất** ⇒ hiển thị chỉ đọc, không đòi
+ * Product Configuration.
+ *
+ * 🔴 Cùng luật với `FulfillmentReadinessService.resolveItems` ở backend (backend mới là chốt chặn):
+ *  - `isGift` là dữ liệu TikTok đã đồng bộ (đọc từ API đơn), không phải lựa chọn của người dùng.
+ *  - Quà ĐÃ có Product Mapping ⇒ người bán chọn cho xưởng sản xuất ⇒ cấu hình như dòng thường.
+ */
+export function isUnconfiguredPromotionGift(
+  item: { isGift?: boolean | null },
+  mapping: unknown,
+): boolean {
+  return item.isGift === true && !mapping;
+}
+
+// ---------------------------------------------------------------------------
 // "Gửi được chưa" — cả đơn
 // ---------------------------------------------------------------------------
 

@@ -1793,6 +1793,8 @@
     "designNoMapping": "Thiếu Product Mapping",
     "designNoMappingHint": "SKU này chưa có Product Mapping nên chưa có chỗ lưu design. Hãy tạo ánh xạ ở màn hình Product Mapping trước.",
     "designMissingFront": "Thiếu mặt trước",
+    "promotionGift": "Quà tặng khuyến mãi",
+    "promotionGiftHint": "Quà tặng khuyến mãi của TikTok (is_gift). Không cần design hay Product Configuration — không gửi sang nhà cung cấp fulfillment.",
     "designMissingFrontHint": "Chưa có design mặt trước. Mặt trước là mức tối thiểu để gửi đơn.",
     "designMissingBackHint": "Đã sẵn sàng — đã có mặt trước. Mặt sau là tuỳ chọn và chưa được upload.",
     "designReady": "Sẵn sàng",

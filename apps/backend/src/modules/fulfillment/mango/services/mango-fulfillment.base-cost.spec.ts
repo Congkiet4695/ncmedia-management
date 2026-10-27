@@ -218,8 +218,8 @@ function buildService(options: Harness = {}) {
   const readiness = {
     check: jest.fn().mockReturnValue(
       options.ready === false
-        ? { ready: false, issues: options.issues ?? [], address: undefined, items: [] }
-        : { ready: true, issues: [], address: ADDRESS, items },
+        ? { ready: false, issues: options.issues ?? [], warnings: [], address: undefined, items: [] }
+        : { ready: true, issues: [], warnings: [], address: ADDRESS, items },
     ),
   } as unknown as FulfillmentReadinessService;
 

@@ -42,6 +42,7 @@ import {
   canSubmitFulfillment,
   SUBMITTABLE_STATUSES,
   submitBlockers,
+  isUnconfiguredPromotionGift,
 } from '../product-config';
 import { isNoResponseError, providerErrorText } from '../provider-error';
 import {
@@ -62,6 +63,7 @@ import {
   type FulfillmentStatus,
 } from '../types';
 import { ProductConfigPanel } from './product-config-panel';
+import { PromotionGiftItem } from './promotion-gift-item';
 
 interface FulfillOrderDrawerProps {
   open: boolean;
@@ -894,6 +896,10 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
             <DrawerSection title={t('fulfill.section.product')} issues={messagesOf('MAPPING')}>
               <div className="space-y-3">
                 {items.map((item) => {
+                  // Quà tặng khuyến mãi chưa cấu hình ⇒ chỉ đọc, không đòi Product Configuration.
+                  if (isUnconfiguredPromotionGift(item, mappingByItemId.get(item.id))) {
+                    return <PromotionGiftItem key={item.id} item={item} />;
+                  }
                   return (
                     <ProductConfigPanel
                       key={item.id}
@@ -942,7 +948,10 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
               }
             >
               {designOpen &&
-                items.map((item) => (
+                items
+                  // Quà tặng chưa cấu hình không cần design — không hiện ô "thiếu design" cho nó.
+                  .filter((item) => !isUnconfiguredPromotionGift(item, mappingByItemId.get(item.id)))
+                  .map((item) => (
                   <div key={item.id} className="space-y-1">
                     <p className="text-xs text-muted-foreground">
                       <Package className="mr-1 inline size-3" />

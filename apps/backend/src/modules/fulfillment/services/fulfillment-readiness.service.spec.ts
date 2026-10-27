@@ -526,4 +526,134 @@ describe('FulfillmentReadinessService', () => {
     const result = service.check(order() as never, [mapping()] as never, designs());
     expect(result.productionLine).toBeNull();
   });
+  /**
+   * 🔴 Quà tặng khuyến mãi — nhận diện DUY NHẤT bằng `is_gift` TikTok trả về (đã lưu vào
+   * `pod_order_items.is_gift` lúc đồng bộ). Không đoán theo tên, không theo giá 0.
+   */
+  describe('quà tặng khuyến mãi (TikTok line_items[].is_gift)', () => {
+    /** Dòng thường đã cấu hình đủ (khoá PROD-1 / SELLER-1 — khớp `mapping()` + `designs()`). */
+    const normal = (over: Record<string, unknown> = {}) => ({
+      id: 'item-1',
+      skuId: 'SKU-TT-1',
+      sellerSku: 'SELLER-1',
+      productId: 'PROD-1',
+      productName: 'Tee',
+      isGift: false,
+      ...over,
+    });
+    /** Quà tặng thật như dữ liệu production: không Seller SKU, giá 0, sản phẩm riêng. */
+    const gift = (over: Record<string, unknown> = {}) => ({
+      id: 'gift-1',
+      skuId: 'SKU-GIFT-1',
+      sellerSku: null,
+      productId: 'PROD-GIFT',
+      productName: 'Holiday Reward Coupon',
+      skuName: 'Spend $40, Get $4 Off',
+      salePrice: 0,
+      isGift: true,
+      ...over,
+    });
+    const codes = (list: Array<{ code: string }>) => list.map((entry) => entry.code);
+
+    it('đơn không có quà ⇒ hành vi cũ, không có cảnh báo', () => {
+      const result = service.check(order({ items: [normal()] }) as never, [mapping()] as never, designs());
+      expect(result.ready).toBe(true);
+      expect(result.warnings).toEqual([]);
+      expect(result.items).toHaveLength(1);
+    });
+
+    it('một quà chưa cấu hình + một dòng thường ⇒ sẵn sàng, quà KHÔNG vào payload, có cảnh báo', () => {
+      const result = service.check(
+        order({ items: [normal(), gift()] }) as never,
+        [mapping()] as never,
+        designs(),
+      );
+      expect(result.ready).toBe(true);
+      expect(result.issues).toEqual([]);
+      expect(result.items?.map((item) => item.podOrderItemId)).toEqual(['item-1']);
+      expect(codes(result.warnings)).toEqual([READINESS_CODES.PROMOTION_GIFT_NOT_SENT]);
+      expect(result.warnings[0].podOrderItemId).toBe('gift-1');
+    });
+
+    it('nhiều quà (từ nhiều khuyến mãi) ⇒ mỗi quà một cảnh báo, không lỗi MAPPING/DESIGN nào', () => {
+      const result = service.check(
+        order({
+          items: [normal(), gift(), gift({ id: 'gift-2', productId: 'PROD-GIFT-2' }), gift({ id: 'gift-3' })],
+        }) as never,
+        [mapping()] as never,
+        designs(),
+      );
+      expect(result.ready).toBe(true);
+      expect(result.warnings.map((warning) => warning.podOrderItemId)).toEqual(['gift-1', 'gift-2', 'gift-3']);
+      expect(result.items).toHaveLength(1);
+    });
+
+    it('🔴 quà KHÔNG làm dòng thường thiếu ánh xạ được bỏ qua', () => {
+      const result = service.check(
+        order({ items: [normal({ productId: 'PROD-UNMAPPED' }), gift()] }) as never,
+        [mapping()] as never,
+        designs(),
+      );
+      expect(result.ready).toBe(false);
+      expect(codes(result.issues)).toEqual([READINESS_CODES.MAPPING_MISSING]);
+      expect(result.issues[0].podOrderItemId).toBe('item-1');
+      expect(codes(result.warnings)).toEqual([READINESS_CODES.PROMOTION_GIFT_NOT_SENT]);
+    });
+
+    it('🔴 dòng thường giá 0 (is_gift=false) vẫn bị kiểm ánh xạ như thường', () => {
+      const result = service.check(
+        order({ items: [normal({ productId: 'PROD-FREE', salePrice: 0 })] }) as never,
+        [mapping()] as never,
+        designs(),
+      );
+      expect(codes(result.issues)).toEqual([READINESS_CODES.MAPPING_MISSING]);
+      expect(result.warnings).toEqual([]);
+    });
+
+    it('🔴 tên có chữ "Gift" nhưng is_gift=false ⇒ KHÔNG phải quà', () => {
+      const result = service.check(
+        order({ items: [normal({ productId: 'PROD-X', productName: 'Free Gift Voucher Promotion Tee' })] }) as never,
+        [mapping()] as never,
+        designs(),
+      );
+      expect(codes(result.issues)).toEqual([READINESS_CODES.MAPPING_MISSING]);
+      expect(result.warnings).toEqual([]);
+    });
+
+    it('🔴 thiếu dữ liệu is_gift (không rõ loại) ⇒ đi luồng kiểm thường, không tự coi là quà', () => {
+      const unknownType: Record<string, unknown> = gift();
+      delete unknownType.isGift;
+      const result = service.check(order({ items: [unknownType] }) as never, [mapping()] as never, designs());
+      expect(codes(result.issues)).toEqual([READINESS_CODES.MAPPING_KEY_MISSING]);
+      expect(result.warnings).toEqual([]);
+    });
+
+    it('🔴 đơn CHỈ có quà chưa cấu hình ⇒ CHẶN (không gửi đơn rỗng sang xưởng)', () => {
+      const result = service.check(order({ items: [gift()] }) as never, [mapping()] as never, designs());
+      expect(result.ready).toBe(false);
+      expect(codes(result.issues)).toEqual([READINESS_CODES.NO_FULFILLABLE_ITEMS]);
+      expect(result.items).toBeUndefined();
+    });
+
+    it('quà ĐÃ có Product Mapping + design ⇒ được gửi sang xưởng như dòng thường', () => {
+      const result = service.check(
+        order({ items: [normal(), gift({ sellerSku: 'SELLER-1', productId: 'PROD-1' })] }) as never,
+        [mapping()] as never,
+        designs(),
+      );
+      expect(result.ready).toBe(true);
+      expect(result.warnings).toEqual([]);
+      expect(result.items?.map((item) => item.podOrderItemId)).toEqual(['item-1', 'gift-1']);
+    });
+
+    it('🔴 quà ĐÃ có Product Mapping nhưng thiếu design ⇒ vẫn CHẶN (không âm thầm bỏ quà đã cấu hình)', () => {
+      const result = service.check(
+        order({ items: [gift({ sellerSku: 'SELLER-1', productId: 'PROD-1' })] }) as never,
+        [mapping()] as never,
+        noDesigns,
+      );
+      expect(result.ready).toBe(false);
+      expect(codes(result.issues)).toEqual([READINESS_CODES.DESIGN_MISSING]);
+    });
+  });
 });

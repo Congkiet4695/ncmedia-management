@@ -421,15 +421,19 @@ export class PodOrderRepository {
     keys: DesignKeyIndex,
   ): Prisma.PodOrderWhereInput {
     const itemHasDesign = this.buildItemHasDesign(keys);
+    // 🔴 Quà tặng khuyến mãi (`is_gift` của TikTok) không bắt buộc design ở Fulfill — không tính là
+    // "dòng thiếu design". (Quà ĐÃ khai Product Mapping thì Fulfill vẫn đòi design; lọc ở đây
+    // không biết ánh xạ nên chấp nhận lệch ở đúng trường hợp hiếm đó.)
+    const requiresDesign: Prisma.PodOrderItemWhereInput = { isGift: false };
 
     // Chưa có design nào trong tổ chức ⇒ mọi item đều thiếu.
     if (!itemHasDesign) {
-      return hasDesign ? { id: { in: [] } } : { items: { some: {} } };
+      return hasDesign ? { id: { in: [] } } : { items: { some: requiresDesign } };
     }
 
     return hasDesign
-      ? { items: { some: {}, none: { NOT: itemHasDesign } } }
-      : { items: { some: { NOT: itemHasDesign } } };
+      ? { items: { some: {}, none: { ...requiresDesign, NOT: itemHasDesign } } }
+      : { items: { some: { ...requiresDesign, NOT: itemHasDesign } } };
   }
 
   /**

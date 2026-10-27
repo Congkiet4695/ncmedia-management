@@ -17,6 +17,7 @@ import {
   effectiveProductionLine,
   isBusinessSku,
   isFulfillmentConfigValid,
+  isUnconfiguredPromotionGift,
   mergeProductOptions,
   productionLineName,
   providerProductLabel,
@@ -535,6 +536,13 @@ check('Seller SKU rỗng trên TikTok', productKeyMessageKey('SELLER_SKU_EMPTY_O
 check('biến thể chưa đồng bộ', productKeyMessageKey('VARIANT_NOT_SYNCED'), 'pod:productKey.issue.VARIANT_NOT_SYNCED');
 check('phản hồi cũ không có lý do ⇒ câu chung', productKeyMessageKey(undefined), 'pod:productKey.issue.UNKNOWN');
 check('lý do lạ ⇒ câu chung', productKeyMessageKey('WHATEVER'), 'pod:productKey.issue.UNKNOWN');
+
+// ---------------------------------------------------------------------------
+console.log('quà tặng khuyến mãi (TikTok is_gift)');
+check('is_gift=true + chưa ánh xạ ⇒ chỉ đọc, không đòi cấu hình', isUnconfiguredPromotionGift({ isGift: true }, null), true);
+check('is_gift=true + ĐÃ ánh xạ ⇒ cấu hình như dòng thường', isUnconfiguredPromotionGift({ isGift: true }, { id: 'm-1' }), false);
+check('is_gift=false (kể cả giá 0 / tên "Gift") ⇒ dòng thường', isUnconfiguredPromotionGift({ isGift: false }, null), false);
+check('thiếu is_gift (không rõ loại) ⇒ dòng thường', isUnconfiguredPromotionGift({}, null), false);
 
 console.log('');
 console.log(`${passed} pass · ${failed} fail`);

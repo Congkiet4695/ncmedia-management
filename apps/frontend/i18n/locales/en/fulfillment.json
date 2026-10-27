@@ -145,6 +145,12 @@
     "labelUrlInvalid": "The label link must be a valid http(s) URL.",
     "labelUrlLabel": "Order label (URL)",
     "mappingHint": "Provider SKU, production config and base cost come from Product Mapping — declare once per Product ID + Seller SKU.",
+    "promotionGift": {
+      "label": "Promotion Gift",
+      "noConfig": "Promotion gift — Product Configuration not required.",
+      "notSent": "This gift is NOT sent to the fulfillment provider. It is still part of the TikTok order — make sure it reaches the buyer.",
+      "source": "Identified by TikTok (line item is_gift)."
+    },
     "mappingStatus": {
       "MAPPED": "Mapped",
       "MISSING": "Not mapped",

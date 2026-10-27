@@ -76,7 +76,8 @@ describe('PodOrderRepository — lọc theo DESIGN', () => {
     expect(ctx.where().items).toEqual({
       // `some: {}` loại đơn RỖNG — một đơn không có sản phẩm nào không phải "đã có design".
       some: {},
-      none: { NOT: EXPECTED_ITEM_HAS_DESIGN },
+      // Quà tặng khuyến mãi (is_gift) không bắt buộc design ⇒ không tính là dòng thiếu.
+      none: { isGift: false, NOT: EXPECTED_ITEM_HAS_DESIGN },
     });
   });
 
@@ -85,7 +86,7 @@ describe('PodOrderRepository — lọc theo DESIGN', () => {
 
     await ctx.find({ hasDesign: false });
 
-    expect(ctx.where().items).toEqual({ some: { NOT: EXPECTED_ITEM_HAS_DESIGN } });
+    expect(ctx.where().items).toEqual({ some: { isGift: false, NOT: EXPECTED_ITEM_HAS_DESIGN } });
   });
 
   it('gom khoá theo Product ID — số nhánh OR bằng số SẢN PHẨM, không bằng số cặp', async () => {
@@ -113,7 +114,7 @@ describe('PodOrderRepository — lọc theo DESIGN', () => {
 
     const empty2 = buildRepo([]);
     await empty2.find({ hasDesign: false });
-    expect(empty2.where().items).toEqual({ some: {} });
+    expect(empty2.where().items).toEqual({ some: { isGift: false } });
   });
 
   it('KHÔNG đụng tới bảng design khi bộ lọc không được dùng', async () => {

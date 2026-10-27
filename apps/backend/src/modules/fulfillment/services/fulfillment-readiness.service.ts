@@ -83,6 +83,11 @@ export interface ReadinessIssue {
 export interface ReadinessResult {
   ready: boolean;
   issues: ReadinessIssue[];
+  /**
+   * Cảnh báo KHÔNG chặn gửi — hiện chỉ có `PROMOTION_GIFT_NOT_SENT` (quà tặng khuyến mãi không
+   * được gửi sang nhà cung cấp). Luôn có mặt (mảng rỗng khi không có gì).
+   */
+  warnings: ReadinessIssue[];
   address?: NormalizedAddress;
   items?: ResolvedItem[];
   /**
@@ -108,6 +113,17 @@ export const READINESS_CODES = {
   ORDER_NOT_FOUND: 'ORDER_NOT_FOUND',
   ORDER_CANCELLED: 'ORDER_CANCELLED',
   NO_ITEMS: 'NO_ITEMS',
+  /**
+   * Đơn CÓ dòng hàng nhưng không còn dòng nào để gửi nhà cung cấp — mọi dòng đều là quà tặng
+   * khuyến mãi chưa cấu hình sản xuất. Gửi một đơn rỗng sang xưởng là vô nghĩa ⇒ chặn.
+   */
+  NO_FULFILLABLE_ITEMS: 'NO_FULFILLABLE_ITEMS',
+  /**
+   * CẢNH BÁO (không chặn): dòng hàng là quà tặng khuyến mãi (`line_items[].is_gift = true` của
+   * TikTok) chưa có Product Mapping ⇒ KHÔNG gửi sang nhà cung cấp. Quà vẫn nằm trong đơn/gói
+   * TikTok; người bán phải tự lo phần giao quà. Chỉ nằm trong `ReadinessResult.warnings`.
+   */
+  PROMOTION_GIFT_NOT_SENT: 'PROMOTION_GIFT_NOT_SENT',
   ADDRESS_MISSING: 'ADDRESS_MISSING',
   ADDRESS_MASKED: 'ADDRESS_MASKED',
   ADDRESS_INCOMPLETE: 'ADDRESS_INCOMPLETE',
@@ -170,6 +186,8 @@ const SECTION_BY_CODE: Readonly<Record<string, FulfillmentIssueSection>> = {
   ORDER_NOT_FOUND: 'ORDER',
   ORDER_CANCELLED: 'ORDER',
   NO_ITEMS: 'ORDER',
+  NO_FULFILLABLE_ITEMS: 'ORDER',
+  PROMOTION_GIFT_NOT_SENT: 'MAPPING',
   ACCOUNT_MISSING: 'PROVIDER',
   PROVIDER_NOT_ASSIGNED: 'PROVIDER',
   PROVIDER_INACTIVE: 'PROVIDER',
@@ -238,6 +256,7 @@ export class FulfillmentReadinessService {
     placementResolver?: PlacementResolver,
   ): ReadinessResult {
     const issues: ReadinessIssue[] = [];
+    const warnings: ReadinessIssue[] = [];
     const resolvePlacement: PlacementResolver =
       placementResolver ??
       ((placement, mapping) => this.mapper.resolvePlacement(placement, mapping.placementMap));
@@ -274,9 +293,21 @@ export class FulfillmentReadinessService {
       designsByKey,
       publicBaseUrl,
       issues,
+      warnings,
       resolvePlacement,
       expectedAccountId,
     );
+
+    // Mọi dòng đều là quà tặng không gửi đi ⇒ không còn gì cho xưởng sản xuất. Chỉ xét khi đơn
+    // không có lý do chặn nào khác — lý do khác đã giải thích vì sao danh sách gửi rỗng.
+    if (order.items.length > 0 && items.length === 0 && issues.length === 0) {
+      issues.push({
+        code: READINESS_CODES.NO_FULFILLABLE_ITEMS,
+        message:
+          'Đơn chỉ gồm quà tặng khuyến mãi chưa cấu hình sản xuất — không có sản phẩm nào để gửi ' +
+          'sang nhà cung cấp. Khai Product Mapping cho quà tặng nếu xưởng cần sản xuất nó.',
+      });
+    }
 
     // Một đơn = một xưởng. Hai dòng khai hai line khác nhau ⇒ chặn tại đây, nói rõ hai giá trị.
     const lines = [...new Set(items.map((item) => item.productionLine).filter(Boolean))] as string[];
@@ -292,6 +323,7 @@ export class FulfillmentReadinessService {
     return {
       ready: issues.length === 0,
       issues,
+      warnings,
       address: address ?? undefined,
       items: items.length > 0 ? items : undefined,
       productionLine: lines.length === 1 ? lines[0] : null,
@@ -367,13 +399,26 @@ export class FulfillmentReadinessService {
     return { address: normalized, recipient };
   }
 
-  /** Ghép từng line item với ánh xạ SKU và design tương ứng. */
+  /**
+   * Ghép từng line item với ánh xạ SKU và design tương ứng.
+   *
+   * 🔴 **Quà tặng khuyến mãi** — CHỈ khi TikTok trả `line_items[].is_gift = true` (cột
+   * `pod_order_items.is_gift`, ghi bởi đồng bộ đơn; không bao giờ lấy từ request của giao diện,
+   * không đoán theo tên hay giá 0):
+   *  - CHƯA có Product Mapping (hoặc không có khoá) ⇒ không đòi cấu hình, KHÔNG gửi sang nhà
+   *    cung cấp (không có SKU xưởng để gửi — tự chế SKU là in sai hàng), ghi CẢNH BÁO để người
+   *    vận hành biết quà phải được giao theo cách khác.
+   *  - ĐÃ có Product Mapping ⇒ người bán đã chọn cho xưởng sản xuất quà ⇒ kiểm như dòng thường
+   *    (thiếu design / lệch nhà cung cấp vẫn CHẶN — không âm thầm bỏ quà khỏi đơn đã cấu hình).
+   * Dòng `is_gift = false` hoặc không rõ (TikTok không trả field) luôn đi luồng thường.
+   */
   private resolveItems(
     order: PodOrderWithRelations,
     mappings: MappingWithDesigns[],
     designsByKey: DesignsByProductKey,
     publicBaseUrl: string | undefined,
     issues: ReadinessIssue[],
+    warnings: ReadinessIssue[],
     resolvePlacement: PlacementResolver,
     expectedAccountId?: string,
   ): ResolvedItem[] {
@@ -382,6 +427,24 @@ export class FulfillmentReadinessService {
     const index = createMappingIndex(mappings);
 
     for (const item of order.items) {
+      if (item.isGift === true && !findMappingInIndex(item, index)) {
+        warnings.push({
+          code: READINESS_CODES.PROMOTION_GIFT_NOT_SENT,
+          podOrderItemId: item.id,
+          tiktokProductId: item.productId,
+          tiktokSkuId: item.skuId,
+          sellerSku: item.sellerSku,
+          productName: item.productName,
+          skuName: item.skuName,
+          productCategory: item.productCategory,
+          message:
+            `"${item.productName ?? item.id}"${item.skuName ? ` (${item.skuName})` : ''} là quà tặng ` +
+            'khuyến mãi của TikTok — không yêu cầu Product Configuration và KHÔNG được gửi sang nhà ' +
+            'cung cấp. Quà vẫn thuộc đơn TikTok: hãy đảm bảo quà được giao cho người mua.',
+        });
+        continue;
+      }
+
       // 🔴 Không có khoá ⇒ không thể có ánh xạ lẫn design: báo ĐÚNG MỘT lỗi kèm lý do, thay vì cặp "chưa khai ánh
       // xạ" + "chưa có design" (cả hai đều không sửa được khi chưa có khoá).
       if (!mappingKeyOf(item.productId, item.sellerSku)) {

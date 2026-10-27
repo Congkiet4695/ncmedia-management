@@ -453,6 +453,11 @@ export interface FulfillmentState {
   fulfillment: FulfillmentOrder | null;
   ready: boolean;
   issues: FulfillmentIssue[];
+  /**
+   * Cảnh báo KHÔNG chặn gửi — `PROMOTION_GIFT_NOT_SENT`: quà tặng khuyến mãi TikTok chưa có
+   * Product Mapping, không được gửi sang nhà cung cấp (người bán tự lo giao quà).
+   */
+  warnings: FulfillmentIssue[];
   canFulfill: boolean;
   canCancel: boolean;
   /** Ai huỷ / khi nào / vì sao — chỉ có khi bản ghi hiện hành đã CANCELLED. */
