@@ -6,7 +6,12 @@
  * giới hạn kỹ thuật, danh sách trắng token và whitelist cột sắp xếp.
  */
 
-import { PodListingPayloadStatus, PodListingReviewStatus } from '@prisma/client';
+import {
+  PodListingJobItemStatus,
+  PodListingJobStatus,
+  PodListingPayloadStatus,
+  PodListingReviewStatus,
+} from '@prisma/client';
 
 /** Trần số tổ hợp sinh từ một SKU Template (chống nổ tổ hợp: 5 trục × 10 giá trị = 100k). */
 export const POD_SKU_TEMPLATE_MAX_ITEMS = 500;
@@ -277,6 +282,22 @@ export const POD_PUBLISHABLE_PAYLOAD_STATUSES: readonly PodListingPayloadStatus[
 ];
 
 /**
+ * Lượt chạy CHƯA kết thúc — worker đang / sẽ ghi vào nó. Xoá cứng (Auto Listing, retention Publish
+ * History) không bao giờ chạm vào job / item ở các trạng thái này.
+ */
+export const POD_LISTING_JOB_ACTIVE_STATUSES: readonly PodListingJobStatus[] = [
+  PodListingJobStatus.PENDING,
+  PodListingJobStatus.PROCESSING,
+];
+
+/** Item còn trong hàng đợi / đang chạy / chờ chạy lại. */
+export const POD_LISTING_JOB_ITEM_ACTIVE_STATUSES: readonly PodListingJobItemStatus[] = [
+  PodListingJobItemStatus.PENDING,
+  PodListingJobItemStatus.PROCESSING,
+  PodListingJobItemStatus.RETRYING,
+];
+
+/**
  * Trạng thái duyệt CÒN CHUYỂN TIẾP — scheduler chỉ hỏi lại những listing này.
  *
  * `ACTIVE` và `OFFLINE` vẫn nằm trong danh sách: sản phẩm đang bán có thể bị sàn gỡ, sản
@@ -345,6 +366,12 @@ export const POD_PRODUCT_CLONE_MAX_ITEMS = 200;
  * Session (ms). Bọc bước kiểm trạng thái + tạo job; TTL để tiến trình chết không khoá vĩnh viễn.
  */
 export const POD_SESSION_START_LOCK_MS = 30_000;
+
+/**
+ * Khoá Redis theo lượt đăng quanh "kiểm trạng thái → tạo job" của Start Listing. Xoá lượt đăng giữ
+ * CÙNG khoá này để không chen vào giữa lúc job đang được tạo.
+ */
+export const POD_SESSION_START_LOCK_PREFIX = 'pod:session-start:';
 
 /** Khoá chống bấm "Nhân bản" hai lần liên tiếp cho cùng sản phẩm nguồn (ms). */
 export const POD_PRODUCT_CLONE_LOCK_MS = 30_000;

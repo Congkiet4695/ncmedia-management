@@ -43,6 +43,8 @@ export const PLATFORM_PERMISSION_PREFIX = 'platform.';
 export const SUPER_ADMIN_PERMISSIONS = [
   'platform.organization.read',
   'platform.organization.approve',
+  // 🔴 Xoá CỨNG một Organization cùng toàn bộ dữ liệu của nó — thao tác không hoàn tác được.
+  'platform.organization.delete',
   'platform.masterdata.read',
   'platform.masterdata.sync',
   // 🔴 Danh mục nhà cung cấp fulfillment cũng là dữ liệu DÙNG CHUNG cho mọi tổ chức — cùng lý

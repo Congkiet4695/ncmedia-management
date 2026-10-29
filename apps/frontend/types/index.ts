@@ -9,4 +9,6 @@ export type {
   PaginationMeta,
   Paginated,
   PaginationParams,
+  BulkRowFailure,
+  BulkDeleteResult,
 } from './api';

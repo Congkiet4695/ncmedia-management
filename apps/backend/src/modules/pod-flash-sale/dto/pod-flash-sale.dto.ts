@@ -20,6 +20,7 @@ import {
 } from 'class-validator';
 import { PodFlashSaleProductLevel, PodFlashSaleStatus } from '@prisma/client';
 import {
+  FLASH_SALE_BULK_DELETE_MAX,
   FLASH_SALE_PAGE_SIZE_MAX,
   FLASH_SALE_MAX_ADD_PER_CALL,
   FLASH_SALE_MAX_BATCH_ITEMS,
@@ -359,6 +360,22 @@ export class DeleteFlashSaleItemsDto {
   @ArrayMaxSize(FLASH_SALE_MAX_BATCH_ITEMS)
   @IsUUID('4', { each: true })
   itemIds!: string[];
+}
+
+/** Xoá cứng NHIỀU Flash Sale đã chọn trên trang danh sách (không phải "xoá tất cả"). */
+export class BulkDeleteFlashSalesDto {
+  @ApiProperty({
+    type: [String],
+    minItems: 1,
+    maxItems: FLASH_SALE_BULK_DELETE_MAX,
+    description: `Id Flash Sale (1–${FLASH_SALE_BULK_DELETE_MAX}; id trùng được gộp)`,
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(FLASH_SALE_BULK_DELETE_MAX)
+  @IsUUID('4', { each: true })
+  @Transform(({ value }: { value: unknown }) => (Array.isArray(value) ? [...new Set(value)] : value))
+  ids!: string[];
 }
 
 export class PodFlashSaleItemQueryDto {

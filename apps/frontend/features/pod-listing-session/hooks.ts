@@ -79,6 +79,15 @@ export function useDeleteSession() {
   });
 }
 
+/** Xoá cứng NHIỀU lượt đăng đã chọn — làm mới danh sách kể cả khi chỉ xoá được một phần. */
+export function useBulkDeleteSessions() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => podListingSessionService.removeMany(ids),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
 export function useImportSessionProducts() {
   const queryClient = useQueryClient();
   return useMutation({

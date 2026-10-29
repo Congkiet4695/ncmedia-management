@@ -91,3 +91,15 @@ export const POD_SESSION_VALIDATION_CODES = {
 
 /** Sàn mặc định của một session (bảng `platforms` là dữ liệu global đã seed). */
 export const POD_DEFAULT_PLATFORM_CODE = 'TIKTOK_SHOP';
+
+/** Số lượt đăng (Auto Listing) tối đa của MỘT lệnh xoá hàng loạt (= cỡ trang lớn nhất của danh sách). */
+export const POD_SESSION_BULK_DELETE_MAX = 100;
+
+/** Khoá hàng khi xoá: chờ tối đa bấy nhiêu cho một thao tác khác đang giữ lượt đăng. */
+export const POD_SESSION_DELETE_LOCK_TIMEOUT = '5s';
+
+/**
+ * Transaction xoá: một lượt đăng kéo theo (CASCADE) tới `POD_SESSION_MAX_PRODUCTS` Draft Product × số
+ * shop payload / job item và log từng bước của chúng — cho đủ thời gian để không rollback giữa chừng.
+ */
+export const POD_SESSION_DELETE_TX_OPTIONS = { timeout: 600_000, maxWait: 10_000 } as const;

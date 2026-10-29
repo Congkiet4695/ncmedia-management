@@ -3,10 +3,12 @@
 import { useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Ban, CalendarClock, Copy, Eye, Plus, RefreshCw, Rocket, Trash2 } from 'lucide-react';
+import { Ban, CalendarClock, Copy, Eye, Loader2, Plus, RefreshCw, Rocket, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import { Checkbox } from '@/components/ui/checkbox';
+import { ConfirmDeleteDialog } from '@/components/confirm-delete-dialog';
 import { shopOptionLabel } from '@/features/pod-tiktok/shop-label';
 import { Combobox } from '@/components/ui/combobox';
 import { Input } from '@/components/ui/input';
@@ -20,13 +22,16 @@ import {
 } from '@/components/ui/table';
 import { RequirePermission } from '@/components/require-permission';
 import { useApiError } from '@/hooks/use-api-error';
+import { useBulkDeleteFeedback } from '@/hooks/use-bulk-delete-feedback';
 import { useAuth } from '@/hooks/use-auth';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
+import { usePageSelection } from '@/hooks/use-page-selection';
 import { ListingStatusBadge } from '@/features/pod-listing/components/listing-status-badge';
 import { TemplatePageShell } from '@/features/pod-listing/components/template-page-shell';
 import { usePodProductFilters } from '@/features/pod-product/hooks/use-pod-products';
 import { DuplicateFlashSaleDialog } from '@/features/pod-flash-sale/components/duplicate-flash-sale-dialog';
 import {
+  useBulkDeleteFlashSales,
   useCancelFlashSale,
   useDeleteFlashSale,
   useDuplicateFlashSale,
@@ -47,6 +52,9 @@ import {
 
 /** Trạng thái đợt được phép bấm Publish — khớp `FLASH_SALE_PUBLISHABLE_STATUSES` phía backend. */
 const PUBLISHABLE: PodFlashSaleStatus[] = ['DRAFT', 'READY', 'FAILED'];
+
+/** Trạng thái KHÔNG xoá được (đang chạy / đang đẩy lên sàn) — khớp `FLASH_SALE_LIVE_STATUSES` phía backend. */
+const UNDELETABLE: PodFlashSaleStatus[] = ['RUNNING', 'PUBLISHING'];
 
 /**
  * Cột "Kết quả chạy": số dòng thành công / thất bại / chờ gửi / bị gỡ, và dòng tóm tắt theo
@@ -111,6 +119,7 @@ function FlashSaleListView() {
   const { t } = useTranslation(['pod', 'common']);
   const router = useRouter();
   const translateApiError = useApiError();
+  const reportBulkDelete = useBulkDeleteFeedback();
   const { hasPermission } = useAuth();
   const { formatDateTime } = useLocaleFormat();
 
@@ -165,8 +174,33 @@ function FlashSaleListView() {
 
   const items = flashSales.data?.items ?? [];
 
+  // Chọn nhiều để xoá — CHỈ các dòng xoá được của TRANG HIỆN TẠI (không bao giờ là "cả database").
+  const bulkDelete = useBulkDeleteFlashSales();
+  const [confirmBulkDelete, setConfirmBulkDelete] = useState(false);
+  const selection = usePageSelection(
+    canWrite ? items.filter((row) => !UNDELETABLE.includes(row.status)).map((row) => row.id) : [],
+  );
+  const selectedRows = items.filter((row) => selection.isSelected(row.id));
+
   const onError = (error: unknown): void => {
     toast.error(translateApiError(error));
+  };
+
+  const deleteSelected = (): void => {
+    const ids = selectedRows.map((row) => row.id);
+    if (ids.length === 0) return;
+    void bulkDelete
+      .mutateAsync(ids)
+      .then((result) => {
+        selection.forget(result.deleted);
+        setConfirmBulkDelete(false);
+        reportBulkDelete(result, {
+          nameOf: (id) => items.find((row) => row.id === id)?.name ?? id,
+          success: (count) => t('flashSale.bulkDelete.done', { count }),
+          partial: (deleted, failed) => t('flashSale.bulkDelete.partial', { deleted, failed }),
+        });
+      })
+      .catch(onError);
   };
 
   const reportImport = (result: PodFlashSaleImportResult): void => {
@@ -255,6 +289,26 @@ function FlashSaleListView() {
         actions={
           !canWrite && !canConfigureAuto ? undefined : (
             <>
+              {canWrite && selectedRows.length > 0 && (
+                <span className="self-center text-sm text-muted-foreground">
+                  {t('flashSale.bulkDelete.selected', { count: selectedRows.length })}
+                </span>
+              )}
+              {canWrite && (
+                <Button
+                  variant="outline"
+                  className="text-destructive"
+                  disabled={selectedRows.length === 0 || bulkDelete.isPending}
+                  onClick={() => setConfirmBulkDelete(true)}
+                >
+                  {bulkDelete.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="size-4" />
+                  )}
+                  {t('flashSale.bulkDelete.button', { count: selectedRows.length })}
+                </Button>
+              )}
               {canConfigureAuto && (
                 <Button
                   variant="outline"
@@ -302,6 +356,18 @@ function FlashSaleListView() {
           <Table>
             <TableHeader>
               <TableRow>
+                {canWrite && (
+                  <TableHead className="w-[40px]">
+                    <Checkbox
+                      aria-label={t('flashSale.bulkDelete.selectPage')}
+                      title={t('flashSale.bulkDelete.selectPage')}
+                      checked={selection.allSelected}
+                      indeterminate={selection.someSelected}
+                      disabled={bulkDelete.isPending || items.every((row) => UNDELETABLE.includes(row.status))}
+                      onChange={selection.togglePage}
+                    />
+                  </TableHead>
+                )}
                 <TableHead>{t('flashSale.columns.name')}</TableHead>
                 <TableHead>{t('flashSale.columns.shop')}</TableHead>
                 <TableHead>{t('flashSale.columns.status')}</TableHead>
@@ -319,6 +385,18 @@ function FlashSaleListView() {
             <TableBody>
               {items.map((flashSale) => (
                 <TableRow key={flashSale.id}>
+                  {canWrite && (
+                    <TableCell>
+                      <Checkbox
+                        aria-label={t('flashSale.bulkDelete.selectRow', { name: flashSale.name })}
+                        // Đợt đang chạy / đang đẩy lên sàn không xoá được ⇒ không cho chọn (phải Cancel trước).
+                        title={UNDELETABLE.includes(flashSale.status) ? t('flashSale.bulkDelete.notDeletable') : undefined}
+                        disabled={bulkDelete.isPending || UNDELETABLE.includes(flashSale.status)}
+                        checked={selection.isSelected(flashSale.id)}
+                        onChange={() => selection.toggleRow(flashSale.id)}
+                      />
+                    </TableCell>
+                  )}
                   <TableCell className="max-w-[240px]">
                     <Link
                       href={`/dashboard/pod/flash-sales/${flashSale.id}`}
@@ -487,6 +565,18 @@ function FlashSaleListView() {
           </Table>
         </div>
       </TemplatePageShell>
+
+      <ConfirmDeleteDialog
+        open={confirmBulkDelete}
+        title={t('flashSale.bulkDelete.title', { count: selectedRows.length })}
+        description={t('flashSale.bulkDelete.question', { count: selectedRows.length })}
+        names={selectedRows.map((row) => `${row.name} · ${row.shop.name}`)}
+        warning={t('flashSale.bulkDelete.warning')}
+        confirmLabel={t('flashSale.bulkDelete.confirm', { count: selectedRows.length })}
+        loading={bulkDelete.isPending}
+        onConfirm={deleteSelected}
+        onClose={() => setConfirmBulkDelete(false)}
+      />
 
       <DuplicateFlashSaleDialog
         open={duplicating !== null}

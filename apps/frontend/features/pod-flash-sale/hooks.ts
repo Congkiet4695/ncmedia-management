@@ -151,6 +151,18 @@ export function useDeleteFlashSale() {
   });
 }
 
+/** Xoá cứng NHIỀU đợt đã chọn — làm mới danh sách kể cả khi chỉ xoá được một phần. */
+export function useBulkDeleteFlashSales() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (ids: string[]) => podFlashSaleService.removeMany(ids),
+    onSuccess: (result) => {
+      for (const id of result.deleted) queryClient.removeQueries({ queryKey: [KEY, 'detail', id] });
+      void queryClient.invalidateQueries({ queryKey: [KEY, 'list'] });
+    },
+  });
+}
+
 /**
  * Thêm sản phẩm vào đợt sale.
  *

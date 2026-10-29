@@ -1,5 +1,6 @@
-import { BadRequestException, HttpException, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { PodListingPayloadStatus, Prisma } from '@prisma/client';
+import { describeHttpFailure } from '../../../common/utils/describe-http-failure.util';
 import { PrismaService } from '../../../database/prisma.service';
 import {
   PodAccessScopeService,
@@ -572,19 +573,8 @@ export class PodListingPayloadService {
 
 /** Lỗi của MỘT dòng khi xoá hàng loạt ⇒ `{ code, message }` (không lộ stack / lỗi hạ tầng). */
 function describeRemoveFailure(error: unknown): { code: string; message: string } {
-  if (error instanceof HttpException) {
-    const body = error.getResponse();
-    if (body && typeof body === 'object') {
-      const record = body as Record<string, unknown>;
-      return {
-        code: typeof record.code === 'string' ? record.code : 'POD_DRAFT_DELETE_FAILED',
-        message: typeof record.message === 'string' ? record.message : error.message,
-      };
-    }
-    return { code: 'POD_DRAFT_DELETE_FAILED', message: error.message };
-  }
-  return {
-    code: 'POD_DRAFT_DELETE_FAILED',
-    message: error instanceof Error ? error.message : 'Không xoá được draft',
-  };
+  // Lỗi TikTok khi xoá Draft trên sàn (Error thường) được giữ nguyên để người vận hành đọc được.
+  return describeHttpFailure(error, 'POD_DRAFT_DELETE_FAILED', 'Không xoá được draft', {
+    exposeErrorMessage: true,
+  });
 }

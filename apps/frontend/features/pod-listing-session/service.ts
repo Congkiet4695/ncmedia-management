@@ -1,6 +1,6 @@
 import { env } from '@/lib/env';
 import { apiClient } from '@/services/api-client';
-import type { ApiResponse, Paginated } from '@/types/api';
+import type { ApiResponse, BulkDeleteResult, Paginated } from '@/types/api';
 import type { PreviewResult } from '@/features/pod-listing/types';
 import type {
   CreateSessionPayload,
@@ -84,6 +84,12 @@ export const podListingSessionService = {
 
   async remove(id: string): Promise<void> {
     await apiClient.delete<ApiResponse<null>>(`${BASE}/${id}`);
+  },
+
+  /** Xoá CỨNG nhiều lượt đăng đã chọn — kết quả theo từng dòng (dòng hỏng không chặn dòng khác). */
+  async removeMany(ids: string[]): Promise<BulkDeleteResult> {
+    const res = await apiClient.post<ApiResponse<BulkDeleteResult>>(`${BASE}/bulk-delete`, { ids });
+    return res.data.data;
   },
 
   /** Import Excel/CSV vào MỘT session. KHÔNG gọi TikTok — chỉ đọc file và ghi database. */

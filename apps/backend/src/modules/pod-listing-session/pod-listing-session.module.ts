@@ -3,6 +3,7 @@ import { AuthModule } from '../auth/auth.module';
 import { PodListingModule } from '../pod-listing/pod-listing.module';
 import { PodTiktokModule } from '../pod-tiktok/pod-tiktok.module';
 import { PodListingSessionController } from './pod-listing-session.controller';
+import { PodListingSessionDeletionService } from './services/pod-listing-session-deletion.service';
 import { PodListingSessionService } from './services/pod-listing-session.service';
 import { PodSessionImportService } from './services/pod-session-import.service';
 import { PodSessionProductService } from './services/pod-session-product.service';
@@ -31,7 +32,12 @@ import { PodSessionProductService } from './services/pod-session-product.service
   // PodTiktokModule: lấy PodAccessScopeService — phân quyền theo shop được Admin gán.
   imports: [AuthModule, PodListingModule, PodTiktokModule],
   controllers: [PodListingSessionController],
-  providers: [PodListingSessionService, PodSessionProductService, PodSessionImportService],
+  providers: [
+    PodListingSessionService,
+    PodListingSessionDeletionService,
+    PodSessionProductService,
+    PodSessionImportService,
+  ],
   exports: [PodListingSessionService],
 })
 export class PodListingSessionModule {}

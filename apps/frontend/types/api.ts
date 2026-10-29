@@ -47,3 +47,18 @@ export interface PaginationParams {
   page?: number;
   limit?: number;
 }
+
+/** Một dòng thất bại trong thao tác hàng loạt — `{ code, message }` cùng chuẩn Error Response. */
+export interface BulkRowFailure {
+  id: string;
+  code: string;
+  message: string;
+}
+
+/** Kết quả xoá hàng loạt THEO TỪNG DÒNG (backend không gộp dòng hỏng vào "thành công"). */
+export interface BulkDeleteResult {
+  /** Số id hợp lệ backend đã nhận (sau khi gộp id trùng). */
+  requested: number;
+  deleted: string[];
+  failed: BulkRowFailure[];
+}

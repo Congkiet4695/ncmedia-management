@@ -193,3 +193,13 @@ export class PodFlashSaleAutoConfigInvalidException extends BadRequestException 
     super({ code: 'POD_FLASH_SALE_AUTO_CONFIG_INVALID', message });
   }
 }
+
+/** Xoá Flash Sale: một thao tác ghi khác đang giữ khoá hàng của đợt sale quá `lock_timeout`. */
+export class PodFlashSaleLockedException extends ConflictException {
+  constructor() {
+    super({
+      code: 'POD_FLASH_SALE_LOCKED',
+      message: 'Flash Sale đang được một thao tác khác cập nhật — vui lòng thử lại sau ít giây.',
+    });
+  }
+}

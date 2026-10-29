@@ -1,4 +1,10 @@
 import { DEFAULT_BUSINESS_TIMEZONE } from '../common/time/business-time';
+import {
+  DATA_RETENTION_DEFAULT_CRON,
+  DATA_RETENTION_DEFAULT_KEEP_DAYS,
+  DATA_RETENTION_TASKS,
+  type DataRetentionTask,
+} from '../modules/data-retention/constants/data-retention.constants';
 
 /**
  * Cấu hình tập trung — nạp qua @nestjs/config (ConfigModule).
@@ -516,7 +522,39 @@ export default () => ({
     deletedItemDays: optionalDays(process.env.FLASH_SALE_RETENTION_DELETED_ITEM_DAYS),
     closedItemDays: optionalDays(process.env.FLASH_SALE_RETENTION_CLOSED_ITEM_DAYS),
   },
+
+  /**
+   * Retention dữ liệu theo NGÀY nghiệp vụ (docs/data-retention.md): Recent Notifications giữ hôm nay,
+   * Publish History / Draft Listings giữ N ngày gần nhất (tính cả hôm nay) — múi giờ `businessTimeZone`.
+   *
+   * 🔴 An toàn mặc định: scheduler TẮT và chế độ DRY-RUN. Bật + tắt dry-run chỉ sau khi đã chạy CLI
+   * dry-run trên đúng môi trường và kiểm tra cutoff / số dòng. Không có gì bị xoá khi khởi động / deploy.
+   */
+  dataRetention: {
+    enabled: (process.env.DATA_RETENTION_ENABLED ?? 'false') === 'true',
+    dryRun: (process.env.DATA_RETENTION_DRY_RUN ?? 'true') !== 'false',
+    cron: process.env.DATA_RETENTION_CRON ?? DATA_RETENTION_DEFAULT_CRON,
+    tasks: retentionTasks(process.env.DATA_RETENTION_TASKS),
+    publishHistoryDays: parseInt(
+      process.env.DATA_RETENTION_PUBLISH_HISTORY_DAYS ?? String(DATA_RETENTION_DEFAULT_KEEP_DAYS),
+      10,
+    ),
+    draftListingDays: parseInt(
+      process.env.DATA_RETENTION_DRAFT_LISTING_DAYS ?? String(DATA_RETENTION_DEFAULT_KEEP_DAYS),
+      10,
+    ),
+    batchSize: parseInt(process.env.DATA_RETENTION_BATCH_SIZE ?? '1000', 10),
+    maxBatchesPerStage: parseInt(process.env.DATA_RETENTION_MAX_BATCHES ?? '200', 10),
+    pauseMs: parseInt(process.env.DATA_RETENTION_PAUSE_MS ?? '100', 10),
+  },
 });
+
+/** Danh sách tác vụ retention từ ENV (phân tách bằng dấu phẩy); để trống ⇒ mọi tác vụ. Tên lạ bị bỏ qua. */
+function retentionTasks(value: string | undefined): DataRetentionTask[] {
+  if (value === undefined || value.trim() === '') return [...DATA_RETENTION_TASKS];
+  const wanted = value.split(',').map((name) => name.trim().toUpperCase());
+  return DATA_RETENTION_TASKS.filter((task) => wanted.includes(task));
+}
 
 /** Số ngày (nguyên dương) hoặc `null` khi biến môi trường để trống / không có. */
 function optionalDays(value: string | undefined): number | null {

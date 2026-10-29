@@ -9,6 +9,7 @@ import { PodFlashSaleAutoJob } from './schedulers/pod-flash-sale-auto.job';
 import { PodFlashSaleRetentionJob } from './schedulers/pod-flash-sale-retention.job';
 import { PodFlashSaleSyncJob } from './schedulers/pod-flash-sale-sync.job';
 import { PodFlashSaleAutoService } from './services/pod-flash-sale-auto.service';
+import { PodFlashSaleDeletionService } from './services/pod-flash-sale-deletion.service';
 import { PodFlashSaleImportService } from './services/pod-flash-sale-import.service';
 import { PodFlashSaleItemService } from './services/pod-flash-sale-item.service';
 import { PodFlashSalePublisherService } from './services/pod-flash-sale-publisher.service';
@@ -44,6 +45,7 @@ import { PodFlashSaleService } from './services/pod-flash-sale.service';
   controllers: [PodFlashSaleController, PodFlashSaleTemplateController, PodFlashSaleAutoController],
   providers: [
     PodFlashSaleService,
+    PodFlashSaleDeletionService,
     PodFlashSaleItemService,
     PodFlashSaleValidatorService,
     PodFlashSalePublisherService,

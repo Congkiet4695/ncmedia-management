@@ -65,5 +65,14 @@
     "reasonTooShort": "Lý do phải có ít nhất {{count}} ký tự.",
     "submit": "Từ chối",
     "done": "Đã từ chối \"{{name}}\""
+  },
+  "delete": {
+    "button": "Xoá tổ chức",
+    "title": "Xoá vĩnh viễn tổ chức",
+    "question": "Xoá vĩnh viễn \"{{name}}\" cùng TOÀN BỘ dữ liệu của tổ chức?",
+    "warning": "Mọi người dùng, nhân viên, vai trò, tài khoản & shop TikTok, đơn hàng, sản phẩm, listing, Flash Sale, template, cấu hình fulfillment, thông báo và nhật ký của tổ chức này bị xoá khỏi database. Dữ liệu dùng chung của nền tảng không bị ảnh hưởng. File đã tải lên vẫn nằm trên kho lưu trữ và được dọn riêng.",
+    "confirm": "Xoá vĩnh viễn",
+    "done": "Đã xoá tổ chức \"{{name}}\"",
+    "doneDetail": "Đã xoá {{rows}} bản ghi · {{files}} bản ghi file"
   }
 }

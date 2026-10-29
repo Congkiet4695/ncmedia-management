@@ -302,6 +302,15 @@ export class PodFlashSaleImportService {
   // Một hoạt động
   // ---------------------------------------------------------------------------
 
+  /** Activity này thuộc một đợt người dùng đã xoá cứng (xem `PodFlashSaleDeletionService`). */
+  private async isTombstoned(shopId: string, providerFlashSaleId: string): Promise<boolean> {
+    const tombstone = await this.prisma.podFlashSaleTombstone.findUnique({
+      where: { shopId_providerFlashSaleId: { shopId, providerFlashSaleId } },
+      select: { id: true },
+    });
+    return tombstone !== null;
+  }
+
   private async importActivity(
     organizationId: string,
     userId: string,
@@ -334,6 +343,8 @@ export class PodFlashSaleImportService {
     });
     if (existing?.deletedAt) return { kind: 'skipped' };
     if (existing?.status === PodFlashSaleStatus.PUBLISHING) return { kind: 'skipped' };
+    // Đợt đã bị XOÁ CỨNG ⇒ không còn bản ghi để khớp; bia mộ giữ đúng luật "đã xoá thì không hồi sinh".
+    if (!existing && (await this.isTombstoned(shop.id, activityId))) return { kind: 'skipped' };
 
     // Đã kết thúc ở CẢ HAI phía ⇒ sản phẩm không còn đổi được: không tốn một lượt Get Activity.
     if (existing && TERMINAL_STATUSES.includes(existing.status)) {

@@ -33,3 +33,19 @@ export const DASHBOARD_STATUS_GROUPS = {
   APPROVED: OrganizationStatus.ACTIVE,
   REJECTED: OrganizationStatus.REJECTED,
 } as const;
+
+// ---------------------------------------------------------------------------
+// Xoá cứng Organization (xem `constants/organization-deletion.plan.ts`)
+// ---------------------------------------------------------------------------
+
+/**
+ * Trần thời gian của transaction xoá. Toàn bộ dữ liệu của một tổ chức đi trong MỘT transaction để lỗi
+ * giữa chừng hoàn tác sạch — tổ chức lớn (hàng triệu dòng flash sale / đơn) cần nhiều phút.
+ */
+export const ORGANIZATION_DELETE_TX_OPTIONS = { timeout: 15 * 60_000, maxWait: 10_000 } as const;
+
+/** Chờ khoá hàng tối đa cho mỗi lệnh — tiến trình nền đang giữ dòng của tổ chức thì báo lỗi, không treo. */
+export const ORGANIZATION_DELETE_LOCK_TIMEOUT = '30s';
+
+/** Khoá Redis chống hai lượt xoá cùng một tổ chức (bấm lặp / hai tab / hai Super Admin). */
+export const ORGANIZATION_DELETE_LOCK_PREFIX = 'platform:organization-delete:';

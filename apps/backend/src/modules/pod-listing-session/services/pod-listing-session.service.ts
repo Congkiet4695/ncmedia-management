@@ -9,7 +9,10 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { DistributedLockService } from '../../pod-tiktok/infra/distributed-lock.service';
-import { POD_SESSION_START_LOCK_MS } from '../../pod-listing/constants/pod-listing.constants';
+import {
+  POD_SESSION_START_LOCK_MS,
+  POD_SESSION_START_LOCK_PREFIX,
+} from '../../pod-listing/constants/pod-listing.constants';
 import {
   PodAccessScopeService,
   type PodAccessScope,
@@ -43,6 +46,13 @@ import type {
 export class PodListingSessionNotFoundException extends NotFoundException {
   constructor() {
     super({ code: 'POD_LISTING_SESSION_NOT_FOUND', message: 'Không tìm thấy Listing Session' });
+  }
+}
+
+/** Lượt đăng đang chạy (hoặc còn lượt chạy / item / publish dở) — không sửa, không xoá được. */
+export class PodListingSessionInProgressException extends BadRequestException {
+  constructor(message = 'Lượt đăng đang chạy — chờ chạy xong rồi sửa.') {
+    super({ code: 'POD_SESSION_IN_PROGRESS', message });
   }
 }
 
@@ -361,27 +371,7 @@ export class PodListingSessionService {
     return this.getDetail(organizationId, id, scope);
   }
 
-  /** Xoá mềm cả lượt đăng (Draft Product con đi theo — chúng không sống một mình). */
-  async remove(
-    organizationId: string,
-    userId: string,
-    id: string,
-    scope: PodAccessScope,
-  ): Promise<void> {
-    const session = await this.get(organizationId, id, scope);
-    this.assertEditable(session);
-
-    await this.prisma.$transaction([
-      this.prisma.podListingSession.update({
-        where: { id },
-        data: { deletedAt: new Date(), updatedBy: userId },
-      }),
-      this.prisma.podListingSessionProduct.updateMany({
-        where: { sessionId: id, deletedAt: null },
-        data: { deletedAt: new Date(), updatedBy: userId },
-      }),
-    ]);
-  }
+  // Xoá (cứng) lượt đăng: `PodListingSessionDeletionService` — một đường duy nhất cho xoá từng lượt và hàng loạt.
 
   // ---------------------------------------------------------------------------
   // Validate
@@ -529,7 +519,7 @@ export class PodListingSessionService {
     // 🔴 Khoá theo session quanh "kiểm trạng thái → tạo job": hai cú bấm gần như đồng thời (nút
     // disable ở trình duyệt chỉ là lớp đầu) không được cùng thấy "chưa chạy" rồi tạo hai job —
     // với Publish Live đó là hai sản phẩm trùng trên sàn.
-    const started = await this.lock.withLock(`pod:session-start:${id}`, POD_SESSION_START_LOCK_MS, () =>
+    const started = await this.lock.withLock(`${POD_SESSION_START_LOCK_PREFIX}${id}`, POD_SESSION_START_LOCK_MS, () =>
       this.startListingLocked(organizationId, userId, id, dto, scope, saveMode),
     );
     if (!started) {
@@ -755,12 +745,7 @@ export class PodListingSessionService {
   }
 
   private assertEditable(session: SessionFull): void {
-    if (!EDITABLE_STATUSES.includes(session.status)) {
-      throw new BadRequestException({
-        code: 'POD_SESSION_IN_PROGRESS',
-        message: 'Lượt đăng đang chạy — chờ chạy xong rồi sửa.',
-      });
-    }
+    if (!EDITABLE_STATUSES.includes(session.status)) throw new PodListingSessionInProgressException();
   }
 
   /**

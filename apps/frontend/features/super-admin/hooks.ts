@@ -54,3 +54,16 @@ export function useRejectOrganization() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [KEY] }),
   });
 }
+
+/** XOÁ CỨNG Organization — xoá xong thì bỏ cache chi tiết và làm mới danh sách / dashboard. */
+export function useDeleteOrganization() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, confirmSlug }: { id: string; confirmSlug: string }) =>
+      superAdminService.remove(id, confirmSlug),
+    onSuccess: (_result, { id }) => {
+      queryClient.removeQueries({ queryKey: [KEY, 'organization', id] });
+      void queryClient.invalidateQueries({ queryKey: [KEY] });
+    },
+  });
+}

@@ -19,6 +19,20 @@ const SERVER_ERROR_PREFIX = 'validation:serverError.';
  * Nhờ bước 2, thêm error code mới ở Backend KHÔNG làm vỡ giao diện: người dùng vẫn
  * đọc được lỗi, chỉ là chưa được bản địa hoá cho tới khi bổ sung khoá dịch.
  */
+/**
+ * Dịch MỘT dòng lỗi của thao tác hàng loạt (`{ code, message }` trong `failed[]`) — cùng thứ tự ưu tiên
+ * với `useApiError`: có bản dịch của `code` thì dùng, không thì giữ `message` của Backend.
+ */
+export function useTranslateErrorCode() {
+  const { t } = useTranslation('validation');
+
+  return useCallback(
+    (code: string, fallbackMessage: string): string =>
+      i18n.exists(`${SERVER_ERROR_PREFIX}${code}`) ? t(`serverError.${code}`) : fallbackMessage,
+    [t],
+  );
+}
+
 export function useApiError() {
   const { t } = useTranslation('validation');
 

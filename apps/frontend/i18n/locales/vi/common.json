@@ -169,5 +169,10 @@
     "dark": "Tối",
     "light": "Sáng",
     "toggle": "Đổi giao diện sáng/tối"
+  },
+  "deleteDialog": {
+    "more": "+{{count}} mục khác",
+    "irreversible": "Đây là thao tác xoá vĩnh viễn — không thể hoàn tác.",
+    "typeToConfirm": "Nhập {{value}} để xác nhận"
   }
 }

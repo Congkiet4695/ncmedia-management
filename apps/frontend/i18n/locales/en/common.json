@@ -169,5 +169,10 @@
     "dark": "Dark",
     "light": "Light",
     "toggle": "Toggle light/dark theme"
+  },
+  "deleteDialog": {
+    "more": "+{{count}} more",
+    "irreversible": "This is a permanent delete — it cannot be undone.",
+    "typeToConfirm": "Type {{value}} to confirm"
   }
 }

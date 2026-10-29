@@ -85,3 +85,15 @@ export interface SuperAdminDashboard {
   rejected: number;
   total: number;
 }
+
+/** Kết quả XOÁ CỨNG một Organization (số dòng đã xoá theo bảng). */
+export interface OrganizationDeletionResult {
+  organizationId: string;
+  name: string;
+  slug: string;
+  deletedRows: number;
+  tables: Array<{ table: string; deleted: number }>;
+  /** Bản ghi file đã xoá — file vật lý trên kho lưu trữ KHÔNG bị xoá. */
+  storageFilesDeleted: number;
+  durationMs: number;
+}

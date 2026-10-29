@@ -74,6 +74,8 @@ import { UserService } from './services/user.service';
     JwtModule,
     UserService,
     RefreshService,
+    // Super Admin xoá Organization: dọn cache phiên của các user vừa bị xoá cứng.
+    RefreshTokenService,
   ],
 })
 export class AuthModule {}

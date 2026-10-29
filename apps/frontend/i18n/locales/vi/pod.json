@@ -244,7 +244,7 @@
     "confirm": {
       "publish": "Đẩy \"{{name}}\" lên TikTok? Giá khuyến mãi sẽ có hiệu lực với người mua thật.",
       "cancel": "Huỷ \"{{name}}\" trên TikTok? Khuyến mãi sẽ ngừng ngay lập tức.",
-      "delete": "Xoá \"{{name}}\"?",
+      "delete": "Xoá vĩnh viễn \"{{name}}\" cùng các dòng sản phẩm và nhật ký? Không thể hoàn tác.",
       "deleteItems": "Xoá {{count}} dòng sản phẩm khỏi đợt sale này?",
       "syncFromTiktokShop": "Đồng bộ Flash Sale của shop đang chọn từ TikTok về hệ thống? Thao tác này chỉ ĐỌC từ TikTok.",
       "syncFromTiktokAll": "Đồng bộ Flash Sale của MỌI shop bạn quản lý từ TikTok về hệ thống? Thao tác này chỉ ĐỌC từ TikTok.",
@@ -535,6 +535,19 @@
         },
         "durationHint": "Tính theo PHÚT: 1 ngày = 1440 phút, 2 ngày = 2880 phút, 3 ngày = 4320 phút, không ép về 23:59. Ví dụ đợt trước kết thúc 21/10 13:59 · 1 ngày ⇒ đợt mới 21/10 14:00 → 22/10 13:59."
       }
+    },
+    "bulkDelete": {
+      "selected": "Đã chọn {{count}}",
+      "button": "Xoá đã chọn ({{count}})",
+      "selectPage": "Chọn tất cả Flash Sale xoá được trên trang này",
+      "selectRow": "Chọn \"{{name}}\"",
+      "notDeletable": "Flash Sale đang chạy / đang đẩy lên sàn không xoá được — hãy Huỷ trước.",
+      "title": "Xoá {{count}} Flash Sale",
+      "question": "Xoá vĩnh viễn {{count}} Flash Sale đã chọn trên trang này?",
+      "warning": "Các dòng sản phẩm, giá khuyến mãi và nhật ký chạy của chúng bị xoá theo. Sản phẩm, template và khuyến mãi đã kết thúc trên TikTok không bị ảnh hưởng; \"Đồng bộ từ TikTok\" sẽ không đưa chúng trở lại.",
+      "confirm": "Xoá {{count}} Flash Sale",
+      "done": "Đã xoá {{count}} Flash Sale",
+      "partial": "Đã xoá {{deleted}} · {{failed}} Flash Sale KHÔNG xoá được"
     }
   },
   "link": {
@@ -970,7 +983,7 @@
       "createAndContinue": "Tạo và tiếp tục",
       "createFailed": "Không tạo được lượt đăng",
       "created": "Đã tạo lượt đăng — bước tiếp theo là import sản phẩm.",
-      "deleteConfirm": "Xoá lượt đăng \"{{name}}\" và toàn bộ sản phẩm bên trong?",
+      "deleteConfirm": "Xoá vĩnh viễn lượt đăng \"{{name}}\" cùng Draft Product, lịch sử chạy và nhật ký? Không thể hoàn tác.",
       "deleted": "Đã xoá lượt đăng",
       "descriptionTemplate": "Description Template",
       "empty": "Chưa có lượt đăng nào. Bấm \"Tạo lượt đăng\" để bắt đầu.",
@@ -1012,7 +1025,20 @@
       "updatedAt": "Cập nhật",
       "validate": "Kiểm tra",
       "validateFailed": "{{count}} sản phẩm còn thiếu dữ liệu",
-      "validateOk": "{{count}} sản phẩm đủ điều kiện lên sàn"
+      "validateOk": "{{count}} sản phẩm đủ điều kiện lên sàn",
+      "bulkDelete": {
+        "selected": "Đã chọn {{count}}",
+        "button": "Xoá đã chọn ({{count}})",
+        "selectPage": "Chọn tất cả lượt đăng xoá được trên trang này",
+        "selectRow": "Chọn \"{{name}}\"",
+        "notDeletable": "Lượt đăng đang chạy không xoá được — chờ chạy xong.",
+        "title": "Xoá {{count}} lượt đăng",
+        "question": "Xoá vĩnh viễn {{count}} lượt đăng đã chọn trên trang này?",
+        "warning": "Draft Product, ảnh, draft đã sinh, lịch sử chạy và nhật ký của chúng bị xoá theo. Template, file đã tải lên, shop và sản phẩm đã có trên TikTok không bị ảnh hưởng.",
+        "confirm": "Xoá {{count}} lượt đăng",
+        "done": "Đã xoá {{count}} lượt đăng",
+        "partial": "Đã xoá {{deleted}} · {{failed}} lượt đăng KHÔNG xoá được"
+      }
     },
     "skuTemplates": {
       "action": "Thao tác",

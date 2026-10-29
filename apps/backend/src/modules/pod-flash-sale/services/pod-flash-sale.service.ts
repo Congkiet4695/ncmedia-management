@@ -414,31 +414,7 @@ export class PodFlashSaleService {
     return this.get(organizationId, id, scope);
   }
 
-  /**
-   * Xoá mềm.
-   *
-   * 🔴 Đợt sale ĐANG CHẠY trên sàn không được xoá thẳng: bản ghi biến mất khỏi hệ thống
-   * nhưng khuyến mãi vẫn chạy trên TikTok, và không ai còn đường tắt nó. Phải Cancel trước.
-   */
-  async remove(
-    organizationId: string,
-    userId: string,
-    id: string,
-    scope: PodAccessScope,
-  ): Promise<void> {
-    const current = await this.get(organizationId, id, scope);
-    if (
-      current.status === PodFlashSaleStatus.RUNNING ||
-      current.status === PodFlashSaleStatus.PUBLISHING
-    ) {
-      throw new PodFlashSaleInvalidStateException('xoá Flash Sale', current.status);
-    }
-
-    await this.prisma.podFlashSale.update({
-      where: { id },
-      data: { deletedAt: new Date(), updatedBy: userId },
-    });
-  }
+  // Xoá (cứng) Flash Sale: `PodFlashSaleDeletionService` — một đường duy nhất cho xoá từng đợt và hàng loạt.
 
   /**
    * Nhân bản một đợt sale.

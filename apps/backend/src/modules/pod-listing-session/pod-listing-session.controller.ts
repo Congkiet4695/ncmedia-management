@@ -18,9 +18,11 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ApiBearerAuth,
+  ApiBadRequestResponse,
   ApiBody,
   ApiConsumes,
   ApiForbiddenResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -33,6 +35,8 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import { POD_SESSION_IMPORT_OPTIONS } from './pod-session-import.options';
 import {
+  BulkDeleteListingSessionsDto,
+  ListingSessionBulkDeleteResultDto,
   CreateListingSessionDto,
   DeleteSessionProductsDto,
   ImportSessionProductsDto,
@@ -49,6 +53,7 @@ import {
 import { PodScope } from '../pod-tiktok/decorators/pod-scope.decorator';
 import { PodScopeGuard } from '../pod-tiktok/guards/pod-scope.guard';
 import type { PodAccessScope } from '../pod-tiktok/services/pod-access-scope.service';
+import { PodListingSessionDeletionService } from './services/pod-listing-session-deletion.service';
 import { PodListingSessionService } from './services/pod-listing-session.service';
 import { PodSessionImportService } from './services/pod-session-import.service';
 import { PodSessionProductService } from './services/pod-session-product.service';
@@ -78,6 +83,7 @@ export class PodListingSessionController {
     private readonly sessions: PodListingSessionService,
     private readonly products: PodSessionProductService,
     private readonly importer: PodSessionImportService,
+    private readonly deletion: PodListingSessionDeletionService,
   ) {}
 
   // ------------------------------ Session --------------------------------
@@ -186,16 +192,41 @@ export class PodListingSessionController {
     return this.sessions.update(user.organizationId, user.userId, id, dto, scope);
   }
 
+  @Post('bulk-delete')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('pod.session.write')
+  @ApiOperation({
+    summary: 'Xoá cứng NHIỀU lượt đăng (Auto Listing) đã chọn',
+    description:
+      'Chỉ xoá đúng các id gửi lên (tối đa 100, id trùng được gộp). Cùng luật với xoá từng lượt: ' +
+      'thuộc tổ chức + mọi shop của lượt nằm trong phạm vi được gán; lượt đang LISTING hoặc còn job / ' +
+      'item / publish chưa xong ⇒ từ chối (POD_SESSION_IN_PROGRESS). Xoá CỨNG lượt đăng cùng Draft ' +
+      'Product, ảnh, payload, job, item và log của nó — không đụng template, file Storage, shop hay ' +
+      'sản phẩm đã có trên TikTok. Kết quả THEO TỪNG DÒNG.',
+  })
+  @ApiOkResponse({ type: ListingSessionBulkDeleteResultDto })
+  removeMany(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Body() dto: BulkDeleteListingSessionsDto,
+  ): Promise<ListingSessionBulkDeleteResultDto> {
+    return this.deletion.removeMany(user.organizationId, user.userId, dto.ids, scope);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('pod.session.write')
-  @ApiOperation({ summary: 'Xoá lượt đăng (xoá mềm, Draft Product con đi theo)' })
+  @ApiOperation({
+    summary: 'Xoá cứng lượt đăng (kèm Draft Product, payload, job, item, log)',
+    description: 'Lượt đang LISTING hoặc còn việc nền chưa xong ⇒ 400 POD_SESSION_IN_PROGRESS.',
+  })
+  @ApiBadRequestResponse({ description: 'POD_SESSION_IN_PROGRESS' })
   remove(
     @CurrentUser() user: AuthenticatedUser,
     @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
-  ) {
-    return this.sessions.remove(user.organizationId, user.userId, id, scope);
+  ): Promise<void> {
+    return this.deletion.remove(user.organizationId, user.userId, id, scope);
   }
 
   // ------------------------------- Import --------------------------------

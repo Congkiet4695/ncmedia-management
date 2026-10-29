@@ -1,6 +1,7 @@
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse, Paginated } from '@/types/api';
 import type {
+  OrganizationDeletionResult,
   OrganizationDetail,
   OrganizationQuery,
   OrganizationRow,
@@ -50,6 +51,17 @@ export const superAdminService = {
       `${BASE}/organizations/${id}/approve`,
       {},
     );
+    return res.data.data;
+  },
+
+  /**
+   * XOÁ CỨNG Organization cùng toàn bộ dữ liệu. `confirmSlug` phải khớp slug — backend tự kiểm lại,
+   * nút bấm ở giao diện không phải lớp bảo vệ duy nhất.
+   */
+  async remove(id: string, confirmSlug: string): Promise<OrganizationDeletionResult> {
+    const res = await apiClient.delete<ApiResponse<OrganizationDeletionResult>>(`${BASE}/organizations/${id}`, {
+      data: { confirmSlug },
+    });
     return res.data.data;
   },
 

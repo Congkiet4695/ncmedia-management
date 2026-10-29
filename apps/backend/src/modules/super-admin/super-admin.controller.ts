@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   HttpCode,
   HttpStatus,
@@ -13,8 +14,10 @@ import {
 import {
   ApiBadRequestResponse,
   ApiBearerAuth,
+  ApiConflictResponse,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
+  ApiOkResponse,
   ApiOperation,
   ApiTags,
   ApiUnauthorizedResponse,
@@ -26,9 +29,12 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { SuperAdminGuard } from '../auth/guards/super-admin.guard';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import {
+  DeleteOrganizationDto,
+  OrganizationDeletionResultDto,
   RejectOrganizationDto,
   SuperAdminOrganizationQueryDto,
 } from './dto/super-admin-organization.dto';
+import { OrganizationDeletionService } from './services/organization-deletion.service';
 import { OrganizationReviewService } from './services/organization-review.service';
 
 /**
@@ -50,7 +56,10 @@ import { OrganizationReviewService } from './services/organization-review.servic
 @UseGuards(JwtAuthGuard, SuperAdminGuard, PermissionsGuard)
 @Controller('super-admin')
 export class SuperAdminController {
-  constructor(private readonly review: OrganizationReviewService) {}
+  constructor(
+    private readonly review: OrganizationReviewService,
+    private readonly deletion: OrganizationDeletionService,
+  ) {}
 
   @Get('dashboard')
   @RequirePermissions('platform.organization.read')
@@ -112,5 +121,28 @@ export class SuperAdminController {
     @Body() dto: RejectOrganizationDto,
   ) {
     return this.review.reject(user, id, dto);
+  }
+
+  @Delete('organizations/:id')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('platform.organization.delete')
+  @ApiOperation({
+    summary: 'XOÁ CỨNG Organization cùng toàn bộ dữ liệu (không hoàn tác)',
+    description:
+      'Bắt buộc gửi `confirmSlug` khớp slug của Organization. Xoá trong MỘT transaction theo kế hoạch ' +
+      'tường minh (con trước cha); từ chối nếu có bảng chứa dữ liệu của tổ chức nằm ngoài kế hoạch hoặc ' +
+      'có dữ liệu tổ chức khác tham chiếu vào. Lỗi giữa chừng ⇒ rollback toàn bộ. Không áp dụng cho ' +
+      'Organization hệ thống. File vật lý trên kho lưu trữ không bị xoá.',
+  })
+  @ApiOkResponse({ type: OrganizationDeletionResultDto })
+  @ApiNotFoundResponse({ description: 'PLATFORM_ORGANIZATION_NOT_FOUND' })
+  @ApiBadRequestResponse({ description: 'VALIDATION_ERROR / PLATFORM_ORGANIZATION_DELETE_CONFIRMATION_MISMATCH' })
+  @ApiConflictResponse({ description: 'PLATFORM_ORGANIZATION_DELETE_BUSY / PLATFORM_ORGANIZATION_DELETE_UNSAFE' })
+  remove(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: DeleteOrganizationDto,
+  ): Promise<OrganizationDeletionResultDto> {
+    return this.deletion.delete(user, id, dto);
   }
 }

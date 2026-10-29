@@ -109,6 +109,19 @@
     "NOTIFICATION_EVENT_NOT_RETRYABLE": "Only failed or skipped notifications can be resent.",
     "DASHBOARD_RANGE_INVALID": "Invalid date range (max 366 days, start ≤ end).",
     "DATE_RANGE_INVALID": "Start date cannot be later than end date.",
-    "POD_RETURN_NOT_FOUND": "Return / refund request not found."
+    "POD_RETURN_NOT_FOUND": "Return / refund request not found.",
+    "PLATFORM_ORGANIZATION_DELETE_CONFIRMATION_MISMATCH": "The confirmation does not match the organization's slug — nothing was deleted.",
+    "PLATFORM_ORGANIZATION_DELETE_BUSY": "This organization is already being deleted in another request — please wait.",
+    "PLATFORM_ORGANIZATION_DELETE_UNSAFE": "The organization's related data could not be verified as safe to delete — nothing was deleted. Contact the technical team.",
+    "PLATFORM_ORGANIZATION_DELETE_FAILED": "Deleting the organization failed and was fully rolled back — nothing was deleted.",
+    "POD_FLASH_SALE_NOT_FOUND": "Flash sale not found.",
+    "POD_FLASH_SALE_INVALID_STATE": "This action is not allowed in the flash sale's current status.",
+    "POD_FLASH_SALE_IMPORT_BUSY": "This shop is syncing flash sales from TikTok — please try again in a few minutes.",
+    "POD_FLASH_SALE_AUTO_BUSY": "An Auto Flash Sale run is in progress for this organization — please try again in a few minutes.",
+    "POD_FLASH_SALE_LOCKED": "The flash sale is being updated by another action — please try again in a few seconds.",
+    "POD_FLASH_SALE_DELETE_FAILED": "Could not delete the flash sale.",
+    "POD_LISTING_SESSION_NOT_FOUND": "Listing run not found.",
+    "POD_SESSION_IN_PROGRESS": "The listing run is still running (or has unfinished uploads / publishes) — wait until it finishes.",
+    "POD_SESSION_DELETE_FAILED": "Could not delete the listing run."
   }
 }

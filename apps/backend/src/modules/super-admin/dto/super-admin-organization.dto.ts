@@ -81,3 +81,39 @@ export class RejectOrganizationDto {
   @MaxLength(1000)
   reason!: string;
 }
+
+/**
+ * Xác nhận XOÁ CỨNG Organization.
+ *
+ * 🔴 Server tự kiểm `confirmSlug` khớp slug của Organization — nút bấm ở giao diện không phải lớp bảo
+ * vệ duy nhất: một request gửi nhầm id (hoặc gửi lại từ lịch sử) sẽ không xoá được tổ chức khác.
+ */
+export class DeleteOrganizationDto {
+  @ApiProperty({ example: 'acme-co', description: 'Slug của Organization cần xoá — phải khớp chính xác' })
+  @Transform(trim)
+  @IsString()
+  @MinLength(1)
+  @MaxLength(120)
+  confirmSlug!: string;
+}
+
+export class OrganizationDeletionTableDto {
+  @ApiProperty({ example: 'pod_orders' }) table!: string;
+  @ApiProperty({ description: 'Số dòng đã xoá trực tiếp ở bảng này' }) deleted!: number;
+}
+
+export class OrganizationDeletionResultDto {
+  @ApiProperty() organizationId!: string;
+  @ApiProperty() name!: string;
+  @ApiProperty() slug!: string;
+  @ApiProperty({ description: 'Tổng số dòng đã xoá trực tiếp (chưa gồm bảng con xoá theo CASCADE)' })
+  deletedRows!: number;
+  @ApiProperty({ type: [OrganizationDeletionTableDto], description: 'Chỉ liệt kê bảng có dữ liệu bị xoá' })
+  tables!: OrganizationDeletionTableDto[];
+  @ApiProperty({
+    description:
+      'Số bản ghi file (storage_files) đã xoá. File vật lý trên kho lưu trữ KHÔNG bị xoá — dọn theo quy trình riêng.',
+  })
+  storageFilesDeleted!: number;
+  @ApiProperty() durationMs!: number;
+}

@@ -109,6 +109,19 @@
     "NOTIFICATION_EVENT_NOT_RETRYABLE": "Chỉ gửi lại được thông báo lỗi hoặc bị bỏ qua.",
     "DASHBOARD_RANGE_INVALID": "Khoảng ngày không hợp lệ (tối đa 366 ngày, ngày bắt đầu ≤ ngày kết thúc).",
     "DATE_RANGE_INVALID": "Ngày bắt đầu không được lớn hơn ngày kết thúc.",
-    "POD_RETURN_NOT_FOUND": "Không tìm thấy yêu cầu Return / Refund."
+    "POD_RETURN_NOT_FOUND": "Không tìm thấy yêu cầu Return / Refund.",
+    "PLATFORM_ORGANIZATION_DELETE_CONFIRMATION_MISMATCH": "Chuỗi xác nhận không khớp slug của tổ chức — không có dữ liệu nào bị xoá.",
+    "PLATFORM_ORGANIZATION_DELETE_BUSY": "Tổ chức này đang được xoá ở một yêu cầu khác — vui lòng chờ.",
+    "PLATFORM_ORGANIZATION_DELETE_UNSAFE": "Không xác định được an toàn toàn bộ dữ liệu liên quan của tổ chức — đã từ chối, không có dữ liệu nào bị xoá. Liên hệ đội kỹ thuật.",
+    "PLATFORM_ORGANIZATION_DELETE_FAILED": "Xoá tổ chức thất bại và đã được hoàn tác toàn bộ — không có dữ liệu nào bị xoá.",
+    "POD_FLASH_SALE_NOT_FOUND": "Không tìm thấy Flash Sale.",
+    "POD_FLASH_SALE_INVALID_STATE": "Không thực hiện được thao tác này ở trạng thái hiện tại của Flash Sale.",
+    "POD_FLASH_SALE_IMPORT_BUSY": "Shop này đang được đồng bộ Flash Sale từ TikTok — vui lòng thử lại sau ít phút.",
+    "POD_FLASH_SALE_AUTO_BUSY": "Đang có một lượt Auto Flash Sale chạy cho tổ chức này — vui lòng thử lại sau ít phút.",
+    "POD_FLASH_SALE_LOCKED": "Flash Sale đang được một thao tác khác cập nhật — vui lòng thử lại sau ít giây.",
+    "POD_FLASH_SALE_DELETE_FAILED": "Không xoá được Flash Sale.",
+    "POD_LISTING_SESSION_NOT_FOUND": "Không tìm thấy lượt đăng.",
+    "POD_SESSION_IN_PROGRESS": "Lượt đăng đang chạy (hoặc còn lượt đưa lên sàn / publish chưa xong) — chờ chạy xong.",
+    "POD_SESSION_DELETE_FAILED": "Không xoá được lượt đăng."
   }
 }

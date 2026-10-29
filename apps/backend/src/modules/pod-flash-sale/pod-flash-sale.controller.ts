@@ -36,6 +36,7 @@ import {
   PodFlashSaleProductQueryDto,
   AddFlashSaleItemsDto,
   BatchUpdateFlashSaleItemsDto,
+  BulkDeleteFlashSalesDto,
   CreateFlashSaleDto,
   DeleteFlashSaleItemsDto,
   DuplicateFlashSaleDto,
@@ -53,6 +54,7 @@ import {
   PaginatedPodFlashSaleDto,
   PaginatedPodFlashSaleLogDto,
   PodFlashSaleBatchUpdateResponseDto,
+  PodFlashSaleBulkDeleteResultDto,
   PodFlashSaleDetailDto,
   PodFlashSaleImportResultDto,
   PodFlashSalePublishResultDto,
@@ -61,6 +63,7 @@ import {
 } from './dto/pod-flash-sale-response.dto';
 import { PodFlashSaleAutoChainDto, SetFlashSaleAutoModeDto } from './dto/pod-flash-sale-auto.dto';
 import { PodFlashSaleAutoService } from './services/pod-flash-sale-auto.service';
+import { PodFlashSaleDeletionService } from './services/pod-flash-sale-deletion.service';
 import { PodFlashSaleImportService } from './services/pod-flash-sale-import.service';
 import { PodFlashSaleItemService } from './services/pod-flash-sale-item.service';
 import { PodFlashSalePublisherService } from './services/pod-flash-sale-publisher.service';
@@ -96,6 +99,7 @@ export class PodFlashSaleController {
     private readonly sync: PodFlashSaleSyncService,
     private readonly importer: PodFlashSaleImportService,
     private readonly autoService: PodFlashSaleAutoService,
+    private readonly deletion: PodFlashSaleDeletionService,
   ) {}
 
   // ---------------------------------------------------------------------------
@@ -247,20 +251,46 @@ export class PodFlashSaleController {
     return this.service.toDetail(updated);
   }
 
+  @Post('bulk-delete')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions(FLASH_SALE_PERMISSIONS.WRITE)
+  @ApiOperation({
+    summary: 'Xoá cứng NHIỀU Flash Sale đã chọn',
+    description:
+      'Chỉ xoá đúng các id gửi lên (tối đa 100, id trùng được gộp) — không có chế độ "xoá tất cả". ' +
+      'Cùng luật với xoá từng đợt: thuộc tổ chức + shop trong phạm vi được gán; đợt RUNNING / ' +
+      'PUBLISHING bị từ chối (Cancel trước); shop đang đồng bộ từ TikTok hoặc chuỗi Auto đang chạy ⇒ ' +
+      'dòng đó báo BUSY. Xoá CỨNG đợt sale cùng items + logs (không đụng sản phẩm / template). ' +
+      'Kết quả THEO TỪNG DÒNG — dòng hỏng không chặn dòng khác.',
+  })
+  @ApiOkResponse({ type: PodFlashSaleBulkDeleteResultDto })
+  removeMany(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Body() dto: BulkDeleteFlashSalesDto,
+  ): Promise<PodFlashSaleBulkDeleteResultDto> {
+    return this.deletion.removeMany(user.organizationId, user.userId, dto.ids, scope);
+  }
+
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
   @RequirePermissions(FLASH_SALE_PERMISSIONS.WRITE)
   @ApiOperation({
-    summary: 'Xoá Flash Sale (xoá mềm)',
-    description: 'Đợt đang RUNNING/PUBLISHING phải Cancel trước — xoá thẳng sẽ để lại khuyến mãi mồ côi trên sàn.',
+    summary: 'Xoá cứng Flash Sale (kèm items + logs)',
+    description:
+      'Đợt đang RUNNING/PUBLISHING phải Cancel trước — xoá thẳng sẽ để lại khuyến mãi mồ côi trên sàn. ' +
+      'Đợt đã có activity trên TikTok được ghi bia mộ để "Sync from TikTok" không import lại.',
   })
   @ApiNoContentResponse()
+  @ApiConflictResponse({
+    description: 'POD_FLASH_SALE_INVALID_STATE / POD_FLASH_SALE_IMPORT_BUSY / POD_FLASH_SALE_AUTO_BUSY / POD_FLASH_SALE_LOCKED',
+  })
   remove(
     @CurrentUser() user: AuthenticatedUser,
     @PodScope() scope: PodAccessScope,
     @Param('id', ParseUUIDPipe) id: string,
   ): Promise<void> {
-    return this.service.remove(user.organizationId, user.userId, id, scope);
+    return this.deletion.remove(user.organizationId, user.userId, id, scope);
   }
 
   @Post('sync-from-tiktok')

@@ -65,5 +65,14 @@
     "reasonTooShort": "The reason needs at least {{count}} characters.",
     "submit": "Reject",
     "done": "\"{{name}}\" has been rejected"
+  },
+  "delete": {
+    "button": "Delete organization",
+    "title": "Delete organization permanently",
+    "question": "Permanently delete \"{{name}}\" and ALL of its data?",
+    "warning": "Every user, employee, role, TikTok account and shop, order, product, listing, flash sale, template, fulfillment setting, notification and log of this organization is deleted from the database. Shared platform data is not touched. Uploaded files remain on storage and are cleaned up separately.",
+    "confirm": "Delete permanently",
+    "done": "Organization \"{{name}}\" deleted",
+    "doneDetail": "{{rows}} record(s) removed · {{files}} file record(s)"
   }
 }

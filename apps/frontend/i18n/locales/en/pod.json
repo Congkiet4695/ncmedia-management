@@ -244,7 +244,7 @@
     "confirm": {
       "publish": "Publish \"{{name}}\" to TikTok? Deal prices go live for real buyers.",
       "cancel": "Cancel \"{{name}}\" on TikTok? The promotion stops immediately.",
-      "delete": "Delete \"{{name}}\"?",
+      "delete": "Permanently delete \"{{name}}\" with its product rows and logs? This cannot be undone.",
       "deleteItems": "Remove {{count}} product rows from this flash sale?",
       "syncFromTiktokShop": "Sync Flash Sales of the selected shop from TikTok? This only READS from TikTok.",
       "syncFromTiktokAll": "Sync Flash Sales of ALL shops you manage from TikTok? This only READS from TikTok.",
@@ -535,6 +535,19 @@
         },
         "durationHint": "Counted in minutes: 1 day = 1440, 2 days = 2880, 3 days = 4320 minutes — never forced to 23:59. E.g. previous sale ends 21/10 13:59 · 1 day ⇒ next sale 21/10 14:00 → 22/10 13:59."
       }
+    },
+    "bulkDelete": {
+      "selected": "{{count}} selected",
+      "button": "Delete selected ({{count}})",
+      "selectPage": "Select all deletable flash sales on this page",
+      "selectRow": "Select \"{{name}}\"",
+      "notDeletable": "Running / publishing flash sales cannot be deleted — cancel it first.",
+      "title": "Delete {{count}} flash sale(s)",
+      "question": "Permanently delete the {{count}} selected flash sale(s) on this page?",
+      "warning": "Their product rows, deal prices and run logs are deleted with them. Products, templates and promotions already ended on TikTok are not touched; \"Sync from TikTok\" will not bring them back.",
+      "confirm": "Delete {{count}} flash sale(s)",
+      "done": "Deleted {{count}} flash sale(s)",
+      "partial": "Deleted {{deleted}} · {{failed}} flash sale(s) could NOT be deleted"
     }
   },
   "link": {
@@ -970,7 +983,7 @@
       "createAndContinue": "Create and continue",
       "createFailed": "Could not create the listing run",
       "created": "Listing run created — import your products next.",
-      "deleteConfirm": "Delete the run \"{{name}}\" and every draft product inside it?",
+      "deleteConfirm": "Permanently delete the run \"{{name}}\" with its draft products, run history and logs? This cannot be undone.",
       "deleted": "Listing run deleted",
       "descriptionTemplate": "Description Template",
       "empty": "No listing run yet. Press New Listing to start one.",
@@ -1012,7 +1025,20 @@
       "updatedAt": "Updated",
       "validate": "Validate",
       "validateFailed": "{{count}} product(s) still have problems",
-      "validateOk": "{{count}} product(s) ready to list"
+      "validateOk": "{{count}} product(s) ready to list",
+      "bulkDelete": {
+        "selected": "{{count}} selected",
+        "button": "Delete selected ({{count}})",
+        "selectPage": "Select all deletable listing runs on this page",
+        "selectRow": "Select \"{{name}}\"",
+        "notDeletable": "A run that is listing cannot be deleted — wait until it finishes.",
+        "title": "Delete {{count}} listing run(s)",
+        "question": "Permanently delete the {{count}} selected listing run(s) on this page?",
+        "warning": "Their draft products, images, generated drafts, run history and logs are deleted with them. Templates, uploaded files, shops and products already on TikTok are not touched.",
+        "confirm": "Delete {{count}} run(s)",
+        "done": "Deleted {{count}} listing run(s)",
+        "partial": "Deleted {{deleted}} · {{failed}} run(s) could NOT be deleted"
+      }
     },
     "skuTemplates": {
       "action": "Action",

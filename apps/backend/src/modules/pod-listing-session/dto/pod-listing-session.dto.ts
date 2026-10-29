@@ -26,6 +26,7 @@ import {
 import { MANUAL_SKU_MAX } from '../../pod-listing/services/pod-manual-listing';
 import {
   POD_CUSTOM_LISTING_MAX_SHOPS,
+  POD_SESSION_BULK_DELETE_MAX,
   POD_SESSION_IMPORT_MAX_IMAGES,
   POD_SESSION_MAX_PRODUCTS,
   POD_SESSION_PRODUCT_SORT_FIELDS,
@@ -788,6 +789,35 @@ export class PodSessionProductQueryDto {
 }
 
 /** Xoá nhiều Draft Product. */
+/** Xoá cứng NHIỀU lượt đăng (Auto Listing) đã chọn trên trang danh sách (không phải "xoá tất cả"). */
+export class BulkDeleteListingSessionsDto {
+  @ApiProperty({
+    type: [String],
+    minItems: 1,
+    maxItems: POD_SESSION_BULK_DELETE_MAX,
+    description: `Id lượt đăng (1–${POD_SESSION_BULK_DELETE_MAX}; id trùng được gộp)`,
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(POD_SESSION_BULK_DELETE_MAX)
+  @IsUUID('4', { each: true })
+  @Transform(({ value }: { value: unknown }) => (Array.isArray(value) ? [...new Set(value)] : value))
+  ids!: string[];
+}
+
+export class ListingSessionBulkDeleteFailureDto {
+  @ApiProperty() id!: string;
+  @ApiProperty({ example: 'POD_SESSION_IN_PROGRESS' }) code!: string;
+  @ApiProperty() message!: string;
+}
+
+/** Kết quả xoá hàng loạt THEO TỪNG DÒNG — dòng hỏng không bị gộp vào "thành công". */
+export class ListingSessionBulkDeleteResultDto {
+  @ApiProperty({ description: 'Số id hợp lệ đã nhận (sau khi gộp id trùng)' }) requested!: number;
+  @ApiProperty({ type: [String], description: 'Đã xoá cứng cùng mọi dữ liệu con' }) deleted!: string[];
+  @ApiProperty({ type: [ListingSessionBulkDeleteFailureDto] }) failed!: ListingSessionBulkDeleteFailureDto[];
+}
+
 export class DeleteSessionProductsDto {
   @ApiProperty({ type: [String], maxItems: POD_SESSION_MAX_PRODUCTS })
   @IsArray()

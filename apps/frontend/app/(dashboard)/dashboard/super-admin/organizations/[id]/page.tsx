@@ -2,14 +2,17 @@
 
 import { use, useState } from 'react';
 import Link from 'next/link';
-import { ArrowLeft, Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
+import { ArrowLeft, Loader2, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent } from '@/components/ui/card';
 import { RequirePermission } from '@/components/require-permission';
 import { useApiError } from '@/hooks/use-api-error';
+import { useAuth } from '@/hooks/use-auth';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
+import { DeleteOrganizationDialog } from '@/features/super-admin/components/delete-organization-dialog';
 import { OrganizationStatusBadge } from '@/features/super-admin/components/organization-status-badge';
 import { ApproveDialog, RejectDialog } from '@/features/super-admin/components/review-dialogs';
 import {
@@ -46,6 +49,10 @@ function DetailView({ id }: { id: string }) {
 
   const [approveOpen, setApproveOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+  const router = useRouter();
+  // Nút xoá chỉ là lớp hiển thị — backend vẫn đòi Super Admin + quyền `platform.organization.delete`.
+  const canDelete = useAuth().hasPermission('platform.organization.delete');
 
   const query = useOrganization(id);
   const approve = useApproveOrganization();
@@ -93,15 +100,23 @@ function DetailView({ id }: { id: string }) {
           </div>
         </div>
 
-        {/* Chỉ hồ sơ PENDING mới có hành động — khớp đúng ràng buộc của backend. */}
-        {isPending && (
-          <div className="flex gap-2">
-            <Button variant="outline" className="text-destructive" onClick={() => setRejectOpen(true)}>
-              {t('reject.submit')}
+        <div className="flex gap-2">
+          {/* Duyệt / từ chối: chỉ hồ sơ PENDING — khớp đúng ràng buộc của backend. */}
+          {isPending && (
+            <>
+              <Button variant="outline" className="text-destructive" onClick={() => setRejectOpen(true)}>
+                {t('reject.submit')}
+              </Button>
+              <Button variant="success" onClick={() => setApproveOpen(true)}>{t('approve.submit')}</Button>
+            </>
+          )}
+          {canDelete && (
+            <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
+              <Trash2 className="size-4" />
+              {t('delete.button')}
             </Button>
-            <Button variant="success" onClick={() => setApproveOpen(true)}>{t('approve.submit')}</Button>
-          </div>
-        )}
+          )}
+        </div>
       </div>
 
       <div className="grid gap-4 lg:grid-cols-2">
@@ -198,6 +213,12 @@ function DetailView({ id }: { id: string }) {
             })
             .catch((error: unknown) => toast.error(translateApiError(error)))
         }
+      />
+
+      <DeleteOrganizationDialog
+        organization={deleteOpen ? org : null}
+        onClose={() => setDeleteOpen(false)}
+        onDeleted={() => router.replace('/dashboard/super-admin/organizations')}
       />
 
       <RejectDialog

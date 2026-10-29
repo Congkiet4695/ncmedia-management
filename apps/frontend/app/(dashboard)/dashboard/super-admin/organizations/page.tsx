@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Building2, CheckCircle2, Clock, Eye, Loader2, XCircle } from 'lucide-react';
+import { Building2, CheckCircle2, Clock, Eye, Loader2, Trash2, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -20,9 +20,11 @@ import {
 } from '@/components/ui/table';
 import { RequirePermission } from '@/components/require-permission';
 import { useApiError } from '@/hooks/use-api-error';
+import { useAuth } from '@/hooks/use-auth';
 import { useClampedPage } from '@/hooks/use-clamped-page';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
+import { DeleteOrganizationDialog } from '@/features/super-admin/components/delete-organization-dialog';
 import { OrganizationStatusBadge } from '@/features/super-admin/components/organization-status-badge';
 import {
   ApproveDialog,
@@ -71,6 +73,9 @@ function OrganizationsView() {
   const [status, setStatus] = useState<OrganizationStatus | ''>('PENDING');
   const [approving, setApproving] = useState<OrganizationRow | null>(null);
   const [rejecting, setRejecting] = useState<OrganizationRow | null>(null);
+  const [deleting, setDeleting] = useState<OrganizationRow | null>(null);
+  // Nút xoá chỉ là lớp hiển thị — backend vẫn đòi Super Admin + quyền `platform.organization.delete`.
+  const canDelete = useAuth().hasPermission('platform.organization.delete');
 
   const dashboard = useSuperAdminDashboard();
   const query = useOrganizations({
@@ -257,6 +262,17 @@ function OrganizationsView() {
                               </Button>
                             </>
                           )}
+                          {canDelete && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title={t('delete.button')}
+                              aria-label={t('delete.button')}
+                              onClick={() => setDeleting(organization)}
+                            >
+                              <Trash2 className="size-4 text-destructive" />
+                            </Button>
+                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -292,6 +308,8 @@ function OrganizationsView() {
             .catch((error: unknown) => toast.error(translateApiError(error)));
         }}
       />
+
+      <DeleteOrganizationDialog organization={deleting} onClose={() => setDeleting(null)} />
 
       <RejectDialog
         organization={rejecting}

@@ -1,5 +1,6 @@
 import * as Joi from 'joi';
 import { DEFAULT_BUSINESS_TIMEZONE, isValidTimeZone } from '../common/time/business-time';
+import { DATA_RETENTION_TASKS } from '../modules/data-retention/constants/data-retention.constants';
 
 /**
  * Schema validate biến môi trường khi khởi động (fail-fast nếu thiếu/sai).
@@ -190,6 +191,27 @@ export const envValidationSchema = Joi.object({
   FLASH_SALE_RETENTION_LOG_DAYS: Joi.number().integer().min(1).max(3650).empty('').optional(),
   FLASH_SALE_RETENTION_DELETED_ITEM_DAYS: Joi.number().integer().min(1).max(3650).empty('').optional(),
   FLASH_SALE_RETENTION_CLOSED_ITEM_DAYS: Joi.number().integer().min(1).max(3650).empty('').optional(),
+
+  // Retention dữ liệu theo ngày (Recent Notifications · Publish History · Draft Listings) — mặc định TẮT + DRY-RUN.
+  DATA_RETENTION_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
+  DATA_RETENTION_DRY_RUN: Joi.boolean().truthy('true').falsy('false').default(true),
+  DATA_RETENTION_CRON: Joi.string().default('20 0 * * *'),
+  DATA_RETENTION_TASKS: Joi.string()
+    .pattern(/^\s*[A-Z_]+(\s*,\s*[A-Z_]+)*\s*$/i)
+    .custom((value: string, helpers) =>
+      value
+        .split(',')
+        .every((name) => (DATA_RETENTION_TASKS as readonly string[]).includes(name.trim().toUpperCase()))
+        ? value
+        : helpers.error('any.invalid'),
+    )
+    .empty('')
+    .optional(),
+  DATA_RETENTION_PUBLISH_HISTORY_DAYS: Joi.number().integer().min(1).max(3650).default(7),
+  DATA_RETENTION_DRAFT_LISTING_DAYS: Joi.number().integer().min(1).max(3650).default(7),
+  DATA_RETENTION_BATCH_SIZE: Joi.number().integer().min(100).max(10000).default(1000),
+  DATA_RETENTION_MAX_BATCHES: Joi.number().integer().min(1).max(100000).default(200),
+  DATA_RETENTION_PAUSE_MS: Joi.number().integer().min(0).max(60000).default(100),
 
   // --- Auto Flash Sale: nhịp quét (giờ chạy do Admin cấu hình theo tổ chức) ---
   TIKTOK_FLASH_SALE_AUTO_ENABLED: Joi.boolean().truthy('true').falsy('false').default(true),

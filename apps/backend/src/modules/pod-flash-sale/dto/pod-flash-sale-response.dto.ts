@@ -498,3 +498,16 @@ export class PodFlashSaleImportResultDto {
   @ApiProperty() failed!: number;
   @ApiProperty() unmatchedItems!: number;
 }
+
+export class FlashSaleBulkDeleteFailureDto {
+  @ApiProperty() id!: string;
+  @ApiProperty({ example: 'POD_FLASH_SALE_INVALID_STATE' }) code!: string;
+  @ApiProperty() message!: string;
+}
+
+/** Kết quả xoá hàng loạt THEO TỪNG DÒNG — dòng hỏng không bị gộp vào "thành công". */
+export class PodFlashSaleBulkDeleteResultDto {
+  @ApiProperty({ description: 'Số id hợp lệ đã nhận (sau khi gộp id trùng)' }) requested!: number;
+  @ApiProperty({ type: [String], description: 'Đã xoá cứng (kèm items + logs)' }) deleted!: string[];
+  @ApiProperty({ type: [FlashSaleBulkDeleteFailureDto] }) failed!: FlashSaleBulkDeleteFailureDto[];
+}

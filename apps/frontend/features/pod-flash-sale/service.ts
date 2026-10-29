@@ -1,6 +1,6 @@
 import { apiClient } from '@/services/api-client';
 import { FLASH_SALE_MAX_ADD_PER_CALL, FLASH_SALE_MAX_BATCH_PER_CALL } from './types';
-import type { ApiResponse } from '@/types/api';
+import type { ApiResponse, BulkDeleteResult } from '@/types/api';
 import type {
   AddFlashSaleItemPayload,
   ApplyFlashSaleTemplatePayload,
@@ -100,6 +100,12 @@ export const podFlashSaleService = {
 
   async remove(id: string): Promise<void> {
     await apiClient.delete(`${BASE}/${id}`);
+  },
+
+  /** Xoá CỨNG nhiều đợt đã chọn — kết quả theo từng dòng (dòng hỏng không chặn dòng khác). */
+  async removeMany(ids: string[]): Promise<BulkDeleteResult> {
+    const res = await apiClient.post<ApiResponse<BulkDeleteResult>>(`${BASE}/bulk-delete`, { ids });
+    return res.data.data;
   },
 
   async duplicate(

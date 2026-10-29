@@ -1202,6 +1202,7 @@ model PodTiktokShop {
   listingSessionShops   PodListingSessionShop[]
   flashSales            PodFlashSale[]
   flashSaleTemplates    PodFlashSaleTemplate[]
+  flashSaleTombstones   PodFlashSaleTombstone[]
   returnRequests        PodReturnRequest[]
 
   // Chống link trùng Shop trong cùng Organization (hàng rào ở tầng DB).
@@ -5983,6 +5984,36 @@ model PodFlashSaleLog {
   @@index([organizationId])
   @@index([flashSaleId, createdAt])
   @@map("pod_flash_sale_logs")
+}
+
+// ---------------------------------------------------------------------------
+// PodFlashSaleTombstone — DẤU VẾT của đợt sale đã XOÁ CỨNG mà phía TikTok vẫn còn activity.
+//
+// 🔴 Vì sao cần: xoá mềm trước đây tự làm "bia mộ" — "Sync from TikTok" khớp theo
+// (shop_id, provider_flash_sale_id) kể cả bản ghi đã xoá mềm và BỎ QUA nó. Xoá cứng thì mất bản
+// ghi đó ⇒ lần đồng bộ sau sẽ import lại đúng đợt người dùng vừa xoá (hồi sinh dữ liệu). Bảng này
+// chỉ giữ ĐÚNG khoá khớp — không items, không logs, không payload.
+//
+// Chỉ ghi khi đợt sale có `provider_flash_sale_id` (đợt chưa từng lên sàn thì không có gì để hồi
+// sinh). Đi theo shop: shop bị xoá ⇒ bia mộ của shop đó đi theo (CASCADE).
+// ---------------------------------------------------------------------------
+
+model PodFlashSaleTombstone {
+  id                  String @id @default(uuid()) @db.Uuid
+  organizationId      String @map("organization_id") @db.Uuid
+  shopId              String @map("shop_id") @db.Uuid
+  /// `activity_id` phía TikTok của đợt đã xoá.
+  providerFlashSaleId String @map("provider_flash_sale_id") @db.VarChar(64)
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  /// Người xoá. NULL = tiến trình hệ thống.
+  createdBy String?  @map("created_by") @db.Uuid
+
+  shop PodTiktokShop @relation(fields: [shopId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+
+  @@unique([shopId, providerFlashSaleId])
+  @@index([organizationId])
+  @@map("pod_flash_sale_tombstones")
 }
 
 // ===========================================================================

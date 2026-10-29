@@ -447,6 +447,25 @@ export const FLASH_SALE_PERMISSIONS = {
 } as const;
 
 // ---------------------------------------------------------------------------
+// Xoá cứng (từng đợt + hàng loạt)
+// ---------------------------------------------------------------------------
+
+/** Số Flash Sale tối đa của MỘT lệnh xoá hàng loạt (= cỡ trang lớn nhất của danh sách). */
+export const FLASH_SALE_BULK_DELETE_MAX = 100;
+
+/** Khoá hàng khi xoá: chờ tối đa bấy nhiêu cho một lượt ghi khác đang giữ đợt sale (không treo request). */
+export const FLASH_SALE_DELETE_LOCK_TIMEOUT = '5s';
+
+/**
+ * Transaction xoá: một lệnh có thể kéo theo tới `FLASH_SALE_BULK_DELETE_MAX × FLASH_SALE_MAX_ITEMS`
+ * dòng item (CASCADE) — dư thời gian hơn transaction ghi thường để không rollback giữa chừng.
+ */
+export const FLASH_SALE_DELETE_TX_OPTIONS = { timeout: 300_000, maxWait: 10_000 } as const;
+
+/** TTL khoá Redis giữ trong lúc xoá — bằng trần của transaction xoá. */
+export const FLASH_SALE_DELETE_LOCK_TTL_MS = FLASH_SALE_DELETE_TX_OPTIONS.timeout;
+
+// ---------------------------------------------------------------------------
 // Auto Flash Sale — luật nghiệp vụ của chuỗi (A → B → C …)
 // ---------------------------------------------------------------------------
 

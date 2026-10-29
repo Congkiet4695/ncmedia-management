@@ -34,6 +34,7 @@ import { PodResourceModule } from './modules/pod-resource/pod-resource.module';
 import { TikTokSdkModule } from './modules/tiktok-sdk/tiktok-sdk.module';
 import { FulfillmentModule } from './modules/fulfillment/fulfillment.module';
 import { NotificationModule } from './modules/notification/notification.module';
+import { DataRetentionModule } from './modules/data-retention/data-retention.module';
 
 @Module({
   imports: [
@@ -156,6 +157,8 @@ import { NotificationModule } from './modules/notification/notification.module';
     FulfillmentModule,
     // Thông báo Telegram theo Organization (đơn mới / fulfill / huỷ fulfill)
     NotificationModule,
+    // Dọn dữ liệu hết hạn theo ngày (Recent Notifications · Publish History · Draft Listings) — mặc định TẮT
+    DataRetentionModule,
   ],
   providers: [
     { provide: APP_FILTER, useClass: AllExceptionsFilter },
