@@ -69,6 +69,56 @@ describe('resolveItemProductKeys', () => {
     expect(resolved.get('b')?.productKeyIssue).toBe('NO_SKU_ID');
   });
 
+  it('đơn CÓ Seller SKU, danh mục chưa đồng bộ biến thể ⇒ vẫn đủ khoá (ORDER)', () => {
+    expect(resolveItemProductKeys(SHOP, [item({ sellerSku: 'FROM-ORDER' })], []).get('item-1')).toEqual({
+      sellerSku: 'FROM-ORDER',
+      sellerSkuSource: 'ORDER',
+      productKeyIssue: null,
+    });
+  });
+
+  it.each([
+    ['null', null],
+    ['chuỗi rỗng', ''],
+    ['chỉ khoảng trắng', '   '],
+  ])('Seller SKU của đơn là %s ⇒ coi như thiếu, tra danh mục', (_label, sellerSku) => {
+    expect(needsCatalogLookup(item({ sellerSku }))).toBe(true);
+    expect(resolveItemProductKeys(SHOP, [item({ sellerSku })], [variant()]).get('item-1')).toMatchObject({
+      sellerSku: 'dung2740',
+      sellerSkuSource: 'CATALOG',
+    });
+  });
+
+  it('nhiều biến thể cùng sản phẩm, Seller SKU khác nhau ⇒ mỗi dòng lấy ĐÚNG biến thể của nó, không lấy chéo', () => {
+    const catalog = [
+      variant({ tiktokSkuId: 'SKU-S', sellerSku: 'POSTER-S' }),
+      variant({ tiktokSkuId: 'SKU-M', sellerSku: 'POSTER-M' }),
+      variant({ tiktokSkuId: 'SKU-L', sellerSku: null }),
+    ];
+    const resolved = resolveItemProductKeys(
+      SHOP,
+      [
+        item({ id: 's', skuId: 'SKU-S' }),
+        item({ id: 'm', skuId: 'SKU-M' }),
+        item({ id: 'l', skuId: 'SKU-L' }),
+        item({ id: 'm2', skuId: 'SKU-M' }),
+      ],
+      catalog,
+    );
+    expect(resolved.get('s')?.sellerSku).toBe('POSTER-S');
+    expect(resolved.get('m')?.sellerSku).toBe('POSTER-M');
+    expect(resolved.get('m2')?.sellerSku).toBe('POSTER-M');
+    // Biến thể L rỗng trên TikTok ⇒ báo lỗi, KHÔNG mượn Seller SKU của S/M.
+    expect(resolved.get('l')).toEqual({ sellerSku: null, sellerSkuSource: null, productKeyIssue: 'SELLER_SKU_EMPTY_ON_TIKTOK' });
+  });
+
+  it('Seller SKU đặt bổ sung SAU khi đơn đã đồng bộ ⇒ có hiệu lực ngay ở lần đọc kế tiếp (khôi phục lúc đọc)', () => {
+    const before = resolveItemProductKeys(SHOP, [item()], [variant({ sellerSku: null })]);
+    expect(before.get('item-1')?.productKeyIssue).toBe('SELLER_SKU_EMPTY_ON_TIKTOK');
+    const after = resolveItemProductKeys(SHOP, [item()], [variant({ sellerSku: 'SET-LATER' })]);
+    expect(after.get('item-1')).toEqual({ sellerSku: 'SET-LATER', sellerSkuSource: 'CATALOG', productKeyIssue: null });
+  });
+
   it('chỉ tra danh mục cho dòng thiếu Seller SKU nhưng có Product ID + SKU ID', () => {
     expect(needsCatalogLookup(item())).toBe(true);
     expect(needsCatalogLookup(item({ sellerSku: 'X' }))).toBe(false);
@@ -108,6 +158,23 @@ describe('PodOrderRepository gắn khoá sản phẩm lúc đọc', () => {
       deletedAt: null,
       product: { organizationId: 'org-1', deletedAt: null, shopId: { in: [SHOP] } },
     });
+  });
+
+  it('đồng bộ Products rồi mở lại đơn ⇒ đọc lại thấy Seller SKU mới; dữ liệu đơn đã lưu KHÔNG bị ghi đè', async () => {
+    const { repo, prisma } = build([
+      { tiktokSkuId: '1732716272490942940', sellerSku: null, product: { shopId: SHOP, tiktokProductId: '1732716254750544348' } },
+    ]);
+    const first = await repo.findById('org-1', 'order-1');
+    expect(first?.items[0]).toMatchObject({ sellerSku: null, productKeyIssue: 'SELLER_SKU_EMPTY_ON_TIKTOK' });
+
+    prisma.podProductVariant.findMany.mockResolvedValue([
+      { tiktokSkuId: '1732716272490942940', sellerSku: 'SYNCED-LATER', product: { shopId: SHOP, tiktokProductId: '1732716254750544348' } },
+    ]);
+    const reopened = await repo.findById('org-1', 'order-1');
+    expect(reopened?.items[0]).toMatchObject({ sellerSku: 'SYNCED-LATER', sellerSkuSource: 'CATALOG', productKeyIssue: null });
+    expect(reopened?.items[1]).toMatchObject({ sellerSku: 'SELLER-2', sellerSkuSource: 'ORDER' });
+    // Khôi phục chỉ ở lúc ĐỌC: mock chỉ có `findFirst`/`findMany` — một lệnh ghi bất kỳ lên đơn sẽ ném lỗi ở đây.
+    expect(prisma.podOrder.findFirst).toHaveBeenCalledTimes(2);
   });
 
   it('không có dòng nào cần tra ⇒ KHÔNG truy vấn danh mục', async () => {

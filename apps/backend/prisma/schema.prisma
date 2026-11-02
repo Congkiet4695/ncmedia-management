@@ -2240,6 +2240,17 @@ enum FulfillmentStatus {
   @@map("fulfillment_status")
 }
 
+/// Nguồn trạng thái của một bản ghi fulfillment.
+enum FulfillmentSource {
+  /// Bản ghi của một lần gửi qua API nhà cung cấp — trạng thái do nhà cung cấp báo.
+  PROVIDER
+  /// Admin đánh dấu đã fulfill bằng Import Excel (Base Cost + Tracking Number) — nhà cung cấp KHÔNG
+  /// xác nhận gì, bản ghi không có ở phía nhà cung cấp.
+  MANUAL_IMPORT
+
+  @@map("fulfillment_source")
+}
+
 /// Loại sự kiện ghi vào nhật ký fulfillment (append-only).
 enum FulfillmentEventType {
   CREATE_REQUEST
@@ -2713,6 +2724,9 @@ model FulfillmentOrder {
   status         FulfillmentStatus @default(DRAFT)
   /// Trạng thái NGUYÊN VĂN của nhà cung cấp (Mango: new_order, in_production, shipped...).
   providerStatus String?           @map("provider_status") @db.VarChar(64)
+  /// Ai tạo ra trạng thái của bản ghi: nhà cung cấp (gửi qua API) hay Admin nhập tay qua Import Excel.
+  /// `MANUAL_IMPORT` KHÔNG tồn tại ở nhà cung cấp ⇒ không đồng bộ / huỷ / sửa qua API.
+  source         FulfillmentSource @default(PROVIDER)
 
   /// Thông số đã dùng khi tạo đơn (ghi lại để đối soát khi cấu hình đổi về sau).
   productionLine String? @map("production_line") @db.VarChar(64)

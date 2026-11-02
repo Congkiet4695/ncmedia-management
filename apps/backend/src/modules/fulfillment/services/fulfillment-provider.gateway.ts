@@ -14,6 +14,7 @@ import {
 import { FULFILLMENT_PROVIDER_LABELS } from '../constants/fulfillment-provider.constants';
 import {
   FulfillmentAccountNotFoundException,
+  FulfillmentManualImportRecordException,
   FulfillmentOperationNotSupportedException,
   FulfillmentOperationInProgressException,
   FulfillmentOrderNotFoundException,
@@ -28,7 +29,7 @@ import {
   FulfillmentRepository,
 } from '../repositories/fulfillment.repository';
 import { SellerwixFulfillmentService } from '../sellerwix/services/sellerwix-fulfillment.service';
-import { fulfillmentOrderLockKey } from '../shared/fulfillment-lifecycle';
+import { fulfillmentOrderLockKey, isManualImportRecord } from '../shared/fulfillment-lifecycle';
 import type {
   FulfillOptionsInput,
   FulfillmentProviderAdapter,
@@ -172,7 +173,7 @@ export class FulfillmentProviderGateway {
     actorUserId: string,
     podOrderId: string,
   ): Promise<FulfillmentOrderWithRelations> {
-    const current = await this.requireCurrent(organizationId, podOrderId);
+    const current = await this.requireProviderRecord(organizationId, podOrderId, 'Đồng bộ');
     return this.adapterFor(current.provider).syncByPodOrder(
       organizationId,
       actorUserId,
@@ -194,7 +195,7 @@ export class FulfillmentProviderGateway {
     // Khoá chung với gửi đơn: hai người cùng bấm Huỷ, hoặc Huỷ khi đang Fulfill, không chạy chồng —
     // bên đến sau nhận 409 thay vì gọi nhà cung cấp lần hai trên dữ liệu đã cũ.
     const record = await this.lock.withLock(fulfillmentOrderLockKey(podOrderId), CANCEL_LOCK_MS, async () => {
-      const current = await this.requireCurrent(organizationId, podOrderId);
+      const current = await this.requireProviderRecord(organizationId, podOrderId, 'Huỷ');
       return this.adapterFor(current.provider).cancel(
         organizationId,
         actorUserId,
@@ -218,7 +219,7 @@ export class FulfillmentProviderGateway {
     scope: PodAccessScope,
   ): Promise<FulfillmentOrderWithRelations> {
     await this.assertOrderInScope(organizationId, podOrderId, scope);
-    const current = await this.requireCurrent(organizationId, podOrderId);
+    const current = await this.requireProviderRecord(organizationId, podOrderId, 'Sửa đơn đã gửi');
     if (current.provider !== FulfillmentProvider.MANGO) {
       throw new FulfillmentOperationNotSupportedException(
         FULFILLMENT_PROVIDER_LABELS[current.provider],
@@ -251,6 +252,8 @@ export class FulfillmentProviderGateway {
     trigger: FulfillmentTrigger,
     actorUserId?: string,
   ): Promise<{ changed: boolean; apiCalls: number; rateLimited?: boolean }> {
+    // Lớp thứ hai sau bộ lọc `source` của `findOrdersToSync`: bản ghi nhập tay không bao giờ được hỏi nhà cung cấp.
+    if (isManualImportRecord(record)) return Promise.resolve({ changed: false, apiCalls: 0 });
     return this.adapterFor(record.provider).syncOne(record, account, trigger, actorUserId);
   }
 
@@ -284,6 +287,17 @@ export class FulfillmentProviderGateway {
   ): Promise<FulfillmentOrderWithRelations> {
     const current = await this.repo.findCurrentByPodOrder(organizationId, podOrderId);
     if (!current) throw new FulfillmentOrderNotFoundException();
+    return current;
+  }
+
+  /** Bản ghi hiện hành PHẢI có ở nhà cung cấp — thao tác gọi API trên bản ghi nhập tay (Import Excel) bị chặn. */
+  private async requireProviderRecord(
+    organizationId: string,
+    podOrderId: string,
+    operation: string,
+  ): Promise<FulfillmentOrderWithRelations> {
+    const current = await this.requireCurrent(organizationId, podOrderId);
+    if (isManualImportRecord(current)) throw new FulfillmentManualImportRecordException(operation);
     return current;
   }
 }

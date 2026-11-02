@@ -71,6 +71,8 @@ export function OrderActionMenu({
   // react-query trả về từ cache thay vì gọi lần hai.
   const state = useFulfillmentState(orderId, canViewFulfillment);
   const hasFulfillment = Boolean(state.data?.fulfillment);
+  // Bản ghi nhập tay (Import Excel) không có ở nhà cung cấp ⇒ không có gì để đồng bộ (backend cũng chặn).
+  const manualRecord = state.data?.fulfillment?.source === 'MANUAL_IMPORT';
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState('');
 
@@ -125,7 +127,7 @@ export function OrderActionMenu({
         <DropdownMenuSeparator />
 
         <DropdownMenuItem
-          disabled={!hasFulfillment || !canFulfill || actions.sync.isPending}
+          disabled={!hasFulfillment || manualRecord || !canFulfill || actions.sync.isPending}
           onSelect={() =>
             void actions.sync
               .mutateAsync()

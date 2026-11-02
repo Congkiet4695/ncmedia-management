@@ -15,7 +15,9 @@ import {
   type LightboxRequest,
   type OrderProductRow,
 } from '../../order-view-model';
+import { itemFullImageCandidates, itemThumbnailCandidates } from '../../item-image';
 import type { PodOrderItem } from '../../order-types';
+import { ItemThumbnail } from '../item-thumbnail';
 import { DesignThumbs } from './design-thumbs';
 
 interface OrderProductsCellProps {
@@ -105,13 +107,15 @@ function ProductRow({
     if (images.length === 0) return;
     // Vị trí trong danh sách ĐÃ LỌC ảnh rỗng, không phải `rowIndex` — sản phẩm không có ảnh
     // bị loại khỏi bộ xem nên hai chỉ số lệch nhau.
-    const clicked = allRows[rowIndex]?.productImageFull ?? allRows[rowIndex]?.productImage;
+    const clicked = allRows[rowIndex] ? itemFullImageCandidates(allRows[rowIndex])[0] : undefined;
     const index = Math.max(
       0,
       images.findIndex((image) => image.src === clicked),
     );
     onPreviewImages({ images, index });
   };
+
+  const thumbnails = itemThumbnailCandidates(row);
 
   return (
     <li className="flex gap-2.5">
@@ -122,28 +126,24 @@ function ProductRow({
           event.stopPropagation();
           openProductImages();
         }}
-        disabled={!row.productImage}
+        disabled={thumbnails.length === 0}
         aria-label={t('product.viewImage')}
         className={`${THUMB} relative shrink-0 overflow-hidden rounded border bg-muted/40 ${
-          row.productImage ? 'cursor-zoom-in' : 'cursor-default'
+          thumbnails.length > 0 ? 'cursor-zoom-in' : 'cursor-default'
         }`}
       >
-        {/* 🔴 Ảnh CHÍNH của sản phẩm, KHÔNG phải `skuImage` (ảnh biến thể TikTok gửi kèm
-            dòng đơn). Thiếu ảnh chính ⇒ ô trống, không rơi về ảnh biến thể: một ô trống nói
-            đúng sự thật, một ảnh sai thì không. */}
-        {row.productImage ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={row.productImage}
-            alt={row.productName ?? t('product.fallbackAlt')}
-            className="size-full object-cover"
-            loading="lazy"
-          />
-        ) : (
-          <span className="flex size-full items-center justify-center">
-            <ImageIcon className="size-5 text-muted-foreground" />
-          </span>
-        )}
+        {/* Ảnh biến thể của dòng đơn → ảnh chính sản phẩm → placeholder (`item-image.ts`). */}
+        <ItemThumbnail
+          candidates={thumbnails}
+          alt={row.productName ?? t('product.fallbackAlt')}
+          className="size-full object-cover"
+          loading="lazy"
+          placeholder={
+            <span className="flex size-full items-center justify-center">
+              <ImageIcon className="size-5 text-muted-foreground" />
+            </span>
+          }
+        />
         {row.quantity > 1 && (
           <span className="absolute bottom-0 right-0 bg-foreground/80 px-1 text-[10px] font-semibold tabular-nums text-background">
             ×{row.quantity}

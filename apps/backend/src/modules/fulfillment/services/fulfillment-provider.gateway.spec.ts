@@ -1,4 +1,4 @@
-import { FulfillmentProvider, FulfillmentStatus, FulfillmentTrigger } from '@prisma/client';
+import { FulfillmentProvider, FulfillmentSource, FulfillmentStatus, FulfillmentTrigger } from '@prisma/client';
 import { PodOrderRepository } from '../../pod-tiktok/repositories/pod-order.repository';
 import {
   PodAccessScopeService,
@@ -6,6 +6,7 @@ import {
   type PodAccessScope,
 } from '../../pod-tiktok/services/pod-access-scope.service';
 import {
+  FulfillmentManualImportRecordException,
   FulfillmentOperationNotSupportedException,
   FulfillmentOrderNotFoundException,
   FulfillmentProviderNotSelectedException,
@@ -68,6 +69,8 @@ function build(options: { accounts?: unknown[]; current?: unknown; orderMissing?
     fulfill: jest.fn().mockResolvedValue({ provider: 'MANGO' }),
     cancel: jest.fn().mockResolvedValue({}),
     updateAtProvider: jest.fn().mockResolvedValue({}),
+    syncByPodOrder: jest.fn().mockResolvedValue({}),
+    syncOne: jest.fn().mockResolvedValue({ changed: true, apiCalls: 1 }),
   };
   const sellerwix = {
     fulfill: jest.fn().mockResolvedValue({ provider: 'SELLERWIX' }),
@@ -353,5 +356,42 @@ describe('FulfillmentProviderGateway — Seller huỷ fulfillment', () => {
     const { gateway, lock } = build({ current: CURRENT });
     await gateway.cancel('org', 'admin', 'pod-1', ALL);
     expect(lock.withLock).toHaveBeenCalledWith('fulfillment:fulfill:pod-1', expect.any(Number), expect.any(Function));
+  });
+});
+
+describe('FulfillmentProviderGateway — bản ghi nhập tay (Import Excel)', () => {
+  const MANUAL = {
+    id: 'ful-manual',
+    accountId: 'acc-mango',
+    provider: FulfillmentProvider.MANGO,
+    status: FulfillmentStatus.SHIPPED,
+    source: FulfillmentSource.MANUAL_IMPORT,
+  };
+
+  it('đồng bộ / huỷ / sửa ⇒ báo rõ, KHÔNG gọi nhà cung cấp (họ không có đơn này)', async () => {
+    const { gateway, mango } = build({ current: MANUAL });
+    await expect(gateway.syncByPodOrder('org', 'user', 'pod-1')).rejects.toBeInstanceOf(
+      FulfillmentManualImportRecordException,
+    );
+    await expect(gateway.cancel('org', 'user', 'pod-1', ALL)).rejects.toBeInstanceOf(FulfillmentManualImportRecordException);
+    await expect(gateway.updateAtProvider('org', 'user', 'pod-1', { note: 'x' }, ALL)).rejects.toBeInstanceOf(
+      FulfillmentManualImportRecordException,
+    );
+    expect(mango.syncByPodOrder).not.toHaveBeenCalled();
+    expect(mango.cancel).not.toHaveBeenCalled();
+    expect(mango.updateAtProvider).not.toHaveBeenCalled();
+  });
+
+  it('lượt đồng bộ định kỳ gặp bản ghi nhập tay ⇒ bỏ qua, 0 lời gọi API', async () => {
+    const { gateway, mango } = build();
+    const outcome = await gateway.syncOne(MANUAL as never, MANGO as never, FulfillmentTrigger.CRON);
+    expect(outcome).toEqual({ changed: false, apiCalls: 0 });
+    expect(mango.syncOne).not.toHaveBeenCalled();
+  });
+
+  it('bản ghi của nhà cung cấp vẫn đồng bộ bình thường', async () => {
+    const { gateway, mango } = build({ current: { ...MANUAL, source: FulfillmentSource.PROVIDER } });
+    await gateway.syncByPodOrder('org', 'user', 'pod-1');
+    expect(mango.syncByPodOrder).toHaveBeenCalledWith('org', 'user', 'pod-1');
   });
 });

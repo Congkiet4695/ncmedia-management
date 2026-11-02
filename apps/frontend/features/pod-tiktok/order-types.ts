@@ -159,11 +159,11 @@ export interface PodOrderItem {
   /**
    * `line_items[].sku_image` — ảnh của BIẾN THỂ khách đặt (dữ liệu thô TikTok).
    *
-   * ⚠️ KHÔNG dùng làm thumbnail sản phẩm — dùng `productImage`. Giữ lại vì nó tham gia khoá
-   * gộp dòng: hai biến thể khác nhau của cùng một sản phẩm phải là hai dòng riêng.
+   * Ưu tiên SỐ MỘT cho thumbnail của dòng đơn (`item-image.ts`); tham gia khoá gộp dòng: hai biến thể
+   * khác nhau của cùng một sản phẩm phải là hai dòng riêng.
    */
   skuImage: string | null;
-  /** **Ảnh CHÍNH của sản phẩm** — nguồn sự thật cho thumbnail. `null` ⇒ hiện ô trống. */
+  /** **Ảnh CHÍNH của sản phẩm** — fallback khi ảnh biến thể thiếu / tải lỗi. `null` ⇒ không có. */
   productImage: string | null;
   /** Ảnh chính cỡ đầy đủ — dùng khi mở bộ xem ảnh. */
   productImageFull: string | null;

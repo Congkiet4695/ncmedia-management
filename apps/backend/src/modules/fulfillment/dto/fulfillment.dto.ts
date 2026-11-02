@@ -23,7 +23,7 @@ import {
   ValidateNested,
   type ValidationArguments,
 } from 'class-validator';
-import { FulfillmentProvider, FulfillmentStatus, PodDesignPlacement } from '@prisma/client';
+import { FulfillmentProvider, FulfillmentSource, FulfillmentStatus, PodDesignPlacement } from '@prisma/client';
 
 /** Trần giá vốn nhập tay cho MỘT đơn vị — chặn gõ nhầm số (cột base_cost là Decimal(12,4)). */
 export const MANUAL_BASE_COST_MAX = 100_000;
@@ -1131,6 +1131,13 @@ export class FulfillmentOrderDto {
     description: 'Trạng thái NGUYÊN VĂN của nhà cung cấp (không dịch).',
   })
   providerStatus!: string | null;
+  @ApiProperty({
+    enum: FulfillmentSource,
+    description:
+      'PROVIDER = trạng thái do nhà cung cấp báo · MANUAL_IMPORT = Admin đánh dấu đã fulfill bằng Import Excel ' +
+      '(nhà cung cấp KHÔNG xác nhận, không đồng bộ / huỷ / sửa qua API được).',
+  })
+  source!: FulfillmentSource;
   @ApiProperty({ description: 'Mã đơn NCMedia gửi sang nhà cung cấp' }) externalOrderId!: string;
   @ApiProperty({ nullable: true, type: String }) providerOrderId!: string | null;
   @ApiProperty({ nullable: true, type: String }) providerFulfillId!: string | null;
@@ -1532,8 +1539,10 @@ export class BaseCostImportErrorDto {
   @ApiProperty({
     description:
       'ORDER_ID_REQUIRED · ORDER_ID_INVALID · ORDER_ID_PRECISION_LOST · DUPLICATE_ORDER_ID · BASE_COST_REQUIRED · ' +
-      'BASE_COST_INVALID · ORDER_NOT_FOUND · NOT_FULFILLED · NOT_SUBMITTED · MULTI_ITEM · CURRENCY_REQUIRED · ' +
-      'CURRENCY_INVALID · TOO_MANY_DECIMALS · OUT_OF_RANGE',
+      'BASE_COST_INVALID · NOTHING_TO_UPDATE · TRACKING_INVALID · TRACKING_PRECISION_LOST · ORDER_NOT_FOUND · ' +
+      'NOT_FULFILLED · NOT_SUBMITTED · MARK_REQUIRES_BOTH · ORDER_CANCELLED · STATUS_NOT_ALLOWED · PROVIDER_RECEIVED · ' +
+      'PROVIDER_NOT_ASSIGNED · MAPPING_KEY_MISSING · MAPPING_MISSING · MAPPING_PROVIDER_MISMATCH · NO_ITEMS · ' +
+      'MULTI_ITEM · CURRENCY_REQUIRED · CURRENCY_INVALID · TOO_MANY_DECIMALS · OUT_OF_RANGE · WRITE_STALE · WRITE_FAILED',
   })
   code!: string;
   @ApiProperty() message!: string;
@@ -1542,28 +1551,52 @@ export class BaseCostImportErrorDto {
 export class BaseCostImportChangeDto {
   @ApiProperty() row!: number;
   @ApiProperty() orderId!: string;
-  @ApiProperty({ nullable: true, type: Number }) before!: number | null;
-  @ApiProperty() after!: number;
-  @ApiProperty() currency!: string;
-  @ApiProperty({ description: 'Giá đã đúng bằng giá trị trong file và đã xác nhận ⇒ không ghi lại' })
+  @ApiProperty({
+    enum: ['UPDATE', 'MARK_FULFILLED'],
+    description:
+      'UPDATE = đơn đã fulfill: chỉ cập nhật Base Cost / Tracking Number, KHÔNG đổi trạng thái · MARK_FULFILLED = đơn ' +
+      'chưa fulfill / fulfill thất bại: ghi Base Cost + Tracking Number và chuyển sang đã fulfill (nhập tay, nhà cung ' +
+      'cấp không xác nhận).',
+  })
+  action!: 'UPDATE' | 'MARK_FULFILLED';
+  @ApiProperty({ nullable: true, type: Number, description: 'Base Cost hiện tại' }) before!: number | null;
+  @ApiProperty({ nullable: true, type: Number, description: 'Base Cost trong file — null = ô trống, không đổi' })
+  after!: number | null;
+  @ApiProperty({ nullable: true, type: String }) currency!: string | null;
+  @ApiProperty() baseCostChanged!: boolean;
+  @ApiProperty({ nullable: true, type: String }) trackingBefore!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'null = ô trống / không có cột, không đổi' })
+  trackingAfter!: string | null;
+  @ApiProperty() trackingChanged!: boolean;
+  @ApiProperty({ enum: FulfillmentStatus, nullable: true, description: 'null = đơn chưa có lần fulfill nào' })
+  statusBefore!: FulfillmentStatus | null;
+  @ApiProperty({ enum: FulfillmentStatus, nullable: true }) statusAfter!: FulfillmentStatus | null;
+  @ApiProperty({ description: 'Dòng hợp lệ nhưng không có gì thay đổi ⇒ không ghi lại' })
   unchanged!: boolean;
+  @ApiProperty({ description: 'Đã ghi thành công (luôn false khi dryRun)' }) applied!: boolean;
 }
 
 export class BaseCostImportResultDto {
   @ApiProperty() dryRun!: boolean;
   @ApiProperty({
-    enum: ['READY', 'REJECTED', 'APPLIED'],
+    enum: ['READY', 'PARTIAL', 'REJECTED', 'APPLIED'],
     description:
-      'READY = file hợp lệ (bản xem trước, chưa ghi) · REJECTED = có dòng lỗi, KHÔNG ghi dòng nào · APPLIED = đã ghi',
+      'READY = xem trước, mọi dòng hợp lệ · PARTIAL = có dòng lỗi (xem trước: xác nhận sẽ chỉ ghi dòng hợp lệ; đã ghi: ' +
+      'dòng hợp lệ đã ghi, dòng lỗi bị bỏ qua) · REJECTED = không có dòng nào ghi được · APPLIED = mọi dòng đã ghi',
   })
-  status!: 'READY' | 'REJECTED' | 'APPLIED';
+  status!: 'READY' | 'PARTIAL' | 'REJECTED' | 'APPLIED';
   @ApiProperty({ description: 'Số dòng dữ liệu (bỏ dòng trống hoàn toàn)' }) totalRows!: number;
   @ApiProperty() validRows!: number;
   @ApiProperty() invalidRows!: number;
   @ApiProperty({ description: 'Dòng có OrderID không tồn tại hoặc ngoài phạm vi quyền' }) notFoundRows!: number;
   @ApiProperty() duplicateRows!: number;
   @ApiProperty({ description: 'Dòng hợp lệ nhưng giá không đổi ⇒ không ghi' }) unchangedRows!: number;
-  @ApiProperty({ description: 'Số đơn ĐÃ được ghi giá (0 khi dryRun / REJECTED)' }) updatedOrders!: number;
+  @ApiProperty({ description: 'Số đơn ĐÃ được ghi (0 khi dryRun / REJECTED)' }) updatedOrders!: number;
+  @ApiProperty({ description: 'Số đơn được cập nhật Base Cost (xem trước: sẽ cập nhật)' }) baseCostUpdated!: number;
+  @ApiProperty({ description: 'Số đơn được cập nhật Tracking Number (xem trước: sẽ cập nhật)' }) trackingUpdated!: number;
+  @ApiProperty({ description: 'Số đơn được chuyển sang đã fulfill (xem trước: sẽ chuyển)' }) markedFulfilled!: number;
+  @ApiProperty({ description: 'Dòng hợp lệ nhưng ghi thất bại (dữ liệu đổi giữa chừng / lỗi DB) — đã rollback dòng đó' })
+  writeFailedRows!: number;
   @ApiProperty({ type: [String], description: 'Cột không thuộc mẫu — bị bỏ qua' }) ignoredHeaders!: string[];
   @ApiProperty({ type: [BaseCostImportErrorDto] }) errors!: BaseCostImportErrorDto[];
   @ApiProperty({ type: [BaseCostImportChangeDto] }) changes!: BaseCostImportChangeDto[];

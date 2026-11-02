@@ -456,6 +456,11 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
         headerExtra={
           <>
             <Badge variant={STATUS_VARIANT[status]}>{t(`status.${status}`)}</Badge>
+            {record?.source === 'MANUAL_IMPORT' && (
+              <Badge variant="info" title={t('source.MANUAL_IMPORT_HINT')}>
+                {t('source.MANUAL_IMPORT')}
+              </Badge>
+            )}
             {record?.providerStatus && (
               <span className="font-mono text-[11px] text-muted-foreground">
                 {record.providerStatus}

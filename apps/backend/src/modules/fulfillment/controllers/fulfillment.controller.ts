@@ -886,15 +886,17 @@ export class FulfillmentController {
   @ApiConsumes('multipart/form-data')
   @ApiBody({ schema: { type: 'object', properties: { file: { type: 'string', format: 'binary' } } } })
   @ApiOperation({
-    summary: 'Import Base Cost hàng loạt từ Excel (.xlsx: OrderID · Basecost)',
+    summary: 'Import Base Cost / Tracking Number hàng loạt từ Excel (.xlsx: OrderID · Basecost · Tracking Number)',
     description:
-      'OrderID = TikTok Order ID. Kiểm TOÀN BỘ file trước khi ghi; một dòng lỗi ⇒ status REJECTED, không ghi ' +
-      'đơn nào (atomic). dryRun=true ⇒ chỉ xem trước. OrderID trùng trong file là lỗi. Luật mỗi dòng trùng sửa ' +
-      `tại chỗ. Tối đa ${BASE_COST_IMPORT_MAX_ROWS} dòng, ${BASE_COST_IMPORT_MAX_BYTES / 1024 / 1024}MB.`,
+      'OrderID = TikTok Order ID. File cũ chỉ OrderID · Basecost vẫn dùng được. Ô trống = không đổi. Đơn đã fulfill: ' +
+      'cập nhật Base Cost / Tracking Number, không đổi trạng thái. Đơn chưa fulfill / DRAFT / FAILED: cần CẢ Basecost ' +
+      'lẫn Tracking Number ⇒ chuyển sang SHIPPED, nguồn MANUAL_IMPORT (nhà cung cấp KHÔNG xác nhận; không gọi API nhà ' +
+      'cung cấp). Kiểm toàn bộ file trước; dòng hợp lệ được ghi, dòng lỗi bị bỏ qua (status PARTIAL), mỗi dòng một ' +
+      'transaction. dryRun=true ⇒ chỉ xem trước. OrderID trùng trong file là lỗi. ' +
+      `Tối đa ${BASE_COST_IMPORT_MAX_ROWS} dòng, ${BASE_COST_IMPORT_MAX_BYTES / 1024 / 1024}MB.`,
   })
   @ApiOkResponse({ type: BaseCostImportResultDto })
   @ApiBadRequestResponse({ description: 'BASE_COST_IMPORT_INVALID (lỗi cả file) / IMPORT_FILE_MISSING / IMPORT_FORMAT_ERROR' })
-  @ApiConflictResponse({ description: 'BASE_COST_IMPORT_STALE — đơn đổi giữa lúc kiểm và ghi, đã rollback' })
   importBaseCost(
     @CurrentUser() user: AuthenticatedUser,
     @PodScope() scope: PodAccessScope,

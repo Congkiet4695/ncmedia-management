@@ -1,5 +1,5 @@
-import { FulfillmentStatus } from '@prisma/client';
-import { NON_BLOCKING_FULFILLMENT_STATUSES } from './fulfillment-lifecycle';
+import { FulfillmentSource, FulfillmentStatus } from '@prisma/client';
+import { holdsFulfilledOrder } from './fulfillment-lifecycle';
 
 /**
  * Số chữ số thập phân hợp lệ của MỘT đơn vị tiền (USD 2, JPY 0, KWD 3) — theo dữ liệu ISO 4217 có sẵn
@@ -37,6 +37,8 @@ export type OrderBaseCostRejection =
 export interface OrderBaseCostRecord {
   status: FulfillmentStatus;
   submittedAt: Date | null;
+  /** Thiếu = bản ghi của nhà cung cấp (giá trị mặc định của cột). */
+  source?: FulfillmentSource | null;
   currency: string | null;
   items: ReadonlyArray<{
     id: string;
@@ -65,7 +67,8 @@ export type OrderBaseCostVerdict =
  * 2026-10-19: không tự chia tiền cho nhiều dòng). Đơn nhiều dòng ⇒ `MULTI_ITEM`, dùng hộp thoại "Cập nhật
  * Base Cost" nhập từng dòng.
  *
- * Các luật còn lại trùng `FulfillmentService.updateBaseCostManually`: chỉ đơn đã được nhà cung cấp nhận, đơn vị
+ * Các luật còn lại trùng `FulfillmentService.updateBaseCostManually`: chỉ đơn đang giữ đơn (`holdsFulfilledOrder` —
+ * nhà cung cấp đã nhận, hoặc Admin đã đánh dấu đã fulfill bằng Import Excel), đơn vị
  * tiền phải có sẵn trên bản ghi, số lẻ không vượt đơn vị tiền, 0 ≤ giá ≤ `maxValue`.
  */
 export function resolveOrderLevelBaseCost(
@@ -76,7 +79,7 @@ export function resolveOrderLevelBaseCost(
   if (!record) {
     return { ok: false, reason: 'NOT_FULFILLED', message: 'Đơn chưa được gửi fulfillment.' };
   }
-  if (NON_BLOCKING_FULFILLMENT_STATUSES.includes(record.status) || !record.submittedAt) {
+  if (!holdsFulfilledOrder(record)) {
     return {
       ok: false,
       reason: 'NOT_SUBMITTED',

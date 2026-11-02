@@ -195,6 +195,20 @@ export class FulfillmentOperationNotSupportedException extends UnprocessableEnti
   }
 }
 
+/**
+ * Bản ghi được Admin đánh dấu đã fulfill bằng Import Excel — không tồn tại ở nhà cung cấp, nên không đồng bộ / huỷ /
+ * sửa qua API được (hỏi nhà cung cấp về đơn họ chưa từng nhận là hạ bản ghi xuống FAILED).
+ */
+export class FulfillmentManualImportRecordException extends UnprocessableEntityException {
+  constructor(operation: string) {
+    super({
+      code: 'FULFILLMENT_MANUAL_IMPORT_RECORD',
+      message:
+        `Đơn này được đánh dấu đã fulfill bằng Import Excel — nhà cung cấp không có đơn này nên không thể "${operation}" qua API.`,
+    });
+  }
+}
+
 export class FulfillmentNotReadyException extends UnprocessableEntityException {
   constructor(reasons: Array<{ code: string; message: string }>) {
     super({

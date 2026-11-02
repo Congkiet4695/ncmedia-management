@@ -174,7 +174,8 @@ export function useImportBaseCost() {
   return useMutation({
     mutationFn: ({ file, dryRun }: { file: File; dryRun: boolean }) => fulfillmentService.importBaseCost(file, dryRun),
     onSuccess: (result) => {
-      if (result.status === 'APPLIED' && result.updatedOrders > 0) invalidateBaseCostDependents(queryClient);
+      // Ghi MỘT PHẦN (PARTIAL) cũng đã đổi đơn ⇒ làm mới theo số đơn thực sự được ghi, không theo trạng thái tổng.
+      if (!result.dryRun && result.updatedOrders > 0) invalidateBaseCostDependents(queryClient);
     },
   });
 }

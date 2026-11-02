@@ -45,6 +45,7 @@
     "scripts/verify-login-info-design-amount.ts",
     "scripts/verify-group-template.ts",
     "scripts/verify-order-base-cost.ts",
-    "scripts/verify-media-images.ts"
+    "scripts/verify-media-images.ts",
+    "scripts/verify-item-image.ts"
   ]
 }

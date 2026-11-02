@@ -75,6 +75,7 @@ import {
   CANCELLABLE_FULFILLMENT_STATUSES,
   NON_BLOCKING_FULFILLMENT_STATUSES,
   SUBMITTABLE_FULFILLMENT_STATUSES,
+  holdsFulfilledOrder,
 } from '../shared/fulfillment-lifecycle';
 import {
   currencyFractionDigits,
@@ -746,7 +747,7 @@ export class FulfillmentService {
     await this.assertPodOrderInScope(organizationId, podOrderId, scope);
     const record = await this.repo.findCurrentByPodOrder(organizationId, podOrderId);
     if (!record) throw new FulfillmentOrderNotFoundException();
-    if (NON_BLOCKING_FULFILLMENT_STATUSES.includes(record.status) || !record.submittedAt) {
+    if (!holdsFulfilledOrder(record)) {
       throw new FulfillmentManualBaseCostInvalidException(
         'NOT_SUBMITTED',
         `Đơn chưa được nhà cung cấp nhận (trạng thái ${record.status}) — chỉ nhập giá vốn cho đơn đã fulfill.`,
@@ -1420,6 +1421,7 @@ export class FulfillmentService {
       provider: record.provider,
       status: record.status,
       providerStatus: record.providerStatus,
+      source: record.source,
       externalOrderId: record.externalOrderId,
       providerOrderId: record.providerOrderId,
       providerFulfillId: record.providerFulfillId,

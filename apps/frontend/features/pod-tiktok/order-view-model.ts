@@ -6,6 +6,7 @@ import type {
   PodOrderItem,
   PodOrderListItem,
 } from './order-types';
+import { itemFullImageCandidates } from './item-image';
 import { formatBusinessDateTimeFixed } from '@/utils/business-time';
 
 /**
@@ -375,9 +376,9 @@ export interface LightboxRequest {
  */
 export function orderProductImages(rows: OrderProductRow[]): OrderLightboxImage[] {
   return rows.flatMap((row) => {
-    // Bộ xem ảnh mở cỡ ĐẦY ĐỦ; thumbnail chỉ là bản thu nhỏ của cùng tấm ảnh chính.
-    const src = row.productImageFull ?? row.productImage;
-    // Sản phẩm không có ảnh chính bị loại khỏi bộ xem — xem chú thích ở `openProductImages`
+    // Cùng thứ tự ưu tiên với thumbnail (`item-image.ts`): ảnh biến thể, rồi ảnh chính cỡ ĐẦY ĐỦ.
+    const [src] = itemFullImageCandidates(row);
+    // Dòng không có ảnh nào bị loại khỏi bộ xem — xem chú thích ở `openProductImages`
     // về việc chỉ số phải tính trên danh sách ĐÃ LỌC.
     if (!src) return [];
     return [{ src, label: row.productName ?? row.sellerSku ?? undefined }];

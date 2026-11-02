@@ -264,7 +264,7 @@ export class PodOrderRepository {
     organizationId: string,
     tiktokOrderIds: string[],
     shopIds: string[] | null,
-  ): Promise<Array<{ id: string; tiktokOrderId: string }>> {
+  ): Promise<Array<{ id: string; tiktokOrderId: string; status: string }>> {
     if (tiktokOrderIds.length === 0) return Promise.resolve([]);
     return this.prisma.podOrder.findMany({
       where: {
@@ -273,8 +273,22 @@ export class PodOrderRepository {
         tiktokOrderId: { in: tiktokOrderIds },
         ...(shopIds ? { shopId: { in: shopIds } } : {}),
       },
-      select: { id: true, tiktokOrderId: true },
+      // `status` = trạng thái đơn phía TikTok — Import Excel không đánh dấu đã fulfill cho đơn TikTok đã huỷ.
+      select: { id: true, tiktokOrderId: true, status: true },
     });
+  }
+
+  /**
+   * Nhiều đơn theo id nội bộ, kèm khoá sản phẩm HIỆU LỰC của từng dòng (MỘT truy vấn đơn + MỘT truy vấn danh mục).
+   * Chỉ đơn chưa xoá của đúng tổ chức.
+   */
+  async findManyByIds(organizationId: string, ids: string[]): Promise<PodOrderWithRelations[]> {
+    if (ids.length === 0) return [];
+    const orders = await this.prisma.podOrder.findMany({
+      where: { organizationId, deletedAt: null, id: { in: ids } },
+      include: POD_ORDER_INCLUDE,
+    });
+    return this.withProductKeys(organizationId, orders);
   }
 
   async findById(organizationId: string, id: string): Promise<PodOrderWithRelations | null> {

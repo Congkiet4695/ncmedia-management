@@ -39,6 +39,8 @@ import {
   type ConfigBlocker,
   type PlacementMap,
 } from '../product-config';
+import { ItemThumbnail } from '@/features/pod-tiktok/components/item-thumbnail';
+import { itemThumbnailCandidates } from '@/features/pod-tiktok/item-image';
 import { productKeyMessageKey } from '@/features/pod-tiktok/product-key';
 import { baseCostSaveWarning } from '../base-cost';
 import type { ProductMapping, ProviderCatalogProduct, UpsertProductMappingInput } from '../types';
@@ -414,18 +416,17 @@ export function ProductConfigPanel({
     <div className="space-y-3 rounded-md border p-3">
       {/* -------------------------------------------------- Sản phẩm TikTok đang cấu hình */}
       <div className="flex gap-3">
-        {item.productImage ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={item.productImage}
-            alt=""
-            className="size-14 shrink-0 rounded border object-cover"
-          />
-        ) : (
-          <div className="flex size-14 shrink-0 items-center justify-center rounded border bg-muted">
-            <ImageOff className="size-4 text-muted-foreground" />
-          </div>
-        )}
+        {/* Ảnh biến thể của dòng đơn → ảnh chính sản phẩm → placeholder (`item-image.ts`). */}
+        <ItemThumbnail
+          candidates={itemThumbnailCandidates(item)}
+          alt=""
+          className="size-14 shrink-0 rounded border object-cover"
+          placeholder={
+            <div className="flex size-14 shrink-0 items-center justify-center rounded border bg-muted">
+              <ImageOff className="size-4 text-muted-foreground" />
+            </div>
+          }
+        />
         <div className="min-w-0 flex-1 space-y-0.5 text-xs">
           <p className="line-clamp-2 text-sm font-medium leading-snug">
             {item.productName ?? item.sellerSku ?? t('fulfill.config.unnamedProduct')}

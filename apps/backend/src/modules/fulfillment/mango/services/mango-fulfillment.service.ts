@@ -617,7 +617,9 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
 
     const primaryShipment =
       detail.shipments?.find((shipment) => shipment.primary !== false) ?? detail.shipments?.[0];
-    const trackingNumber = detail.tracking_number ?? primaryShipment?.tracking_number ?? null;
+    // Không có mã mới ⇒ GIỮ mã cũ (như các trường vận chuyển khác bên dưới): mã do Admin nhập bằng Import Excel
+    // không bị một lượt đồng bộ trả `null` xoá mất.
+    const trackingNumber = detail.tracking_number ?? primaryShipment?.tracking_number ?? record.trackingNumber;
     const trackingStatus = detail.tracking_status ?? primaryShipment?.tracking_status ?? null;
     const providerStatus = (detail.status as string) ?? null;
     const nextStatus = this.mapper.toFulfillmentStatus(providerStatus, trackingStatus);

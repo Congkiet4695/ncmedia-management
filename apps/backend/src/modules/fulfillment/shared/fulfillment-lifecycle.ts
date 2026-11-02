@@ -1,4 +1,4 @@
-import { FulfillmentStatus } from '@prisma/client';
+import { FulfillmentSource, FulfillmentStatus } from '@prisma/client';
 
 /**
  * Vòng đời MỘT lần gửi fulfillment — luật dùng chung cho MỌI nhà cung cấp.
@@ -83,3 +83,42 @@ export function attemptExternalId(baseId: string, attempt: number, maxLength: nu
   const suffix = `-R${attempt}`;
   return `${baseId.slice(0, Math.max(0, maxLength - suffix.length))}${suffix}`;
 }
+
+/**
+ * Bản ghi do Admin đánh dấu đã fulfill bằng Import Excel — KHÔNG tồn tại ở nhà cung cấp.
+ *
+ * 🔴 Mọi thao tác gọi API nhà cung cấp trên bản ghi (đồng bộ, huỷ, sửa) phải hỏi hàm này trước: hỏi nhà cung
+ * cấp về một đơn họ chưa từng nhận sẽ nhận 404 và hạ bản ghi xuống FAILED — xoá mất thao tác của Admin.
+ */
+export function isManualImportRecord(record: { source?: FulfillmentSource | null }): boolean {
+  return record.source === FulfillmentSource.MANUAL_IMPORT;
+}
+
+/**
+ * Bản ghi ĐANG giữ đơn: không ở trạng thái non-blocking, và hoặc nhà cung cấp đã nhận (có mốc gửi), hoặc Admin
+ * đã đánh dấu đã fulfill bằng Import Excel (không có mốc gửi — không gửi gì đi cả).
+ */
+export function holdsFulfilledOrder(record: {
+  status: FulfillmentStatus;
+  submittedAt: Date | null;
+  source?: FulfillmentSource | null;
+}): boolean {
+  if (NON_BLOCKING_FULFILLMENT_STATUSES.includes(record.status)) return false;
+  return record.submittedAt !== null || isManualImportRecord(record);
+}
+
+/**
+ * Import Excel đánh dấu đã fulfill ⇒ `SHIPPED` (quyết định PO 2026-11-02): đã có mã vận đơn. Không dùng
+ * `SUBMITTED` (nghĩa là nhà cung cấp đã nhận) để không giả kết quả của nhà cung cấp.
+ */
+export const IMPORT_FULFILLED_STATUS = FulfillmentStatus.SHIPPED;
+
+/**
+ * Trạng thái của bản ghi HIỆN HÀNH mà Import Excel được phép chuyển sang đã fulfill: chưa gửi (`DRAFT`) và gửi
+ * hỏng (`FAILED`). Đơn chưa có bản ghi nào cũng được (tạo bản ghi mới). `CANCELLED` / `REJECTED` KHÔNG — nhà
+ * cung cấp đã huỷ / từ chối là sự thật phải giữ, không được import đè thành "đã fulfill".
+ */
+export const IMPORT_MARKABLE_STATUSES: readonly FulfillmentStatus[] = [
+  FulfillmentStatus.DRAFT,
+  FulfillmentStatus.FAILED,
+];

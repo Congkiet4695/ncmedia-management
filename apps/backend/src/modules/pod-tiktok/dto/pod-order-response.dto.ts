@@ -144,9 +144,9 @@ export class PodOrderItemDto {
   /**
    * `line_items[].sku_image` của TikTok — ảnh của **BIẾN THỂ** khách đã đặt (đúng màu/size).
    *
-   * ⚠️ KHÔNG dùng làm ảnh đại diện sản phẩm trên giao diện — dùng `productImage`. Trường này
-   * giữ lại vì nó là dữ liệu thô TikTok gửi về, và vì hai biến thể khác nhau của cùng một
-   * sản phẩm phải nằm ở hai dòng riêng (khoá gộp dòng ở giao diện dùng tới nó).
+   * Giao diện ưu tiên ảnh này cho thumbnail của dòng đơn, thiếu / tải lỗi mới rơi về `productImage`
+   * (frontend `item-image.ts`). Hai biến thể khác nhau của cùng một sản phẩm phải nằm ở hai dòng
+   * riêng (khoá gộp dòng ở giao diện dùng tới nó).
    */
   @ApiProperty({ nullable: true, type: String, description: 'Ảnh BIẾN THỂ (dữ liệu thô TikTok)' })
   skuImage!: string | null;

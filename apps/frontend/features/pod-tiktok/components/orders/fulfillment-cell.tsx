@@ -229,6 +229,16 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
             {t(`fulfillment:status.${fulfillment.status}`)}
           </Badge>
         </button>
+        {/* Admin đánh dấu bằng Import Excel — nói rõ nhà cung cấp KHÔNG xác nhận trạng thái này. */}
+        {fulfillment.source === 'MANUAL_IMPORT' && (
+          <Badge
+            variant="info"
+            className="h-5 whitespace-nowrap px-1.5 text-[10px]"
+            title={t('fulfillment:source.MANUAL_IMPORT_HINT')}
+          >
+            {t('fulfillment:source.MANUAL_IMPORT')}
+          </Badge>
+        )}
       </div>
 
       <Row

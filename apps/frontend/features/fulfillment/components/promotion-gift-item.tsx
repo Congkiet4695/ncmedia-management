@@ -3,6 +3,8 @@
 import { Gift, ImageOff, Info } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
+import { ItemThumbnail } from '@/features/pod-tiktok/components/item-thumbnail';
+import { itemThumbnailCandidates } from '@/features/pod-tiktok/item-image';
 import type { PodOrderItem } from '@/features/pod-tiktok/order-types';
 
 interface PromotionGiftItemProps {
@@ -23,18 +25,16 @@ export function PromotionGiftItem({ item }: PromotionGiftItemProps) {
   return (
     <div className="space-y-2 rounded-md border border-dashed bg-muted/30 p-3">
       <div className="flex gap-3">
-        {item.productImage ? (
-          // eslint-disable-next-line @next/next/no-img-element
-          <img
-            src={item.productImage}
-            alt=""
-            className="size-14 shrink-0 rounded border object-cover"
-          />
-        ) : (
-          <div className="flex size-14 shrink-0 items-center justify-center rounded border bg-muted">
-            <ImageOff className="size-4 text-muted-foreground" />
-          </div>
-        )}
+        <ItemThumbnail
+          candidates={itemThumbnailCandidates(item)}
+          alt=""
+          className="size-14 shrink-0 rounded border object-cover"
+          placeholder={
+            <div className="flex size-14 shrink-0 items-center justify-center rounded border bg-muted">
+              <ImageOff className="size-4 text-muted-foreground" />
+            </div>
+          }
+        />
         <div className="min-w-0 flex-1 space-y-0.5 text-xs">
           <p className="line-clamp-2 text-sm font-medium leading-snug">
             {item.productName ?? item.sellerSku ?? t('fulfill.config.unnamedProduct')}

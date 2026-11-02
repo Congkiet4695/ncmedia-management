@@ -8,13 +8,14 @@ import {
   FulfillmentOrder,
   FulfillmentOrderItem,
   FulfillmentProvider,
+  FulfillmentSource,
   FulfillmentStatus,
   FulfillmentTrigger,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import type { MappingWithDesigns } from '../services/fulfillment-readiness.service';
-import { NON_BLOCKING_FULFILLMENT_STATUSES } from '../shared/fulfillment-lifecycle';
+import { IMPORT_FULFILLED_STATUS, NON_BLOCKING_FULFILLMENT_STATUSES } from '../shared/fulfillment-lifecycle';
 
 /** Include chuẩn khi đọc một bản ghi fulfillment (kèm items + tài khoản). */
 export const FULFILLMENT_ORDER_INCLUDE = {
@@ -45,6 +46,43 @@ export interface HistoryEntry {
   durationMs?: number | null;
   requestId?: string | null;
   performedBy?: string | null;
+}
+
+/** Giá vốn ghi cho MỘT dòng import: dòng hàng đã có, hoặc dòng hàng tạo mới (bản ghi chưa có dòng nào). */
+export type ImportRowBaseCost =
+  | { itemId: string; value: number }
+  | {
+      create: {
+        podOrderItemId: string;
+        providerSku: string;
+        productionConfig: string | null;
+        color: string | null;
+        size: string | null;
+      };
+      value: number;
+    };
+
+/** Một dòng Import Excel (Base Cost / Tracking Number / đánh dấu đã fulfill) — ghi trong MỘT transaction. */
+export interface ImportRowWrite {
+  organizationId: string;
+  actorUserId: string;
+  /**
+   * `EXISTING` = cập nhật bản ghi hiện hành, chỉ khi nó VẪN ở `expectedStatus` (và chưa có mã đơn nhà cung cấp khi
+   * `requireNoProviderOrder`). `CREATE` = đơn chưa fulfill ⇒ tạo bản ghi nhập tay mới.
+   */
+  target:
+    | { kind: 'EXISTING'; fulfillmentOrderId: string; expectedStatus: FulfillmentStatus; requireNoProviderOrder: boolean }
+    | { kind: 'CREATE'; accountId: string; provider: FulfillmentProvider; podOrderId: string; externalOrderId: string };
+  /** Chuyển sang đã fulfill (`IMPORT_FULFILLED_STATUS`, nguồn `MANUAL_IMPORT`). */
+  markFulfilled: boolean;
+  /** Đơn vị tiền ghi lên bản ghi (chỉ khi bản ghi chưa có) — `null` = không đổi. */
+  currency: string | null;
+  /** `null` = không đổi (ô trống KHÔNG xoá mã đang có). */
+  trackingNumber: string | null;
+  baseCost: ImportRowBaseCost | null;
+  histories: Array<Omit<HistoryEntry, 'organizationId' | 'fulfillmentOrderId'>>;
+  /** Dữ liệu đổi giữa lúc kiểm và lúc ghi ⇒ lỗi này được ném, transaction rollback. */
+  onStale: () => Error;
 }
 
 /**
@@ -812,6 +850,102 @@ export class FulfillmentRepository {
     );
   }
 
+  /**
+   * Ghi MỘT dòng Import Excel — bản ghi, giá vốn, mã vận đơn, trạng thái và nhật ký cùng thành công hoặc cùng
+   * rollback: không bao giờ có "đã fulfill" mà thiếu giá vốn / nhật ký.
+   *
+   * 🔴 Điều kiện trạng thái nằm TRONG câu UPDATE (như `supersedeCancelled`): đơn vừa được gửi / huỷ giữa lúc kiểm và
+   * lúc ghi ⇒ 0 dòng ⇒ `onStale()`. Tạo bản ghi mới đụng partial unique `(pod_order_id, provider)` hoặc mã đơn
+   * trùng (P2002) ⇒ cũng là `onStale()`. Không xoá gì: dòng hàng cũ, `fulfillment_error_logs` và lịch sử giữ nguyên.
+   */
+  async applyImportRow(input: ImportRowWrite): Promise<string> {
+    const { organizationId, actorUserId, target } = input;
+    return this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      let fulfillmentOrderId: string;
+      if (target.kind === 'CREATE') {
+        try {
+          const created = await tx.fulfillmentOrder.create({
+            data: {
+              organizationId,
+              accountId: target.accountId,
+              provider: target.provider,
+              podOrderId: target.podOrderId,
+              externalOrderId: target.externalOrderId,
+              status: IMPORT_FULFILLED_STATUS,
+              source: FulfillmentSource.MANUAL_IMPORT,
+              trackingNumber: input.trackingNumber,
+              currency: input.currency,
+              createdBy: actorUserId,
+              updatedBy: actorUserId,
+            },
+            select: { id: true },
+          });
+          fulfillmentOrderId = created.id;
+        } catch (error) {
+          if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw input.onStale();
+          throw error;
+        }
+      } else {
+        const updated = await tx.fulfillmentOrder.updateMany({
+          where: {
+            id: target.fulfillmentOrderId,
+            organizationId,
+            deletedAt: null,
+            status: target.expectedStatus,
+            ...(target.requireNoProviderOrder ? { providerOrderId: null } : {}),
+          },
+          data: {
+            ...(input.trackingNumber !== null ? { trackingNumber: input.trackingNumber } : {}),
+            ...(input.currency ? { currency: input.currency } : {}),
+            // Lỗi gần nhất là BẢN TÓM TẮT trên bản ghi; chi tiết vẫn ở `fulfillment_error_logs` và được chép vào
+            // payload nhật ký của lần chuyển trạng thái này (service) — không mất dấu lần gửi hỏng.
+            ...(input.markFulfilled
+              ? {
+                  status: IMPORT_FULFILLED_STATUS,
+                  source: FulfillmentSource.MANUAL_IMPORT,
+                  lastErrorCode: null,
+                  lastErrorMessage: null,
+                }
+              : {}),
+            updatedBy: actorUserId,
+          },
+        });
+        if (updated.count !== 1) throw input.onStale();
+        fulfillmentOrderId = target.fulfillmentOrderId;
+      }
+
+      if (input.baseCost) {
+        const baseCost = new Prisma.Decimal(input.baseCost.value);
+        if ('itemId' in input.baseCost) {
+          const updated = await tx.fulfillmentOrderItem.updateMany({
+            where: { id: input.baseCost.itemId, fulfillmentOrderId, organizationId, deletedAt: null },
+            data: { baseCost, baseCostConfirmedAt: now },
+          });
+          if (updated.count !== 1) throw input.onStale();
+        } else {
+          await tx.fulfillmentOrderItem.create({
+            data: {
+              ...input.baseCost.create,
+              organizationId,
+              fulfillmentOrderId,
+              quantity: 1,
+              baseCost,
+              baseCostConfirmedAt: now,
+            },
+          });
+        }
+      }
+
+      if (input.histories.length > 0) {
+        await tx.fulfillmentHistory.createMany({
+          data: input.histories.map((entry) => this.historyData({ ...entry, organizationId, fulfillmentOrderId })),
+        });
+      }
+      return fulfillmentOrderId;
+    });
+  }
+
   /** Dòng hàng kèm id line item TikTok — Sellerwix ghép chi phí theo `line_items[].reference_id`. */
   listItemsWithLineRef(fulfillmentOrderId: string) {
     return this.prisma.fulfillmentOrderItem.findMany({
@@ -883,6 +1017,8 @@ export class FulfillmentRepository {
     return this.prisma.fulfillmentOrder.findMany({
       where: {
         deletedAt: null,
+        // Bản ghi nhập tay (Import Excel) không có ở nhà cung cấp — hỏi họ sẽ nhận 404 và hạ xuống FAILED.
+        source: FulfillmentSource.PROVIDER,
         ...(organizationId ? { organizationId } : {}),
         OR: [
           {

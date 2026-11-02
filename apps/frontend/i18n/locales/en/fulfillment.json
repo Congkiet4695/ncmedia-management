@@ -471,13 +471,13 @@
     }
   },
   "baseCostImport": {
-    "action": "Import Basecost",
-    "title": "Import Basecost from Excel",
-    "description": "Update the base cost of many fulfilled orders at once (max {{max}} rows per file).",
+    "action": "Import Basecost / Tracking",
+    "title": "Import Basecost & Tracking Number from Excel",
+    "description": "Update Base Cost and Tracking Number of many orders at once (max {{max}} rows per file). Unfulfilled / failed orders can be marked as fulfilled.",
     "formatTitle": "File format (.xlsx, first sheet, header on row 1)",
-    "formatColumns": "Columns: OrderID (TikTok Order ID, formatted as Text) · Basecost (e.g. 12.50). Column order does not matter; other columns are ignored.",
-    "formatRules": "Only fulfilled orders with a single line item. Basecost ≥ 0, dot decimal separator, empty is not 0. An OrderID may appear only once.",
-    "formatAtomic": "The whole file is checked first. If any row is invalid, no order is updated.",
+    "formatColumns": "Columns: OrderID (TikTok Order ID, formatted as Text) · Basecost (e.g. 12.50) · Tracking Number (formatted as Text). Old files with only OrderID · Basecost still work. Column order does not matter; other columns are ignored.",
+    "formatRules": "Empty cell = keep the current value (never cleared). Basecost ≥ 0 with a dot decimal separator. Tracking Number: letters, digits, \"-\" or \"_\", no spaces. Single-line-item orders only. An OrderID may appear only once.",
+    "formatAtomic": "The whole file is checked first. Valid rows are written, invalid rows are skipped and listed below — each row is saved on its own (a failed row is never half-saved).",
     "choose": "Choose Excel file",
     "chooseAnother": "Choose another file",
     "onlyXlsx": "Only .xlsx files are accepted",
@@ -493,17 +493,43 @@
       "notFound": "Order not found / out of scope",
       "duplicate": "Duplicate OrderID",
       "unchanged": "Unchanged",
-      "updated": "Updated"
+      "updated": "Orders written",
+      "baseCost": "Base Cost updated",
+      "tracking": "Tracking updated",
+      "marked": "Marked as fulfilled",
+      "writeFailed": "Save failed"
     },
     "col": {
       "row": "Row",
       "reason": "Reason",
       "before": "Current",
-      "after": "New"
+      "after": "New",
+      "action": "Action",
+      "baseCost": "Base Cost",
+      "tracking": "Tracking Number",
+      "result": "Result"
     },
     "ready": "File is valid — {{count}} order(s) will be updated after you confirm.",
     "rejected": "{{count}} row(s) are invalid — nothing was updated. Fix the file and choose it again.",
-    "applied": "Updated base cost of {{count}} order(s).",
-    "confirm": "Confirm import ({{count}})"
+    "applied": "Saved {{count}} order(s).",
+    "confirm": "Confirm import ({{count}})",
+    "formatStatus": "Fulfilled orders: Base Cost / Tracking Number are updated, the status does not change. Unfulfilled or failed orders: BOTH Basecost and Tracking Number are required — the order becomes \"Shipped\" with the label \"Manual (Excel)\". Nothing is sent to the provider.",
+    "warningTitle": "Rows with errors",
+    "actionValue": {
+      "UPDATE": "Update ({{status}})",
+      "MARK_FULFILLED": "{{from}} → {{to}}"
+    },
+    "notFulfilledYet": "Not fulfilled",
+    "result": {
+      "willWrite": "Will be saved",
+      "written": "Saved",
+      "notWritten": "Not saved"
+    },
+    "partialPreview": "{{invalid}} row(s) have errors and will be SKIPPED. Confirming will save only the {{count}} valid order(s).",
+    "partialApplied": "Saved {{count}} order(s), but {{failed}} row(s) failed and were NOT updated — see the error list."
+  },
+  "source": {
+    "MANUAL_IMPORT": "Manual (Excel)",
+    "MANUAL_IMPORT_HINT": "Marked as fulfilled by an Admin via Excel import (Base Cost + Tracking Number). The provider did NOT confirm this status and the order cannot be synced or cancelled through the provider API."
   }
 }

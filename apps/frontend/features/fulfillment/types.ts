@@ -200,20 +200,33 @@ export interface BaseCostImportError {
 export interface BaseCostImportChange {
   row: number;
   orderId: string;
+  /** UPDATE = đơn đã fulfill (không đổi trạng thái) · MARK_FULFILLED = chuyển sang đã fulfill (nhập tay). */
+  action: 'UPDATE' | 'MARK_FULFILLED';
   before: number | null;
-  after: number;
-  currency: string;
-  /** Giá đã đúng ⇒ không ghi lại. */
+  /** `null` = ô trống ⇒ không đổi Base Cost. */
+  after: number | null;
+  currency: string | null;
+  baseCostChanged: boolean;
+  trackingBefore: string | null;
+  /** `null` = ô trống / không có cột ⇒ không đổi Tracking Number. */
+  trackingAfter: string | null;
+  trackingChanged: boolean;
+  /** `null` = đơn chưa có lần fulfill nào. */
+  statusBefore: FulfillmentStatus | null;
+  statusAfter: FulfillmentStatus | null;
+  /** Không có gì thay đổi ⇒ không ghi lại. */
   unchanged: boolean;
+  /** Đã ghi thành công (luôn false khi xem trước). */
+  applied: boolean;
 }
 
 /**
- * Kết quả Import Base Cost. READY = xem trước hợp lệ (chưa ghi) · REJECTED = có dòng lỗi, KHÔNG ghi đơn nào ·
- * APPLIED = đã ghi.
+ * Kết quả Import Base Cost / Tracking Number. READY = xem trước, mọi dòng hợp lệ · PARTIAL = có dòng lỗi (xác nhận
+ * chỉ ghi dòng hợp lệ; hoặc đã ghi một phần) · REJECTED = không dòng nào ghi được · APPLIED = mọi dòng đã ghi.
  */
 export interface BaseCostImportResult {
   dryRun: boolean;
-  status: 'READY' | 'REJECTED' | 'APPLIED';
+  status: 'READY' | 'PARTIAL' | 'REJECTED' | 'APPLIED';
   totalRows: number;
   validRows: number;
   invalidRows: number;
@@ -221,10 +234,16 @@ export interface BaseCostImportResult {
   duplicateRows: number;
   unchangedRows: number;
   updatedOrders: number;
+  baseCostUpdated: number;
+  trackingUpdated: number;
+  markedFulfilled: number;
+  writeFailedRows: number;
   ignoredHeaders: string[];
   errors: BaseCostImportError[];
   changes: BaseCostImportChange[];
 }
+
+export type FulfillmentSource = 'PROVIDER' | 'MANUAL_IMPORT';
 
 export interface FulfillmentOrder {
   id: string;
@@ -233,6 +252,8 @@ export interface FulfillmentOrder {
   status: FulfillmentStatus;
   /** Trạng thái NGUYÊN VĂN của nhà cung cấp — hiển thị kèm để đối soát. */
   providerStatus: string | null;
+  /** MANUAL_IMPORT = Admin đánh dấu đã fulfill bằng Import Excel — nhà cung cấp KHÔNG xác nhận, không đồng bộ được. */
+  source: FulfillmentSource;
   externalOrderId: string;
   providerOrderId: string | null;
   providerFulfillId: string | null;
