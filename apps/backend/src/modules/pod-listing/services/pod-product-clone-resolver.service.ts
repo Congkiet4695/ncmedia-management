@@ -14,7 +14,10 @@ import {
   POD_TIKTOK_NO_BRAND_NAME,
   isNoBrandName,
 } from '../../pod-product/constants/pod-product.constants';
-import { POD_DRAFT_ISSUE_CODES } from '../constants/pod-listing.constants';
+import {
+  POD_DRAFT_ISSUE_CODES,
+  POD_PRODUCT_CLONE_LINEAGE_MAX_DEPTH,
+} from '../constants/pod-listing.constants';
 import type {
   ResolveIssue,
   ResolveResult,
@@ -478,6 +481,17 @@ function slug(value: string): string {
     .toUpperCase();
 }
 
+/** Bộ Seller SKU (đã trim, bỏ rỗng) của các biến thể. */
+function sellerSkuSetOf(variants: ReadonlyArray<{ sellerSku: string | null }>): Set<string> {
+  return new Set(
+    variants.map((variant) => variant.sellerSku?.trim()).filter((sku): sku is string => Boolean(sku)),
+  );
+}
+
+function sameSet(a: ReadonlySet<string>, b: ReadonlySet<string>): boolean {
+  return a.size === b.size && [...a].every((value) => b.has(value));
+}
+
 function isJsonObject(value: unknown): value is Prisma.JsonObject {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
@@ -499,6 +513,12 @@ export interface CloneSkipReason {
   message: string;
 }
 
+/** Nguồn gốc listing của một sản phẩm — xem `findLineage`. `productIds` gồm cả chính sản phẩm. */
+interface CloneLineage {
+  productIds: Set<string>;
+  sessionProductIds: string[];
+}
+
 /** Item CLONE của một lượt KHÁC đang chạy cho cùng cặp (sản phẩm nguồn, shop đích). */
 export interface CloneInProgress {
   jobId: string;
@@ -514,6 +534,8 @@ export interface CloneInProgress {
  */
 @Injectable()
 export class PodProductCloneResolverService {
+  private readonly lineageCache = new WeakMap<CloneSourceProduct, Promise<CloneLineage>>();
+
   constructor(private readonly prisma: PrismaService) {}
 
   loadSource(organizationId: string, productId: string): Promise<CloneSourceProduct | null> {
@@ -550,11 +572,18 @@ export class PodProductCloneResolverService {
   /**
    * Shop đích đã có sản phẩm này chưa? — **kiểm TRƯỚC khi tạo item**, và kiểm lại trong pipeline.
    *
-   * Ba dấu hiệu, theo thứ tự rẻ → đắt:
+   * Các dấu hiệu, theo thứ tự rẻ → đắt — đều dựa trên ĐỊNH DANH NỘI BỘ đã lưu, không dựa trên Seller SKU đơn lẻ:
    *  1. Cùng shop nguồn ⇒ bỏ qua (nhân bản vào chính nó là tạo sản phẩm trùng).
    *  2. Đã có Draft Listing (payload) của cặp (sản phẩm nguồn, shop đích) mang `tiktokProductId`
-   *     ⇒ lượt trước đã tạo xong trên sàn.
-   *  3. Shop đích có sản phẩm ĐANG BÁN mang cùng Seller SKU với sản phẩm nguồn ⇒ coi là đã có.
+   *     ⇒ lượt trước đã tạo xong trên sàn (`ALREADY_CLONED`).
+   *  3. Cùng NGUỒN GỐC (`findLineage`): shop đích đã có payload đăng xong của bản gốc / của cùng Draft Product, hoặc
+   *     sản phẩm nguồn vốn là bản sao của một sản phẩm thuộc shop đích (`ALREADY_EXISTS`).
+   *  4. Shop đích đang bán bản chép y hệt không qua hệ thống — cùng tiêu đề VÀ cùng nguyên bộ Seller SKU
+   *     (`findExactCopy`, `ALREADY_EXISTS`).
+   *
+   * 🔴 Trùng MỘT vài Seller SKU với sản phẩm khác của shop đích KHÔNG phải "đã có": POD dùng chung Seller SKU của phôi
+   * cho mọi design, và TikTok nhận cùng Seller SKU trên nhiều sản phẩm của một shop. Trước 2026-11-03 luật cũ ("có
+   * một biến thể trùng Seller SKU ⇒ đã có") bỏ qua oan các sản phẩm khác hoàn toàn (`CLONE_SKIPPED`).
    *
    * 🔴 Không tự ghi đè sản phẩm đang bán — quy tắc của yêu cầu: SKIPPED, nói rõ vì sao.
    * 🔴 KHÔNG kiểm "đang có lượt khác chạy" ở đây — xem `findInProgress`.
@@ -586,31 +615,149 @@ export class PodProductCloneResolverService {
       };
     }
 
-    const sellerSkus = product.variants
-      .map((variant) => variant.sellerSku?.trim())
-      .filter((sku): sku is string => Boolean(sku));
-    if (sellerSkus.length > 0) {
-      const existing = await this.prisma.podProduct.findFirst({
+    const lineage = await this.findLineage(organizationId, product);
+    const ancestors = [...lineage.productIds].filter((id) => id !== product.id);
+    if (ancestors.length > 0 || lineage.sessionProductIds.length > 0) {
+      const sibling = await this.prisma.podListingPayload.findFirst({
         where: {
           organizationId,
           shopId: targetShopId,
           deletedAt: null,
-          deactivatedAt: null,
-          variants: { some: { deletedAt: null, sellerSku: { in: sellerSkus } } },
+          tiktokProductId: { not: null },
+          OR: [
+            ...(ancestors.length > 0 ? [{ listingTemplateId: null, productId: { in: ancestors } }] : []),
+            ...(lineage.sessionProductIds.length > 0
+              ? [{ sessionProductId: { in: lineage.sessionProductIds } }]
+              : []),
+          ],
         },
-        select: { tiktokProductId: true, title: true },
+        select: { tiktokProductId: true },
       });
-      if (existing) {
+      if (sibling) {
         return {
           code: 'ALREADY_EXISTS',
           message:
-            `Shop đã có sản phẩm mang cùng Seller SKU (TikTok Product ID ${existing.tiktokProductId}` +
-            `${existing.title ? ` · ${existing.title.slice(0, 60)}` : ''}) — không tạo bản trùng.`,
+            `Shop đích đã có bản listing của CÙNG sản phẩm gốc (TikTok Product ID ${sibling.tiktokProductId}) ` +
+            '— không tạo bản trùng.',
+        };
+      }
+    }
+    if (ancestors.length > 0) {
+      const origin = await this.prisma.podProduct.findFirst({
+        where: { organizationId, shopId: targetShopId, deletedAt: null, id: { in: ancestors } },
+        select: { tiktokProductId: true, title: true },
+      });
+      if (origin) {
+        return {
+          code: 'ALREADY_EXISTS',
+          message:
+            `Sản phẩm nguồn là bản nhân bản từ sản phẩm của chính shop đích (TikTok Product ID ` +
+            `${origin.tiktokProductId}${origin.title ? ` · ${origin.title.slice(0, 60)}` : ''}) — không tạo bản trùng.`,
         };
       }
     }
 
+    const copy = await this.findExactCopy(organizationId, product, targetShopId);
+    if (copy) {
+      return {
+        code: 'ALREADY_EXISTS',
+        message:
+          `Shop đích đã có sản phẩm cùng tiêu đề và ĐÚNG bộ Seller SKU của sản phẩm nguồn (TikTok Product ID ` +
+          `${copy.tiktokProductId}${copy.title ? ` · ${copy.title.slice(0, 60)}` : ''}) — không tạo bản trùng.`,
+      };
+    }
+
     return null;
+  }
+
+  /**
+   * Nguồn gốc listing của sản phẩm nguồn, lần theo **payload đã tạo ra nó** — định danh nội bộ ổn định, không phải
+   * Seller SKU:
+   *  - payload CLONE (`listingTemplateId = NULL`) ⇒ sản phẩm này là bản sao của `payload.productId` (lần tiếp lên
+   *    bản gốc của bản gốc, tối đa `POD_PRODUCT_CLONE_LINEAGE_MAX_DEPTH` tầng);
+   *  - payload của Listing Session ⇒ sản phẩm này là Draft Product `payload.sessionProductId` đăng lên shop.
+   *
+   * Payload template dùng sản phẩm đồng bộ làm nguồn nội dung (`listingTemplateId` khác NULL) KHÔNG tính: đó là một
+   * listing MỚI dựng từ template, không phải bản sao của sản phẩm kia.
+   */
+  private findLineage(organizationId: string, product: CloneSourceProduct): Promise<CloneLineage> {
+    // Lượt tạo job kiểm MỘT sản phẩm với N shop đích bằng cùng object ⇒ lần một lần, dùng lại (WeakMap tự dọn).
+    let lineage = this.lineageCache.get(product);
+    if (!lineage) {
+      lineage = this.loadLineage(organizationId, product);
+      this.lineageCache.set(product, lineage);
+    }
+    return lineage;
+  }
+
+  private async loadLineage(organizationId: string, product: CloneSourceProduct): Promise<CloneLineage> {
+    const productIds = new Set<string>([product.id]);
+    const sessionProductIds = new Set<string>();
+    let frontier: Array<{ shopId: string; tiktokProductId: string }> = [
+      { shopId: product.shopId, tiktokProductId: product.tiktokProductId },
+    ];
+
+    for (let depth = 0; depth < POD_PRODUCT_CLONE_LINEAGE_MAX_DEPTH && frontier.length > 0; depth++) {
+      const origins = await this.prisma.podListingPayload.findMany({
+        where: {
+          organizationId,
+          deletedAt: null,
+          OR: frontier.map(({ shopId, tiktokProductId }) => ({ shopId, tiktokProductId })),
+        },
+        select: { productId: true, sessionProductId: true, listingTemplateId: true },
+      });
+      const parents: string[] = [];
+      for (const origin of origins) {
+        if (origin.sessionProductId) sessionProductIds.add(origin.sessionProductId);
+        if (origin.productId && origin.listingTemplateId === null && !productIds.has(origin.productId)) {
+          productIds.add(origin.productId);
+          parents.push(origin.productId);
+        }
+      }
+      if (parents.length === 0) break;
+      // Bản gốc đã xoá vẫn giữ trong chuỗi (danh tính không đổi), chỉ cần cặp (shop, TikTok Product ID) để lần tiếp.
+      frontier = await this.prisma.podProduct.findMany({
+        where: { organizationId, id: { in: parents } },
+        select: { shopId: true, tiktokProductId: true },
+      });
+    }
+
+    return { productIds, sessionProductIds: [...sessionProductIds] };
+  }
+
+  /**
+   * Sản phẩm ĐANG BÁN ở shop đích là bản chép y hệt sản phẩm nguồn nhưng không qua hệ thống (không có payload để
+   * lần nguồn gốc): cùng tiêu đề (không phân biệt hoa/thường) VÀ cùng nguyên bộ Seller SKU.
+   *
+   * 🔴 Không kết luận "đã có" chỉ vì trùng Seller SKU: POD dùng chung bộ Seller SKU của phôi cho mọi design (listing
+   * theo template sinh `{prefix}-{mã}-{tổ hợp}` giống nhau cho mọi sản phẩm cùng template), nên một shop có hàng
+   * chục sản phẩm KHÁC NHAU mang cùng Seller SKU. Sản phẩm nguồn không có Seller SKU / tiêu đề ⇒ không đủ dấu hiệu.
+   */
+  private async findExactCopy(
+    organizationId: string,
+    product: CloneSourceProduct,
+    targetShopId: string,
+  ): Promise<{ tiktokProductId: string; title: string | null } | null> {
+    const title = product.title?.trim();
+    const sellerSkus = sellerSkuSetOf(product.variants);
+    if (!title || sellerSkus.size === 0) return null;
+
+    const candidates = await this.prisma.podProduct.findMany({
+      where: {
+        organizationId,
+        shopId: targetShopId,
+        deletedAt: null,
+        deactivatedAt: null,
+        title: { equals: title, mode: 'insensitive' },
+      },
+      select: {
+        tiktokProductId: true,
+        title: true,
+        variants: { where: { deletedAt: null }, select: { sellerSku: true } },
+      },
+    });
+    const copy = candidates.find((candidate) => sameSet(sellerSkuSetOf(candidate.variants), sellerSkus));
+    return copy ? { tiktokProductId: copy.tiktokProductId, title: copy.title } : null;
   }
 
   /**

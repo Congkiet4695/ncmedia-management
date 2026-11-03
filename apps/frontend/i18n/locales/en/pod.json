@@ -2013,7 +2013,7 @@
         "tooManyProducts": "Select at most {{max}} products per clone run.",
         "oneShopOnly": "Selected products belong to different shops — clone products of ONE source shop per run.",
         "review": "Review",
-        "reviewHint": "Nothing is sent until you confirm. Pairs that already exist on the target shop (cloned before / same Seller SKU) are skipped.",
+        "reviewHint": "Nothing is sent until you confirm. Pairs that already exist on the target shop (cloned before / same original product / an exact copy — same title and the same full set of Seller SKUs) are skipped.",
         "back": "Back",
         "confirm": "Confirm clone ({{count}})",
         "started": "Started {{count}} clone operation(s)",

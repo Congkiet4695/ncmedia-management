@@ -2013,7 +2013,7 @@
         "tooManyProducts": "Chỉ chọn tối đa {{max}} sản phẩm mỗi lượt nhân bản.",
         "oneShopOnly": "Các sản phẩm đã chọn thuộc nhiều shop — mỗi lượt chỉ nhân bản sản phẩm của MỘT shop nguồn.",
         "review": "Xem lại",
-        "reviewHint": "Chưa có gì được gửi cho tới khi bạn xác nhận. Cặp đã có trên shop đích (đã nhân bản trước / trùng Seller SKU) sẽ được bỏ qua.",
+        "reviewHint": "Chưa có gì được gửi cho tới khi bạn xác nhận. Cặp đã có trên shop đích (đã nhân bản trước / cùng sản phẩm gốc / bản chép y hệt — cùng tiêu đề và đúng bộ Seller SKU) sẽ được bỏ qua.",
         "back": "Quay lại",
         "confirm": "Xác nhận nhân bản ({{count}})",
         "started": "Đã bắt đầu {{count}} thao tác nhân bản",

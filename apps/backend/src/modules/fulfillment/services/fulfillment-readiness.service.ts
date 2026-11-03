@@ -85,8 +85,9 @@ export interface ReadinessResult {
   ready: boolean;
   issues: ReadinessIssue[];
   /**
-   * Cảnh báo KHÔNG chặn gửi — hiện chỉ có `PROMOTION_GIFT_NOT_SENT` (quà tặng khuyến mãi không
-   * được gửi sang nhà cung cấp). Luôn có mặt (mảng rỗng khi không có gì).
+   * Cảnh báo KHÔNG chặn gửi — `PROMOTION_GIFT_NOT_SENT` (quà tặng khuyến mãi không được gửi sang nhà
+   * cung cấp) và `MAPPING_SHARED_BY_VARIANTS` (một ánh xạ áp cho nhiều biến thể TikTok). Luôn có mặt
+   * (mảng rỗng khi không có gì).
    */
   warnings: ReadinessIssue[];
   address?: NormalizedAddress;
@@ -125,6 +126,13 @@ export const READINESS_CODES = {
    * TikTok; người bán phải tự lo phần giao quà. Chỉ nằm trong `ReadinessResult.warnings`.
    */
   PROMOTION_GIFT_NOT_SENT: 'PROMOTION_GIFT_NOT_SENT',
+  /**
+   * CẢNH BÁO (không chặn): Product Mapping của dòng khoá theo `(Product ID + Seller SKU)`, mà trên TikTok Seller SKU
+   * đó đang gắn cho NHIỀU biến thể (SKU ID khác nhau) của cùng sản phẩm ⇒ mọi biến thể dùng chung MỘT Fulfillment
+   * SKU. Đúng nếu chúng cùng phôi; sai size/màu nếu khác phôi. Khoá giữ nguyên theo quyết định PO 2026-11-03 —
+   * cảnh báo để người vận hành đối chiếu trước khi gửi, không tự đổi ánh xạ.
+   */
+  MAPPING_SHARED_BY_VARIANTS: 'MAPPING_SHARED_BY_VARIANTS',
   ADDRESS_MISSING: 'ADDRESS_MISSING',
   ADDRESS_MASKED: 'ADDRESS_MASKED',
   ADDRESS_INCOMPLETE: 'ADDRESS_INCOMPLETE',
@@ -189,6 +197,7 @@ const SECTION_BY_CODE: Readonly<Record<string, FulfillmentIssueSection>> = {
   NO_ITEMS: 'ORDER',
   NO_FULFILLABLE_ITEMS: 'ORDER',
   PROMOTION_GIFT_NOT_SENT: 'MAPPING',
+  MAPPING_SHARED_BY_VARIANTS: 'MAPPING',
   ACCOUNT_MISSING: 'PROVIDER',
   PROVIDER_NOT_ASSIGNED: 'PROVIDER',
   PROVIDER_INACTIVE: 'PROVIDER',
@@ -508,6 +517,25 @@ export class FulfillmentReadinessService {
             'của đơn này. Sửa ánh xạ, hoặc đổi nhà cung cấp của kết nối TikTok cho khớp.',
         });
         continue;
+      }
+
+      const sharedBy = item.sellerSkuVariantCount ?? 0;
+      if (mapping.sellerSku?.trim() && sharedBy > 1) {
+        warnings.push({
+          code: READINESS_CODES.MAPPING_SHARED_BY_VARIANTS,
+          podOrderItemId: item.id,
+          tiktokProductId: item.productId,
+          tiktokSkuId: item.skuId,
+          sellerSku: item.sellerSku,
+          productName: item.productName,
+          skuName: item.skuName,
+          productCategory: item.productCategory,
+          message:
+            `Seller SKU "${item.sellerSku}" đang gắn cho ${sharedBy} biến thể của sản phẩm này trên TikTok — mọi biến ` +
+            `thể dùng chung ánh xạ "${mapping.providerSku}". Kiểm tra biến thể đặt mua` +
+            `${item.skuName ? ` (${item.skuName})` : ''} đúng phôi / size / màu của SKU nhà cung cấp trước khi gửi; ` +
+            'nếu khác phôi, đặt Seller SKU riêng cho từng biến thể trên TikTok rồi đồng bộ sản phẩm.',
+        });
       }
 
       const printFiles = this.resolvePrintFiles(

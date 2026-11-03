@@ -384,6 +384,12 @@ export const POD_PRODUCT_CLONE_LOCK_MS = 30_000;
 export const POD_PRODUCT_CLONE_WAIT_MS = 30_000;
 
 /**
+ * Số tầng tối đa khi lần ngược nguồn gốc của sản phẩm nguồn (bản sao của bản sao …) để biết shop đích đã có
+ * CÙNG sản phẩm chưa — xem `PodProductCloneResolverService.findLineage`. Chặn vòng lặp vô hạn nếu dữ liệu vòng.
+ */
+export const POD_PRODUCT_CLONE_LINEAGE_MAX_DEPTH = 5;
+
+/**
  * Luật danh mục (Get Category Rules: bảng size có hỗ trợ / bắt buộc…) được nhớ theo cặp
  * (shop, danh mục) trong bấy nhiêu ms. Luật đổi hiếm; một lượt đăng 500 sản phẩm cùng danh mục
  * chỉ hỏi TikTok một lần.

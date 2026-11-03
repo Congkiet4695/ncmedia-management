@@ -42,6 +42,11 @@ type PodOrderPayload = Prisma.PodOrderGetPayload<{ include: typeof POD_ORDER_INC
 export interface PodOrderItemKeyAnnotation {
   sellerSkuSource?: SellerSkuSource | null;
   productKeyIssue?: ProductKeyIssue | null;
+  /**
+   * Số biến thể TikTok trong danh mục Products (cùng shop + Product ID) mang CÙNG Seller SKU hiệu lực với dòng này —
+   * xem `countVariantsSharingSellerSku`. Vắng / `null` = không xác định (chưa đồng bộ, không có Seller SKU).
+   */
+  sellerSkuVariantCount?: number | null;
 }
 
 export type PodOrderItemWithKey = PodOrderPayload['items'][number] & PodOrderItemKeyAnnotation;

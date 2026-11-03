@@ -634,6 +634,43 @@ describe('PodListingResolverService', () => {
       expect(payload.variants[0].sellerSku).toBe('NC-7300000000000000001-BLK-S');
     });
 
+    it('🔴 cùng sản phẩm sang NHIỀU shop ⇒ cùng Seller SKU (ổn định, không phụ thuộc shop); retry ⇒ y hệt', () => {
+      const shopA = service.resolveFromContext(buildContext());
+      const shopB = service.resolveFromContext(
+        buildContext({ shop: { id: 'shop-2', name: 'NCMedia UK Store', region: 'GB' } }),
+      );
+      const retry = service.resolveFromContext(buildContext());
+      const skus = (result: typeof shopA) => result.payload.variants.map((variant) => variant.sellerSku);
+      expect(skus(shopB)).toEqual(skus(shopA));
+      expect(skus(retry)).toEqual(skus(shopA));
+    });
+
+    it('sản phẩm KHÁC ⇒ Seller SKU khác (mã sản phẩm nằm trong mã); nhiều biến thể ⇒ mỗi biến thể một mã', () => {
+      const template = buildTemplate();
+      template.skuTemplate!.items = [
+        buildSkuItem({ id: 'item-1', variantName: 'Black / S', skuCode: 'BLK-S', sortOrder: 0 }),
+        buildSkuItem({ id: 'item-2', variantName: 'Black / M', skuCode: 'BLK-M', sortOrder: 1 }),
+      ];
+      const base = buildContext({ template });
+      const first = service.resolveFromContext(base);
+      const second = service.resolveFromContext({
+        ...base,
+        product: { ...base.product!, id: 'prod-2', tiktokProductId: '7300000000000000002' },
+      });
+      const skus = (result: typeof first) => result.payload.variants.map((variant) => variant.sellerSku);
+      expect(skus(first)).toEqual(['NC-7300000000000000001-BLK-S', 'NC-7300000000000000001-BLK-M']);
+      expect(skus(second)).toEqual(['NC-7300000000000000002-BLK-S', 'NC-7300000000000000002-BLK-M']);
+    });
+
+    it('không có sản phẩm nguồn (Listing Session) ⇒ mã theo TÊN template: mọi design cùng template dùng chung bộ Seller SKU', () => {
+      // Đây là hành vi CÓ CHỦ Ý của POD (Seller SKU = mã phôi/biến thể). Hệ quả: Seller SKU KHÔNG định danh được sản phẩm —
+      // ánh xạ fulfillment khoá theo (Product ID + Seller SKU), và chống trùng khi nhân bản dựa trên nguồn gốc listing.
+      const first = service.resolveFromContext(buildContext({ product: null }));
+      const second = service.resolveFromContext(buildContext({ product: null }));
+      expect(first.payload.variants[0].sellerSku).toBe(second.payload.variants[0].sellerSku);
+      expect(first.payload.variants[0].sellerSku).toMatch(/BLK-S$/);
+    });
+
     it('SKU tắt (isActive = false) không vào listing', () => {
       const template = buildTemplate();
       template.skuTemplate!.items[0].isActive = false;

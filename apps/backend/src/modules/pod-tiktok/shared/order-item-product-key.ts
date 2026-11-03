@@ -103,6 +103,36 @@ export function resolveItemProductKeys(
   return result;
 }
 
+/**
+ * Số biến thể TikTok (SKU ID khác nhau) trong danh mục Products đã đồng bộ đang mang CÙNG Seller SKU với dòng đơn —
+ * cùng shop, cùng TikTok Product ID. Khoá `(Product ID + Seller SKU)` của ánh xạ / design gom tất cả các biến thể đó
+ * vào MỘT Product Mapping (một Fulfillment SKU): đúng ý khi người bán đặt chung mã cho mọi size/màu cùng phôi, nhưng
+ * sai size/màu nếu phôi khác nhau. Số > 1 ⇒ readiness CẢNH BÁO (không chặn — quyết định PO 2026-11-03 giữ khoá).
+ *
+ * Chỉ tính dòng có Seller SKU hiệu lực; dòng không có trong danh mục ⇒ không có mục (không đoán).
+ */
+export function countVariantsSharingSellerSku(
+  shopId: string,
+  items: ReadonlyArray<{ id: string; productId: string | null; sellerSku: string | null }>,
+  catalog: readonly CatalogVariantRow[],
+): Map<string, number> {
+  const skuIdsByKey = new Map<string, Set<string>>();
+  for (const row of catalog) {
+    if (blank(row.sellerSku)) continue;
+    const key = catalogKey(row.shopId, row.tiktokProductId, (row.sellerSku as string).trim());
+    const set = skuIdsByKey.get(key) ?? new Set<string>();
+    set.add(row.tiktokSkuId);
+    skuIdsByKey.set(key, set);
+  }
+  const result = new Map<string, number>();
+  for (const item of items) {
+    if (blank(item.productId) || blank(item.sellerSku)) continue;
+    const skuIds = skuIdsByKey.get(catalogKey(shopId, (item.productId as string).trim(), (item.sellerSku as string).trim()));
+    if (skuIds) result.set(item.id, skuIds.size);
+  }
+  return result;
+}
+
 /** Câu hướng dẫn cho từng lý do — backend dùng trong readiness, nói rõ phải sửa ở ĐÂU. */
 export const PRODUCT_KEY_ISSUE_MESSAGE: Readonly<Record<ProductKeyIssue, string>> = {
   NO_PRODUCT_ID: 'Dòng hàng không có TikTok Product ID — đồng bộ lại đơn từ TikTok.',

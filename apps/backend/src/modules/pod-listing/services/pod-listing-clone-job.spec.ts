@@ -234,7 +234,7 @@ describe('PodListingJobService.createCloneJob', () => {
 
   it('shop đích đã có sản phẩm ⇒ item SKIPPED ngay lúc tạo, item còn lại vẫn chạy', async () => {
     const { service, createdItems, createdJobs } = buildService({
-      skipReasons: { [SHOP_B]: { code: 'ALREADY_EXISTS', message: 'Shop đã có sản phẩm mang cùng Seller SKU' } },
+      skipReasons: { [SHOP_B]: { code: 'ALREADY_EXISTS', message: 'Shop đích đã có bản listing của CÙNG sản phẩm gốc' } },
     });
 
     await service.createCloneJob(ORG, USER, PRODUCT, { targetShopIds: [SHOP_A, SHOP_B] }, ADMIN);
@@ -247,7 +247,7 @@ describe('PodListingJobService.createCloneJob', () => {
     };
     expect(skipped.status).toBe(PodListingJobItemStatus.SKIPPED);
     expect(skipped.errorCode).toBe('CLONE_SKIPPED');
-    expect(skipped.error).toContain('Seller SKU');
+    expect(skipped.error).toContain('sản phẩm gốc');
     const pending = createdItems.find((item) => (item as { shopId: string }).shopId === SHOP_A) as { status?: string };
     expect(pending.status).toBeUndefined();
   });

@@ -3,7 +3,11 @@ import { FulfillmentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { SUBMITTABLE_FULFILLMENT_STATUSES } from '../../fulfillment/shared/fulfillment-lifecycle';
 import { accountScopeFilter, shopScopeFilter } from '../shared/shop-scope';
-import { needsCatalogLookup, resolveItemProductKeys } from '../shared/order-item-product-key';
+import {
+  countVariantsSharingSellerSku,
+  needsCatalogLookup,
+  resolveItemProductKeys,
+} from '../shared/order-item-product-key';
 import { POD_ORDER_INCLUDE, PodOrderWithRelations } from '../types/pod-order-with-relations.type';
 
 /** Ảnh chụp tối thiểu của đơn đã có trong DB — dùng để so sánh, KHÔNG tải nguyên bản ghi. */
@@ -339,7 +343,7 @@ export class PodOrderRepository {
       sellerSku: variant.sellerSku,
     }));
 
-    return orders.map((order) => {
+    const keyed = orders.map((order) => {
       const keys = resolveItemProductKeys(order.shopId, order.items, catalog);
       return {
         ...order,
@@ -349,6 +353,55 @@ export class PodOrderRepository {
             ? { ...item, sellerSku: key.sellerSku, sellerSkuSource: key.sellerSkuSource, productKeyIssue: key.productKeyIssue }
             : item;
         }),
+      };
+    });
+    return this.withSellerSkuVariantCounts(organizationId, keyed);
+  }
+
+  /**
+   * Gắn `sellerSkuVariantCount` cho từng dòng có Seller SKU hiệu lực (MỘT truy vấn danh mục cho cả trang) — để
+   * readiness cảnh báo khi một Product Mapping `(Product ID + Seller SKU)` đang áp cho nhiều biến thể TikTok.
+   */
+  private async withSellerSkuVariantCounts<T extends Pick<PodOrderWithRelations, 'shopId' | 'items'>>(
+    organizationId: string,
+    orders: T[],
+  ): Promise<T[]> {
+    const keyed = orders.flatMap((order) =>
+      order.items
+        .filter((item) => item.productId?.trim() && item.sellerSku?.trim())
+        .map((item) => ({ shopId: order.shopId, productId: item.productId as string, sellerSku: item.sellerSku as string })),
+    );
+    if (keyed.length === 0) return orders;
+
+    const variants = await this.prisma.podProductVariant.findMany({
+      where: {
+        organizationId,
+        deletedAt: null,
+        sellerSku: { in: [...new Set(keyed.map(({ sellerSku }) => sellerSku.trim()))] },
+        product: {
+          organizationId,
+          deletedAt: null,
+          shopId: { in: [...new Set(keyed.map(({ shopId }) => shopId))] },
+          tiktokProductId: { in: [...new Set(keyed.map(({ productId }) => productId.trim()))] },
+        },
+      },
+      select: { tiktokSkuId: true, sellerSku: true, product: { select: { shopId: true, tiktokProductId: true } } },
+    });
+    if (variants.length === 0) return orders;
+    const catalog = variants.map((variant) => ({
+      shopId: variant.product.shopId,
+      tiktokProductId: variant.product.tiktokProductId,
+      tiktokSkuId: variant.tiktokSkuId,
+      sellerSku: variant.sellerSku,
+    }));
+
+    return orders.map((order) => {
+      const counts = countVariantsSharingSellerSku(order.shopId, order.items, catalog);
+      return {
+        ...order,
+        items: order.items.map((item) =>
+          counts.has(item.id) ? { ...item, sellerSkuVariantCount: counts.get(item.id) } : item,
+        ),
       };
     });
   }

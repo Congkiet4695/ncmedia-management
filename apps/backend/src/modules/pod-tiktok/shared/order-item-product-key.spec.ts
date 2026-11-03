@@ -144,20 +144,36 @@ describe('PodOrderRepository gắn khoá sản phẩm lúc đọc', () => {
     return { repo: new PodOrderRepository(prisma as never), prisma };
   }
 
-  it('findById: dòng rỗng nhận Seller SKU từ danh mục (một truy vấn, lọc tổ chức + shop của đơn); dòng có sẵn giữ nguyên', async () => {
+  it('findById: dòng rỗng nhận Seller SKU từ danh mục (một truy vấn tra, lọc tổ chức + shop của đơn); dòng có sẵn giữ nguyên', async () => {
     const { repo, prisma } = build([
       { tiktokSkuId: '1732716272490942940', sellerSku: 'dung2740', product: { shopId: SHOP, tiktokProductId: '1732716254750544348' } },
     ]);
     const order = await repo.findById('org-1', 'order-1');
     expect(order?.items[0]).toMatchObject({ sellerSku: 'dung2740', sellerSkuSource: 'CATALOG', productKeyIssue: null });
     expect(order?.items[1]).toMatchObject({ sellerSku: 'SELLER-2', sellerSkuSource: 'ORDER' });
-    expect(prisma.podProductVariant.findMany).toHaveBeenCalledTimes(1);
-    const where = (prisma.podProductVariant.findMany.mock.calls[0] as unknown[])[0] as { where: Record<string, unknown> };
-    expect(where.where).toMatchObject({
-      organizationId: 'org-1',
-      deletedAt: null,
-      product: { organizationId: 'org-1', deletedAt: null, shopId: { in: [SHOP] } },
-    });
+    // Truy vấn 1: tra Seller SKU cho dòng rỗng. Truy vấn 2: đếm biến thể dùng chung Seller SKU HIỆU LỰC (sau khi tra).
+    expect(prisma.podProductVariant.findMany).toHaveBeenCalledTimes(2);
+    for (const call of prisma.podProductVariant.findMany.mock.calls as unknown[][]) {
+      expect((call[0] as { where: Record<string, unknown> }).where).toMatchObject({
+        organizationId: 'org-1',
+        deletedAt: null,
+        product: { organizationId: 'org-1', deletedAt: null, shopId: { in: [SHOP] } },
+      });
+    }
+    const countWhere = (prisma.podProductVariant.findMany.mock.calls[1] as unknown[])[0] as { where: Record<string, unknown> };
+    expect(countWhere.where.sellerSku).toEqual({ in: ['dung2740', 'SELLER-2'] });
+  });
+
+  it('gắn sellerSkuVariantCount = số SKU ID mang cùng Seller SKU trong CÙNG sản phẩm của shop đơn', async () => {
+    const { repo, prisma } = build([]);
+    prisma.podProductVariant.findMany.mockResolvedValue([
+      { tiktokSkuId: 'S2', sellerSku: 'SELLER-2', product: { shopId: SHOP, tiktokProductId: 'P2' } },
+      { tiktokSkuId: 'S3', sellerSku: 'SELLER-2', product: { shopId: SHOP, tiktokProductId: 'P2' } },
+      // Sản phẩm khác cùng Seller SKU ⇒ không đếm.
+      { tiktokSkuId: 'S9', sellerSku: 'SELLER-2', product: { shopId: SHOP, tiktokProductId: 'P-OTHER' } },
+    ]);
+    const order = await repo.findById('org-1', 'order-1');
+    expect(order?.items[1]).toMatchObject({ sellerSku: 'SELLER-2', sellerSkuVariantCount: 2 });
   });
 
   it('đồng bộ Products rồi mở lại đơn ⇒ đọc lại thấy Seller SKU mới; dữ liệu đơn đã lưu KHÔNG bị ghi đè', async () => {
@@ -177,12 +193,26 @@ describe('PodOrderRepository gắn khoá sản phẩm lúc đọc', () => {
     expect(prisma.podOrder.findFirst).toHaveBeenCalledTimes(2);
   });
 
-  it('không có dòng nào cần tra ⇒ KHÔNG truy vấn danh mục', async () => {
+  it('không có dòng nào cần tra ⇒ KHÔNG truy vấn tra Seller SKU (chỉ còn truy vấn đếm biến thể dùng chung)', async () => {
     const { repo, prisma } = build([]);
     prisma.podOrder.findFirst.mockResolvedValue({
       id: 'order-1',
       shopId: SHOP,
       items: [{ id: 'item-2', productId: 'P2', skuId: 'S2', sellerSku: 'SELLER-2' }],
+    });
+    await repo.findById('org-1', 'order-1');
+    expect(prisma.podProductVariant.findMany).toHaveBeenCalledTimes(1);
+    const where = (prisma.podProductVariant.findMany.mock.calls[0] as unknown[])[0] as { where: Record<string, unknown> };
+    expect(where.where).not.toHaveProperty('tiktokSkuId');
+    expect(where.where.sellerSku).toEqual({ in: ['SELLER-2'] });
+  });
+
+  it('không dòng nào có khoá Seller SKU lẫn SKU ID ⇒ KHÔNG truy vấn danh mục', async () => {
+    const { repo, prisma } = build([]);
+    prisma.podOrder.findFirst.mockResolvedValue({
+      id: 'order-1',
+      shopId: SHOP,
+      items: [{ id: 'item-3', productId: 'P3', skuId: null, sellerSku: '' }],
     });
     await repo.findById('org-1', 'order-1');
     expect(prisma.podProductVariant.findMany).not.toHaveBeenCalled();

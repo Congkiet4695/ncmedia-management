@@ -266,8 +266,14 @@ describe('marketOfRegion', () => {
 describe('PodProductCloneResolverService.findSkipReason / findInProgress', () => {
   function build(itemRow: unknown = null) {
     const prisma = {
-      podListingPayload: { findFirst: jest.fn().mockResolvedValue(null) },
-      podProduct: { findFirst: jest.fn().mockResolvedValue(null) },
+      podListingPayload: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
+      podProduct: {
+        findFirst: jest.fn().mockResolvedValue(null),
+        findMany: jest.fn().mockResolvedValue([]),
+      },
       podListingJobItem: {
         findFirst: jest.fn().mockResolvedValue(itemRow),
         findUnique: jest.fn().mockResolvedValue({ id: 'item-self', createdAt: new Date('2026-10-20T01:00:00Z') }),

@@ -1396,7 +1396,9 @@ export class FulfillmentStateDto {
     isArray: true,
     description:
       'Cảnh báo KHÔNG chặn gửi. `PROMOTION_GIFT_NOT_SENT` = dòng là quà tặng khuyến mãi TikTok ' +
-      '(`is_gift`) chưa có Product Mapping ⇒ không gửi sang nhà cung cấp; người bán tự lo giao quà.',
+      '(`is_gift`) chưa có Product Mapping ⇒ không gửi sang nhà cung cấp; người bán tự lo giao quà. ' +
+      '`MAPPING_SHARED_BY_VARIANTS` = Seller SKU của dòng gắn cho nhiều biến thể TikTok của cùng sản phẩm ⇒ mọi ' +
+      'biến thể dùng chung một ánh xạ (một Fulfillment SKU) — kiểm tra size/màu trước khi gửi.',
   })
   warnings!: FulfillmentIssueDto[];
   @ApiProperty({ description: 'Có thể bấm Fulfill lúc này không' }) canFulfill!: boolean;
