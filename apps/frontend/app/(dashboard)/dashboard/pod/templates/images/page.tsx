@@ -19,7 +19,12 @@ import {
   TemplatePageShell,
   TemplateRowActions,
 } from '@/features/pod-listing/components/template-page-shell';
-import { TemplateTransferBar } from '@/features/pod-listing/components/template-transfer-bar';
+import {
+  SelectAllRowsHead,
+  SelectRowCell,
+  useTemplateRowSelection,
+} from '@/features/pod-listing/components/template-row-selection';
+import { TemplateRowTransferBar } from '@/features/pod-listing/components/template-row-transfer-bar';
 import { usePodTemplate } from '@/features/pod-listing/hooks/use-pod-listing';
 import { useTemplateListState } from '@/features/pod-listing/hooks/use-template-list-state';
 import type { PodImageTemplate } from '@/features/pod-listing/types';
@@ -45,6 +50,8 @@ function ImageTemplatesView() {
   const canWrite = hasPermission('pod.template.write');
 
   const state = useTemplateListState<PodImageTemplate>('images');
+  // Chọn từng row để Export CSV — bỏ hết lựa chọn khi đổi tìm kiếm / bộ lọc / trang.
+  const selection = useTemplateRowSelection(state.items, state.query);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -75,7 +82,12 @@ function ImageTemplatesView() {
             : undefined
         }
         actions={
-          <TemplateTransferBar kind="images" query={state.query} canExport canImport={canWrite} />
+          <TemplateRowTransferBar
+            kind="images"
+            selectedIds={selection.selectedIds}
+            canExport
+            canImport={canWrite}
+          />
         }
         loading={state.list.isLoading}
         error={state.list.error}
@@ -91,6 +103,7 @@ function ImageTemplatesView() {
         <Table>
           <TableHeader>
             <TableRow>
+              <SelectAllRowsHead selection={selection} />
               <TableHead>{t('listing.common.name')}</TableHead>
               <TableHead>{t('listing.imageTemplates.previewColumn')}</TableHead>
               <TableHead>{t('listing.imageTemplates.imageCount')}</TableHead>
@@ -101,6 +114,7 @@ function ImageTemplatesView() {
           <TableBody>
             {state.items.map((item) => (
               <TableRow key={item.id}>
+                <SelectRowCell selection={selection} id={item.id} label={item.name} />
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{item.name}</span>

@@ -158,6 +158,8 @@ export interface PodProductQuery extends PaginationParams {
   search?: string;
   accountId?: string;
   shopId?: string;
+  /** ID **Employee** phụ trách kết nối TikTok sở hữu sản phẩm. Chỉ người có `pod.shop.all` được gửi. */
+  sellerId?: string;
   /**
    * Nhóm trạng thái (`ACTIVE`, `REVIEWING,DEACTIVATED`…) hoặc `ALL`. Bỏ trống = backend chỉ trả
    * ACTIVE (mặc định cho các màn hình CHỌN sản phẩm như Flash Sale).

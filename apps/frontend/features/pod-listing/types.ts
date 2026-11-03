@@ -621,9 +621,16 @@ export interface PodTemplateImportResult {
   total: number;
   created: number;
   failed: number;
-  errors: Array<{ index: number; name: string | null; message: string }>;
+  /** `row`: số dòng trong file CSV (dòng tiêu đề = 1) — chỉ có ở import theo dòng. */
+  errors: Array<{ index: number; row?: number; name: string | null; message: string }>;
   warnings: string[];
 }
+
+/**
+ * Tab template Export / Import THEO DÒNG bằng CSV (chỉ các row đã chọn). Pricing / Listing vẫn dùng gói
+ * JSON theo bộ lọc.
+ */
+export type PodRowTransferTemplateKind = 'categories' | 'skus' | 'descriptions' | 'images';
 
 /** Kết quả import Excel của bảng SKU — dùng chung `ImportResultDto` của backend. */
 export interface PodSkuImportResult {

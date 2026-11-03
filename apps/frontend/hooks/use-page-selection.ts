@@ -15,6 +15,8 @@ export interface PageSelection {
   togglePage: () => void;
   /** Bỏ các id khỏi lựa chọn (vd sau khi đã xoá xong). */
   forget: (ids: string[]) => void;
+  /** Bỏ TOÀN BỘ lựa chọn, kể cả id đang ẩn (vd khi đổi tìm kiếm / bộ lọc / trang). */
+  clear: () => void;
 }
 
 /**
@@ -52,6 +54,11 @@ export function usePageSelection(selectableIds: string[]): PageSelection {
     setSelected((prev) => prev.filter((id) => !ids.includes(id)));
   }, []);
 
+  const clear = useCallback(() => {
+    // Giữ nguyên mảng cũ khi đã rỗng — không gây một lượt render thừa.
+    setSelected((prev) => (prev.length === 0 ? prev : []));
+  }, []);
+
   return {
     selectedIds,
     allSelected,
@@ -60,5 +67,6 @@ export function usePageSelection(selectableIds: string[]): PageSelection {
     toggleRow,
     togglePage,
     forget,
+    clear,
   };
 }

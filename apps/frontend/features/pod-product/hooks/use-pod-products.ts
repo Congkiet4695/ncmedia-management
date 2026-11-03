@@ -53,10 +53,12 @@ export function usePodProduct(id?: string) {
  * Giá trị cho dropdown lọc. Đổi rất chậm (chỉ khi đồng bộ xong) nên cache dài —
  * mỗi lần gõ tìm kiếm không cần hỏi lại danh mục/thương hiệu.
  */
-export function usePodProductFilters() {
+export function usePodProductFilters(params: { activeShopsOnly?: boolean } = {}) {
+  const activeShopsOnly = params.activeShopsOnly === true;
   return useQuery({
-    queryKey: [POD_PRODUCT_KEY, 'filters'],
-    queryFn: () => podProductService.filters(),
+    // Khoá riêng cho biến thể "chỉ shop hoạt động" — hai danh sách khác nhau không được dùng chung cache.
+    queryKey: [POD_PRODUCT_KEY, 'filters', { activeShopsOnly }],
+    queryFn: () => podProductService.filters({ activeShopsOnly }),
     staleTime: 5 * 60 * 1000,
   });
 }

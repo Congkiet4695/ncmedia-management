@@ -19,6 +19,7 @@ import { ImageLightbox } from '@/features/pod-tiktok/components/image-lightbox';
 import { LatestSyncStatusDialog } from '@/features/pod-tiktok/components/latest-sync-status-dialog';
 import { EditProductDialog } from '@/features/pod-product/components/edit-product-dialog';
 import { CloneProductDialog } from '@/features/pod-product/components/clone-product-dialog';
+import { usePodSellerOptions } from '@/features/pod-tiktok/hooks/use-pod-tiktok';
 import {
   ProductActionConfirmDialog,
   type ProductLifecycleAction,
@@ -71,6 +72,12 @@ function PodProductsView() {
   const canDeactivate = hasPermission('pod.product.deactivate');
   const canDelete = hasPermission('pod.product.delete');
   const canClone = hasPermission('pod.product.clone');
+  /**
+   * Lọc theo nhân viên — cùng luật với danh sách Đơn hàng: chỉ người xem được MỌI shop (`pod.shop.all`), và cần
+   * `pod.tiktok.account.update` vì danh sách nhân viên lấy từ `GET /pod/tiktok-accounts/sellers` (có sẵn).
+   */
+  const canFilterBySeller =
+    hasPermission('pod.shop.all') && hasPermission('pod.tiktok.account.update');
 
   const [query, setQuery] = useState<PodProductQuery>({
     page: 1,
@@ -128,6 +135,7 @@ function PodProductsView() {
 
   const productsQuery = usePodProducts(query);
   const filtersQuery = usePodProductFilters();
+  const sellerOptionsQuery = usePodSellerOptions(canFilterBySeller);
   const syncMutation = useSyncPodProducts();
   const deactivateMutation = useDeactivatePodProduct();
   const deleteMutation = useDeletePodProduct();
@@ -393,6 +401,22 @@ function PodProductsView() {
               ]}
               className="w-[180px]"
             />
+
+            {canFilterBySeller && (
+              <Combobox
+                value={query.sellerId ?? ''}
+                onChange={(value) => patchQuery({ sellerId: value || undefined })}
+                options={[
+                  { value: '', label: t('products.filters.allEmployees') },
+                  ...(sellerOptionsQuery.data ?? []).map((seller) => ({
+                    value: seller.id,
+                    label: `${seller.fullName} (${seller.email})`,
+                  })),
+                ]}
+                searchPlaceholder={t('products.filters.searchEmployee')}
+                className="w-[230px]"
+              />
+            )}
           </div>
         </CardHeader>
 

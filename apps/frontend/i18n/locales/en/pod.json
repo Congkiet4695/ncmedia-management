@@ -996,6 +996,8 @@
       "newTitle": "New Listing",
       "noImport": "Nothing imported yet",
       "noShop": "No TikTok shop linked yet.",
+      "noActiveShop": "No active shop to list to. Shops that are inactive, deauthorized or whose TikTok connection needs re-authorization are hidden — reconnect them on the TikTok Accounts page.",
+      "inactiveShopsRemoved": "{{count}} shop(s) are no longer active and were removed from the selection.",
       "noTemplate": "No template selected yet",
       "notFound": "Listing run not found.",
       "note": "Note",
@@ -1122,7 +1124,15 @@
       "imported": "Imported {{count}} template(s)",
       "importPartial": "Imported {{created}}, failed {{failed}}",
       "exportFailed": "Export failed",
-      "importFailed": "Import failed"
+      "importFailed": "Import failed",
+      "exportSelected": "Export CSV ({{count}})",
+      "importCsv": "Import CSV",
+      "exportedRows": "Exported {{count}} selected row(s) to CSV",
+      "importedWithWarnings": "Imported {{count}} template(s) with {{warnings}} warning(s)",
+      "selectRowsFirst": "Select at least one row to export",
+      "selectPage": "Select all rows on this page",
+      "selectRow": "Select {{name}}",
+      "rowLabel": "Row {{row}}"
     },
     "warehouses": {
       "title": "Warehouses",
@@ -1855,6 +1865,8 @@
       "allShops": "All shops",
       "allCategories": "All categories",
       "allBrands": "All brands",
+      "allEmployees": "All employees",
+      "searchEmployee": "Search employee by name or email…",
       "allStatuses": "All statuses"
     },
     "sync": {

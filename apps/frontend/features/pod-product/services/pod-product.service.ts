@@ -98,8 +98,11 @@ export const podProductService = {
     return res.data.data;
   },
 
-  async filters(): Promise<PodProductFilterOptions> {
-    const res = await apiClient.get<ApiResponse<PodProductFilterOptions>>(`${BASE_PATH}/filters`);
+  /** `activeShopsOnly`: chỉ shop đăng được (màn hình Listing). Bỏ trống = mọi shop trong phạm vi. */
+  async filters(params: { activeShopsOnly?: boolean } = {}): Promise<PodProductFilterOptions> {
+    const res = await apiClient.get<ApiResponse<PodProductFilterOptions>>(`${BASE_PATH}/filters`, {
+      params: params.activeShopsOnly ? { activeShopsOnly: true } : undefined,
+    });
     return res.data.data;
   },
 

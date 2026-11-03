@@ -17,6 +17,7 @@ import {
   PodAccessScopeService,
   type PodAccessScope,
 } from '../../pod-tiktok/services/pod-access-scope.service';
+import { ACTIVE_SHOP_STATUS_SELECT, isShopActive } from '../../pod-tiktok/shared/active-shop';
 import { PodListingJobService } from '../../pod-listing/services/pod-listing-job.service';
 import {
   PodListingResolverService,
@@ -79,7 +80,8 @@ export interface SessionValidation {
 export const SESSION_INCLUDE = {
   platform: { select: { id: true, code: true, name: true } },
   shops: {
-    include: { shop: { select: { id: true, name: true, region: true } } },
+    // Trạng thái shop + kết nối để cổng Validate chặn shop đã ngưng (`checkConfig`).
+    include: { shop: { select: { id: true, name: true, region: true, ...ACTIVE_SHOP_STATUS_SELECT } } },
     orderBy: { createdAt: 'asc' },
   },
   templates: { orderBy: { templateType: 'asc' } },
@@ -646,6 +648,18 @@ export class PodListingSessionService {
     if (session.shops.length === 0) {
       issues.push(this.issue('NO_SHOP', 'shops', 'Lượt đăng chưa chọn shop nào.'));
     }
+    // Shop chọn lúc còn hoạt động rồi bị ngưng / mất uỷ quyền sau đó ⇒ chặn ở cổng Validate (cũng là cổng của
+    // Start Listing) thay vì để từng lệnh đăng thất bại trên TikTok.
+    const inactive = session.shops.filter((link) => !isShopActive(link.shop)).map((link) => link.shop.name);
+    if (inactive.length > 0) {
+      issues.push(
+        this.issue(
+          'SHOP_INACTIVE',
+          'shops',
+          `Shop không còn hoạt động: ${inactive.join(', ')}. Bỏ shop này khỏi lượt đăng hoặc kết nối lại.`,
+        ),
+      );
+    }
 
     // Sản phẩm KHÔNG có dữ liệu nhập tay (dòng Excel/CSV) là sản phẩm trông cậy hoàn toàn vào
     // template. Sản phẩm nhập tay mà thiếu danh mục/SKU được báo ở CHÍNH nó (`checkProduct`:
@@ -749,11 +763,15 @@ export class PodListingSessionService {
   }
 
   /**
-   * Shop phải thuộc tổ chức VÀ nằm trong phạm vi của người dùng.
+   * Shop phải thuộc tổ chức, nằm trong phạm vi của người dùng VÀ đang hoạt động.
    *
-   * 🔴 Hai phép kiểm khác nhau, cần cả hai: "thuộc tổ chức" chặn xuyên tenant (ADR-004),
-   * "trong phạm vi" chặn Seller chọn shop của đồng nghiệp. Bỏ vế thứ hai thì dropdown ẩn đi
-   * cũng vô nghĩa — client tự gửi `shopIds` là qua mặt được.
+   * 🔴 Ba phép kiểm khác nhau, cần cả ba: "thuộc tổ chức" chặn xuyên tenant (ADR-004),
+   * "trong phạm vi" chặn Seller chọn shop của đồng nghiệp, "đang hoạt động" chặn đăng lên shop
+   * đã ngưng / mất uỷ quyền (`ACTIVE_SHOP_WHERE`). Dropdown đã ẩn các shop đó nhưng ẩn giao diện
+   * không phải kiểm tra — client tự gửi `shopIds` là qua mặt được.
+   *
+   * Dùng chung cho Listing CSV (`create` / `update`) và Add Custom Listing (`createCustom` /
+   * `updateCustom` đi qua hai hàm đó).
    */
   private async assertShopsBelongToOrg(
     organizationId: string,
@@ -762,13 +780,21 @@ export class PodListingSessionService {
   ): Promise<void> {
     if (shopIds.length === 0) return;
     if (scope) for (const shopId of shopIds) this.accessScope.assertShopAllowed(scope, shopId);
-    const count = await this.prisma.podTiktokShop.count({
+    const shops = await this.prisma.podTiktokShop.findMany({
       where: { id: { in: shopIds }, organizationId, deletedAt: null },
+      select: { id: true, name: true, ...ACTIVE_SHOP_STATUS_SELECT },
     });
-    if (count !== new Set(shopIds).size) {
+    if (shops.length !== new Set(shopIds).size) {
       throw new BadRequestException({
         code: 'POD_SESSION_INVALID_SHOP',
         message: 'Có shop không tồn tại hoặc không thuộc tổ chức này.',
+      });
+    }
+    const inactive = shops.filter((shop) => !isShopActive(shop));
+    if (inactive.length > 0) {
+      throw new BadRequestException({
+        code: 'POD_SESSION_SHOP_INACTIVE',
+        message: `Shop không còn hoạt động, không đăng sản phẩm được: ${inactive.map((shop) => shop.name).join(', ')}.`,
       });
     }
   }

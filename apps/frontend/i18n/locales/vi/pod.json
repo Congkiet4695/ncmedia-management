@@ -996,6 +996,8 @@
       "newTitle": "Tạo lượt đăng mới",
       "noImport": "Chưa import file nào",
       "noShop": "Chưa liên kết shop TikTok nào.",
+      "noActiveShop": "Không có shop nào đang hoạt động để đăng. Shop bị ngưng, mất uỷ quyền hoặc kết nối TikTok cần uỷ quyền lại đã được ẩn — hãy kết nối lại ở trang TikTok Accounts.",
+      "inactiveShopsRemoved": "{{count}} shop không còn hoạt động đã được bỏ khỏi lựa chọn.",
       "noTemplate": "Chưa chọn template nào",
       "notFound": "Không tìm thấy lượt đăng.",
       "note": "Ghi chú",
@@ -1122,7 +1124,15 @@
       "imported": "Đã nhập {{count}} template",
       "importPartial": "Nhập được {{created}}, lỗi {{failed}}",
       "exportFailed": "Xuất thất bại",
-      "importFailed": "Nhập thất bại"
+      "importFailed": "Nhập thất bại",
+      "exportSelected": "Export CSV ({{count}})",
+      "importCsv": "Import CSV",
+      "exportedRows": "Đã export {{count}} row đã chọn ra CSV",
+      "importedWithWarnings": "Đã import {{count}} template, kèm {{warnings}} cảnh báo",
+      "selectRowsFirst": "Chọn ít nhất một row để export",
+      "selectPage": "Chọn tất cả row của trang này",
+      "selectRow": "Chọn {{name}}",
+      "rowLabel": "Dòng {{row}}"
     },
     "warehouses": {
       "title": "Kho hàng",
@@ -1855,6 +1865,8 @@
       "allShops": "Tất cả shop",
       "allCategories": "Tất cả danh mục",
       "allBrands": "Tất cả thương hiệu",
+      "allEmployees": "Tất cả nhân viên",
+      "searchEmployee": "Tìm nhân viên theo tên hoặc email…",
       "allStatuses": "Tất cả trạng thái"
     },
     "sync": {

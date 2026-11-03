@@ -34,7 +34,7 @@ import {
   useWarehouses,
 } from '@/features/pod-listing/hooks/use-pod-listing';
 import { podListingService } from '@/features/pod-listing/services/pod-listing.service';
-import { usePodProductFilters } from '@/features/pod-product/hooks/use-pod-products';
+import { useListingShops } from '@/features/pod-listing-session/use-listing-shops';
 import { BulkSkuBar, type BulkSkuPatch } from '@/features/pod-product/components/bulk-sku-bar';
 import { useQueryClient } from '@tanstack/react-query';
 import { buildSkuCombinations, countCombinations, reconcileSkus } from '../manual-sku';
@@ -210,8 +210,11 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
    * dùng được phép thấy (`PodAccessScopeService` lọc sẵn), kèm Connection Name. Tạo thêm một
    * endpoint "shop của tôi" là nhân bản đúng phép lọc phân quyền đó ra chỗ thứ hai.
    * Backend kiểm lại lần nữa khi tạo/sửa lượt (`assertShopsBelongToOrg`).
+   *
+   * Chỉ shop ĐANG HOẠT ĐỘNG (`activeShopsOnly`); shop đã lưu nhưng nay bị ngưng được bỏ khỏi
+   * lựa chọn — không gửi lại một shop mà backend sẽ từ chối.
    */
-  const shopFilters = usePodProductFilters();
+  const shopFilters = useListingShops(form.shopIds, (shopIds) => patch({ shopIds }));
 
   // --- Danh mục: tìm phía SERVER, debounce; danh mục đang chọn luôn nằm trong danh sách ---
   const [categorySearch, setCategorySearch] = useState('');
@@ -691,7 +694,7 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
             {/* 🔴 Danh sách shop đến từ API — CHỈ những kết nối người dùng được phép thấy.
                 Employee nhận đúng shop được gán; backend kiểm lại lần nữa khi tạo/sửa lượt. */}
             <ShopMultiSelect
-              options={(shopFilters.data?.shops ?? []).map((shop) => ({
+              options={shopFilters.shops.map((shop) => ({
                 id: shop.id,
                 name: shop.name,
                 connectionName: shop.connectionName,
@@ -699,6 +702,7 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
               value={form.shopIds}
               onChange={(shopIds) => patch({ shopIds })}
               loading={shopFilters.isLoading}
+              emptyMessage={t('listing.sessions.noActiveShop')}
             />
           </div>
         </div>

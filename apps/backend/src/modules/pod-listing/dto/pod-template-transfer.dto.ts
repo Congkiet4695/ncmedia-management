@@ -9,6 +9,7 @@ import {
   IsInt,
   IsObject,
   IsOptional,
+  IsUUID,
 } from 'class-validator';
 import {
   POD_TEMPLATE_KINDS,
@@ -70,8 +71,28 @@ export class ImportTemplateBundleDto {
 export interface ImportTemplateItemError {
   /** Vị trí trong mảng `items` (0-based) — khớp đúng file người dùng gửi lên. */
   index: number;
+  /** Import CSV: số dòng trong file (dòng tiêu đề = 1) — người dùng mở file là thấy ngay dòng lỗi. */
+  row?: number;
   name: string | null;
   message: string;
+}
+
+/**
+ * Export THEO DÒNG (4 tab Category · SKU · Description · Image): chỉ các template người dùng đã chọn.
+ *
+ * 🔴 Không có "bỏ trống = tất cả": thiếu `ids` là 400, không bao giờ âm thầm xuất cả tổ chức.
+ * Backend kiểm lại từng id thuộc tổ chức trong token — id lạ / của tổ chức khác ⇒ 404, không xuất gì.
+ */
+export class ExportTemplateRowsDto {
+  @ApiProperty({
+    type: [String],
+    description: `ID các template đã chọn (1..${POD_TEMPLATE_BUNDLE_MAX_ITEMS}).`,
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(POD_TEMPLATE_BUNDLE_MAX_ITEMS)
+  @IsUUID('all', { each: true })
+  ids!: string[];
 }
 
 /** Kết quả một lần Import. */

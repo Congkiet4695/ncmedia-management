@@ -27,6 +27,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import {
+  PodProductFilterOptionsQueryDto,
   PodProductQueryDto,
   TriggerProductSyncDto,
 } from './dto/pod-product-query.dto';
@@ -106,8 +107,12 @@ export class PodProductController {
     summary: 'Giá trị cho bộ lọc (danh mục / thương hiệu / trạng thái / shop)',
     description: 'Chỉ trả những giá trị ĐANG có sản phẩm — dropdown không bao giờ cho 0 kết quả.',
   })
-  findFilters(@CurrentUser() user: AuthenticatedUser, @PodScope() scope: PodAccessScope) {
-    return this.service.findFilterOptions(user.organizationId, scope);
+  findFilters(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Query() query: PodProductFilterOptionsQueryDto,
+  ) {
+    return this.service.findFilterOptions(user.organizationId, scope, query);
   }
 
   @Get('sync-status')

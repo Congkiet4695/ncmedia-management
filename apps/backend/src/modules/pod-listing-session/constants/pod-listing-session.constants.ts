@@ -73,6 +73,8 @@ export type PodSessionProductSortField = (typeof POD_SESSION_PRODUCT_SORT_FIELDS
 export const POD_SESSION_VALIDATION_CODES = {
   /** Cấu hình của cả lượt */
   NO_SHOP: 'SESSION_NO_SHOP',
+  /** Shop của lượt đăng đã ngưng (shop INACTIVE / DEAUTHORIZED hoặc kết nối TikTok không còn ACTIVE). */
+  SHOP_INACTIVE: 'SESSION_SHOP_INACTIVE',
   /** Chỉ bật khi có sản phẩm TRÔNG CẬY vào template (không mang danh mục nhập tay). */
   NO_CATEGORY_TEMPLATE: 'SESSION_NO_CATEGORY_TEMPLATE',
   /** 🔴 File import không mang biến thể nào ⇒ lô Excel bắt buộc có SKU Template. Sản phẩm nhập tay có bảng SKU riêng thì không. */

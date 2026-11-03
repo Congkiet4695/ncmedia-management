@@ -101,6 +101,28 @@ export class PodAccessScopeService {
     if (!scope.shopIds.includes(shopId)) throw new PodShopForbiddenException();
   }
 
+  /**
+   * Chặn bộ lọc "theo nhân viên" với người KHÔNG có quyền xem mọi shop.
+   *
+   * 🔴 Không dựa vào việc frontend ẩn ô chọn — ẩn giao diện không phải phân quyền. Một Seller
+   * gọi thẳng `?sellerId=<người khác>` phải nhận 403.
+   *
+   * 🔴 Vì sao 403 chứ không âm thầm bỏ qua bộ lọc: phạm vi của Seller vốn đã giới hạn ở đúng
+   * shop được gán, nên bỏ qua sẽ trả về DỮ LIỆU CỦA CHÍNH HỌ dưới nhãn "của người khác" — sai
+   * lệch âm thầm còn tệ hơn một lỗi rõ ràng. Cùng khuôn với `assertShopAllowed`.
+   *
+   * Dùng chung cho mọi danh sách có bộ lọc nhân viên (Đơn hàng, Sản phẩm).
+   *
+   * Dùng PERMISSION (`pod.shop.all`) chứ không so mã role — ADR-009, role là động.
+   */
+  assertSellerFilterAllowed(
+    scope: PodAccessScope,
+    sellerId: string | null | undefined,
+  ): void {
+    if (!sellerId || scope.allShops) return;
+    throw new PodShopForbiddenException();
+  }
+
   /** Chặn thao tác trên một TikTok Account nằm ngoài phạm vi. */
   assertAccountAllowed(scope: PodAccessScope, accountId: string | null | undefined): void {
     if (scope.allShops || !accountId) return;

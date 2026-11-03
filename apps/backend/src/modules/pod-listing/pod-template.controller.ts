@@ -11,6 +11,7 @@ import {
   Post,
   Put,
   Query,
+  StreamableFile,
   UploadedFile,
   UploadedFiles,
   UseGuards,
@@ -23,9 +24,11 @@ import {
   ApiConsumes,
   ApiForbiddenResponse,
   ApiOperation,
+  ApiProduces,
   ApiTags,
   ApiUnauthorizedResponse,
 } from '@nestjs/swagger';
+import { createCsvUploadOptions, csvFile, requireCsv } from '../../common/csv/csv.http';
 import { requireXlsx, xlsxFile, xlsxUploadOptions } from '../../common/excel/excel.http';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { RequirePermissions } from '../auth/decorators/require-permissions.decorator';
@@ -60,7 +63,12 @@ import {
   UpdateSkuItemDto,
   UpdateSkuTemplateDto,
 } from './dto/pod-template.dto';
-import { ImportTemplateBundleDto } from './dto/pod-template-transfer.dto';
+import { ExportTemplateRowsDto, ImportTemplateBundleDto } from './dto/pod-template-transfer.dto';
+import {
+  POD_TEMPLATE_CSV_FILE_PREFIX,
+  POD_TEMPLATE_CSV_MAX_BYTES,
+  type PodTemplateCsvKind,
+} from './constants/pod-template-csv.constants';
 import { PodGroupTemplateService } from './services/pod-group-template.service';
 import { PodSkuExcelService } from './services/pod-sku-excel.service';
 import { PodImageTemplateService } from './services/pod-image-template.service';
@@ -80,6 +88,9 @@ import { POD_SYSTEM_TOKENS } from './services/pod-token.engine';
  *
  * 🔴 Không endpoint nào ở đây chạm tới TikTok. Template chỉ là dữ liệu cấu hình nội bộ.
  */
+/** Import template theo dòng: một file `.csv`, giữ trong RAM. */
+const templateCsvUploadOptions = createCsvUploadOptions(POD_TEMPLATE_CSV_MAX_BYTES);
+
 @ApiTags('POD - Listing Templates')
 @ApiBearerAuth()
 @ApiUnauthorizedResponse({ description: 'Access token không hợp lệ (AUTH_TOKEN_INVALID)' })
@@ -127,14 +138,21 @@ export class PodTemplateController {
     return this.service.listCategoryTemplates(user.organizationId, query);
   }
 
-  @Get('categories/export')
+  @Post('categories/export')
+  @HttpCode(HttpStatus.OK)
   @RequirePermissions('pod.template.read')
-  @ApiOperation({ summary: 'Export Category Template ra gói JSON (dùng lại ở tổ chức khác)' })
-  exportCategoryTemplates(
+  @ApiOperation({
+    summary: 'Export Category Template ĐÃ CHỌN ra CSV (theo dòng)',
+    description:
+      'Chỉ các template có trong `ids` — không có "bỏ trống = tất cả". Mọi id phải thuộc tổ chức ' +
+      'của bạn, thiếu một ⇒ 404 và không xuất gì. File dùng để import lại vào tổ chức này hoặc tổ chức khác.',
+  })
+  @ApiProduces('text/csv')
+  async exportCategoryTemplates(
     @CurrentUser() user: AuthenticatedUser,
-    @Query() query: PodTemplateQueryDto,
-  ) {
-    return this.transfer.export(user.organizationId, 'CATEGORY', query);
+    @Body() dto: ExportTemplateRowsDto,
+  ): Promise<StreamableFile> {
+    return this.exportRows(user, 'CATEGORY', dto);
   }
 
   @Get('categories/:id')
@@ -161,12 +179,22 @@ export class PodTemplateController {
   @Post('categories/import')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('pod.template.write')
-  @ApiOperation({ summary: 'Import Category Template từ gói JSON đã export' })
+  @UseInterceptors(FileInterceptor('file', templateCsvUploadOptions))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } },
+  })
+  @ApiOperation({
+    summary: 'Import Category Template từ CSV đã export (theo dòng)',
+    description:
+      'Tạo template cho từng dòng trong file, vào tổ chức của người đang đăng nhập. Không xoá / sửa ' +
+      'template nào khác. Dòng lỗi được báo kèm số dòng; các dòng còn lại vẫn được nạp.',
+  })
   importCategoryTemplates(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: ImportTemplateBundleDto,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.transfer.import(user.organizationId, user.userId, 'CATEGORY', dto);
+    return this.transfer.importRowsCsv(user.organizationId, user.userId, 'CATEGORY', requireCsv(file));
   }
 
   @Post('categories/:id/clone')
@@ -215,11 +243,21 @@ export class PodTemplateController {
     return this.service.listSkuTemplates(user.organizationId, query);
   }
 
-  @Get('skus/export')
+  @Post('skus/export')
+  @HttpCode(HttpStatus.OK)
   @RequirePermissions('pod.template.read')
-  @ApiOperation({ summary: 'Export SKU Template ra gói JSON' })
-  exportSkuTemplates(@CurrentUser() user: AuthenticatedUser, @Query() query: PodTemplateQueryDto) {
-    return this.transfer.export(user.organizationId, 'SKU', query);
+  @ApiOperation({
+    summary: 'Export SKU Template ĐÃ CHỌN ra CSV (theo dòng)',
+    description:
+      'Chỉ các template có trong `ids` — không có "bỏ trống = tất cả". Mọi id phải thuộc tổ chức ' +
+      'của bạn, thiếu một ⇒ 404 và không xuất gì. File dùng để import lại vào tổ chức này hoặc tổ chức khác.',
+  })
+  @ApiProduces('text/csv')
+  async exportSkuTemplates(
+    @CurrentUser() user: AuthenticatedUser,
+    @Body() dto: ExportTemplateRowsDto,
+  ): Promise<StreamableFile> {
+    return this.exportRows(user, 'SKU', dto);
   }
 
   @Get('skus/:id')
@@ -245,9 +283,22 @@ export class PodTemplateController {
   @Post('skus/import')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('pod.template.write')
-  @ApiOperation({ summary: 'Import SKU Template từ gói JSON đã export' })
-  importSkuTemplates(@CurrentUser() user: AuthenticatedUser, @Body() dto: ImportTemplateBundleDto) {
-    return this.transfer.import(user.organizationId, user.userId, 'SKU', dto);
+  @UseInterceptors(FileInterceptor('file', templateCsvUploadOptions))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } },
+  })
+  @ApiOperation({
+    summary: 'Import SKU Template từ CSV đã export (theo dòng)',
+    description:
+      'Tạo template cho từng dòng trong file, vào tổ chức của người đang đăng nhập. Không xoá / sửa ' +
+      'template nào khác. Dòng lỗi được báo kèm số dòng; các dòng còn lại vẫn được nạp.',
+  })
+  importSkuTemplates(
+    @CurrentUser() user: AuthenticatedUser,
+    @UploadedFile() file?: Express.Multer.File,
+  ) {
+    return this.transfer.importRowsCsv(user.organizationId, user.userId, 'SKU', requireCsv(file));
   }
 
   @Post('skus/:id/clone')
@@ -395,14 +446,21 @@ export class PodTemplateController {
     return this.service.listDescriptionTemplates(user.organizationId, query);
   }
 
-  @Get('descriptions/export')
+  @Post('descriptions/export')
+  @HttpCode(HttpStatus.OK)
   @RequirePermissions('pod.template.read')
-  @ApiOperation({ summary: 'Export Description Template ra gói JSON' })
-  exportDescriptionTemplates(
+  @ApiOperation({
+    summary: 'Export Description Template ĐÃ CHỌN ra CSV (theo dòng)',
+    description:
+      'Chỉ các template có trong `ids` — không có "bỏ trống = tất cả". Mọi id phải thuộc tổ chức ' +
+      'của bạn, thiếu một ⇒ 404 và không xuất gì. File dùng để import lại vào tổ chức này hoặc tổ chức khác.',
+  })
+  @ApiProduces('text/csv')
+  async exportDescriptionTemplates(
     @CurrentUser() user: AuthenticatedUser,
-    @Query() query: PodTemplateQueryDto,
-  ) {
-    return this.transfer.export(user.organizationId, 'DESCRIPTION', query);
+    @Body() dto: ExportTemplateRowsDto,
+  ): Promise<StreamableFile> {
+    return this.exportRows(user, 'DESCRIPTION', dto);
   }
 
   @Post('descriptions/preview')
@@ -441,12 +499,22 @@ export class PodTemplateController {
   @Post('descriptions/import')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('pod.template.write')
-  @ApiOperation({ summary: 'Import Description Template từ gói JSON đã export' })
+  @UseInterceptors(FileInterceptor('file', templateCsvUploadOptions))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } },
+  })
+  @ApiOperation({
+    summary: 'Import Description Template từ CSV đã export (theo dòng)',
+    description:
+      'Tạo template cho từng dòng trong file, vào tổ chức của người đang đăng nhập. Không xoá / sửa ' +
+      'template nào khác. Dòng lỗi được báo kèm số dòng; các dòng còn lại vẫn được nạp.',
+  })
   importDescriptionTemplates(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: ImportTemplateBundleDto,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.transfer.import(user.organizationId, user.userId, 'DESCRIPTION', dto);
+    return this.transfer.importRowsCsv(user.organizationId, user.userId, 'DESCRIPTION', requireCsv(file));
   }
 
   @Post('descriptions/:id/clone')
@@ -497,14 +565,21 @@ export class PodTemplateController {
     return this.images.list(user.organizationId, query);
   }
 
-  @Get('images/export')
+  @Post('images/export')
+  @HttpCode(HttpStatus.OK)
   @RequirePermissions('pod.template.read')
-  @ApiOperation({ summary: 'Export Image Template ra gói JSON (tham chiếu file trên R2)' })
-  exportImageTemplates(
+  @ApiOperation({
+    summary: 'Export Image Template ĐÃ CHỌN ra CSV (theo dòng)',
+    description:
+      'Chỉ các template có trong `ids` — không có "bỏ trống = tất cả". Mọi id phải thuộc tổ chức ' +
+      'của bạn, thiếu một ⇒ 404 và không xuất gì. File dùng để import lại vào tổ chức này hoặc tổ chức khác.',
+  })
+  @ApiProduces('text/csv')
+  async exportImageTemplates(
     @CurrentUser() user: AuthenticatedUser,
-    @Query() query: PodTemplateQueryDto,
-  ) {
-    return this.transfer.export(user.organizationId, 'IMAGE', query);
+    @Body() dto: ExportTemplateRowsDto,
+  ): Promise<StreamableFile> {
+    return this.exportRows(user, 'IMAGE', dto);
   }
 
   @Get('images/:id')
@@ -528,12 +603,22 @@ export class PodTemplateController {
   @Post('images/import')
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('pod.template.write')
-  @ApiOperation({ summary: 'Import Image Template từ gói JSON đã export' })
+  @UseInterceptors(FileInterceptor('file', templateCsvUploadOptions))
+  @ApiConsumes('multipart/form-data')
+  @ApiBody({
+    schema: { type: 'object', required: ['file'], properties: { file: { type: 'string', format: 'binary' } } },
+  })
+  @ApiOperation({
+    summary: 'Import Image Template từ CSV đã export (theo dòng)',
+    description:
+      'Tạo template cho từng dòng trong file, vào tổ chức của người đang đăng nhập. Không xoá / sửa ' +
+      'template nào khác. Dòng lỗi được báo kèm số dòng; các dòng còn lại vẫn được nạp.',
+  })
   importImageTemplates(
     @CurrentUser() user: AuthenticatedUser,
-    @Body() dto: ImportTemplateBundleDto,
+    @UploadedFile() file?: Express.Multer.File,
   ) {
-    return this.transfer.import(user.organizationId, user.userId, 'IMAGE', dto);
+    return this.transfer.importRowsCsv(user.organizationId, user.userId, 'IMAGE', requireCsv(file));
   }
 
   @Post('images/:id/clone')
@@ -866,5 +951,16 @@ export class PodTemplateController {
     @Param('id', ParseUUIDPipe) id: string,
   ) {
     return this.groups.remove(user.organizationId, user.userId, id);
+  }
+
+  /** CSV của các template đã chọn, tên file `<loại>-templates-<YYYYMMDD-HHmmss>.csv` (giờ UTC). */
+  private async exportRows(
+    user: AuthenticatedUser,
+    kind: PodTemplateCsvKind,
+    dto: ExportTemplateRowsDto,
+  ): Promise<StreamableFile> {
+    const { csv } = await this.transfer.exportRowsCsv(user.organizationId, kind, dto.ids);
+    const stamp = new Date().toISOString().replace(/[-:]/g, '').replace('T', '-').slice(0, 15);
+    return csvFile(csv, `${POD_TEMPLATE_CSV_FILE_PREFIX[kind]}-${stamp}.csv`);
   }
 }

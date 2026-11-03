@@ -85,6 +85,20 @@ export class PodProductQueryDto {
   shopId?: string;
 
   /**
+   * Nhân viên phụ trách (Seller) — cùng nghĩa với bộ lọc của danh sách Đơn hàng: sản phẩm thuộc kết nối TikTok có
+   * `seller_id` = nhân viên này. Product không có cột nhân viên riêng; nguồn duy nhất là `PodTiktokAccount.sellerId`.
+   */
+  @ApiPropertyOptional({
+    format: 'uuid',
+    description:
+      'Lọc theo NHÂN VIÊN phụ trách (Seller) của kết nối TikTok sở hữu sản phẩm. Giá trị là ID **Employee**. ' +
+      '🔴 Chỉ người có quyền `pod.shop.all` được dùng; người khác truyền giá trị ⇒ 403.',
+  })
+  @IsOptional()
+  @IsUUID()
+  sellerId?: string;
+
+  /**
    * Nhóm trạng thái của hệ thống — xem `POD_PRODUCT_STATUS_MAP`.
    *
    * 🔴 Không truyền ⇒ chỉ `ACTIVE` (giữ nguyên hợp đồng của các màn hình CHỌN sản phẩm như Flash
@@ -197,4 +211,20 @@ export class TriggerProductSyncDto {
   @IsBoolean()
   full?: boolean;
 
+}
+
+/** Tham số của `GET /pod/products/filters`. */
+export class PodProductFilterOptionsQueryDto {
+  /**
+   * `true` ⇒ danh sách shop chỉ gồm shop ĐĂNG ĐƯỢC (shop ACTIVE thuộc kết nối ACTIVE — xem
+   * `ACTIVE_SHOP_WHERE`). Dành cho các màn hình Listing; bỏ trống giữ nguyên hành vi cũ (mọi shop
+   * trong phạm vi) cho bộ lọc dữ liệu lịch sử.
+   *
+   * Đọc `obj[key]` thay vì `value`: `enableImplicitConversion` đã biến chuỗi "false" thành `true`.
+   */
+  @ApiPropertyOptional({ description: 'Chỉ trả shop đang hoạt động (dùng cho Listing).', type: Boolean })
+  @IsOptional()
+  @Transform(({ obj, key }: { obj: Record<string, unknown>; key: string }) => obj[key] === true || obj[key] === 'true')
+  @IsBoolean()
+  activeShopsOnly?: boolean;
 }

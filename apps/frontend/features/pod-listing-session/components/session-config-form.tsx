@@ -9,7 +9,7 @@ import { Input } from '@/components/ui/input';
 import { shopOptionLabel } from '@/features/pod-tiktok/shop-label';
 import { Label } from '@/components/ui/label';
 import { Combobox, MultiCombobox } from '@/components/ui/combobox';
-import { usePodProductFilters } from '@/features/pod-product/hooks/use-pod-products';
+import { useListingShops } from '@/features/pod-listing-session/use-listing-shops';
 import {
   GroupTemplateSelect,
   groupApplySummary,
@@ -72,7 +72,6 @@ export function SessionConfigForm({
   const queryClient = useQueryClient();
   const [applyingGroup, setApplyingGroup] = useState(false);
 
-  const shops = usePodProductFilters().data?.shops ?? [];
   const categoryTemplates = usePodTemplates<PodCategoryTemplate>('categories', {
     activeOnly: true,
     limit: 100,
@@ -96,6 +95,8 @@ export function SessionConfigForm({
   const groups = groupTemplates.data?.items ?? [];
 
   const patch = (part: Partial<SessionConfigValue>): void => onChange({ ...value, ...part });
+  // Chỉ shop đang hoạt động; shop đã lưu nhưng nay bị ngưng được bỏ khỏi lựa chọn (form sửa được).
+  const { shops, noActiveShop } = useListingShops(value.shopIds, (shopIds) => patch({ shopIds }), !disabled);
 
   /**
    * Chọn Group Template ⇒ điền ngay 4 ô Category / SKU / Description / Image theo quy tắc chung
@@ -189,11 +190,14 @@ export function SessionConfigForm({
           values={value.shopIds}
           onChange={(shopIds) => patch({ shopIds })}
           options={shops.map((shop) => ({ value: shop.id, label: shopOptionLabel(shop) }))}
-          disabled={disabled}
+          disabled={disabled || noActiveShop}
           placeholder={
             shops.length === 0 ? t('listing.sessions.noShop') : t('listing.sessions.pickShops')
           }
         />
+        {noActiveShop && (
+          <p className="text-xs text-muted-foreground">{t('listing.sessions.noActiveShop')}</p>
+        )}
       </div>
 
       <div className="grid gap-3 rounded-md border p-3 sm:grid-cols-3">

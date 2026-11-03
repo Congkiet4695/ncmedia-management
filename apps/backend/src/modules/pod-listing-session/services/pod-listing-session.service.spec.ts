@@ -49,7 +49,20 @@ function buildSession(over: Record<string, unknown> = {}) {
     market: 'US',
     status: PodListingSessionStatus.DRAFT,
     deletedAt: null,
-    shops: [{ shopId: 'shop-1', shop: { id: 'shop-1', name: 'Playmaker', region: 'US' } }],
+    shops: [
+      {
+        shopId: 'shop-1',
+        // Shop đang hoạt động (shop + kết nối ACTIVE) — shop đã ngưng có test riêng (pod-listing-session-active-shop.spec).
+        shop: {
+          id: 'shop-1',
+          name: 'Playmaker',
+          region: 'US',
+          deletedAt: null,
+          status: 'ACTIVE',
+          account: { deletedAt: null, status: 'ACTIVE' },
+        },
+      },
+    ],
     templates: [
       templateRow(PodListingSessionTemplateType.CATEGORY, 'cat-1'),
       templateRow(PodListingSessionTemplateType.SKU, 'sku-1'),

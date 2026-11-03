@@ -19,7 +19,12 @@ import {
   TemplatePageShell,
   TemplateRowActions,
 } from '@/features/pod-listing/components/template-page-shell';
-import { TemplateTransferBar } from '@/features/pod-listing/components/template-transfer-bar';
+import {
+  SelectAllRowsHead,
+  SelectRowCell,
+  useTemplateRowSelection,
+} from '@/features/pod-listing/components/template-row-selection';
+import { TemplateRowTransferBar } from '@/features/pod-listing/components/template-row-transfer-bar';
 import { usePodTemplate } from '@/features/pod-listing/hooks/use-pod-listing';
 import { useTemplateListState } from '@/features/pod-listing/hooks/use-template-list-state';
 import type { PodSkuTemplate } from '@/features/pod-listing/types';
@@ -49,6 +54,8 @@ function SkuTemplatesView() {
   const canWrite = hasPermission('pod.template.write');
 
   const state = useTemplateListState<PodSkuTemplate>('skus');
+  // Chọn từng row để Export CSV — bỏ hết lựa chọn khi đổi tìm kiếm / bộ lọc / trang.
+  const selection = useTemplateRowSelection(state.items, state.query);
   const [editingId, setEditingId] = useState<string | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
 
@@ -69,7 +76,12 @@ function SkuTemplatesView() {
             : undefined
         }
         actions={
-          <TemplateTransferBar kind="skus" query={state.query} canExport canImport={canWrite} />
+          <TemplateRowTransferBar
+            kind="skus"
+            selectedIds={selection.selectedIds}
+            canExport
+            canImport={canWrite}
+          />
         }
         loading={state.list.isLoading}
         error={state.list.error}
@@ -85,6 +97,7 @@ function SkuTemplatesView() {
         <Table>
           <TableHeader>
             <TableRow>
+              <SelectAllRowsHead selection={selection} />
               <TableHead>{t('listing.common.name')}</TableHead>
               <TableHead>{t('listing.skuTemplates.variants')}</TableHead>
               <TableHead>{t('listing.skuTemplates.itemCount')}</TableHead>
@@ -96,6 +109,7 @@ function SkuTemplatesView() {
           <TableBody>
             {state.items.map((item) => (
               <TableRow key={item.id}>
+                <SelectRowCell selection={selection} id={item.id} label={item.name} />
                 <TableCell>
                   <div className="flex items-center gap-2">
                     <span className="font-medium">{item.name}</span>

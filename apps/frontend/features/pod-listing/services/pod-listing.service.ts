@@ -34,6 +34,7 @@ import type {
   PodTemplateBundle,
   PodTemplateBundleKind,
   PodTemplateImportResult,
+  PodRowTransferTemplateKind,
   PodTemplateListResult,
   PodTemplateQuery,
   PodTokenDefinition,
@@ -54,6 +55,39 @@ function clean<T extends Record<string, unknown>>(obj: T): Partial<T> {
   return Object.fromEntries(
     Object.entries(obj).filter(([, value]) => value !== undefined && value !== ''),
   ) as Partial<T>;
+}
+
+/** Tiền tố tên file CSV export theo dòng — cùng quy ước với backend (`POD_TEMPLATE_CSV_FILE_PREFIX`). */
+const ROW_TRANSFER_FILE_PREFIX: Record<PodRowTransferTemplateKind, string> = {
+  categories: 'category-templates',
+  skus: 'sku-templates',
+  descriptions: 'description-templates',
+  images: 'image-templates',
+};
+
+/** `YYYYMMDD-HHmmss` theo giờ máy người dùng — tên file thể hiện thời điểm export. */
+function fileTimestamp(date = new Date()): string {
+  const pad = (value: number) => String(value).padStart(2, '0');
+  return (
+    `${date.getFullYear()}${pad(date.getMonth() + 1)}${pad(date.getDate())}-` +
+    `${pad(date.getHours())}${pad(date.getMinutes())}${pad(date.getSeconds())}`
+  );
+}
+
+/**
+ * Lỗi của request `responseType: 'blob'` mang body JSON dưới dạng Blob ⇒ đọc lại thành object để
+ * `useApiError` dịch được `code` / `message` của backend như mọi lỗi khác.
+ */
+async function withJsonErrorBody(error: unknown): Promise<never> {
+  const response = (error as { response?: { data?: unknown } }).response;
+  if (response?.data instanceof Blob) {
+    try {
+      response.data = JSON.parse(await response.data.text()) as unknown;
+    } catch {
+      // Không phải JSON ⇒ giữ nguyên, `useApiError` dùng thông điệp chung.
+    }
+  }
+  throw error;
 }
 
 /** Tải một Blob về máy người dùng. */
@@ -142,6 +176,37 @@ export const podListingService = {
   pricingStrategies: crud<PodPricingStrategy>(`${TEMPLATES}/pricing`, 'PRICING'),
   listingTemplates: crud<PodListingTemplate>(`${POD}/listing-templates`, 'LISTING'),
   groupTemplates: groupTemplateApi(`${TEMPLATES}/groups`),
+
+  // --------------- Export / Import THEO DÒNG (CSV, 4 tab) ----------------
+
+  /**
+   * Tải CSV của ĐÚNG các template đã chọn. Không có "không chọn = tất cả": backend từ chối `ids` rỗng và id
+   * ngoài tổ chức (404, không xuất gì).
+   */
+  async exportTemplateRowsCsv(kind: PodRowTransferTemplateKind, ids: string[]): Promise<void> {
+    const res = await apiClient
+      .post<Blob>(`${TEMPLATES}/${kind}/export`, { ids }, { responseType: 'blob' })
+      .catch(withJsonErrorBody);
+    triggerDownload(
+      new Blob([res.data], { type: 'text/csv;charset=utf-8' }),
+      `${ROW_TRANSFER_FILE_PREFIX[kind]}-${fileTimestamp()}.csv`,
+    );
+  },
+
+  /** Nạp CSV đã export (tổ chức này hoặc tổ chức khác) vào tổ chức đang đăng nhập — chỉ tạo các dòng trong file. */
+  async importTemplateRowsCsv(
+    kind: PodRowTransferTemplateKind,
+    file: File,
+  ): Promise<PodTemplateImportResult> {
+    const form = new FormData();
+    form.append('file', file);
+    const res = await apiClient.post<ApiResponse<PodTemplateImportResult>>(
+      `${TEMPLATES}/${kind}/import`,
+      form,
+      { headers: { 'Content-Type': 'multipart/form-data' }, timeout: env.uploadTimeoutMs },
+    );
+    return res.data.data;
+  },
 
   // ------------------------- Bảng SKU (grid) ---------------------------
 

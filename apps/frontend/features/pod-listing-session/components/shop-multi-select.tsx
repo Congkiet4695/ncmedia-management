@@ -34,11 +34,14 @@ export function ShopMultiSelect({
   value,
   onChange,
   loading,
+  emptyMessage,
 }: {
   options: ShopOption[];
   value: string[];
   onChange: (next: string[]) => void;
   loading?: boolean;
+  /** Thông báo khi KHÔNG có shop nào để chọn (mặc định: chưa được gán shop). */
+  emptyMessage?: string;
 }) {
   const { t } = useTranslation('pod');
   const [keyword, setKeyword] = useState('');
@@ -117,7 +120,7 @@ export function ShopMultiSelect({
           ) : filtered.length === 0 ? (
             <p className="py-6 text-center text-sm text-muted-foreground">
               {options.length === 0
-                ? t('listing.custom.noShopPermitted')
+                ? (emptyMessage ?? t('listing.custom.noShopPermitted'))
                 : t('listing.custom.noShopMatch')}
             </p>
           ) : (

@@ -34,6 +34,8 @@ export interface PodProductFindManyParams {
   search?: string;
   accountId?: string;
   shopId?: string;
+  /** ID **Employee** phụ trách kết nối TikTok sở hữu sản phẩm (`PodTiktokAccount.sellerId`). */
+  sellerId?: string;
   categoryId?: string;
   brandId?: string;
   /**
@@ -524,6 +526,9 @@ export class PodProductRepository {
 
     const accountFilter = accountScopeFilter(params.accountScope, params.accountId);
     if (accountFilter !== undefined) where.accountId = accountFilter;
+    // Nhân viên: lọc qua quan hệ `account` (N-1 ⇒ không nhân bản dòng, `count` dùng cùng `where`). Kết nối luôn cùng
+    // tổ chức với sản phẩm ⇒ ID nhân viên của tổ chức khác chỉ cho ra rỗng.
+    if (params.sellerId) where.account = { sellerId: params.sellerId };
     if (params.categoryId) where.categoryId = params.categoryId;
     if (params.brandId) where.brandId = params.brandId;
 

@@ -11,6 +11,7 @@ import type {
   PodListingJobQuery,
   PodListingJobStatus,
   PodTemplateBundle,
+  PodRowTransferTemplateKind,
   PodTemplateQuery,
   PublishDraftsPayload,
 } from '../types';
@@ -31,26 +32,19 @@ const TEMPLATE_SERVICES = {
 export type PodTemplateKind = keyof typeof TEMPLATE_SERVICES;
 
 /**
- * Loại template có Export / Import gói JSON. Group Template KHÔNG có: nó chỉ là tham chiếu tới
- * template con, mang sang tổ chức khác là trỏ vào id không tồn tại.
+ * Loại template có Export / Import gói JSON (theo bộ lọc). Category · SKU · Description · Image đã chuyển
+ * sang Export / Import THEO DÒNG bằng CSV (`useExportTemplateRows`). Group Template KHÔNG có: nó chỉ là
+ * tham chiếu tới template con, mang sang tổ chức khác là trỏ vào id không tồn tại.
  */
-export type PodBundleTemplateKind = Exclude<PodTemplateKind, 'groups'>;
+export type PodBundleTemplateKind = Extract<PodTemplateKind, 'pricing' | 'listings'>;
 
 const BUNDLE_SERVICES = {
-  categories: podListingService.categoryTemplates,
-  skus: podListingService.skuTemplates,
-  descriptions: podListingService.descriptionTemplates,
-  images: podListingService.imageTemplates,
   pricing: podListingService.pricingStrategies,
   listings: podListingService.listingTemplates,
 } as const satisfies Record<PodBundleTemplateKind, unknown>;
 
 /** Tên file khi tải gói Export. */
 const BUNDLE_FILENAME: Record<PodBundleTemplateKind, string> = {
-  categories: 'category-templates.json',
-  skus: 'sku-templates.json',
-  descriptions: 'description-templates.json',
-  images: 'image-templates.json',
   pricing: 'pricing-strategies.json',
   listings: 'listing-templates.json',
 };
@@ -129,6 +123,22 @@ export function useClonePodTemplate<T = unknown>(kind: PodTemplateKind) {
   return useMutation({
     mutationFn: ({ id, name }: { id: string; name?: string }) =>
       TEMPLATE_SERVICES[kind].clone(id, name) as Promise<T>,
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/** Export CSV các template ĐÃ CHỌN (4 tab Category · SKU · Description · Image). */
+export function useExportTemplateRows(kind: PodRowTransferTemplateKind) {
+  return useMutation({
+    mutationFn: (ids: string[]) => podListingService.exportTemplateRowsCsv(kind, ids),
+  });
+}
+
+/** Import CSV theo dòng — chỉ tạo template cho các dòng trong file. */
+export function useImportTemplateRows(kind: PodRowTransferTemplateKind) {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (file: File) => podListingService.importTemplateRowsCsv(kind, file),
     onSuccess: () => queryClient.invalidateQueries({ queryKey: [KEY] }),
   });
 }

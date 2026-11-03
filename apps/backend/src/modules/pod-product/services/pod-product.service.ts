@@ -33,9 +33,11 @@ import type {
   PodProductSyncResultDto,
 } from '../dto/pod-product-response.dto';
 import type {
+  PodProductFilterOptionsQueryDto,
   PodProductQueryDto,
   TriggerProductSyncDto,
 } from '../dto/pod-product-query.dto';
+import { ACTIVE_SHOP_WHERE } from '../../pod-tiktok/shared/active-shop';
 import {
   PodAccessScopeService,
   type PodAccessScope,
@@ -158,6 +160,7 @@ export class PodProductService {
     // Chọn shop ngoài phạm vi ⇒ 403 ngay, thay vì trả danh sách rỗng khó hiểu.
     this.accessScope.assertShopAllowed(scope, query.shopId);
     this.accessScope.assertAccountAllowed(scope, query.accountId);
+    this.accessScope.assertSellerFilterAllowed(scope, query.sellerId);
 
     const { items, total } = await this.repo.findMany(organizationId, {
       shopScope: scope.allShops ? undefined : scope.shopIds,
@@ -167,6 +170,7 @@ export class PodProductService {
       search: query.search,
       accountId: query.accountId,
       shopId: query.shopId,
+      sellerId: query.sellerId,
       statuses: this.statusGroupsOf(query.status),
       includeInactive: query.includeInactive,
       categoryId: query.categoryId,
@@ -615,6 +619,7 @@ export class PodProductService {
   async findFilterOptions(
     organizationId: string,
     scope: PodAccessScope,
+    query: PodProductFilterOptionsQueryDto = {},
   ): Promise<{
     categories: Array<{ id: string; name: string }>;
     brands: Array<{ id: string; name: string }>;
@@ -645,6 +650,9 @@ export class PodProductService {
           organizationId,
           deletedAt: null,
           ...(scope.allShops ? {} : { id: { in: scope.shopIds } }),
+          // Listing (CSV & Add Custom Listing): chỉ shop đăng được. Opt-in — các màn hình khác
+          // dùng chung endpoint này (Products, Flash Sale, Clone) giữ nguyên danh sách cũ.
+          ...(query.activeShopsOnly ? ACTIVE_SHOP_WHERE : {}),
         },
         // Connection Name đi kèm để dropdown hiển thị đúng thứ người vận hành đặt tên.
         // `region` để bộ chọn shop đích của Nhân bản sản phẩm hiện thị trường (US/GB…).
