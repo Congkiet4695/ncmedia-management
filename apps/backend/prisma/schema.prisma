@@ -2709,8 +2709,10 @@ model FulfillmentMappingCandidate {
 model FulfillmentOrder {
   id             String              @id @default(uuid()) @db.Uuid
   organizationId String              @map("organization_id") @db.Uuid
-  accountId      String              @map("account_id") @db.Uuid
-  provider       FulfillmentProvider
+  /// NULL CHỈ ở bản ghi nhập tay (`source = MANUAL_IMPORT`) của đơn mà kết nối TikTok chưa gán nhà cung cấp
+  /// (quyết định PO 2026-11-03) — CHECK `fulfillment_orders_provider_source_check` (migration 20261103120000).
+  accountId      String?              @map("account_id") @db.Uuid
+  provider       FulfillmentProvider?
 
   /// Đơn POD TikTok nguồn. UNIQUE theo (podOrderId, provider): mỗi đơn chỉ gửi MỘT lần
   /// tới mỗi nhà cung cấp — hàng rào chống tạo trùng ở tầng DB.
@@ -2779,7 +2781,7 @@ model FulfillmentOrder {
   updatedBy String?   @map("updated_by") @db.Uuid
 
   organization Organization            @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
-  account      FulfillmentAccount      @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  account      FulfillmentAccount?     @relation(fields: [accountId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   podOrder     PodOrder                @relation(fields: [podOrderId], references: [id], onDelete: Cascade, onUpdate: Cascade)
   items        FulfillmentOrderItem[]
   histories    FulfillmentHistory[]
@@ -2809,8 +2811,9 @@ model FulfillmentOrderItem {
   /// Line item POD nguồn (giữ liên kết ngược để tra design/sản phẩm).
   podOrderItemId String? @map("pod_order_item_id") @db.Uuid
 
-  /// SKU đã gửi (`items[].sku`) + số lượng.
-  providerSku String @map("provider_sku") @db.VarChar(255)
+  /// SKU đã gửi (`items[].sku`) + số lượng. NULL CHỈ ở dòng của bản ghi nhập tay (Import Excel) không có Product
+  /// Mapping — không có gì được gửi sang nhà cung cấp.
+  providerSku String? @map("provider_sku") @db.VarChar(255)
   quantity    Int
 
   /// `item_id` do nhà cung cấp sinh/nhận.

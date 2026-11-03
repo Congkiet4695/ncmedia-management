@@ -13,7 +13,7 @@ import {
 import { DistributedLockService } from '../../../pod-tiktok/infra/distributed-lock.service';
 import { PodOrderRepository } from '../../../pod-tiktok/repositories/pod-order.repository';
 import type { PodOrderWithRelations } from '../../../pod-tiktok/types/pod-order-with-relations.type';
-import { FULFILLMENT_PROVIDER_LABELS } from '../../constants/fulfillment-provider.constants';
+import { FULFILLMENT_PROVIDER_LABELS, providerLabelOf } from '../../constants/fulfillment-provider.constants';
 import {
   FulfillmentAccountNotFoundException,
   FulfillmentAlreadySubmittedException,
@@ -180,7 +180,7 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     );
     if (other) {
       throw new FulfillmentSubmittedToOtherProviderException(
-        FULFILLMENT_PROVIDER_LABELS[other.provider],
+        providerLabelOf(other.provider),
         other.status,
       );
     }

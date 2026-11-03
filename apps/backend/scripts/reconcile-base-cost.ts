@@ -96,6 +96,11 @@ async function main() {
       }
 
       summary.checked += 1;
+      // Bản ghi nhập tay (Import Excel) không có nhà cung cấp ⇒ không có gì để hỏi.
+      if (!record.provider || !record.account) {
+        console.log(JSON.stringify({ ...line, skipped: 'NO_PROVIDER' }));
+        continue;
+      }
       if (!gateway.isSupported(record.provider)) {
         console.log(JSON.stringify({ ...line, skipped: 'PROVIDER_NOT_SUPPORTED' }));
         continue;

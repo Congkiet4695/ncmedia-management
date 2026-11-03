@@ -102,7 +102,8 @@ export type FulfillmentStatus = (typeof FULFILLMENT_STATUSES)[number];
 export interface FulfillmentItem {
   id: string;
   podOrderItemId: string | null;
-  providerSku: string;
+  /** NULL = dòng của bản ghi nhập tay (Import Excel) không có Product Mapping. */
+  providerSku: string | null;
   quantity: number;
   printFiles: unknown;
   color: string | null;
@@ -248,7 +249,8 @@ export type FulfillmentSource = 'PROVIDER' | 'MANUAL_IMPORT';
 export interface FulfillmentOrder {
   id: string;
   podOrderId: string;
-  provider: FulfillmentProviderType;
+  /** NULL = bản ghi nhập tay (Import Excel) của kết nối TikTok chưa gán nhà cung cấp. */
+  provider: FulfillmentProviderType | null;
   status: FulfillmentStatus;
   /** Trạng thái NGUYÊN VĂN của nhà cung cấp — hiển thị kèm để đối soát. */
   providerStatus: string | null;

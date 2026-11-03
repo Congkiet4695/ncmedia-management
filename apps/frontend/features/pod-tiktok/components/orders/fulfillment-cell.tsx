@@ -243,7 +243,8 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
 
       <Row
         label={t('pod:orders.fulfillment.provider')}
-        value={t(`fulfillment:provider.typeValue.${fulfillment.provider}`)}
+        // Bản ghi nhập tay của kết nối chưa gán nhà cung cấp ⇒ không có nhà cung cấp.
+        value={fulfillment.provider ? t(`fulfillment:provider.typeValue.${fulfillment.provider}`) : EMPTY}
       />
       {/* 🔴 Nhà cung cấp THỰC SỰ nhận đơn (tài khoản của chính bản ghi) — không phải nhà cung cấp
           mặc định của kết nối TikTok. */}

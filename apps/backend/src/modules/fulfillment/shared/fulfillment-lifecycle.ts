@@ -1,4 +1,4 @@
-import { FulfillmentSource, FulfillmentStatus } from '@prisma/client';
+import { FulfillmentProvider, FulfillmentSource, FulfillmentStatus } from '@prisma/client';
 
 /**
  * Vòng đời MỘT lần gửi fulfillment — luật dùng chung cho MỌI nhà cung cấp.
@@ -122,3 +122,20 @@ export const IMPORT_MARKABLE_STATUSES: readonly FulfillmentStatus[] = [
   FulfillmentStatus.DRAFT,
   FulfillmentStatus.FAILED,
 ];
+
+/**
+ * Bản ghi CÓ nhà cung cấp (và vì vậy có tài khoản — CHECK `fulfillment_orders_account_provider_pair_check`).
+ *
+ * `account_id` / `provider` chỉ NULL ở bản ghi nhập tay (Import Excel) của đơn mà kết nối TikTok chưa gán nhà cung cấp.
+ * Mọi luồng gọi API nhà cung cấp phải làm việc trên kiểu này — thu hẹp bằng `hasProvider`, không ép kiểu.
+ */
+export type WithProvider<T extends { accountId: string | null; provider: FulfillmentProvider | null }> = T & {
+  accountId: string;
+  provider: FulfillmentProvider;
+};
+
+export function hasProvider<T extends { accountId: string | null; provider: FulfillmentProvider | null }>(
+  record: T,
+): record is WithProvider<T> {
+  return record.provider !== null && record.accountId !== null;
+}

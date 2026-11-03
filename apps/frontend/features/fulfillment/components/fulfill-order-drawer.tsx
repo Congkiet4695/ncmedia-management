@@ -1147,7 +1147,7 @@ function FulfillResult({ record }: { record: FulfillmentOrder }) {
           {record.items.map((item) => (
             <li key={item.id} className="flex items-center justify-between gap-2 px-2 py-1.5">
               <span className="min-w-0 truncate">
-                <span className="font-mono">{item.providerSku}</span>
+                <span className="font-mono">{item.providerSku ?? '—'}</span>
                 {(item.color || item.size) && (
                   <span className="ml-1 text-muted-foreground">
                     {[item.color, item.size].filter(Boolean).join(' · ')}

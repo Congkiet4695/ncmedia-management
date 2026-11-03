@@ -15,7 +15,12 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import type { MappingWithDesigns } from '../services/fulfillment-readiness.service';
-import { IMPORT_FULFILLED_STATUS, NON_BLOCKING_FULFILLMENT_STATUSES } from '../shared/fulfillment-lifecycle';
+import {
+  IMPORT_FULFILLED_STATUS,
+  NON_BLOCKING_FULFILLMENT_STATUSES,
+  hasProvider,
+  type WithProvider,
+} from '../shared/fulfillment-lifecycle';
 import { productKeyFilter, type ProductKey } from '../shared/mapping-match';
 
 /** Bản ghi design / mapping có khoá: Seller SKU, hoặc (Seller SKU trống) TikTok SKU ID. */
@@ -61,7 +66,8 @@ export type ImportRowBaseCost =
   | {
       create: {
         podOrderItemId: string;
-        providerSku: string;
+        /** NULL = không có Product Mapping của nhà cung cấp này (hoặc chưa gán nhà cung cấp) — không gửi gì đi. */
+        providerSku: string | null;
         productionConfig: string | null;
         color: string | null;
         size: string | null;
@@ -79,7 +85,14 @@ export interface ImportRowWrite {
    */
   target:
     | { kind: 'EXISTING'; fulfillmentOrderId: string; expectedStatus: FulfillmentStatus; requireNoProviderOrder: boolean }
-    | { kind: 'CREATE'; accountId: string; provider: FulfillmentProvider; podOrderId: string; externalOrderId: string };
+    | {
+        kind: 'CREATE';
+        /** NULL = kết nối TikTok chưa gán nhà cung cấp (bản ghi nhập tay không có nhà cung cấp). */
+        accountId: string | null;
+        provider: FulfillmentProvider | null;
+        podOrderId: string;
+        externalOrderId: string;
+      };
   /** Chuyển sang đã fulfill (`IMPORT_FULFILLED_STATUS`, nguồn `MANUAL_IMPORT`). */
   markFulfilled: boolean;
   /** Đơn vị tiền ghi lên bản ghi (chỉ khi bản ghi chưa có) — `null` = không đổi. */
@@ -486,15 +499,17 @@ export class FulfillmentRepository {
   // Fulfillment order
   // ---------------------------------------------------------------------------
 
-  findByPodOrder(
+  async findByPodOrder(
     organizationId: string,
     podOrderId: string,
     provider: FulfillmentProvider,
-  ): Promise<FulfillmentOrderWithRelations | null> {
-    return this.prisma.fulfillmentOrder.findFirst({
+  ): Promise<WithProvider<FulfillmentOrderWithRelations> | null> {
+    const record = await this.prisma.fulfillmentOrder.findFirst({
       where: { organizationId, podOrderId, provider, deletedAt: null },
       include: FULFILLMENT_ORDER_INCLUDE,
     });
+    // Lọc theo `provider` ⇒ luôn có nhà cung cấp (và tài khoản — CHECK account/provider đi cặp).
+    return record && hasProvider(record) ? record : null;
   }
 
   /**
@@ -536,7 +551,9 @@ export class FulfillmentRepository {
         organizationId,
         podOrderId,
         deletedAt: null,
-        provider: { not: provider },
+        // 🔴 `provider <> X` trong SQL LOẠI dòng NULL ⇒ phải nêu rõ `provider IS NULL`: bản ghi nhập tay (Import Excel) của
+        // kết nối chưa gán nhà cung cấp cũng đang giữ đơn — bỏ sót là gửi đơn đã fulfill sang xưởng lần nữa.
+        OR: [{ provider: { not: provider } }, { provider: null }],
         status: { notIn: [...NON_BLOCKING_FULFILLMENT_STATUSES] },
       },
       include: FULFILLMENT_ORDER_INCLUDE,
@@ -552,19 +569,21 @@ export class FulfillmentRepository {
     accountId: string;
     providerOrderId?: string | null;
     externalOrderId?: string | null;
-  }): Promise<FulfillmentOrder | null> {
+  }): Promise<WithProvider<FulfillmentOrder> | null> {
     const keys: Prisma.FulfillmentOrderWhereInput[] = [];
     if (params.providerOrderId) keys.push({ providerOrderId: params.providerOrderId });
     if (params.externalOrderId) keys.push({ externalOrderId: params.externalOrderId });
     if (keys.length === 0) return Promise.resolve(null);
-    return this.prisma.fulfillmentOrder.findFirst({
-      where: {
-        provider: params.provider,
-        accountId: params.accountId,
-        deletedAt: null,
-        OR: keys,
-      },
-    });
+    return this.prisma.fulfillmentOrder
+      .findFirst({
+        where: {
+          provider: params.provider,
+          accountId: params.accountId,
+          deletedAt: null,
+          OR: keys,
+        },
+      })
+      .then((record) => (record && hasProvider(record) ? record : null));
   }
 
   /**
@@ -611,10 +630,12 @@ export class FulfillmentRepository {
   }
 
   /** Tìm theo `order_id` đã gửi sang nhà cung cấp — dùng khi nhận webhook. */
-  findByExternalOrderId(externalOrderId: string): Promise<FulfillmentOrder | null> {
-    return this.prisma.fulfillmentOrder.findFirst({
-      where: { externalOrderId, deletedAt: null },
+  async findByExternalOrderId(externalOrderId: string): Promise<WithProvider<FulfillmentOrder> | null> {
+    const record = await this.prisma.fulfillmentOrder.findFirst({
+      // Webhook nhà cung cấp chỉ khớp bản ghi CÓ nhà cung cấp.
+      where: { externalOrderId, deletedAt: null, provider: { not: null } },
     });
+    return record && hasProvider(record) ? record : null;
   }
 
   /**
@@ -1015,12 +1036,12 @@ export class FulfillmentRepository {
    * Các đơn cần đồng bộ trạng thái: đã gửi đi và chưa ở trạng thái kết thúc.
    * Ưu tiên đơn lâu chưa đồng bộ nhất.
    */
-  findOrdersToSync(
+  async findOrdersToSync(
     limit: number,
     organizationId?: string,
     now: Date = new Date(),
-  ): Promise<FulfillmentOrder[]> {
-    return this.prisma.fulfillmentOrder.findMany({
+  ): Promise<Array<WithProvider<FulfillmentOrder>>> {
+    const rows = await this.prisma.fulfillmentOrder.findMany({
       where: {
         deletedAt: null,
         // Bản ghi nhập tay (Import Excel) không có ở nhà cung cấp — hỏi họ sẽ nhận 404 và hạ xuống FAILED.
@@ -1061,6 +1082,8 @@ export class FulfillmentRepository {
       orderBy: [{ lastSyncedAt: { sort: 'asc', nulls: 'first' } }],
       take: limit,
     });
+    // `source = PROVIDER` ⇒ luôn có nhà cung cấp (CHECK provider_source); thu hẹp kiểu lúc chạy, không ép.
+    return rows.filter(hasProvider);
   }
 
   // ---------------------------------------------------------------------------

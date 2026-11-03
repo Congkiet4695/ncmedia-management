@@ -1114,7 +1114,8 @@ export class FulfillmentIssueDto {
 export class FulfillmentItemDto {
   @ApiProperty() id!: string;
   @ApiProperty({ nullable: true, type: String }) podOrderItemId!: string | null;
-  @ApiProperty() providerSku!: string;
+  @ApiProperty({ nullable: true, type: String, description: 'NULL = dòng của bản ghi nhập tay (Import Excel) không có Product Mapping.' })
+  providerSku!: string | null;
   @ApiProperty() quantity!: number;
   @ApiProperty({ nullable: true, type: Object }) printFiles!: unknown;
   @ApiProperty({ nullable: true, type: String }) color!: string | null;
@@ -1143,7 +1144,12 @@ export class FulfillmentItemDto {
 export class FulfillmentOrderDto {
   @ApiProperty() id!: string;
   @ApiProperty() podOrderId!: string;
-  @ApiProperty({ enum: FulfillmentProvider }) provider!: FulfillmentProvider;
+  @ApiProperty({
+    enum: FulfillmentProvider,
+    nullable: true,
+    description: 'NULL = bản ghi nhập tay (Import Excel) của kết nối TikTok chưa gán nhà cung cấp.',
+  })
+  provider!: FulfillmentProvider | null;
   @ApiProperty({ enum: FulfillmentStatus }) status!: FulfillmentStatus;
   @ApiProperty({
     nullable: true,

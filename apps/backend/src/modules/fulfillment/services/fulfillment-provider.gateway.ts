@@ -11,7 +11,7 @@ import {
   PodAccessScopeService,
   type PodAccessScope,
 } from '../../pod-tiktok/services/pod-access-scope.service';
-import { FULFILLMENT_PROVIDER_LABELS } from '../constants/fulfillment-provider.constants';
+import { providerLabelOf } from '../constants/fulfillment-provider.constants';
 import {
   FulfillmentAccountNotFoundException,
   FulfillmentManualImportRecordException,
@@ -29,7 +29,12 @@ import {
   FulfillmentRepository,
 } from '../repositories/fulfillment.repository';
 import { SellerwixFulfillmentService } from '../sellerwix/services/sellerwix-fulfillment.service';
-import { fulfillmentOrderLockKey, isManualImportRecord } from '../shared/fulfillment-lifecycle';
+import {
+  fulfillmentOrderLockKey,
+  hasProvider,
+  isManualImportRecord,
+  type WithProvider,
+} from '../shared/fulfillment-lifecycle';
 import type {
   FulfillOptionsInput,
   FulfillmentProviderAdapter,
@@ -141,7 +146,8 @@ export class FulfillmentProviderGateway {
     }
 
     const current = await this.repo.findCurrentByPodOrder(organizationId, podOrderId);
-    if (current) {
+    // Bản ghi nhập tay không có nhà cung cấp ⇒ không có tài khoản để dùng lại; rơi xuống nhà cung cấp của kết nối.
+    if (current?.accountId) {
       const account = await this.repo.findAccountById(organizationId, current.accountId);
       if (account) return account;
     }
@@ -222,7 +228,7 @@ export class FulfillmentProviderGateway {
     const current = await this.requireProviderRecord(organizationId, podOrderId, 'Sửa đơn đã gửi');
     if (current.provider !== FulfillmentProvider.MANGO) {
       throw new FulfillmentOperationNotSupportedException(
-        FULFILLMENT_PROVIDER_LABELS[current.provider],
+        providerLabelOf(current.provider),
         'Sửa đơn đã gửi',
       );
     }
@@ -253,7 +259,7 @@ export class FulfillmentProviderGateway {
     actorUserId?: string,
   ): Promise<{ changed: boolean; apiCalls: number; rateLimited?: boolean }> {
     // Lớp thứ hai sau bộ lọc `source` của `findOrdersToSync`: bản ghi nhập tay không bao giờ được hỏi nhà cung cấp.
-    if (isManualImportRecord(record)) return Promise.resolve({ changed: false, apiCalls: 0 });
+    if (isManualImportRecord(record) || !hasProvider(record)) return Promise.resolve({ changed: false, apiCalls: 0 });
     return this.adapterFor(record.provider).syncOne(record, account, trigger, actorUserId);
   }
 
@@ -295,9 +301,11 @@ export class FulfillmentProviderGateway {
     organizationId: string,
     podOrderId: string,
     operation: string,
-  ): Promise<FulfillmentOrderWithRelations> {
+  ): Promise<WithProvider<FulfillmentOrderWithRelations>> {
     const current = await this.requireCurrent(organizationId, podOrderId);
-    if (isManualImportRecord(current)) throw new FulfillmentManualImportRecordException(operation);
+    if (isManualImportRecord(current) || !hasProvider(current)) {
+      throw new FulfillmentManualImportRecordException(operation);
+    }
     return current;
   }
 }

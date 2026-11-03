@@ -32,7 +32,7 @@ import {
   FulfillmentSubmittedToOtherProviderException,
   FulfillmentValidationException,
 } from '../../exceptions/fulfillment.exceptions';
-import { FULFILLMENT_PROVIDER_LABELS } from '../../constants/fulfillment-provider.constants';
+import { providerLabelOf } from '../../constants/fulfillment-provider.constants';
 import type {
   FulfillOptionsInput,
   FulfillmentProviderAdapter,
@@ -209,7 +209,7 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
     );
     if (other) {
       throw new FulfillmentSubmittedToOtherProviderException(
-        FULFILLMENT_PROVIDER_LABELS[other.provider],
+        providerLabelOf(other.provider),
         other.status,
       );
     }
@@ -757,15 +757,16 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
     }
     const localSkuCount = new Map<string, number>();
     for (const row of rows) {
+      if (!row.providerSku) continue;
       localSkuCount.set(row.providerSku, (localSkuCount.get(row.providerSku) ?? 0) + 1);
     }
 
     const costs = rows.map((row) => {
+      // Dòng gửi Mango luôn có SKU nhà cung cấp; dòng không có SKU (nhập tay) chỉ ghép được theo item_id.
+      const sku = row.providerSku;
       const matched =
         byId.get(row.id) ??
-        (localSkuCount.get(row.providerSku) === 1 && bySku.get(row.providerSku)?.count === 1
-          ? bySku.get(row.providerSku)?.item
-          : undefined);
+        (sku && localSkuCount.get(sku) === 1 && bySku.get(sku)?.count === 1 ? bySku.get(sku)?.item : undefined);
       return {
         id: row.id,
         baseCost: matched?.baseCost ?? null,

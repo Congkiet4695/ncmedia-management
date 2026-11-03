@@ -36,8 +36,7 @@ import {
   holdsFulfilledOrder,
 } from '../shared/fulfillment-lifecycle';
 import { currencyFractionDigits, exceedsFractionDigits, resolveOrderLevelBaseCost } from '../shared/manual-base-cost';
-import { createMappingIndex, findMappingInIndex, itemHasProductKey, productIdsOf } from '../shared/mapping-match';
-import { PRODUCT_KEY_ISSUE_MESSAGE } from '../../pod-tiktok/shared/order-item-product-key';
+import { createMappingIndex, findMappingInIndex, productIdsOf } from '../shared/mapping-match';
 
 /** Một dòng dữ liệu đã đọc từ file (chưa kiểm nghiệp vụ). `null` = ô trống / không có cột ⇒ không đổi. */
 interface RawRow {
@@ -372,22 +371,18 @@ export class FulfillmentBaseCostImportService {
       return { ok: false, code: 'ORDER_NOT_FOUND', message: 'Không tìm thấy đơn với OrderID này trong phạm vi bạn quản lý.' };
     }
 
-    // Tài khoản nhà cung cấp: bản ghi đã có giữ nguyên tài khoản của nó; đơn chưa fulfill dùng nhà cung cấp gán cho
-    // kết nối TikTok của đơn (cùng nguồn với nút Fulfill).
+    // Tài khoản nhà cung cấp: bản ghi đã có giữ nguyên tài khoản của nó; đơn chưa fulfill ghi nhận nhà cung cấp gán cho
+    // kết nối TikTok của đơn NẾU CÓ. 🔴 Chưa gán ⇒ VẪN import được (quyết định PO 2026-11-03): bản ghi nhập tay không có
+    // nhà cung cấp (account / provider = NULL). Không tự gán nhà cung cấp mặc định, không đổi cấu hình kết nối.
     const account = record
-      ? { id: record.accountId, provider: record.provider }
+      ? record.accountId && record.provider
+        ? { id: record.accountId, provider: record.provider }
+        : null
       : order.account?.fulfillmentAccount
         ? { id: order.account.fulfillmentAccount.id, provider: order.account.fulfillmentAccount.provider }
         : null;
-    if (!account) {
-      return {
-        ok: false,
-        code: 'PROVIDER_NOT_ASSIGNED',
-        message: `Kết nối TikTok "${order.account?.accountName ?? '—'}" chưa được gán nhà cung cấp fulfillment.`,
-      };
-    }
 
-    // Dòng hàng: bản ghi đã có dòng ⇒ dùng đúng dòng đó; chưa có ⇒ dựng từ Product Mapping của dòng đơn.
+    // Dòng hàng: bản ghi đã có dòng ⇒ dùng đúng dòng đó; chưa có ⇒ dựng từ dòng đơn (kèm Product Mapping nếu có).
     let item: { itemId: string } | { create: Extract<ImportRowBaseCost, { create: unknown }>['create'] };
     const existingItems = record?.items ?? [];
     if (existingItems.length > 0) {
@@ -395,7 +390,7 @@ export class FulfillmentBaseCostImportService {
       if (rest.length > 0 || only.quantity !== 1) return this.multiItem(existingItems.length);
       item = { itemId: only.id };
     } else {
-      const built = this.itemFromMapping(order, account.id, context);
+      const built = this.itemFromOrderLine(order, account?.id ?? null, context);
       if (!built.ok) return built;
       item = { create: built.create };
     }
@@ -428,8 +423,8 @@ export class FulfillmentBaseCostImportService {
           ? { kind: 'EXISTING', fulfillmentOrderId: record.id, expectedStatus: record.status, requireNoProviderOrder: true }
           : {
               kind: 'CREATE',
-              accountId: account.id,
-              provider: account.provider,
+              accountId: account?.id ?? null,
+              provider: account?.provider ?? null,
               podOrderId: ref.id,
               externalOrderId: `${IMPORT_EXTERNAL_ORDER_PREFIX}${orderId}`.slice(0, IMPORT_EXTERNAL_ORDER_MAX),
             },
@@ -443,10 +438,16 @@ export class FulfillmentBaseCostImportService {
     return { ok: true, plan };
   }
 
-  /** Dòng hàng cho bản ghi mới: đúng MỘT dòng đơn cần sản xuất, có Product Mapping của đúng nhà cung cấp. */
-  private itemFromMapping(
+  /**
+   * Dòng hàng cho bản ghi nhập tay mới: đúng MỘT dòng đơn (một Base Cost cho cả đơn không chia được — luật sẵn có).
+   *
+   * Product Mapping KHÔNG bắt buộc (quyết định PO 2026-11-03): có ánh xạ của ĐÚNG nhà cung cấp của bản ghi ⇒ ghi lại SKU /
+   * màu / size nhà cung cấp để đối soát; không có (hoặc chưa gán nhà cung cấp, hoặc ánh xạ của nhà cung cấp khác) ⇒ để
+   * trống — không có gì được gửi sang nhà cung cấp nên không cần SKU của họ.
+   */
+  private itemFromOrderLine(
     order: PodOrderWithRelations,
-    accountId: string,
+    accountId: string | null,
     context: MarkContext,
   ):
     | { ok: true; create: Extract<ImportRowBaseCost, { create: unknown }>['create'] }
@@ -456,34 +457,16 @@ export class FulfillmentBaseCostImportService {
     if (lines.length === 0) return { ok: false, code: 'NO_ITEMS', message: 'Đơn không có dòng hàng nào cần fulfill.' };
     if (lines.length > 1) return this.multiItem(lines.length);
     const [line] = lines;
-    // Thiếu Seller SKU nhưng có SKU ID ⇒ vẫn có khoá (Product ID + SKU ID) — xem shared/mapping-match.ts.
-    if (!itemHasProductKey(line)) {
-      const reason = line.productId?.trim() ? ('NO_SKU_ID' as const) : ('NO_PRODUCT_ID' as const);
-      return { ok: false, code: 'MAPPING_KEY_MISSING', message: PRODUCT_KEY_ISSUE_MESSAGE[reason] };
-    }
-    const mapping = findMappingInIndex(line, context.mappingIndex);
-    if (!mapping) {
-      return {
-        ok: false,
-        code: 'MAPPING_MISSING',
-        message: `Chưa khai báo ánh xạ sản phẩm (Product ID ${line.productId} · Seller SKU ${line.sellerSku}).`,
-      };
-    }
-    if (mapping.accountId !== accountId) {
-      return {
-        ok: false,
-        code: 'MAPPING_PROVIDER_MISMATCH',
-        message: 'Ánh xạ sản phẩm khai cho nhà cung cấp KHÁC với nhà cung cấp gán cho kết nối TikTok của đơn.',
-      };
-    }
+    const found = findMappingInIndex(line, context.mappingIndex);
+    const mapping = found && accountId !== null && found.accountId === accountId ? found : null;
     return {
       ok: true,
       create: {
         podOrderItemId: line.id,
-        providerSku: mapping.providerSku,
-        productionConfig: mapping.productionConfig,
-        color: mapping.providerColor,
-        size: mapping.providerSize,
+        providerSku: mapping?.providerSku ?? null,
+        productionConfig: mapping?.productionConfig ?? null,
+        color: mapping?.providerColor ?? null,
+        size: mapping?.providerSize ?? null,
       },
     };
   }

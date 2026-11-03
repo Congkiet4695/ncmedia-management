@@ -597,33 +597,97 @@ describe('Import Excel Base Cost + Tracking Number', () => {
     expect(repo.applyImportRow).not.toHaveBeenCalled();
   });
 
-  it('đơn chưa fulfill: thiếu nhà cung cấp / thiếu ánh xạ / ánh xạ nhà cung cấp khác / nhiều dòng ⇒ từ chối', async () => {
-    const { service, repo } = build(
-      [
-        { tiktokOrderId: 'NA', shopId: 'shop-1', record: null, fulfillmentAccount: null },
-        { tiktokOrderId: 'NM', shopId: 'shop-1', record: null, lines: [line({ sellerSku: 'UNMAPPED' })] },
-        { tiktokOrderId: 'OP', shopId: 'shop-1', record: null, lines: [line({ productId: 'P-OTHER' })] },
-        { tiktokOrderId: 'ML', shopId: 'shop-1', record: null, lines: [line(), line()] },
-        { tiktokOrderId: 'GF', shopId: 'shop-1', record: null, lines: [line(), line({ isGift: true, sellerSku: 'GIFT' })] },
-      ],
-      [MAPPING, { ...MAPPING, tiktokProductId: 'P-OTHER', accountId: 'facc-OTHER' }],
-    );
-    const result = await service.import(
-      ORG,
-      ADMIN_ID,
-      await xlsx([HEAD, ['NA', 1, 'TRK-1'], ['NM', 1, 'TRK-2'], ['OP', 1, 'TRK-3'], ['ML', 1, 'TRK-4'], ['GF', 1, 'TRK-5']]),
-      ADMIN,
-      false,
-    );
-    expect(result.errors.map((error) => [error.orderId, error.code])).toEqual([
-      ['NA', 'PROVIDER_NOT_ASSIGNED'],
-      ['NM', 'MAPPING_MISSING'],
-      ['OP', 'MAPPING_PROVIDER_MISMATCH'],
-      ['ML', 'MULTI_ITEM'],
-    ]);
-    // Quà tặng chưa ánh xạ không đi sang nhà cung cấp ⇒ không tính là dòng thứ hai.
-    expect(repo.applyImportRow).toHaveBeenCalledTimes(1);
-    expect((repo.applyImportRow.mock.calls[0][0] as ImportRowParams).target).toMatchObject({ externalOrderId: 'IMPORT-GF' });
+  describe('🔴 kết nối TikTok CHƯA gán nhà cung cấp / chưa có Product Mapping (PO 2026-11-03)', () => {
+    it('2–4. chưa gán nhà cung cấp ⇒ VẪN import (Basecost + Tracking): bản ghi nhập tay KHÔNG có nhà cung cấp', async () => {
+      const { service, repo } = build([
+        { tiktokOrderId: 'NA', shopId: 'shop-1', record: null, fulfillmentAccount: null, lines: [line({ id: 'line-na' })] },
+      ]);
+      const result = await service.import(ORG, ADMIN_ID, await xlsx([HEAD, ['NA', 6.5, 'TRK-NA']]), ADMIN, false);
+      expect(result).toMatchObject({ status: 'APPLIED', markedFulfilled: 1, baseCostUpdated: 1, trackingUpdated: 1 });
+      expect(result.errors).toEqual([]);
+      const params = repo.applyImportRow.mock.calls[0][0] as ImportRowParams;
+      expect(params.target).toEqual({
+        kind: 'CREATE',
+        accountId: null,
+        provider: null,
+        podOrderId: 'pod-0',
+        externalOrderId: 'IMPORT-NA',
+      });
+      // Mapping khớp sản phẩm nhưng KHÔNG có nhà cung cấp để đối chiếu ⇒ không ghi SKU nhà cung cấp.
+      expect(params.baseCost).toEqual({
+        value: 6.5,
+        create: { podOrderItemId: 'line-na', providerSku: null, productionConfig: null, color: null, size: null },
+      });
+      expect(params).toMatchObject({ markFulfilled: true, trackingNumber: 'TRK-NA', currency: 'USD' });
+    });
+
+    it('đơn ĐÃ fulfill của kết nối chưa gán nhà cung cấp ⇒ chỉ Basecost / chỉ Tracking vẫn cập nhật bình thường', async () => {
+      const manual = fulfilled({ source: 'MANUAL_IMPORT', accountId: null, provider: null, submittedAt: null, providerOrderId: null });
+      const { service, repo } = build([
+        { tiktokOrderId: 'B1', shopId: 'shop-1', record: manual, fulfillmentAccount: null },
+        { tiktokOrderId: 'T1', shopId: 'shop-1', record: fulfilled({ ...manual, id: 'ful-t1' }), fulfillmentAccount: null },
+      ]);
+      const result = await service.import(ORG, ADMIN_ID, await xlsx([HEAD, ['B1', 4, ''], ['T1', '', 'TRK-T1']]), ADMIN, false);
+      expect(result).toMatchObject({ status: 'APPLIED', baseCostUpdated: 1, trackingUpdated: 1, markedFulfilled: 0 });
+      expect(repo.applyManualItemCostsBatch).toHaveBeenCalledTimes(1);
+      expect((repo.applyImportRow.mock.calls[0][0] as ImportRowParams)).toMatchObject({ trackingNumber: 'TRK-T1', markFulfilled: false });
+    });
+
+    it('chưa có Product Mapping / ánh xạ của nhà cung cấp KHÁC ⇒ vẫn import, không mượn SKU của nhà cung cấp khác', async () => {
+      const { service, repo } = build(
+        [
+          { tiktokOrderId: 'NM', shopId: 'shop-1', record: null, lines: [line({ sellerSku: 'UNMAPPED' })] },
+          { tiktokOrderId: 'OP', shopId: 'shop-1', record: null, lines: [line({ productId: 'P-OTHER' })] },
+          { tiktokOrderId: 'OK', shopId: 'shop-1', record: null },
+        ],
+        [MAPPING, { ...MAPPING, tiktokProductId: 'P-OTHER', accountId: 'facc-OTHER', providerSku: 'OTHER-SKU' }],
+      );
+      const result = await service.import(
+        ORG,
+        ADMIN_ID,
+        await xlsx([HEAD, ['NM', 1, 'TRK-1'], ['OP', 1, 'TRK-2'], ['OK', 1, 'TRK-3']]),
+        ADMIN,
+        false,
+      );
+      expect(result.errors).toEqual([]);
+      const skus = repo.applyImportRow.mock.calls.map(
+        (call) => ((call[0] as ImportRowParams).baseCost as { create: { providerSku: string | null } }).create.providerSku,
+      );
+      // Có nhà cung cấp (facc-1): ánh xạ đúng nhà cung cấp ⇒ ghi SKU; không có / nhà cung cấp khác ⇒ NULL.
+      expect(skus).toEqual([null, null, 'MG-TEE-BLK-L']);
+      expect((repo.applyImportRow.mock.calls[0][0] as ImportRowParams).target).toMatchObject({ accountId: 'facc-1', provider: 'MANGO' });
+    });
+
+    it('validation khác GIỮ NGUYÊN: nhiều dòng hàng ⇒ MULTI_ITEM; quà chưa ánh xạ không tính là dòng thứ hai', async () => {
+      const { service, repo } = build([
+        { tiktokOrderId: 'ML', shopId: 'shop-1', record: null, fulfillmentAccount: null, lines: [line(), line()] },
+        { tiktokOrderId: 'GF', shopId: 'shop-1', record: null, fulfillmentAccount: null, lines: [line(), line({ isGift: true, sellerSku: 'GIFT' })] },
+        { tiktokOrderId: 'TC', shopId: 'shop-1', record: null, fulfillmentAccount: null, tiktokStatus: 'CANCELLED' },
+      ]);
+      const result = await service.import(ORG, ADMIN_ID, await xlsx([HEAD, ['ML', 1, 'TRK-4'], ['GF', 1, 'TRK-5'], ['TC', 1, 'TRK-6']]), ADMIN, false);
+      expect(result.errors.map((error) => [error.orderId, error.code])).toEqual([
+        ['ML', 'MULTI_ITEM'],
+        ['TC', 'ORDER_CANCELLED'],
+      ]);
+      expect(repo.applyImportRow).toHaveBeenCalledTimes(1);
+      expect((repo.applyImportRow.mock.calls[0][0] as ImportRowParams).target).toMatchObject({ externalOrderId: 'IMPORT-GF', provider: null });
+    });
+
+    it('nhiều đơn thuộc các shop được phép (có / không có nhà cung cấp) ⇒ mỗi đơn đúng bản ghi của nó', async () => {
+      const { service, repo } = build([
+        { tiktokOrderId: 'S1', shopId: 'shop-1', record: null },
+        { tiktokOrderId: 'S2', shopId: 'shop-1', record: null, fulfillmentAccount: null },
+      ]);
+      const result = await service.import(ORG, ADMIN_ID, await xlsx([HEAD, ['S1', 1, 'TRK-S1'], ['S2', 2, 'TRK-S2']]), SELLER, false);
+      expect(result).toMatchObject({ status: 'APPLIED', markedFulfilled: 2 });
+      expect(repo.applyImportRow.mock.calls.map((call) => {
+        const params = call[0] as ImportRowParams;
+        return [params.target.podOrderId, params.target.provider, params.trackingNumber];
+      })).toEqual([
+        ['pod-0', 'MANGO', 'TRK-S1'],
+        ['pod-1', null, 'TRK-S2'],
+      ]);
+    });
   });
 
   it('12. ghi hỏng ⇒ dòng KHÔNG được tính là đã fulfill, báo lỗi rõ, không ném cả request', async () => {

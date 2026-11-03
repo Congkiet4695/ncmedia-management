@@ -10,6 +10,13 @@ export const FULFILLMENT_PROVIDER_LABELS: Readonly<Record<FulfillmentProvider, s
 };
 
 /**
+ * Nhãn nhà cung cấp của MỘT bản ghi — bản ghi nhập tay (Import Excel) của kết nối chưa gán nhà cung cấp có `provider = null`.
+ */
+export function providerLabelOf(provider: FulfillmentProvider | null): string {
+  return provider ? FULFILLMENT_PROVIDER_LABELS[provider] : 'Nhập tay (Excel)';
+}
+
+/**
  * Đoạn đường dẫn webhook của từng nhà cung cấp ĐÃ tích hợp:
  * `{FULFILLMENT_WEBHOOK_BASE_URL}/api/v1/fulfillment/webhooks/{path}/{secret}`.
  * Nhà cung cấp chưa tích hợp ⇒ không có URL webhook.

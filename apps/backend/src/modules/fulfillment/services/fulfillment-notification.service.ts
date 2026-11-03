@@ -7,7 +7,7 @@ import type {
   NotificationScope,
 } from '../../notification/types/notification-payload.types';
 import { PodOrderRepository } from '../../pod-tiktok/repositories/pod-order.repository';
-import { FULFILLMENT_PROVIDER_LABELS } from '../constants/fulfillment-provider.constants';
+import { providerLabelOf } from '../constants/fulfillment-provider.constants';
 import {
   FulfillmentRepository,
   type FulfillmentOrderWithRelations,
@@ -69,7 +69,7 @@ export class FulfillmentNotificationService {
         scope,
         payload: {
           ...order,
-          provider: FULFILLMENT_PROVIDER_LABELS[record.provider],
+          provider: providerLabelOf(record.provider),
           fulfilledBy: record.account?.name ?? null,
           providerOrderId: record.providerOrderId,
           externalOrderId: record.externalOrderId,
@@ -111,7 +111,7 @@ export class FulfillmentNotificationService {
         scope,
         payload: {
           ...order,
-          provider: FULFILLMENT_PROVIDER_LABELS[record.provider],
+          provider: providerLabelOf(record.provider),
           fulfilledBy: record.account?.name ?? null,
           providerOrderId: record.providerOrderId,
           externalOrderId: record.externalOrderId,

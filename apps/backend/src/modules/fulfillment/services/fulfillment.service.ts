@@ -40,10 +40,7 @@ import {
   UpdateOrderBaseCostDto,
   UpsertProductMappingDto,
 } from '../dto/fulfillment.dto';
-import {
-  FULFILLMENT_PROVIDER_LABELS,
-  FULFILLMENT_WEBHOOK_PATHS,
-} from '../constants/fulfillment-provider.constants';
+import { FULFILLMENT_PROVIDER_LABELS, FULFILLMENT_WEBHOOK_PATHS, providerLabelOf } from '../constants/fulfillment-provider.constants';
 import {
   FulfillmentAccountNotFoundException,
   FulfillmentMappingConflictException,
@@ -1037,7 +1034,7 @@ export class FulfillmentService {
             section: 'PROVIDER' as const,
             code: 'SUBMITTED_TO_OTHER_PROVIDER',
             message:
-              `Đơn đã được gửi sang ${FULFILLMENT_PROVIDER_LABELS[blocking.provider]} ` +
+              `Đơn đã được gửi sang ${providerLabelOf(blocking.provider)} ` +
               `(${blocking.status}). Huỷ ở đó trước khi gửi sang nhà cung cấp khác.`,
             podOrderItemId: null,
           },
