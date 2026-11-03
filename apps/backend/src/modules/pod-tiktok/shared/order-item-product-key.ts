@@ -107,13 +107,15 @@ export function resolveItemProductKeys(
 export const PRODUCT_KEY_ISSUE_MESSAGE: Readonly<Record<ProductKeyIssue, string>> = {
   NO_PRODUCT_ID: 'Dòng hàng không có TikTok Product ID — đồng bộ lại đơn từ TikTok.',
   NO_SKU_ID: 'Dòng hàng không có Seller SKU và không có TikTok SKU ID để tra danh mục — đồng bộ lại đơn từ TikTok.',
+  // 🔴 Hai lý do dưới KHÔNG chặn fulfill (quyết định PO 2026-11-03): dòng còn TikTok SKU ID ⇒ ánh xạ / design khai theo
+  // khoá Product ID + SKU ID (fulfillment/shared/mapping-match.ts). Câu chữ là CẢNH BÁO, nói rõ khoá đang dùng.
   VARIANT_NOT_SYNCED:
-    'Dòng hàng không có Seller SKU, và biến thể này chưa có trong danh mục Products đã đồng bộ — đồng bộ sản ' +
-    'phẩm của shop (Products → Đồng bộ) để hệ thống lấy Seller SKU của biến thể.',
+    'Dòng hàng không có Seller SKU và biến thể chưa có trong danh mục Products đã đồng bộ — ánh xạ và design khai ' +
+    'theo Product ID + TikTok SKU ID của biến thể. Nếu biến thể thật ra CÓ Seller SKU trên TikTok, đồng bộ sản phẩm ' +
+    '(Products → Đồng bộ) để dùng chung ánh xạ / design theo Seller SKU.',
   SELLER_SKU_EMPTY_ON_TIKTOK:
-    'Biến thể này trên TikTok CHƯA có Seller SKU (cả trong đơn lẫn trong danh mục Products) — đặt Seller SKU cho ' +
-    'biến thể ở TikTok Seller Center hoặc màn Sửa sản phẩm, rồi đồng bộ sản phẩm; ánh xạ và design khai theo ' +
-    'Product ID + Seller SKU.',
+    'Biến thể này trên TikTok không có Seller SKU (cả trong đơn lẫn danh mục Products) — ánh xạ và design khai theo ' +
+    'Product ID + TikTok SKU ID của biến thể; không cần sửa trên TikTok để fulfill.',
   SELLER_SKU_AMBIGUOUS:
     'Danh mục Products có NHIỀU Seller SKU khác nhau cho cùng biến thể này — hệ thống không tự chọn. Kiểm tra lại ' +
     'Seller SKU của biến thể trên TikTok rồi đồng bộ sản phẩm.',

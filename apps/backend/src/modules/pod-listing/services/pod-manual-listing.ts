@@ -275,7 +275,10 @@ export function parseManualOverride(value: Prisma.JsonValue | null): ManualListi
         imageFileId: asString(raw.imageFileId),
         barcode: asString(raw.barcode),
       }))
-      .filter((sku) => sku.sellerSku !== '');
+      // Chỉ bỏ dòng RÁC (trống hoàn toàn). Dòng là biến thể thật (có giá trị trục / giá) mà thiếu Seller SKU thì GIỮ:
+      // trước 2026-11-03 nó bị `.filter(sellerSku !== '')` bỏ ÂM THẦM ⇒ sản phẩm lên sàn thiếu biến thể người dùng đã
+      // khai mà không ai được báo. `buildManualVariants` báo lỗi chặn cho dòng đó.
+      .filter((sku) => sku.sellerSku !== '' || sku.optionValues.length > 0 || sku.salePrice !== null);
   }
 
   return Object.keys(result).length > 0 ? result : null;
@@ -431,7 +434,7 @@ export function applyManualOverride(
  * hệt nhau đẩy mọi lỗi khác ra khỏi màn hình.
  */
 function buildManualVariants(
-  skus: ManualSku[],
+  allSkus: ManualSku[],
   payload: ResolvedListing,
   issues: ResolveIssue[],
   variations: ManualVariation[] = [],
@@ -447,7 +450,7 @@ function buildManualVariants(
     const option = optionValues.find((entry) => entry.name === firstAxis.name);
     return option ? (firstAxisImages.get(option.value) ?? null) : null;
   };
-  if (skus.length === 0) {
+  if (allSkus.length === 0) {
     issues.push({
       level: 'ERROR',
       field: 'variants',
@@ -456,6 +459,24 @@ function buildManualVariants(
     });
     return [];
   }
+
+  // Dòng thiếu Seller SKU ⇒ LỖI CHẶN nêu đúng biến thể, không sinh SKU giả, không bỏ dòng âm thầm. Dòng đó không vào
+  // danh sách biến thể (bảng payload item khoá theo Seller SKU) — lỗi chặn đảm bảo không lượt đăng nào thiếu nó.
+  const blankLabels = allSkus.flatMap((sku, index) =>
+    sku.sellerSku.trim() === ''
+      ? [sku.optionValues.map((option) => option.value).join(' / ') || `dòng ${index + 1}`]
+      : [],
+  );
+  if (blankLabels.length > 0) {
+    issues.push({
+      level: 'ERROR',
+      field: 'variants.sellerSku',
+      code: POD_DRAFT_ISSUE_CODES.MISSING_VARIANT,
+      message: summarize('Biến thể chưa có Seller SKU', blankLabels, 'biến thể'),
+    });
+  }
+  const skus = allSkus.filter((sku) => sku.sellerSku.trim() !== '');
+  if (skus.length === 0) return [];
 
   if (skus.length > MANUAL_SKU_MAX) {
     issues.push({

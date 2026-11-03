@@ -1,6 +1,6 @@
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
 import { MangoOrderMapper } from '../mango/mappers/mango-order.mapper';
-import { mappingKeyOf } from '../shared/mapping-match';
+import { mappingKeyOf, skuIdKeyOf } from '../shared/mapping-match';
 import { FulfillmentReadinessService, READINESS_CODES } from './fulfillment-readiness.service';
 
 const RECIPIENT = {
@@ -123,7 +123,7 @@ describe('FulfillmentReadinessService', () => {
     });
   });
 
-  describe('🔴 dòng đơn KHÔNG có khoá sản phẩm (Product ID + Seller SKU)', () => {
+  describe('🔴 biến thể KHÔNG có Seller SKU — khoá dự phòng Product ID + TikTok SKU ID (PO 2026-11-03)', () => {
     const keyless = (over: Record<string, unknown>) =>
       order({
         items: [
@@ -139,22 +139,76 @@ describe('FulfillmentReadinessService', () => {
         ],
       });
 
-    it.each([
-      ['SELLER_SKU_EMPTY_ON_TIKTOK', 'Seller Center'],
-      ['VARIANT_NOT_SYNCED', 'đồng bộ sản phẩm'],
-      ['SELLER_SKU_AMBIGUOUS', 'không tự chọn'],
-    ])('%s ⇒ MỘT lỗi MAPPING_KEY_MISSING nêu đúng chỗ sửa (không báo "khai ánh xạ" / "thiếu design")', (issue, hint) => {
-      const result = service.check(keyless({ productKeyIssue: issue }) as never, [mapping()] as never, designs());
+    /** Ánh xạ + design khai theo khoá SKU ID cho đúng biến thể của `keyless()`. */
+    const skuIdMapping = (over: Record<string, unknown> = {}) =>
+      mapping({ tiktokProductId: '1732716254750544348', sellerSku: null, tiktokSkuId: '1732716272490942940', ...over });
+    const skuIdDesigns = () =>
+      new Map([[skuIdKeyOf('1732716254750544348', '1732716272490942940') as string, [design()]]]) as never;
+
+    it.each([['SELLER_SKU_EMPTY_ON_TIKTOK'], ['VARIANT_NOT_SYNCED'], ['SELLER_SKU_AMBIGUOUS'], [null]])(
+      '%s + ánh xạ & design theo SKU ID ⇒ SẴN SÀNG, gửi đúng SKU nhà cung cấp (Seller SKU không tham gia payload)',
+      (issue) => {
+        const result = service.check(keyless({ productKeyIssue: issue }) as never, [skuIdMapping()] as never, skuIdDesigns());
+        expect(result.issues).toEqual([]);
+        expect(result.ready).toBe(true);
+        expect(result.items?.[0]).toMatchObject({ podOrderItemId: 'item-1', providerSku: 'MANGO-1', quantity: 1 });
+      },
+    );
+
+    it('chưa khai ánh xạ ⇒ MAPPING_MISSING (sửa được ngay), KHÔNG còn MAPPING_KEY_MISSING', () => {
+      const result = service.check(
+        keyless({ productKeyIssue: 'SELLER_SKU_EMPTY_ON_TIKTOK' }) as never,
+        [],
+        skuIdDesigns(),
+      );
       expect(result.ready).toBe(false);
-      expect(result.issues.map((i) => i.code)).toEqual([READINESS_CODES.MAPPING_KEY_MISSING]);
-      expect(result.issues[0]).toMatchObject({ podOrderItemId: 'item-1', tiktokSkuId: '1732716272490942940' });
-      expect(result.issues[0].message).toContain(hint);
-      expect(result.issues[0].message).toContain('1732716254750544348');
+      expect(result.issues.map((i) => i.code)).toEqual([READINESS_CODES.MAPPING_MISSING]);
+      expect(result.issues[0]).toMatchObject({ tiktokSkuId: '1732716272490942940', sellerSku: null });
     });
 
-    it('bản ghi không gắn lý do (luồng cũ) vẫn báo MAPPING_KEY_MISSING; thiếu Product ID nói đúng là Product ID', () => {
-      const noSku = service.check(keyless({}) as never, [], designs());
-      expect(noSku.issues.map((i) => i.code)).toEqual([READINESS_CODES.MAPPING_KEY_MISSING]);
+    it('có ánh xạ nhưng thiếu design ⇒ vẫn chặn bằng DESIGN_MISSING (validation khác giữ nguyên)', () => {
+      const result = service.check(keyless({}) as never, [skuIdMapping()] as never, noDesigns);
+      expect(result.issues.map((i) => i.code)).toEqual([READINESS_CODES.DESIGN_MISSING]);
+    });
+
+    it('ánh xạ SKU ID của BIẾN THỂ KHÁC / SẢN PHẨM KHÁC không bao giờ ghép nhầm', () => {
+      const otherVariant = service.check(keyless({}) as never, [skuIdMapping({ tiktokSkuId: 'OTHER' })] as never, skuIdDesigns());
+      expect(otherVariant.issues.map((i) => i.code)).toEqual([READINESS_CODES.MAPPING_MISSING]);
+      const otherProduct = service.check(
+        keyless({}) as never,
+        [skuIdMapping({ tiktokProductId: 'OTHER-PRODUCT' })] as never,
+        skuIdDesigns(),
+      );
+      expect(otherProduct.issues.map((i) => i.code)).toEqual([READINESS_CODES.MAPPING_MISSING]);
+    });
+
+    it('ánh xạ theo Seller SKU (có tiktok_sku_id tham chiếu) KHÔNG bị dùng cho dòng không có Seller SKU', () => {
+      // Bản ghi Seller SKU chỉ tra bằng khoá Seller SKU — luật cũ của đơn có Seller SKU giữ nguyên.
+      const result = service.check(
+        keyless({}) as never,
+        [mapping({ tiktokProductId: '1732716254750544348', tiktokSkuId: '1732716272490942940' })] as never,
+        skuIdDesigns(),
+      );
+      expect(result.issues.map((i) => i.code)).toEqual([READINESS_CODES.MAPPING_MISSING]);
+    });
+
+    it('người bán đặt Seller SKU SAU khi đã khai theo SKU ID ⇒ ánh xạ/design SKU ID của chính biến thể vẫn dùng được', () => {
+      const result = service.check(
+        keyless({ sellerSku: 'SET-LATER', sellerSkuSource: 'CATALOG' }) as never,
+        [skuIdMapping()] as never,
+        skuIdDesigns(),
+      );
+      expect(result.ready).toBe(true);
+    });
+
+    it('thiếu CẢ Seller SKU lẫn SKU ID ⇒ MỘT lỗi MAPPING_KEY_MISSING nêu đúng lý do; thiếu Product ID nói đúng là Product ID', () => {
+      const noKey = service.check(keyless({ skuId: null, productKeyIssue: 'NO_SKU_ID' }) as never, [], designs());
+      expect(noKey.issues.map((i) => i.code)).toEqual([READINESS_CODES.MAPPING_KEY_MISSING]);
+      expect(noKey.issues[0].message).toContain('SKU ID');
+      for (const empty of [null, '', '   ']) {
+        const blank = service.check(keyless({ skuId: null, sellerSku: empty }) as never, [], designs());
+        expect(blank.issues.map((i) => i.code)).toEqual([READINESS_CODES.MAPPING_KEY_MISSING]);
+      }
       const noProduct = service.check(keyless({ productId: null, sellerSku: 'SELLER-1' }) as never, [], designs());
       expect(noProduct.issues[0].message).toContain('Product ID');
     });
@@ -306,13 +360,26 @@ describe('FulfillmentReadinessService', () => {
       expect(result.issues.map((i) => i.code)).toContain(READINESS_CODES.MAPPING_MISSING);
     });
 
-    it('ánh xạ thiếu một nửa khoá (dữ liệu cũ) KHÔNG ghép với đơn nào', () => {
+    it('ánh xạ thiếu CẢ Seller SKU lẫn SKU ID (dữ liệu cũ) KHÔNG ghép với đơn nào', () => {
       const result = service.check(
         order() as never,
-        [mapping({ sellerSku: null })] as never,
+        [mapping({ sellerSku: null, tiktokSkuId: null })] as never,
         designs(),
       );
       expect(result.issues.map((i) => i.code)).toContain(READINESS_CODES.MAPPING_MISSING);
+    });
+
+    it('ánh xạ khoá SKU ID của ĐÚNG biến thể là dự phòng khi chưa có ánh xạ theo Seller SKU (PO 2026-11-03)', () => {
+      // Biến thể từng không có Seller SKU (khai theo SKU ID), sau đó người bán đặt Seller SKU 'SELLER-1'.
+      const fallback = service.check(order() as never, [mapping({ sellerSku: null, providerSku: 'BY-SKU-ID' })] as never, designs());
+      expect(fallback.items?.[0].providerSku).toBe('BY-SKU-ID');
+      // Có cả hai ⇒ ánh xạ theo Seller SKU thắng.
+      const both = service.check(
+        order() as never,
+        [mapping({ sellerSku: null, providerSku: 'BY-SKU-ID' }), mapping({ id: 'map-2', providerSku: 'BY-SELLER-SKU' })] as never,
+        designs(),
+      );
+      expect(both.items?.[0].providerSku).toBe('BY-SELLER-SKU');
     });
 
     it('khoảng trắng thừa hai đầu khoá không làm hỏng phép ghép', () => {
@@ -624,7 +691,8 @@ describe('FulfillmentReadinessService', () => {
       const unknownType: Record<string, unknown> = gift();
       delete unknownType.isGift;
       const result = service.check(order({ items: [unknownType] }) as never, [mapping()] as never, designs());
-      expect(codes(result.issues)).toEqual([READINESS_CODES.MAPPING_KEY_MISSING]);
+      // Không Seller SKU nhưng có SKU ID ⇒ có khoá; chưa khai ánh xạ ⇒ chặn bằng MAPPING_MISSING như dòng thường.
+      expect(codes(result.issues)).toEqual([READINESS_CODES.MAPPING_MISSING]);
       expect(result.warnings).toEqual([]);
     });
 

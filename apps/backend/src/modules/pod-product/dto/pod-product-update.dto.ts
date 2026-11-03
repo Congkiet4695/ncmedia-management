@@ -81,7 +81,14 @@ export class UpdatePodProductSkuDto {
   @MaxLength(64)
   tiktokSkuId!: string;
 
-  @ApiPropertyOptional() @IsOptional() @Transform(trim) @IsString() @MaxLength(255) sellerSku?: string;
+  /** Bỏ trống = không đổi. Chuỗi rỗng bị TỪ CHỐI: gửi nó sang TikTok là xoá Seller SKU của biến thể đang bán. */
+  @ApiPropertyOptional({ description: 'Seller SKU mới — không gửi = không đổi; không nhận chuỗi rỗng (không xoá Seller SKU qua sửa sản phẩm).' })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty({ message: 'Seller SKU không được để trống — bỏ trường này nếu không đổi mã.' })
+  @MaxLength(255)
+  sellerSku?: string;
 
   @ApiPropertyOptional({ description: 'Giá bán (TikTok `price.amount`)', example: '15.00' })
   @IsOptional()

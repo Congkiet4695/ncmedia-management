@@ -188,7 +188,9 @@ export function buildUpdatePayload(
     const entry: UpdatePodProductSku = { tiktokSkuId: variant.tiktokSkuId };
     let touched = false;
 
-    if (draft.sellerSku.trim() !== (variant.sellerSku ?? '').trim()) {
+    // 🔴 Ô để TRỐNG = không đổi mã (như `introducedDuplicateSkus`). Gửi chuỗi rỗng là XOÁ Seller SKU của biến thể đang bán
+    // trên TikTok ⇒ đơn về không còn khoá ánh xạ / design. Backend cũng từ chối sellerSku rỗng.
+    if (draft.sellerSku.trim() !== '' && draft.sellerSku.trim() !== (variant.sellerSku ?? '').trim()) {
       entry.sellerSku = draft.sellerSku.trim();
       touched = true;
     }

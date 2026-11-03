@@ -396,6 +396,8 @@ export interface FulfillmentStateItem {
   podOrderItemId: string;
   tiktokProductId: string | null;
   sellerSku: string | null;
+  /** Khoá ánh xạ / design khi biến thể không có Seller SKU. */
+  tiktokSkuId: string | null;
   mapping: ProductMapping | null;
 }
 
@@ -685,7 +687,10 @@ export type MappingDesignPlacement = PodDesignPlacement;
  */
 export interface ProductDesignKey {
   tiktokProductId: string;
-  sellerSku: string;
+  /** Có Seller SKU ⇒ khoá chính. */
+  sellerSku?: string;
+  /** Biến thể KHÔNG có Seller SKU trên TikTok ⇒ khoá là Product ID + SKU ID (`productKeyOf`). */
+  tiktokSkuId?: string;
 }
 
 export interface ProviderCatalogVariation {
@@ -793,9 +798,9 @@ export interface UpsertProductMappingInput {
   accountId?: string;
   /** 🔴 Bắt buộc — một nửa khoá nghiệp vụ. */
   tiktokProductId: string;
-  /** 🔴 Bắt buộc — nửa còn lại. */
-  sellerSku: string;
-  /** Tham chiếu, không tham gia ghép đơn. */
+  /** Nửa còn lại. Bỏ trống CHỈ khi biến thể không có Seller SKU trên TikTok ⇒ khi đó `tiktokSkuId` bắt buộc. */
+  sellerSku?: string;
+  /** Có Seller SKU ⇒ chỉ tham chiếu; không có ⇒ là khoá (Product ID + SKU ID). */
   tiktokSkuId?: string;
   providerSku: string;
   baseCost?: number;

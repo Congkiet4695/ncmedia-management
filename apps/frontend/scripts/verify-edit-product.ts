@@ -511,4 +511,18 @@ test('sản phẩm có SẴN trùng, người dùng tách một biến thể san
   assert.deepEqual(introducedDuplicateSkus(base, state), []);
 });
 
+test('🔴 xoá trắng ô Seller SKU ⇒ KHÔNG gửi (ô trống = không đổi mã; gửi rỗng là xoá SKU trên TikTok)', () => {
+  const base = product();
+  const state = form(base);
+  state.skus.s1 = { ...state.skus.s1, sellerSku: '   ' };
+  assert.deepEqual(buildUpdatePayload(base, state), {});
+});
+
+test('đổi Seller SKU sang mã mới ⇒ gửi đúng mã đã trim, biến thể khác không bị đụng', () => {
+  const base = product();
+  const state = form(base);
+  state.skus.s1 = { ...state.skus.s1, sellerSku: ' TEE-BK-S2 ' };
+  assert.deepEqual(buildUpdatePayload(base, state).skus, [{ tiktokSkuId: 's1', sellerSku: 'TEE-BK-S2' }]);
+});
+
 console.log(`\n✓ ${passed}/${passed} đúng (gồm Seller SKU trùng)`);

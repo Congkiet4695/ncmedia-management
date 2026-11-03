@@ -9,7 +9,7 @@ import { DesignSlot } from '@/features/fulfillment/components/design-slot';
 import { MAX_UPLOAD_MB } from '@/lib/file-size';
 import { ImageLightbox } from './image-lightbox';
 import { POD_ACTIVE_PLACEMENTS, type PodOrderItem } from '../order-types';
-import { productKeyMessageKey } from '../product-key';
+import { productKeyMessageKey, productKeyOf, usesSkuIdKey } from '../product-key';
 
 interface UploadDesignDialogProps {
   open: boolean;
@@ -73,16 +73,12 @@ function DialogBody({ item, onPreview }: { item: PodOrderItem; onPreview: (src: 
   const { t } = useTranslation(['pod', 'common']);
 
   /**
-   * Cặp khoá của sản phẩm — địa chỉ lưu design.
+   * Khoá của sản phẩm — địa chỉ lưu design: Product ID + Seller SKU; biến thể KHÔNG có Seller SKU trên TikTok ⇒
+   * Product ID + TikTok SKU ID (`productKeyOf`, cùng luật với backend).
    *
-   * Thiếu một trong hai thì không xác định được lưu cho sản phẩm nào. Trường hợp này gần như
-   * không xảy ra (TikTok luôn trả cả hai), nhưng nếu có thì phải nói rõ là thiếu KHOÁ, không
-   * phải thiếu ánh xạ — hai vấn đề khác nhau, và cái này không sửa được từ giao diện.
+   * Thiếu cả hai thì không xác định được lưu cho sản phẩm nào — phải nói rõ là thiếu KHOÁ, không phải thiếu ánh xạ.
    */
-  const productKey =
-    item.productId && item.sellerSku
-      ? { tiktokProductId: item.productId, sellerSku: item.sellerSku }
-      : null;
+  const productKey = productKeyOf(item);
 
   return (
     <div className="space-y-5">
@@ -90,9 +86,19 @@ function DialogBody({ item, onPreview }: { item: PodOrderItem; onPreview: (src: 
       <div className="grid gap-x-6 gap-y-2 rounded-md border bg-muted/40 p-3 text-sm sm:grid-cols-2">
         <InfoLine label={t('design.productName')} value={item.productName} />
         <InfoLine label={t('product.productId')} value={item.productId} mono />
-        <InfoLine label={t('product.sellerSku')} value={item.sellerSku} mono />
+        <InfoLine
+          label={t('product.sellerSku')}
+          value={item.sellerSku?.trim() || (item.skuId ? `SKU ID ${item.skuId}` : null)}
+          mono
+        />
         <InfoLine label={t('product.variant')} value={item.skuName} />
       </div>
+
+      {usesSkuIdKey(item) && (
+        <p className="rounded-md border border-warning/30 bg-warning/10 p-3 text-xs text-warning">
+          {t('productKey.skuIdKeyHint', { skuId: item.skuId })}
+        </p>
+      )}
 
       {productKey === null ? (
         <div className="flex flex-col items-center gap-2 rounded-md border border-dashed p-6 text-center">

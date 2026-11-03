@@ -1535,6 +1535,13 @@ export class PodListingPublisherService {
     uriByFileId: Map<string, string>,
     warehouseId: string,
   ): TiktokCreateProductSku {
+    // 🔴 Hàng rào cuối cho Seller SKU (validator đã chặn `MISSING_SKU`): payload đóng băng trước luật mà mất mã thì hỏng NGAY
+    // — không gửi biến thể không có Seller SKU (đơn về sẽ không có khoá ánh xạ / design), không tự sinh mã thay.
+    if (!variant.sellerSku?.trim()) {
+      throw new PodPublishPayloadException(
+        `Biến thể "${variant.variantName}" không có Seller SKU — sửa bảng SKU rồi tạo lại nháp.`,
+      );
+    }
     const currency = variant.currency ?? payload.pricing?.currency ?? undefined;
     // 🔴 Hàng rào cuối cùng: giá không kèm tiền tệ là TikTok trả `36009004` sau khi đã tốn
     // cả lượt upload ảnh. Validator đã chặn từ trước; tới đây mà vẫn thiếu là payload cũ đóng

@@ -10,7 +10,7 @@ import {
   type ResolvedPrintFile,
 } from '../mango/mappers/mango-order.mapper';
 import { PRODUCT_KEY_ISSUE_MESSAGE } from '../../pod-tiktok/shared/order-item-product-key';
-import { createMappingIndex, findMappingInIndex, mappingKeyOf } from '../shared/mapping-match';
+import { createMappingIndex, findMappingInIndex, itemHasProductKey, lookupForItem } from '../shared/mapping-match';
 import {
   FulfillmentShippingLabelService,
   type ShippingLabelState,
@@ -41,7 +41,8 @@ export interface ReadinessDesign {
 }
 
 /**
- * Design của cả tổ chức, tra theo khoá `mappingKeyOf(productId, sellerSku)`.
+ * Design của cả tổ chức, dựng theo `rowKeyOf` (Product ID + Seller SKU, hoặc + SKU ID khi biến thể không có Seller
+ * SKU) và tra bằng `lookupForItem` — xem `shared/mapping-match.ts`.
  *
  * 🔴 Truyền vào thay vì để `check()` tự truy vấn: `check()` là hàm ĐỒNG BỘ và được gọi cho
  * hàng loạt đơn trong một vòng lặp; cho nó tự query là mở đường cho N+1.
@@ -447,9 +448,11 @@ export class FulfillmentReadinessService {
 
       // 🔴 Không có khoá ⇒ không thể có ánh xạ lẫn design: báo ĐÚNG MỘT lỗi kèm lý do, thay vì cặp "chưa khai ánh
       // xạ" + "chưa có design" (cả hai đều không sửa được khi chưa có khoá).
-      if (!mappingKeyOf(item.productId, item.sellerSku)) {
+      // Thiếu Seller SKU nhưng có SKU ID ⇒ VẪN có khoá (Product ID + SKU ID) — khai ánh xạ / design bình thường.
+      if (!itemHasProductKey(item)) {
         const reason =
-          item.productKeyIssue ?? (item.productId?.trim() ? 'SELLER_SKU_EMPTY_ON_TIKTOK' : 'NO_PRODUCT_ID');
+          // Không có khoá nào ⇒ chỉ còn hai khả năng: thiếu Product ID, hoặc thiếu cả Seller SKU lẫn SKU ID.
+          item.productId?.trim() ? ('NO_SKU_ID' as const) : ('NO_PRODUCT_ID' as const);
         issues.push({
           code: READINESS_CODES.MAPPING_KEY_MISSING,
           podOrderItemId: item.id,
@@ -549,11 +552,10 @@ export class FulfillmentReadinessService {
     issues: ReadinessIssue[],
     resolvePlacement: PlacementResolver,
   ): ResolvedPrintFile[] {
-    // 🔴 Design tra theo (Product ID + Seller SKU) của CHÍNH line item, KHÔNG qua ánh xạ.
+    // 🔴 Design tra theo khoá sản phẩm của CHÍNH line item (Seller SKU, rồi SKU ID), KHÔNG qua ánh xạ.
     // Design và ánh xạ là hai nghiệp vụ độc lập: đơn có thể đã có design từ trước khi ai đó
     // khai ánh xạ, và đổi ánh xạ sang nhà cung cấp khác không được làm mất file in.
-    const key = mappingKeyOf(item.productId, item.sellerSku);
-    const designs = key ? (designsByKey.get(key) ?? []) : [];
+    const designs = lookupForItem(item, designsByKey) ?? [];
 
     if (designs.length === 0) {
       issues.push({

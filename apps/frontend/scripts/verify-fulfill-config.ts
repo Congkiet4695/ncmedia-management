@@ -27,7 +27,7 @@ import {
   variantsForProductionLine,
 } from '../features/fulfillment/product-config.ts';
 import { baseCostSaveWarning } from '../features/fulfillment/base-cost.ts';
-import { productKeyMessageKey } from '../features/pod-tiktok/product-key.ts';
+import { productKeyMessageKey, productKeyOf, usesSkuIdKey } from '../features/pod-tiktok/product-key.ts';
 import {
   shippingServiceLabel,
   tiktokLabelErrorView,
@@ -172,9 +172,44 @@ const draft = {
 check('đủ dữ liệu ⇒ lưu được', configBlockers(draft), []);
 check('đủ dữ liệu ⇒ isFulfillmentConfigValid', isFulfillmentConfigValid(draft), true);
 check('thiếu nhà cung cấp', configBlockers({ ...draft, accountId: null }), ['NO_PROVIDER']);
-check('thiếu Seller SKU của dòng hàng', configBlockers({ ...draft, sellerSku: null }), [
+// 🔴 PO 2026-11-03: thiếu Seller SKU KHÔNG chặn nếu có TikTok SKU ID (khoá Product ID + SKU ID).
+check('thiếu Seller SKU nhưng có SKU ID ⇒ vẫn lưu được', configBlockers({ ...draft, sellerSku: null, tiktokSkuId: '17327' }), []);
+for (const blank of [null, '', '   ']) {
+  check(
+    `Seller SKU ${JSON.stringify(blank)} + SKU ID ⇒ lưu được`,
+    configBlockers({ ...draft, sellerSku: blank, tiktokSkuId: '17327' }),
+    [],
+  );
+  check(`Seller SKU ${JSON.stringify(blank)}, KHÔNG có SKU ID ⇒ MISSING_PRODUCT_KEY`, configBlockers({ ...draft, sellerSku: blank }), [
+    'MISSING_PRODUCT_KEY',
+  ]);
+}
+check('thiếu Product ID ⇒ MISSING_PRODUCT_KEY (dù có SKU ID)', configBlockers({ ...draft, tiktokProductId: null, tiktokSkuId: '17327' }), [
   'MISSING_PRODUCT_KEY',
 ]);
+check(
+  'thiếu Seller SKU + chưa chọn sản phẩm ⇒ vẫn chặn đúng lý do sản phẩm',
+  configBlockers({ ...draft, sellerSku: null, tiktokSkuId: '17327', providerProductId: '' }),
+  ['NO_PRODUCT'],
+);
+
+console.log('khoá ánh xạ / design của dòng đơn (productKeyOf)');
+check('có Seller SKU ⇒ khoá Seller SKU (SKU ID kèm tham chiếu)', productKeyOf({ productId: 'P', sellerSku: ' S1 ', skuId: 'K' }), {
+  tiktokProductId: 'P',
+  sellerSku: 'S1',
+  tiktokSkuId: 'K',
+});
+check('không Seller SKU ⇒ chỉ SKU ID, KHÔNG gửi sellerSku', productKeyOf({ productId: 'P', sellerSku: '  ', skuId: 'K' }), {
+  tiktokProductId: 'P',
+  tiktokSkuId: 'K',
+});
+check('thiếu cả hai ⇒ null', productKeyOf({ productId: 'P', sellerSku: null, skuId: null }), null);
+check('thiếu Product ID ⇒ null', productKeyOf({ productId: null, sellerSku: 'S', skuId: 'K' }), null);
+check('usesSkuIdKey: chỉ khi không có Seller SKU mà có SKU ID', [
+  usesSkuIdKey({ productId: 'P', sellerSku: null, skuId: 'K' }),
+  usesSkuIdKey({ productId: 'P', sellerSku: 'S', skuId: 'K' }),
+  usesSkuIdKey({ productId: 'P', sellerSku: null, skuId: null }),
+], [true, false, false]);
 check('chưa chọn sản phẩm', configBlockers({ ...draft, providerProductId: '' }), ['NO_PRODUCT']);
 check('chưa chốt biến thể', configBlockers({ ...draft, variant: null }), ['NO_VARIANT']);
 check(

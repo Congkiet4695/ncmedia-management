@@ -322,8 +322,14 @@ export function suggestSellerSku(
   optionValues: ManualSku['optionValues'],
   options: { skuPrefix?: string | null; skuSuffix?: string | null } = {},
 ): string {
+  // Bỏ dấu TRƯỚC khi lọc ký tự (như `slug` của backend): "Đỏ" ⇒ "DO", không còn rơi thành rỗng / trùng mã.
   const parts = optionValues.map((option) =>
-    option.value.toUpperCase().replace(/[^A-Z0-9]+/g, ''),
+    option.value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .replace(/[đĐ]/g, 'D')
+      .toUpperCase()
+      .replace(/[^A-Z0-9]+/g, ''),
   );
   return [options.skuPrefix?.trim().toUpperCase(), ...parts, options.skuSuffix?.trim().toUpperCase()]
     .filter(Boolean)

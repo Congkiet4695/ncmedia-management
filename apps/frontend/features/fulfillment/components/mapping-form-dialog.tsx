@@ -13,6 +13,7 @@ import { NativeSelect } from '@/components/ui/native-select';
 import { useDebouncedValue } from '@/hooks/use-debounced-value';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { cn } from '@/lib/utils';
+import { productKeyOf } from '@/features/pod-tiktok/product-key';
 import {
   useFulfillmentProviderOptions,
   useProviderCatalogProducts,
@@ -204,11 +205,13 @@ export function MappingFormDialog({
   const source = presetTiktok ?? tiktok;
 
   /**
-   * 🔴 Ánh xạ chỉ hợp lệ khi có ĐỦ cặp khoá (Product ID + Seller SKU). Chặn ngay tại nút Lưu
-   * thay vì để backend trả 400: sản phẩm TikTok thiếu một trong hai khoá thì bản ghi tạo ra
-   * sẽ không ghép được với đơn nào — một dòng dữ liệu chết mà người dùng tưởng đã xong việc.
+   * 🔴 Ánh xạ chỉ hợp lệ khi có khoá: Product ID + Seller SKU, hoặc (biến thể không có Seller SKU trên TikTok)
+   * Product ID + TikTok SKU ID — cùng luật `productKeyOf` với backend. Chặn ngay tại nút Lưu thay vì để backend trả 400.
    */
-  const keyComplete = Boolean(source?.tiktokProductId && source?.sellerSku);
+  const sourceKey = source
+    ? productKeyOf({ productId: source.tiktokProductId, sellerSku: source.sellerSku, skuId: source.tiktokSkuId })
+    : null;
+  const keyComplete = sourceKey !== null;
   const canSubmit = Boolean(accountId && source && selectedVariant && keyComplete);
 
   /** Chọn thẳng một ứng viên do máy gợi ý — nhảy tới đúng sản phẩm và biến thể đó. */
@@ -221,18 +224,15 @@ export function MappingFormDialog({
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    if (!accountId || !source || !selectedVariant) return;
-    if (!source.tiktokProductId || !source.sellerSku) return;
+    if (!accountId || !source || !selectedVariant || !sourceKey) return;
 
     onSubmit(accountId, {
       // 🔴 Gửi tài khoản nhà cung cấp ĐÃ CHỌN. Không gửi thì backend lấy tài khoản mặc định,
       // và tổ chức có hai tài khoản cùng nhà cung cấp sẽ nhận ánh xạ gắn nhầm chỗ.
       accountId,
-      // 🔴 KHOÁ NGHIỆP VỤ — cặp này quyết định đơn nào dùng bộ Design của bản ghi.
-      tiktokProductId: source.tiktokProductId,
-      sellerSku: source.sellerSku,
-      // Tham chiếu, không tham gia ghép đơn — giữ để tra ngược về biến thể phía TikTok.
-      ...(source.tiktokSkuId ? { tiktokSkuId: source.tiktokSkuId } : {}),
+      // 🔴 KHOÁ NGHIỆP VỤ — Product ID + Seller SKU (SKU ID chỉ tham chiếu); biến thể không có Seller SKU ⇒ Product ID +
+      // SKU ID. Không bao giờ gửi Seller SKU rỗng.
+      ...sourceKey,
       // Fulfillment SKU — giá trị THỰC SỰ gửi trong items[].sku khi tạo đơn.
       providerSku: selectedVariant.sku,
       // 🔴 KHÔNG gửi Base Cost: backend tự lấy giá của đúng biến thể này từ nhà cung cấp.
@@ -308,7 +308,9 @@ export function MappingFormDialog({
                 </div>
                 <div>
                   <dt className="opacity-70">{t('mapping.sellerSku')}</dt>
-                  <dd className="break-all font-mono">{source.sellerSku ?? '—'}</dd>
+                  <dd className="break-all font-mono">
+                    {source.sellerSku || (source.tiktokSkuId ? `SKU ID ${source.tiktokSkuId}` : '—')}
+                  </dd>
                 </div>
                 <div>
                   <dt className="opacity-70">{t('mapping.variant')}</dt>

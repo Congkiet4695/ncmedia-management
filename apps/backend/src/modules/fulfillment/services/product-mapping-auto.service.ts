@@ -271,6 +271,8 @@ export class ProductMappingAutoService {
       WHERE i.organization_id = ${organizationId}::uuid
         AND i.product_id  IS NOT NULL
         AND i.seller_sku  IS NOT NULL
+        -- Seller SKU rỗng KHÔNG phải khoá: biến thể không có Seller SKU được khai tay theo SKU ID ở màn Fulfill.
+        AND TRIM(i.seller_sku) <> ''
         AND (${accountFilter ?? null}::uuid IS NULL OR fa.id = ${accountFilter ?? null}::uuid)
         AND NOT EXISTS (
           SELECT 1 FROM fulfillment_product_mappings m

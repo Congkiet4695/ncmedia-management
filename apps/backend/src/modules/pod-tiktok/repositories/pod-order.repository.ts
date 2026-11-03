@@ -54,13 +54,14 @@ export interface PodOrderFilterParams {
 }
 
 /**
- * Cặp khoá (Product ID → các Seller SKU) ĐÃ có design, của một tổ chức.
+ * Khoá sản phẩm ĐÃ có design, của một tổ chức: Product ID → các Seller SKU, và các TikTok SKU ID (design của biến thể
+ * KHÔNG có Seller SKU — xem `fulfillment/shared/mapping-match.ts`).
  *
  * 🔴 Gom theo Product ID chứ không để phẳng thành danh sách cặp: một sản phẩm thường có hàng
  * chục SKU, và `OR` phẳng sẽ sinh ra một mệnh đề SQL dài bằng số cặp. Gom lại thì số nhánh
  * `OR` chỉ còn bằng số SẢN PHẨM, mỗi nhánh một `IN` — cùng kết quả, SQL nhỏ hơn hẳn.
  */
-export type DesignKeyIndex = Map<string, string[]>;
+export type DesignKeyIndex = Map<string, { sellerSkus: string[]; skuIds: string[] }>;
 
 /**
  * Trạng thái fulfillment vẫn còn gửi (lại) được ⇒ đơn tính là **CHƯA đẩy**.
@@ -379,22 +380,25 @@ export class PodOrderRepository {
         organizationId,
         deletedAt: null,
         tiktokProductId: { not: null },
-        sellerSku: { not: null },
+        OR: [{ sellerSku: { not: null } }, { tiktokSkuId: { not: null } }],
       },
-      distinct: ['tiktokProductId', 'sellerSku'],
-      select: { tiktokProductId: true, sellerSku: true },
+      distinct: ['tiktokProductId', 'sellerSku', 'tiktokSkuId'],
+      select: { tiktokProductId: true, sellerSku: true, tiktokSkuId: true },
     });
 
     const index: DesignKeyIndex = new Map();
     for (const row of rows) {
-      // `trim` để khớp đúng `mappingKeyOf` — dữ liệu nhập tay hay dính khoảng trắng.
+      // `trim` để khớp đúng `mapping-match.ts` — dữ liệu nhập tay hay dính khoảng trắng.
       // KHÔNG đổi hoa/thường: Seller SKU của TikTok phân biệt hoa thường.
       const product = row.tiktokProductId?.trim();
+      if (!product) continue;
+      const entry = index.get(product) ?? { sellerSkus: [], skuIds: [] };
       const sku = row.sellerSku?.trim();
-      if (!product || !sku) continue;
-      const list = index.get(product) ?? [];
-      list.push(sku);
-      index.set(product, list);
+      const skuId = row.tiktokSkuId?.trim();
+      if (sku) entry.sellerSkus.push(sku);
+      else if (skuId) entry.skuIds.push(skuId);
+      else continue;
+      index.set(product, entry);
     }
     return index;
   }
@@ -407,10 +411,11 @@ export class PodOrderRepository {
   private buildItemHasDesign(keys: DesignKeyIndex): Prisma.PodOrderItemWhereInput | null {
     if (keys.size === 0) return null;
     return {
-      OR: [...keys.entries()].map(([productId, skus]) => ({
-        productId,
-        sellerSku: { in: skus },
-      })),
+      OR: [...keys.entries()].flatMap(([productId, { sellerSkus, skuIds }]) => [
+        ...(sellerSkus.length > 0 ? [{ productId, sellerSku: { in: sellerSkus } }] : []),
+        // Design khai theo SKU ID ⇒ khớp dòng đơn đúng biến thể (khoá dự phòng áp cho mọi dòng cùng sku_id).
+        ...(skuIds.length > 0 ? [{ productId, skuId: { in: skuIds } }] : []),
+      ]),
     };
   }
 

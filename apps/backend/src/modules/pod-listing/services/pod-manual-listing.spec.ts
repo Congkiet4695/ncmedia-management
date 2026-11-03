@@ -501,3 +501,58 @@ describe('applyManualOverride — từ khoá · highlights · kho (Custom Listin
     expect(parseManualOverride({ warehouseId: 'wh-2' })).toEqual({ warehouseId: 'wh-2' });
   });
 });
+
+describe('applyManualOverride — Seller SKU trống (audit 2026-11-03)', () => {
+  const row = (sellerSku: string, value: string, salePrice: string | null = '25.00') => ({
+    sellerSku,
+    optionValues: [{ name: 'Color', value }],
+    salePrice,
+  });
+
+  it('🔴 dòng biến thể thiếu Seller SKU KHÔNG bị bỏ âm thầm ⇒ lỗi chặn nêu đúng biến thể', () => {
+    const parsed = parseManualOverride({ skus: [row('TEE-BLACK', 'Black'), row('', 'White'), row('   ', 'Red')] });
+    expect(parsed?.skus?.map((item) => item.optionValues[0].value)).toEqual(['Black', 'White', 'Red']);
+
+    const issues: ResolveIssue[] = [];
+    const result = applyManualOverride(templateListing(), parsed ?? {}, issues);
+    const missing = issues.filter((issue) => issue.field === 'variants.sellerSku');
+    expect(missing).toHaveLength(1);
+    expect(missing[0]).toMatchObject({ level: 'ERROR', code: POD_DRAFT_ISSUE_CODES.MISSING_VARIANT });
+    expect(missing[0].message).toContain('White');
+    expect(missing[0].message).toContain('Red');
+    // Không sinh Seller SKU giả: chỉ biến thể có mã mới vào payload.
+    expect(result.variants.map((variant) => variant.sellerSku)).toEqual(['TEE-BLACK']);
+  });
+
+  it('nhiều biến thể có Seller SKU riêng ⇒ giữ nguyên từng mã (đã trim), đúng thứ tự, không lỗi', () => {
+    const parsed = parseManualOverride({ skus: [row(' TEE-S ', 'S'), row('TEE-M', 'M'), row('TEE-L', 'L')] });
+    const issues: ResolveIssue[] = [];
+    const result = applyManualOverride(templateListing(), parsed ?? {}, issues);
+    expect(result.variants.map((variant) => [variant.variantName, variant.sellerSku])).toEqual([
+      ['S', 'TEE-S'],
+      ['M', 'TEE-M'],
+      ['L', 'TEE-L'],
+    ]);
+    expect(issues.filter((issue) => issue.level === 'ERROR')).toEqual([]);
+  });
+
+  it('mọi dòng đều thiếu Seller SKU ⇒ chặn, không rơi về bảng SKU của template', () => {
+    const parsed = parseManualOverride({ skus: [row('', 'White')] });
+    const issues: ResolveIssue[] = [];
+    const result = applyManualOverride(templateListing(), parsed ?? {}, issues);
+    expect(result.variants).toEqual([]);
+    expect(issues.some((issue) => issue.field === 'variants.sellerSku' && issue.level === 'ERROR')).toBe(true);
+  });
+
+  it('dòng RÁC trống hoàn toàn vẫn bị bỏ (không phải biến thể)', () => {
+    const parsed = parseManualOverride({ skus: [{ sellerSku: '', optionValues: [] }, row('OK', 'Black')] });
+    expect(parsed?.skus?.map((item) => item.sellerSku)).toEqual(['OK']);
+  });
+
+  it('dựng lại (retry) cùng dữ liệu ⇒ cùng Seller SKU, không sinh mã mới', () => {
+    const data = { skus: [row('TEE-1', 'A'), row('TEE-2', 'B')] };
+    const first = applyManualOverride(templateListing(), parseManualOverride(data) ?? {}, []);
+    const second = applyManualOverride(templateListing(), parseManualOverride(data) ?? {}, []);
+    expect(second.variants.map((variant) => variant.sellerSku)).toEqual(first.variants.map((variant) => variant.sellerSku));
+  });
+});

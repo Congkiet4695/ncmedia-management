@@ -240,6 +240,40 @@ describe('PodListingPublisherService.publishListing', () => {
     expect(outcome.response).toMatchObject({ productId: 'TT-PRODUCT-1' });
   });
 
+  it.each([[''], ['   ']])('🔴 biến thể có Seller SKU %j ⇒ hỏng NGAY, không gọi TikTok (không sinh mã thay)', async (sellerSku) => {
+    const { publish, productApi } = buildService();
+    const base = buildPayload();
+    await expect(
+      publish('TT-PRODUCT-1', buildPayload({ variants: [{ ...base.variants[0], sellerSku }] })),
+    ).rejects.toBeInstanceOf(PodPublishPayloadException);
+    expect(productApi.publishProduct).not.toHaveBeenCalled();
+    expect(productApi.createProduct).not.toHaveBeenCalled();
+  });
+
+  it('nhiều biến thể ⇒ mỗi SKU trong request mang ĐÚNG Seller SKU của biến thể đó', async () => {
+    const { publish, productApi } = buildService();
+    const base = buildPayload();
+    const variants = ['TEE-S', 'TEE-M', 'TEE-L'].map((sellerSku, index) => ({
+      ...base.variants[0],
+      sellerSku,
+      variantName: sellerSku,
+      optionValues: [{ name: 'Size', value: ['S', 'M', 'L'][index] }],
+    }));
+    await publish('TT-PRODUCT-1', buildPayload({ variants }));
+    const calls: unknown[][] = [
+      ...(productApi.publishProduct.mock.calls as unknown[][]),
+      ...(productApi.createProduct.mock.calls as unknown[][]),
+    ];
+    const body = calls[0].find((arg) => typeof arg === 'object' && arg !== null && 'skus' in arg) as {
+      skus: Array<{ sellerSku: string; salesAttributes: Array<{ valueName: string }> }>;
+    };
+    expect(body.skus.map((sku) => [sku.sellerSku, sku.salesAttributes[0].valueName])).toEqual([
+      ['TEE-S', 'S'],
+      ['TEE-M', 'M'],
+      ['TEE-L', 'L'],
+    ]);
+  });
+
   it('🔴 Payload mất biến thể ⇒ hỏng NGAY, không gửi một sản phẩm rỗng lên sàn', async () => {
     const { publish, productApi } = buildService();
 

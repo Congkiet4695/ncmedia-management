@@ -1778,6 +1778,9 @@ model FulfillmentProductDesign {
   /// không ghép được đơn nào; CHECK `NOT VALID` chặn mọi bản ghi MỚI thiếu khoá.
   tiktokProductId String? @map("tiktok_product_id") @db.VarChar(64)
   sellerSku       String? @map("seller_sku") @db.VarChar(255)
+  /// Khoá dự phòng (2026-11-03): CHỈ khi biến thể không có Seller SKU trên TikTok — bản ghi lưu `seller_sku = NULL`
+  /// + `tiktok_sku_id`. Xem `fulfillment/shared/mapping-match.ts`.
+  tiktokSkuId     String? @map("tiktok_sku_id") @db.VarChar(64)
 
   /// Vị trí in: FRONT | BACK | LEFT | RIGHT | SLEEVE | LABEL.
   ///
@@ -1810,6 +1813,7 @@ model FulfillmentProductDesign {
   /// (Bản đã xoá mềm vẫn nằm lại — xem chỉ mục từng phần ở migration.)
   @@index([organizationId])
   @@index([organizationId, tiktokProductId, sellerSku])
+  @@index([organizationId, tiktokProductId, tiktokSkuId], map: "fulfillment_product_designs_org_product_sku_id_idx")
   @@map("fulfillment_product_designs")
 }
 

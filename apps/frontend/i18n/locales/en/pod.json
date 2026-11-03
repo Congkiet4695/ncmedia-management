@@ -1272,7 +1272,8 @@
       "quantity": "Quantity",
       "removeSku": "Remove SKU",
       "save": "Save product",
-      "saved": "Saved. Click \"Start Listing\" to push it to {{shops}} shops."
+      "saved": "Saved. Click \"Start Listing\" to push it to {{shops}} shops.",
+      "sellerSkuRequired": "Every SKU row needs a Seller SKU — fill in the empty ones (or click \"Generate SKU\" again)."
     },
     "custom": {
       "addButton": "Add Custom Listing",
@@ -2275,10 +2276,11 @@
     "issue": {
       "NO_PRODUCT_ID": "This line has no TikTok Product ID — re-sync the order from TikTok.",
       "NO_SKU_ID": "This line has no Seller SKU and no TikTok SKU ID to look it up — re-sync the order from TikTok.",
-      "VARIANT_NOT_SYNCED": "This line has no Seller SKU and the variant is not in the synced Products catalog — sync the shop products (Products → Sync), then reopen the order.",
-      "SELLER_SKU_EMPTY_ON_TIKTOK": "This variant has no Seller SKU on TikTok (neither in the order nor in Products). Set a Seller SKU for the variant in TikTok Seller Center or Edit product, sync products, then reopen the order to configure mapping and design.",
+      "VARIANT_NOT_SYNCED": "This line has no Seller SKU and the variant is not in the synced Products catalog — mapping and design are saved by the variant’s TikTok SKU ID. If the variant actually has a Seller SKU on TikTok, sync the shop products to share mapping/design by Seller SKU.",
+      "SELLER_SKU_EMPTY_ON_TIKTOK": "This variant has no Seller SKU on TikTok (neither in the order nor in Products) — mapping and design are saved by the variant’s TikTok SKU ID; no change on TikTok is needed to fulfill.",
       "SELLER_SKU_AMBIGUOUS": "The Products catalog has several different Seller SKUs for this variant — the system will not pick one. Check the variant Seller SKU on TikTok, then sync products.",
       "UNKNOWN": "This line has no Product ID or Seller SKU, so it cannot be mapped."
-    }
+    },
+    "skuIdKeyHint": "TikTok has no Seller SKU for this variant — mapping and design are saved by its TikTok SKU ID ({{skuId}}). You can still configure and fulfill; no change on TikTok is needed."
   }
 }

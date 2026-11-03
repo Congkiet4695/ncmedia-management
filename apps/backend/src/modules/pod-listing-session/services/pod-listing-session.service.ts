@@ -726,9 +726,9 @@ export class PodListingSessionService {
     return issues;
   }
 
-  /** Bảng SKU nhập tay có ít nhất một dòng dùng được (`parseManualOverride` đã lọc dòng rỗng). */
+  /** Bảng SKU nhập tay có ít nhất một dòng có Seller SKU (dòng thiếu Seller SKU được giữ để báo lỗi — xem `buildManualVariants`). */
   private hasUsableSkus(manual: ManualListingOverride): boolean {
-    return (manual.skus?.length ?? 0) > 0;
+    return (manual.skus ?? []).some((sku) => sku.sellerSku.trim() !== '');
   }
 
   private templateId(session: SessionFull, type: PodListingSessionTemplateType): string | null {

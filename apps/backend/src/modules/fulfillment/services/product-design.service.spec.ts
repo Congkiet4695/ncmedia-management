@@ -2,6 +2,7 @@ import { BadRequestException, UnprocessableEntityException } from '@nestjs/commo
 import { PodDesignPlacement, StorageModuleName, StorageReferenceType } from '@prisma/client';
 import { fetchRemoteFile, RemoteFetchError } from '../../../common/http/safe-remote-fetch';
 import type { PodAccessScope } from '../../pod-tiktok/services/pod-access-scope.service';
+import { callArg } from '../../../testing/mock-call.util';
 import { ProductDesignService } from './product-design.service';
 
 type Row = Record<string, unknown>;
@@ -281,5 +282,75 @@ describe('ProductDesignService.setUrl — URL ⇒ tải về ⇒ lưu R2', () =>
 
     await expect(setUrl(service, 'https://cdn.example.com/a.png')).rejects.toThrow('db down');
     expect(storage.removeInternal).toHaveBeenCalledWith(ORG, USER, 'file-new');
+  });
+});
+
+describe('ProductDesignService — biến thể KHÔNG có Seller SKU (khoá Product ID + TikTok SKU ID)', () => {
+  beforeEach(() => fetchMock.mockReset());
+  const SKU_ID_KEY = { tiktokProductId: '1729000000000000001', sellerSku: '  ', tiktokSkuId: '1732793676959617452' };
+
+  it('lưu design theo SKU ID: seller_sku = NULL (không Seller SKU giả / rỗng), thư mục theo SKU ID', async () => {
+    fetchMock.mockResolvedValue(remote());
+    const { service, storage, tx, prisma } = build();
+
+    await service.setUrl(ORG, USER, SKU_ID_KEY, PodDesignPlacement.FRONT, 'https://cdn.example.com/a.png', ADMIN);
+
+    expect(callArg<Row>(prisma.fulfillmentProductDesign.findFirst, 0, 0)).toMatchObject({
+      where: {
+        organizationId: ORG,
+        tiktokProductId: SKU_ID_KEY.tiktokProductId,
+        sellerSku: null,
+        tiktokSkuId: SKU_ID_KEY.tiktokSkuId,
+        deletedAt: null,
+        placement: PodDesignPlacement.FRONT,
+      },
+    });
+    const ctx = storage.upload.mock.calls[0][1];
+    expect(ctx.folderSegments).toEqual(['fulfillment', 'designs', ORG, SKU_ID_KEY.tiktokProductId, `sku-id-${SKU_ID_KEY.tiktokSkuId}`]);
+    expect(tx.fulfillmentProductDesign.create.mock.calls[0][0].data).toMatchObject({
+      tiktokProductId: SKU_ID_KEY.tiktokProductId,
+      sellerSku: null,
+      tiktokSkuId: SKU_ID_KEY.tiktokSkuId,
+    });
+  });
+
+  it('có Seller SKU ⇒ khoá Seller SKU như cũ, tiktok_sku_id KHÔNG lưu (design dùng chung mọi biến thể cùng SKU)', async () => {
+    fetchMock.mockResolvedValue(remote());
+    const { service, tx } = build();
+    await service.setUrl(ORG, USER, { ...KEY, tiktokSkuId: 'K1' }, PodDesignPlacement.FRONT, 'https://cdn.example.com/a.png', ADMIN);
+    expect(tx.fulfillmentProductDesign.create.mock.calls[0][0].data).toMatchObject({ sellerSku: KEY.sellerSku, tiktokSkuId: null });
+  });
+
+  it.each([
+    ['thiếu cả Seller SKU lẫn SKU ID', { tiktokProductId: 'P', sellerSku: '' }],
+    ['Seller SKU chỉ khoảng trắng, không SKU ID', { tiktokProductId: 'P', sellerSku: '   ', tiktokSkuId: '  ' }],
+    ['thiếu Product ID', { tiktokProductId: '', tiktokSkuId: 'K1' }],
+  ])('%s ⇒ 400 POD_DESIGN_KEY_INVALID, không tải / không lưu gì', async (_label, key) => {
+    const { service, storage } = build();
+    await expect(
+      service.setUrl(ORG, USER, key as never, PodDesignPlacement.FRONT, 'https://cdn.example.com/a.png', ADMIN),
+    ).rejects.toMatchObject({ response: { code: 'POD_DESIGN_KEY_INVALID' } });
+    expect(fetchMock).not.toHaveBeenCalled();
+    expect(storage.upload).not.toHaveBeenCalled();
+  });
+
+  it('🔴 Seller: khoá SKU ID chỉ sửa được khi biến thể có trong shop được gán (tra dòng đơn theo sku_id)', async () => {
+    const seller: PodAccessScope = { allShops: false, accountIds: ['acc-1'], shopIds: ['shop-1'] };
+    const { service, prisma } = build();
+    const orderItemFind = jest.fn().mockResolvedValue(null);
+    Object.assign(prisma, {
+      podProduct: { findFirst: jest.fn().mockResolvedValue(null) },
+      podOrderItem: { findFirst: orderItemFind },
+    });
+    await expect(service.findByProduct(ORG, SKU_ID_KEY, seller)).rejects.toMatchObject({ status: 403 });
+    expect(callArg<Row>(orderItemFind, 0, 0)).toMatchObject({
+      where: {
+        organizationId: ORG,
+        productId: SKU_ID_KEY.tiktokProductId,
+        skuId: SKU_ID_KEY.tiktokSkuId,
+        order: { organizationId: ORG, deletedAt: null, shopId: { in: ['shop-1'] } },
+      },
+    });
+    expect(callArg<{ where: Row }>(orderItemFind, 0, 0).where.sellerSku).toBeUndefined();
   });
 });

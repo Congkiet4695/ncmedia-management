@@ -16,6 +16,13 @@ import {
 import { PrismaService } from '../../../database/prisma.service';
 import type { MappingWithDesigns } from '../services/fulfillment-readiness.service';
 import { IMPORT_FULFILLED_STATUS, NON_BLOCKING_FULFILLMENT_STATUSES } from '../shared/fulfillment-lifecycle';
+import { productKeyFilter, type ProductKey } from '../shared/mapping-match';
+
+/** Bản ghi design / mapping có khoá: Seller SKU, hoặc (Seller SKU trống) TikTok SKU ID. */
+const HAS_PRODUCT_KEY = {
+  tiktokProductId: { not: null },
+  OR: [{ sellerSku: { not: null } }, { tiktokSkuId: { not: null } }],
+} satisfies Prisma.FulfillmentProductDesignWhereInput;
 
 /** Include chuẩn khi đọc một bản ghi fulfillment (kèm items + tài khoản). */
 export const FULFILLMENT_ORDER_INCLUDE = {
@@ -386,7 +393,7 @@ export class FulfillmentRepository {
         organizationId,
         deletedAt: null,
         tiktokProductId: { in: productIds },
-        sellerSku: { not: null },
+        OR: HAS_PRODUCT_KEY.OR,
       },
       include: { storageFile: { include: { uploader: { select: { fullName: true } } } } },
       orderBy: { placement: 'asc' },
@@ -394,7 +401,8 @@ export class FulfillmentRepository {
   }
 
   /**
-   * Design đang hiệu lực của MỘT tổ chức, tra theo (Product ID + Seller SKU).
+   * Design đang hiệu lực của MỘT tổ chức, tra theo khoá sản phẩm (Product ID + Seller SKU, hoặc + SKU ID khi biến thể
+   * không có Seller SKU — `productKeyFilter`).
    *
    * 🔴 MỘT truy vấn cho cả trang. Design không còn là quan hệ của ánh xạ nên không
    * `include` được; bù lại bằng một lượt đọc theo lô rồi ghép trong bộ nhớ — chi phí như cũ,
@@ -405,15 +413,13 @@ export class FulfillmentRepository {
    */
   listProductDesigns(
     organizationId: string,
-    keys?: Array<{ tiktokProductId: string; sellerSku: string }>,
+    keys?: ProductKey[],
   ) {
     return this.prisma.fulfillmentProductDesign.findMany({
       where: {
         organizationId,
         deletedAt: null,
-        tiktokProductId: { not: null },
-        sellerSku: { not: null },
-        ...(keys && keys.length > 0 ? { OR: keys } : {}),
+        ...(keys && keys.length > 0 ? { OR: keys.map(productKeyFilter) } : HAS_PRODUCT_KEY),
       },
       include: { storageFile: { include: { uploader: { select: { fullName: true } } } } },
       orderBy: { placement: 'asc' },
@@ -437,15 +443,15 @@ export class FulfillmentRepository {
    */
   findConflictingMapping(
     organizationId: string,
-    keys: { tiktokProductId: string; sellerSku: string },
+    key: ProductKey,
     excludeId?: string,
   ) {
     return this.prisma.fulfillmentProductMapping.findFirst({
       where: {
         organizationId,
         deletedAt: null,
-        tiktokProductId: keys.tiktokProductId,
-        sellerSku: keys.sellerSku,
+        // Khoá SKU ID chỉ đụng bản ghi `seller_sku IS NULL` — đúng phạm vi partial unique của nó.
+        ...productKeyFilter(key),
         ...(excludeId ? { id: { not: excludeId } } : {}),
       },
     });

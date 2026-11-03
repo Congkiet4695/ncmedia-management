@@ -15,6 +15,7 @@
 import {
   buildSkuCombinations,
   countCombinations,
+  suggestSellerSku,
 } from '../features/pod-listing-session/manual-sku.ts';
 
 let failed = 0;
@@ -139,6 +140,16 @@ console.log('🔴 GIỮ dữ liệu đã gõ khi sinh lại');
   check('bỏ một màu ⇒ 8 tổ hợp', fewer.length, 8);
   check('dòng còn lại giữ đúng giá của chính nó', fewer[0].salePrice, '0');
   check('không còn dòng của màu đã bỏ', names(fewer).some((n) => n.startsWith('Navy')), false);
+}
+
+// ---------------------------------------------------------------------------
+console.log('gợi ý Seller SKU — bỏ dấu, không rơi thành rỗng (audit 2026-11-03)');
+{
+  const opt = (...values: string[]) => values.map((value, index) => ({ name: `Axis${index}`, value }));
+  check('giá trị có dấu ⇒ bỏ dấu, không mất chữ', suggestSellerSku(opt('Đỏ', 'Xanh lá')), 'DO-XANHLA');
+  check('trước đây "Đỏ" ⇒ "" (rỗng); nay luôn có mã', suggestSellerSku(opt('Đỏ')) !== '', true);
+  check('hai giá trị khác nhau chỉ bởi dấu không còn trùng thành rỗng', suggestSellerSku(opt('Đen')) === suggestSellerSku(opt('Đỏ')), false);
+  check('ASCII giữ nguyên như cũ', suggestSellerSku(opt('Black', 'XL'), { skuPrefix: 'tee' }), 'TEE-BLACK-XL');
 }
 
 // ---------------------------------------------------------------------------

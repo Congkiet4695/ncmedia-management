@@ -130,6 +130,12 @@ export function ManualProductDialog({
       return;
     }
 
+    // Dòng SKU thiếu Seller SKU ⇒ chặn ngay (backend cũng báo lỗi chặn đăng): không để biến thể bị bỏ sót lúc lên sàn.
+    if (skuMode === 'MANUAL' && skus.some((sku) => sku.sellerSku.trim() === '')) {
+      toast.error(t('listing.manual.sellerSkuRequired'));
+      return;
+    }
+
     // Chỉ gửi khu vực đang ở chế độ NHẬP TAY. Khu vực để TEMPLATE mà vẫn gửi (dù là chuỗi
     // rỗng) sẽ bị backend hiểu là "cố ý xoá" và chặn listing — xem `applyManualOverride`.
     const manualData = {

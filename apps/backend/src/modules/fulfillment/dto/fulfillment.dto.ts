@@ -21,6 +21,7 @@ import {
   MinLength,
   Min,
   ValidateNested,
+  ValidateIf,
   type ValidationArguments,
 } from 'class-validator';
 import { FulfillmentProvider, FulfillmentSource, FulfillmentStatus, PodDesignPlacement } from '@prisma/client';
@@ -554,19 +555,34 @@ export class ProductDesignKeyDto {
   @MaxLength(64)
   tiktokProductId!: string;
 
-  @ApiProperty({ description: 'Seller SKU do người bán đặt.', example: 'POSTER_24x36' })
+  @ApiPropertyOptional({
+    description: 'Seller SKU do người bán đặt. Bỏ trống CHỈ khi biến thể không có Seller SKU trên TikTok ⇒ gửi tiktokSkuId.',
+    example: 'POSTER_24x36',
+  })
+  @IsOptional()
   @Transform(trim)
   @IsString()
-  @IsNotEmpty({ message: 'Seller SKU là bắt buộc — design lưu theo cặp khoá này.' })
   @MaxLength(255)
-  sellerSku!: string;
+  sellerSku?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'TikTok sku_id — BẮT BUỘC khi sellerSku trống (biến thể không có Seller SKU): design lưu theo Product ID + SKU ID.',
+    example: '1732793676959617452',
+  })
+  @ValidateIf((o: { sellerSku?: string | null }) => !o.sellerSku?.trim())
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty({ message: 'Cần Seller SKU, hoặc TikTok SKU ID khi biến thể không có Seller SKU.' })
+  @MaxLength(64)
+  tiktokSkuId?: string;
 }
 
 export class UpsertProductMappingDto {
   /**
-   * 🔴 KHOÁ NGHIỆP VỤ — bắt buộc. Cặp (Product ID + Seller SKU) là DANH TÍNH của ánh xạ:
-   * nó quyết định đơn nào dùng bộ Design nào. Thiếu một nửa thì bản ghi không ghép được với
-   * đơn nào, nên nhận vào chỉ để tạo ra dữ liệu chết — từ chối ngay tại cổng.
+   * 🔴 KHOÁ NGHIỆP VỤ — bắt buộc. Cặp (Product ID + Seller SKU) là DANH TÍNH của ánh xạ: nó quyết định đơn nào dùng
+   * bộ Design nào. Biến thể KHÔNG có Seller SKU trên TikTok ⇒ danh tính là (Product ID + TikTok SKU ID) — xem
+   * `shared/mapping-match.ts`. Thiếu cả hai thì bản ghi không ghép được với đơn nào ⇒ từ chối ngay tại cổng.
    */
   @ApiProperty({
     description: 'TikTok product_id. Nửa đầu của khoá nghiệp vụ.',
@@ -578,23 +594,27 @@ export class UpsertProductMappingDto {
   @MaxLength(64)
   tiktokProductId!: string;
 
-  @ApiProperty({
-    description: 'Seller SKU do người bán đặt. Nửa sau của khoá nghiệp vụ.',
-    example: 'POSTER_24x36',
-  })
-  @Transform(trim)
-  @IsString()
-  @IsNotEmpty({ message: 'Seller SKU là bắt buộc — đây là một nửa khoá của ánh xạ.' })
-  @MaxLength(255)
-  sellerSku!: string;
-
   @ApiPropertyOptional({
     description:
-      'TikTok sku_id — CHỈ để tham chiếu/đối soát. KHÔNG tham gia ghép đơn (xem mapping-match.ts).',
+      'Seller SKU do người bán đặt — nửa sau của khoá nghiệp vụ. Bỏ trống CHỈ khi biến thể không có Seller SKU trên ' +
+      'TikTok ⇒ gửi tiktokSkuId.',
+    example: 'POSTER_24x36',
   })
   @IsOptional()
   @Transform(trim)
   @IsString()
+  @MaxLength(255)
+  sellerSku?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'TikTok sku_id. Có Seller SKU ⇒ chỉ để tham chiếu/đối soát. sellerSku trống ⇒ BẮT BUỘC, là nửa sau của khoá ' +
+      '(Product ID + SKU ID) — xem mapping-match.ts.',
+  })
+  @ValidateIf((o: { sellerSku?: string | null }) => !o.sellerSku?.trim())
+  @Transform(trim)
+  @IsString()
+  @IsNotEmpty({ message: 'Cần Seller SKU, hoặc TikTok SKU ID khi biến thể không có Seller SKU.' })
   @MaxLength(64)
   tiktokSkuId?: string;
 
@@ -1280,7 +1300,14 @@ export class FulfillmentStateItemDto {
   @ApiProperty({ description: 'Khoá nội bộ của dòng hàng (pod_order_items.id).' })
   podOrderItemId!: string;
   @ApiProperty({ nullable: true, type: String }) tiktokProductId!: string | null;
-  @ApiProperty({ nullable: true, type: String }) sellerSku!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'Seller SKU HIỆU LỰC (đơn, hoặc danh mục Products).' })
+  sellerSku!: string | null;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'TikTok sku_id — khoá ánh xạ / design khi biến thể không có Seller SKU.',
+  })
+  tiktokSkuId!: string | null;
   @ApiProperty({
     nullable: true,
     type: ProductMappingDto,

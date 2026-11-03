@@ -48,7 +48,7 @@ import {
   FulfillmentReadinessService,
   type DesignsByProductKey,
 } from '../../services/fulfillment-readiness.service';
-import { mappingKeyOf } from '../../shared/mapping-match';
+import { rowKeyOf } from '../../shared/mapping-match';
 import {CANCELLABLE_FULFILLMENT_STATUSES,
   SUBMITTABLE_FULFILLMENT_STATUSES,
   fulfillmentOrderLockKey,
@@ -1469,7 +1469,7 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
 
   /** Base URL công khai để dựng link design khi lưu trữ trả đường dẫn tương đối. */
   /**
-   * Design của cả tổ chức, tra theo `mappingKeyOf(productId, sellerSku)`.
+   * Design của cả tổ chức, dựng theo `rowKeyOf` (Seller SKU, hoặc SKU ID khi biến thể không có Seller SKU).
    *
    * MỘT truy vấn cho cả đơn. Design đã tách khỏi ánh xạ nên không `include` qua mapping được
    * nữa; đọc theo từng dòng hàng sẽ là N+1 ngay trên luồng gửi đơn.
@@ -1478,7 +1478,7 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
     const rows = await this.repo.listProductDesigns(organizationId);
     const byKey: DesignsByProductKey = new Map();
     for (const row of rows) {
-      const key = mappingKeyOf(row.tiktokProductId, row.sellerSku);
+      const key = rowKeyOf(row);
       if (!key) continue;
       const list = byKey.get(key) ?? [];
       list.push(row);

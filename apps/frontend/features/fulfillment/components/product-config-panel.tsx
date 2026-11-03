@@ -41,7 +41,7 @@ import {
 } from '../product-config';
 import { ItemThumbnail } from '@/features/pod-tiktok/components/item-thumbnail';
 import { itemThumbnailCandidates } from '@/features/pod-tiktok/item-image';
-import { productKeyMessageKey } from '@/features/pod-tiktok/product-key';
+import { productKeyMessageKey, productKeyOf, usesSkuIdKey } from '@/features/pod-tiktok/product-key';
 import { baseCostSaveWarning } from '../base-cost';
 import type { ProductMapping, ProviderCatalogProduct, UpsertProductMappingInput } from '../types';
 import { CatalogSyncNotice } from './catalog-sync-notice';
@@ -353,11 +353,15 @@ export function ProductConfigPanel({
       }))
     : (options.data?.printLocations ?? []);
 
+  /** Khoá lưu ánh xạ / design: Seller SKU, hoặc TikTok SKU ID khi biến thể không có Seller SKU. */
+  const productKey = productKeyOf(item);
+
   /** Nguồn DUY NHẤT của "lưu được chưa" — nút, thông điệp và chốt chặn đều đọc từ đây. */
   const blockers = configBlockers({
     accountId,
     tiktokProductId: item.productId,
     sellerSku: item.sellerSku,
+    tiktokSkuId: item.skuId,
     providerProductId: selectedProduct?.id ?? '',
     productUnavailable,
     variant: selectedVariant,
@@ -368,15 +372,15 @@ export function ProductConfigPanel({
       toast.error(blockerText(blockers[0]));
       return;
     }
-    // `blockers` rỗng ⇒ ba giá trị dưới đây chắc chắn có; ép kiểu một chỗ thay vì rải `!`.
+    // `blockers` rỗng ⇒ các giá trị dưới đây chắc chắn có; ép kiểu một chỗ thay vì rải `!`.
     const product = selectedProduct as ProviderCatalogProduct;
     const variant = selectedVariant as NonNullable<typeof selectedVariant>;
+    const key = productKey as NonNullable<typeof productKey>;
 
     const input: UpsertProductMappingInput = {
       accountId: accountId as string,
-      tiktokProductId: item.productId as string,
-      sellerSku: item.sellerSku as string,
-      ...(item.skuId ? { tiktokSkuId: item.skuId } : {}),
+      // Seller SKU nếu có; không có ⇒ chỉ gửi tiktokSkuId (backend lưu seller_sku = NULL). Không gửi chuỗi rỗng.
+      ...key,
       providerSku: variant.sku,
       // 🔴 LUÔN là id phía nhà cung cấp, lấy từ chính bản ghi đang chọn — không bao giờ là id
       // nội bộ, kể cả khi danh sách đang hiển thị kết quả tìm kiếm khác.
@@ -434,7 +438,9 @@ export function ProductConfigPanel({
           <p className="text-muted-foreground">
             <span className="font-mono">{item.productId ?? '—'}</span>
             {' · '}
-            <span className="font-mono">{item.sellerSku ?? '—'}</span>
+            <span className="font-mono">
+              {item.sellerSku?.trim() || (item.skuId ? `SKU ID ${item.skuId}` : '—')}
+            </span>
             {/* Đơn TikTok không có Seller SKU — khoá lấy từ danh mục Products (khớp đúng biến thể, duy nhất). */}
             {item.sellerSkuSource === 'CATALOG' && (
               <span className="text-warning" title={t('pod:productKey.fromCatalogHint')}>
@@ -445,6 +451,13 @@ export function ProductConfigPanel({
             {item.skuName && <span> · {item.skuName}</span>}
             <span> · × {item.quantity}</span>
           </p>
+          {/* Biến thể không có Seller SKU: CẢNH BÁO, không chặn — ánh xạ & design lưu theo TikTok SKU ID. */}
+          {usesSkuIdKey(item) && (
+            <p className="flex items-start gap-1 text-[11px] text-warning">
+              <Info className="mt-0.5 size-3 shrink-0" />
+              <span>{t('pod:productKey.skuIdKeyHint', { skuId: item.skuId })}</span>
+            </p>
+          )}
           <Link
             href={`/dashboard/pod/products?search=${encodeURIComponent(item.productId ?? '')}`}
             className="inline-flex items-center gap-1 text-primary hover:underline"
@@ -730,15 +743,12 @@ export function ProductConfigPanel({
           {/* ------------------------------------------------------------ Artwork / Design */}
           <div className="space-y-2">
             <Label>{t('fulfill.config.artwork')}</Label>
-            {item.productId && item.sellerSku ? (
+            {productKey ? (
               <div className="grid gap-2 sm:grid-cols-2">
                 {printLocations.map((location) => (
                   <DesignSlot
                     key={location.placement}
-                    productKey={{
-                      tiktokProductId: item.productId as string,
-                      sellerSku: item.sellerSku as string,
-                    }}
+                    productKey={productKey}
                     placement={location.placement}
                     design={
                       designs.find((design) => design.placement === location.placement) ?? null

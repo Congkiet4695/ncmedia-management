@@ -34,7 +34,7 @@ import {
 } from '../../pod-tiktok/constants/pod-design.constants';
 import { PodDesignDto } from '../../pod-tiktok/dto/pod-design.dto';
 import { ProductDesignMapper } from '../mappers/product-design.mapper';
-import { mappingKeyOf } from '../shared/mapping-match';
+import { normalizeProductKey, productKeyFilter, type ProductKey } from '../shared/mapping-match';
 import { toDirectDownloadUrl } from '../shared/design-url';
 import { assertPublicDownloadUrl } from '../shared/public-url';
 
@@ -48,9 +48,14 @@ type ProductDesignWithFile = Prisma.FulfillmentProductDesignGetPayload<{
 }>;
 
 /** Khoá nghiệp vụ của một sản phẩm POD. */
+/**
+ * Khoá của design như client gửi lên: Product ID + Seller SKU; biến thể không có Seller SKU trên TikTok ⇒ Product ID +
+ * TikTok SKU ID (`sellerSku` trống). Chuẩn hoá bằng `normalizeProductKey` (shared/mapping-match.ts).
+ */
 export interface ProductDesignKey {
   tiktokProductId: string;
-  sellerSku: string;
+  sellerSku?: string | null;
+  tiktokSkuId?: string | null;
 }
 
 export class ProductDesignKeyInvalidException extends BadRequestException {
@@ -58,8 +63,8 @@ export class ProductDesignKeyInvalidException extends BadRequestException {
     super({
       code: 'POD_DESIGN_KEY_INVALID',
       message:
-        'Thiếu Product ID hoặc Seller SKU. Design được lưu theo cặp khoá này, ' +
-        'nên không có đủ hai giá trị thì không xác định được lưu cho sản phẩm nào.',
+        'Thiếu Product ID, hoặc thiếu cả Seller SKU lẫn TikTok SKU ID. Design được lưu theo Product ID + Seller SKU ' +
+        '(biến thể không có Seller SKU: Product ID + SKU ID), nên thiếu khoá thì không xác định được lưu cho sản phẩm nào.',
     });
   }
 }
@@ -176,7 +181,7 @@ export class ProductDesignService {
       module: 'fulfillment',
       operation: 'product-design.upload',
       organizationId,
-      productKey: mappingKeyOf(key.tiktokProductId, key.sellerSku),
+      ...this.logKey(key),
       placement,
       version: saved.version,
       storageFileId: saved.storageFileId,
@@ -230,7 +235,7 @@ export class ProductDesignService {
       module: 'fulfillment',
       operation: 'product-design.delete',
       organizationId,
-      productKey: mappingKeyOf(key.tiktokProductId, key.sellerSku),
+      ...this.logKey(key),
       placement,
       storageFileId,
       msg: 'Đã xoá design của sản phẩm',
@@ -277,7 +282,7 @@ export class ProductDesignService {
       module: 'fulfillment',
       operation: 'product-design.import-url',
       organizationId,
-      productKey: mappingKeyOf(key.tiktokProductId, key.sellerSku),
+      ...this.logKey(key),
       placement,
       version: saved.version,
       storageFileId: saved.storageFileId,
@@ -309,7 +314,8 @@ export class ProductDesignService {
     placement: PodDesignPlacement,
     file: Express.Multer.File,
   ): Promise<ProductDesignWithFile> {
-    const where = this.keyWhere(organizationId, key);
+    const identity = this.resolveKey(key);
+    const where = this.whereOf(organizationId, identity);
     const previous = await this.findActive(where, placement);
 
     const stored = await this.storage.upload(file, {
@@ -330,8 +336,9 @@ export class ProductDesignService {
         'fulfillment',
         'designs',
         organizationId,
-        key.tiktokProductId,
-        key.sellerSku,
+        identity.tiktokProductId,
+        // Biến thể không có Seller SKU ⇒ thư mục theo SKU ID (chỉ là đường dẫn file, KHÔNG phải Seller SKU).
+        identity.sellerSku ?? `sku-id-${identity.tiktokSkuId}`,
       ],
     });
 
@@ -354,8 +361,10 @@ export class ProductDesignService {
         return tx.fulfillmentProductDesign.create({
           data: {
             organizationId,
-            tiktokProductId: where.tiktokProductId as string,
-            sellerSku: where.sellerSku as string,
+            tiktokProductId: identity.tiktokProductId,
+            sellerSku: identity.sellerSku,
+            // Chỉ là khoá khi KHÔNG có Seller SKU; design theo Seller SKU dùng chung mọi biến thể cùng SKU ⇒ để trống.
+            tiktokSkuId: identity.sellerSku ? null : identity.tiktokSkuId,
             placement,
             storageFileId: stored.id,
             createdBy: actorUserId,
@@ -501,7 +510,8 @@ export class ProductDesignService {
           // Cột trên `pod_order_items` tên là `product_id` (id sản phẩm phía TikTok) —
           // cùng một thứ với `tiktokProductId` của `pod_products`, khác tên bảng.
           productId: key.tiktokProductId,
-          sellerSku: key.sellerSku,
+          // Khoá SKU ID ⇒ tra theo `sku_id` của dòng đơn (Seller SKU của dòng đó rỗng).
+          ...(key.sellerSku?.trim() ? { sellerSku: key.sellerSku } : { skuId: key.tiktokSkuId ?? undefined }),
           order: { organizationId, deletedAt: null, shopId: { in: scope.shopIds } },
         },
         select: { id: true },
@@ -511,20 +521,36 @@ export class ProductDesignService {
   }
 
   /**
-   * Điều kiện WHERE theo cặp khoá, đã kiểm tenant (ADR-004) và kiểm khoá hợp lệ.
+   * Điều kiện WHERE theo khoá, đã kiểm tenant (ADR-004) và kiểm khoá hợp lệ.
    *
-   * Cắt khoảng trắng thừa cho khớp `mappingKeyOf` — dữ liệu nhập tay hay dính khoảng trắng,
+   * Cắt khoảng trắng thừa cho khớp `mapping-match.ts` — dữ liệu nhập tay hay dính khoảng trắng,
    * và hai nơi chuẩn hoá khác nhau sẽ tạo ra hai bản ghi cho cùng một sản phẩm.
    */
   private keyWhere(
     organizationId: string,
     key: ProductDesignKey,
   ): Prisma.FulfillmentProductDesignWhereInput {
-    const tiktokProductId = key.tiktokProductId?.trim();
-    const sellerSku = key.sellerSku?.trim();
-    if (!tiktokProductId || !sellerSku) throw new ProductDesignKeyInvalidException();
+    return this.whereOf(organizationId, this.resolveKey(key));
+  }
 
-    return { organizationId, tiktokProductId, sellerSku, deletedAt: null };
+  /** Khoá đã chuẩn hoá — Seller SKU rỗng KHÔNG bao giờ được dùng làm khoá; thiếu cả hai ⇒ 400. */
+  private resolveKey(key: ProductDesignKey): ProductKey {
+    const identity = normalizeProductKey(key);
+    if (!identity) throw new ProductDesignKeyInvalidException();
+    return identity;
+  }
+
+  private whereOf(organizationId: string, identity: ProductKey): Prisma.FulfillmentProductDesignWhereInput {
+    return { organizationId, ...productKeyFilter(identity), deletedAt: null };
+  }
+
+  /** Khoá cho log — tách trường, không ghép chuỗi có ký tự phân tách. */
+  private logKey(key: ProductDesignKey): Record<string, string | null> {
+    return {
+      tiktokProductId: key.tiktokProductId,
+      sellerSku: key.sellerSku?.trim() || null,
+      tiktokSkuId: key.sellerSku?.trim() ? null : (key.tiktokSkuId ?? null),
+    };
   }
 
   /**

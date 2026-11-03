@@ -16,6 +16,9 @@ import { FulfillmentReadinessService } from './fulfillment-readiness.service';
 import { FulfillmentService } from './fulfillment.service';
 import { FulfillmentVariantPriceService } from './fulfillment-variant-price.service';
 import type { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
+import { UpsertProductMappingDto } from '../dto/fulfillment.dto';
 
 const encryption = {
   encrypt: (value: string) => `enc:${value}`,
@@ -433,9 +436,97 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
 
       expect(repo.findConflictingMapping).toHaveBeenCalledWith(
         'org-1',
-        { tiktokProductId: 'TT-P9', sellerSku: 'SELLER-9' },
+        { tiktokProductId: 'TT-P9', sellerSku: 'SELLER-9', tiktokSkuId: null },
         undefined,
       );
+    });
+
+    describe('🔴 biến thể KHÔNG có Seller SKU trên TikTok (PO 2026-11-03)', () => {
+      it.each([
+        ['bỏ trống', undefined],
+        ['chuỗi rỗng', ''],
+        ['chỉ khoảng trắng', '   '],
+      ])('Seller SKU %s + TikTok SKU ID ⇒ lưu khoá Product ID + SKU ID, seller_sku = NULL', async (_label, sellerSku) => {
+        const { service, repo } = build();
+        await service.createMapping(
+          'org-1',
+          'user-1',
+          FulfillmentProvider.MANGO,
+          { tiktokProductId: 'TT-P9', sellerSku, tiktokSkuId: 'SKU-ID-9', providerSku: 'MANGO-SKU-9' },
+          POD_SCOPE_SYSTEM,
+        );
+        const data = callArg<Record<string, unknown>>(repo.createMapping, 0, 0);
+        expect(data).toMatchObject({ tiktokProductId: 'TT-P9', sellerSku: null, tiktokSkuId: 'SKU-ID-9', providerSku: 'MANGO-SKU-9' });
+        // Kiểm trùng theo ĐÚNG danh tính SKU ID — không đụng ánh xạ Seller SKU.
+        expect(repo.findConflictingMapping).toHaveBeenCalledWith(
+          'org-1',
+          { tiktokProductId: 'TT-P9', sellerSku: null, tiktokSkuId: 'SKU-ID-9' },
+          undefined,
+        );
+      });
+
+      it('thiếu CẢ Seller SKU lẫn SKU ID ⇒ 400 FULFILLMENT_MAPPING_KEY_INVALID, không ghi gì', async () => {
+        const { service, repo } = build();
+        await expect(
+          service.createMapping(
+            'org-1',
+            'user-1',
+            FulfillmentProvider.MANGO,
+            { tiktokProductId: 'TT-P9', sellerSku: ' ', providerSku: 'MANGO-SKU-9' },
+            POD_SCOPE_SYSTEM,
+          ),
+        ).rejects.toMatchObject({ response: { code: 'FULFILLMENT_MAPPING_KEY_INVALID' } });
+        expect(repo.createMapping).not.toHaveBeenCalled();
+      });
+
+      it('ánh xạ trùng cùng SKU ID ⇒ 409 như khoá Seller SKU', async () => {
+        const { service, repo } = build({ findConflictingMapping: jest.fn().mockResolvedValue(mapping()) });
+        await expect(
+          service.createMapping(
+            'org-1',
+            'user-1',
+            FulfillmentProvider.MANGO,
+            { tiktokProductId: 'TT-P9', tiktokSkuId: 'SKU-ID-9', providerSku: 'MANGO-SKU-9' },
+            POD_SCOPE_SYSTEM,
+          ),
+        ).rejects.toBeInstanceOf(FulfillmentMappingConflictException);
+        expect(repo.createMapping).not.toHaveBeenCalled();
+      });
+
+      it('sửa ánh xạ SKU ID: giữ khoá, mở lại đọc được (requireMappingProductKey trả khoá SKU ID)', async () => {
+        const skuless = mapping({ sellerSku: null, tiktokSkuId: 'SKU-ID-9', tiktokProductId: 'TT-P9' });
+        const { service, repo } = build({ findMappingById: jest.fn().mockResolvedValue(skuless) });
+        await service.updateMapping(
+          'org-1',
+          'user-1',
+          'map-1',
+          { tiktokProductId: 'TT-P9', tiktokSkuId: 'SKU-ID-9', providerSku: 'MANGO-SKU-9' },
+          POD_SCOPE_SYSTEM,
+        );
+        expect(callArg<Record<string, unknown>>(repo.updateMapping, 0, 1)).toMatchObject({ sellerSku: null, tiktokSkuId: 'SKU-ID-9' });
+        expect(repo.findConflictingMapping).toHaveBeenCalledWith(
+          'org-1',
+          { tiktokProductId: 'TT-P9', sellerSku: null, tiktokSkuId: 'SKU-ID-9' },
+          'map-1',
+        );
+        await expect(service.requireMappingProductKey('org-1', 'map-1')).resolves.toEqual({
+          tiktokProductId: 'TT-P9',
+          sellerSku: null,
+          tiktokSkuId: 'SKU-ID-9',
+        });
+      });
+
+      it('DTO: thiếu Seller SKU phải có tiktokSkuId; có một trong hai ⇒ hợp lệ', () => {
+        const errorsOf = (body: Record<string, unknown>) =>
+          validateSync(plainToInstance(UpsertProductMappingDto, { tiktokProductId: 'P', providerSku: 'X', ...body }))
+            .map((error) => error.property)
+            .filter((property) => property === 'sellerSku' || property === 'tiktokSkuId');
+        expect(errorsOf({ sellerSku: 'S' })).toEqual([]);
+        expect(errorsOf({ tiktokSkuId: 'K' })).toEqual([]);
+        expect(errorsOf({ sellerSku: '  ', tiktokSkuId: 'K' })).toEqual([]);
+        expect(errorsOf({})).toEqual(['tiktokSkuId']);
+        expect(errorsOf({ sellerSku: '   ' })).toEqual(['tiktokSkuId']);
+      });
     });
 
     it('chặn ánh xạ trùng — một Product ID + Seller SKU chỉ có MỘT bộ Design', async () => {
@@ -504,7 +595,7 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
 
       expect(repo.findConflictingMapping).toHaveBeenCalledWith(
         'org-1',
-        { tiktokProductId: 'TT-P1', sellerSku: 'SELLER-1' },
+        { tiktokProductId: 'TT-P1', sellerSku: 'SELLER-1', tiktokSkuId: null },
         'map-1',
       );
     });

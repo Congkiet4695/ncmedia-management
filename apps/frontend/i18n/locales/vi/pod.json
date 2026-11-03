@@ -1272,7 +1272,8 @@
       "quantity": "Số lượng",
       "removeSku": "Xoá SKU",
       "save": "Lưu sản phẩm",
-      "saved": "Đã lưu. Bấm \"Bắt đầu đăng\" để đưa lên {{shops}} shop."
+      "saved": "Đã lưu. Bấm \"Bắt đầu đăng\" để đưa lên {{shops}} shop.",
+      "sellerSkuRequired": "Mỗi dòng SKU phải có Seller SKU — điền các ô còn trống (hoặc bấm \"Tạo SKU\" lại)."
     },
     "custom": {
       "addButton": "Đăng Sản Phẩm",
@@ -2275,10 +2276,11 @@
     "issue": {
       "NO_PRODUCT_ID": "Dòng hàng không có TikTok Product ID — đồng bộ lại đơn từ TikTok.",
       "NO_SKU_ID": "Dòng hàng không có Seller SKU và không có TikTok SKU ID để tra danh mục — đồng bộ lại đơn từ TikTok.",
-      "VARIANT_NOT_SYNCED": "Dòng hàng không có Seller SKU, và biến thể này chưa có trong danh mục Products — đồng bộ sản phẩm của shop (Products → Đồng bộ) rồi mở lại đơn.",
-      "SELLER_SKU_EMPTY_ON_TIKTOK": "Biến thể này trên TikTok chưa có Seller SKU (cả trong đơn lẫn danh mục Products). Đặt Seller SKU cho biến thể ở TikTok Seller Center hoặc màn Sửa sản phẩm, đồng bộ sản phẩm, rồi mở lại đơn để khai ánh xạ và design.",
+      "VARIANT_NOT_SYNCED": "Dòng hàng không có Seller SKU và biến thể chưa có trong danh mục Products đã đồng bộ — ánh xạ và design lưu theo TikTok SKU ID của biến thể. Nếu biến thể thật ra CÓ Seller SKU trên TikTok, đồng bộ sản phẩm để dùng chung ánh xạ / design theo Seller SKU.",
+      "SELLER_SKU_EMPTY_ON_TIKTOK": "Biến thể này trên TikTok không có Seller SKU (cả trong đơn lẫn danh mục Products) — ánh xạ và design lưu theo TikTok SKU ID của biến thể; không cần sửa trên TikTok để fulfill.",
       "SELLER_SKU_AMBIGUOUS": "Danh mục Products có nhiều Seller SKU khác nhau cho cùng biến thể — hệ thống không tự chọn. Kiểm tra Seller SKU của biến thể trên TikTok rồi đồng bộ sản phẩm.",
       "UNKNOWN": "Dòng hàng thiếu Product ID hoặc Seller SKU nên không khai ánh xạ được."
-    }
+    },
+    "skuIdKeyHint": "Biến thể này không có Seller SKU trên TikTok — ánh xạ và design được lưu theo TikTok SKU ID ({{skuId}}). Vẫn cấu hình và fulfill bình thường, không cần sửa trên TikTok."
   }
 }

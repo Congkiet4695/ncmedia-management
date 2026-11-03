@@ -1,3 +1,6 @@
+import { plainToInstance } from 'class-transformer';
+import { validateSync } from 'class-validator';
+import { UpdatePodProductSkuDto } from '../dto/pod-product-update.dto';
 import { findIntroducedSkuConflicts, type ProductSnapshot } from './pod-product-edit.payload';
 import { PodProductEditService, PodProductSkuDuplicateException } from './pod-product-edit.service';
 
@@ -118,5 +121,24 @@ describe('PodProductEditService.update — Seller SKU trùng', () => {
     await h.service.update('org-1', 'user-1', 'p-1', { skus: [{ tiktokSkuId: 'sku-1', sellerSku: 'A-NEW' }] }, scope);
     const body = (h.partialEditProduct.mock.calls[0] as unknown[])[2] as { skus?: unknown };
     expect(body.skus).toEqual([{ id: 'sku-1', sellerSku: 'A-NEW' }]);
+  });
+});
+
+describe('UpdatePodProductSkuDto.sellerSku — không xoá Seller SKU qua sửa sản phẩm (audit 2026-11-03)', () => {
+  const errorsOf = (sellerSku: unknown) =>
+    validateSync(plainToInstance(UpdatePodProductSkuDto, { tiktokSkuId: '1732793676959617452', sellerSku }))
+      .filter((error) => error.property === 'sellerSku')
+      .map((error) => Object.keys(error.constraints ?? {}));
+
+  it('không gửi ⇒ hợp lệ (không đổi mã)', () => {
+    expect(errorsOf(undefined)).toEqual([]);
+  });
+
+  it('mã mới (đã trim) ⇒ hợp lệ', () => {
+    expect(errorsOf('  TEE-BLACK-S ')).toEqual([]);
+  });
+
+  it.each([[''], ['   ']])('chuỗi rỗng %j ⇒ TỪ CHỐI (gửi sang TikTok là xoá Seller SKU của biến thể đang bán)', (value) => {
+    expect(errorsOf(value)).toEqual([['isNotEmpty']]);
   });
 });

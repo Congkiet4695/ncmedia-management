@@ -36,7 +36,7 @@ import {
   holdsFulfilledOrder,
 } from '../shared/fulfillment-lifecycle';
 import { currencyFractionDigits, exceedsFractionDigits, resolveOrderLevelBaseCost } from '../shared/manual-base-cost';
-import { createMappingIndex, findMappingInIndex, mappingKeyOf, productIdsOf } from '../shared/mapping-match';
+import { createMappingIndex, findMappingInIndex, itemHasProductKey, productIdsOf } from '../shared/mapping-match';
 import { PRODUCT_KEY_ISSUE_MESSAGE } from '../../pod-tiktok/shared/order-item-product-key';
 
 /** Một dòng dữ liệu đã đọc từ file (chưa kiểm nghiệp vụ). `null` = ô trống / không có cột ⇒ không đổi. */
@@ -456,8 +456,9 @@ export class FulfillmentBaseCostImportService {
     if (lines.length === 0) return { ok: false, code: 'NO_ITEMS', message: 'Đơn không có dòng hàng nào cần fulfill.' };
     if (lines.length > 1) return this.multiItem(lines.length);
     const [line] = lines;
-    if (!mappingKeyOf(line.productId, line.sellerSku)) {
-      const reason = line.productKeyIssue ?? (line.productId?.trim() ? 'SELLER_SKU_EMPTY_ON_TIKTOK' : 'NO_PRODUCT_ID');
+    // Thiếu Seller SKU nhưng có SKU ID ⇒ vẫn có khoá (Product ID + SKU ID) — xem shared/mapping-match.ts.
+    if (!itemHasProductKey(line)) {
+      const reason = line.productId?.trim() ? ('NO_SKU_ID' as const) : ('NO_PRODUCT_ID' as const);
       return { ok: false, code: 'MAPPING_KEY_MISSING', message: PRODUCT_KEY_ISSUE_MESSAGE[reason] };
     }
     const mapping = findMappingInIndex(line, context.mappingIndex);

@@ -46,7 +46,7 @@ import {
   type MappingWithDesigns,
   type PlacementResolver,
 } from '../../services/fulfillment-readiness.service';
-import { mappingKeyOf } from '../../shared/mapping-match';
+import { findMappingForItem, rowKeyOf } from '../../shared/mapping-match';
 import {CANCELLABLE_FULFILLMENT_STATUSES,
   SUBMITTABLE_FULFILLMENT_STATUSES,
   fulfillmentOrderLockKey,
@@ -879,13 +879,8 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     const warnings: string[] = [];
     const skus = new Set<string>();
     for (const item of order.items) {
-      const key = mappingKeyOf(item.productId, item.sellerSku);
-      const mapping = key
-        ? mappings.find(
-            (entry) =>
-              entry.isActive && mappingKeyOf(entry.tiktokProductId, entry.sellerSku) === key,
-          )
-        : undefined;
+      // Cùng luật ghép với readiness (Seller SKU, rồi SKU ID khi biến thể không có Seller SKU).
+      const mapping = findMappingForItem(item, mappings) ?? undefined;
       const label = item.productName ?? item.sellerSku ?? item.id;
       // Quà tặng khuyến mãi chưa cấu hình ⇒ không gửi sang Sellerwix (xem `FulfillmentReadinessService`),
       // nên không tham gia chọn phương thức vận chuyển và không phải là lỗi cấu hình.
@@ -1423,7 +1418,7 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     const rows = await this.repo.listProductDesigns(organizationId);
     const byKey: DesignsByProductKey = new Map();
     for (const row of rows) {
-      const key = mappingKeyOf(row.tiktokProductId, row.sellerSku);
+      const key = rowKeyOf(row);
       if (!key) continue;
       const list = byKey.get(key) ?? [];
       list.push(row);

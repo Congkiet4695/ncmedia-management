@@ -5,8 +5,10 @@ import { StorageMapper } from '../../storage/storage.mapper';
 import {
   createMappingIndex,
   findMappingInIndex,
+  lookupForItem,
   mappingKeyOf,
   productIdsOf,
+  rowKeyOf,
 } from '../../fulfillment/shared/mapping-match';
 import { PodDesignDto } from '../dto/pod-design.dto';
 import { toPodDesignDto, type DesignPresentable } from '../mappers/pod-design.presenter';
@@ -17,6 +19,7 @@ interface MappingRow {
   id: string;
   tiktokProductId: string | null;
   sellerSku: string | null;
+  tiktokSkuId: string | null;
   isActive: boolean;
 }
 
@@ -24,7 +27,11 @@ interface MappingRow {
 interface DesignRow extends DesignPresentable {
   tiktokProductId: string | null;
   sellerSku: string | null;
+  tiktokSkuId: string | null;
 }
+
+/** Có khoá: Seller SKU, hoặc (biến thể không có Seller SKU) TikTok SKU ID. */
+const HAS_KEY = [{ sellerSku: { not: null } }, { tiktokSkuId: { not: null } }];
 
 /**
  * Tình trạng ánh xạ của một line item — bốn trạng thái dẫn tới bốn hành động khác nhau.
@@ -60,7 +67,8 @@ export interface ItemMappingCandidate {
  * Design + tình trạng ánh xạ của MỘT line item.
  *
  * 🔴 `designs` và `mappingId` được giải quyết ĐỘC LẬP với nhau:
- *   - `designs`   tra theo (Product ID + Seller SKU) — có ngay cả khi chưa ánh xạ.
+ *   - `designs`   tra theo khoá sản phẩm (Product ID + Seller SKU, hoặc + SKU ID khi biến thể không có Seller
+ *                 SKU — `shared/mapping-match.ts`) — có ngay cả khi chưa ánh xạ.
  *   - `mappingId` tra theo cùng cặp khoá nhưng trong bảng ánh xạ — `null` nghĩa là chưa khai.
  * Một dòng hàng hoàn toàn có thể có design mà chưa có ánh xạ, và ngược lại.
  */
@@ -129,7 +137,7 @@ export class PodOrderDesignResolver {
           organizationId,
           deletedAt: null,
           tiktokProductId: { in: productIds },
-          sellerSku: { not: null },
+          OR: HAS_KEY,
         },
         orderBy: { placement: 'asc' },
         select: {
@@ -138,6 +146,7 @@ export class PodOrderDesignResolver {
           version: true,
           tiktokProductId: true,
           sellerSku: true,
+          tiktokSkuId: true,
           sourceUrl: true,
           updatedAt: true,
           storageFile: {
@@ -160,11 +169,12 @@ export class PodOrderDesignResolver {
           isActive: true,
           // Thiếu khoá ⇒ không ghép được với đơn nào; lọc ngay ở DB cho khỏi tải về vô ích.
           tiktokProductId: { in: productIds },
-          sellerSku: { not: null },
+          OR: HAS_KEY,
         },
-        select: { id: true, tiktokProductId: true, sellerSku: true, isActive: true },
+        select: { id: true, tiktokProductId: true, sellerSku: true, tiktokSkuId: true, isActive: true },
       }),
-      // Kết quả rà ánh xạ tự động gần nhất. Không có bản ghi ⇒ chưa rà bao giờ ⇒ `MISSING`.
+      // Kết quả rà ánh xạ tự động gần nhất (chỉ khoá Seller SKU — biến thể không có Seller SKU được khai tay).
+      // Không có bản ghi ⇒ chưa rà bao giờ ⇒ `MISSING`.
       this.prisma.fulfillmentMappingCandidate.findMany({
         where: { organizationId, tiktokProductId: { in: productIds } },
         select: { tiktokProductId: true, sellerSku: true, status: true, candidates: true },
@@ -189,7 +199,7 @@ export class PodOrderDesignResolver {
           mappingId: mapping?.id ?? null,
           mappingStatus: mapping ? 'MAPPED' : this.toStatus(candidate?.status),
           // 🔴 Design KHÔNG phụ thuộc `mapping`: sản phẩm chưa ánh xạ vẫn hiển thị đủ file in.
-          designs: key ? (designsByKey.get(key) ?? []) : [],
+          designs: lookupForItem(item, designsByKey) ?? [],
           candidates:
             !mapping && candidate?.status === 'NEED_MANUAL'
               ? ((candidate.candidates ?? []) as unknown as ItemMappingCandidate[])
@@ -205,7 +215,7 @@ export class PodOrderDesignResolver {
   private groupDesigns(rows: DesignRow[]): Map<string, PodDesignDto[]> {
     const byKey = new Map<string, PodDesignDto[]>();
     for (const row of rows) {
-      const key = mappingKeyOf(row.tiktokProductId, row.sellerSku);
+      const key = rowKeyOf(row);
       if (!key) continue;
       const list = byKey.get(key) ?? [];
       list.push(this.toDto(row));
