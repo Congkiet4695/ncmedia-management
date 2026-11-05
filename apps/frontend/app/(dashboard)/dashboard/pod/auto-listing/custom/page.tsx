@@ -1,6 +1,8 @@
 'use client';
 
+import { Suspense } from 'react';
 import Link from 'next/link';
+import { useSearchParams } from 'next/navigation';
 import { ArrowLeft } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -35,8 +37,19 @@ export default function CustomListingPage() {
           </Button>
         </div>
 
-        <CustomListingForm />
+        <Suspense>
+          <NewCustomListingForm />
+        </Suspense>
       </div>
     </RequirePermission>
   );
+}
+
+/**
+ * `?carry=<token>` = sản phẩm mới, giữ cấu hình của sản phẩm vừa đăng. Token nằm trong `key` nên form được dựng lại từ
+ * đầu kể cả khi đang đứng sẵn ở chính route này (không còn lượt đăng, kết quả chạy hay trạng thái của sản phẩm trước).
+ */
+function NewCustomListingForm() {
+  const carryToken = useSearchParams().get('carry') ?? undefined;
+  return <CustomListingForm key={carryToken ?? 'new'} carryToken={carryToken} />;
 }

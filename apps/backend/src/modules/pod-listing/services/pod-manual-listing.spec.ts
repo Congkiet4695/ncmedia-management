@@ -308,6 +308,10 @@ describe('applyManualOverride — kiểm tra giá (gộp lỗi theo §10)', () =
     const result = applyManualOverride(templateListing(), { skus: [sku('A')] }, issues);
 
     expect(result.variants[0].quantity).toBe(0);
+    // 🔴 Khai rõ 0 cũng ra 0 — không rơi về tồn của SKU Template, không bị đổi thành số khác.
+    const zero = applyManualOverride(templateListing(), { skus: [{ ...sku('ZERO-1'), quantity: 0 }] }, issues);
+    expect(zero.variants[0].quantity).toBe(0);
+    expect(parseManualOverride({ skus: [{ sellerSku: 'ZERO-1', quantity: 0 }] })?.skus?.[0].quantity).toBe(0);
     expect(issues).toHaveLength(0);
   });
 });

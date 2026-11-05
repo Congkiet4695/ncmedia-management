@@ -459,12 +459,15 @@ export function hasUnsendableDescriptionImage(html: string): boolean {
   return false;
 }
 
-/** Một dòng SKU dùng được: có Seller SKU, giá bán > 0, số lượng không âm. */
+/**
+ * Một dòng SKU dùng được: có Seller SKU, giá bán > 0, số lượng là số nguyên không âm.
+ * 🔴 `0` là tồn kho HỢP LỆ (hết hàng); bỏ trống cũng được (backend coi là 0).
+ */
 export function isUsableSku(sku: ManualSku): boolean {
   return (
     sku.sellerSku.trim() !== '' &&
     Number(sku.salePrice) > 0 &&
-    (sku.quantity === undefined || sku.quantity >= 0)
+    (sku.quantity == null || (Number.isInteger(sku.quantity) && sku.quantity >= 0))
   );
 }
 

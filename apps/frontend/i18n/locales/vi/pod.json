@@ -1351,7 +1351,23 @@
       "publishLiveStarted": "Đã gửi Publish Live: {{products}} sản phẩm × {{targets}} shop. Theo dõi kết quả từng shop ở màn hình lượt đăng.",
       "publishLiveFailed": "Không gửi được Publish Live",
       "resetCategory": "Xoá danh mục",
-      "confirmResetCategory": "Xoá danh mục, Category Template đang chọn và các thuộc tính của danh mục? Brand, kho, kiện hàng, bảng size và video được giữ nguyên."
+      "confirmResetCategory": "Xoá danh mục, Category Template đang chọn và các thuộc tính của danh mục? Brand, kho, kiện hàng, bảng size và video được giữ nguyên.",
+      "zeroStockHint": "{{count}} SKU có tồn kho 0 sẽ được đăng ở trạng thái hết hàng. TikTok có thể từ chối tồn kho 0; khi đó lỗi sẽ hiện theo từng shop.",
+      "runInProgress": "Đang đăng lên TikTok…",
+      "runFailedToast": "Lượt đăng chưa thành công trọn vẹn.",
+      "runPartial": "Chỉ đăng thành công {{success}}/{{total}} shop.",
+      "runFailed": "Đăng sản phẩm không thành công.",
+      "viewShopResults": "Xem kết quả từng shop",
+      "done": {
+        "titleList": "Đã đăng sản phẩm thành công",
+        "titleLive": "Đã gửi Publish Live thành công",
+        "descriptionList": "Sản phẩm đã được tạo trên mọi shop đã chọn. Bạn muốn làm gì tiếp theo?",
+        "descriptionLive": "Sản phẩm đã được gửi lên mọi shop đã chọn và chờ TikTok duyệt. Bạn muốn làm gì tiếp theo?",
+        "backToList": "Quay lại danh sách listing",
+        "stay": "Ở lại sản phẩm này",
+        "newProduct": "Tạo listing cho sản phẩm mới",
+        "newProductHint": "Giữ Shop, Group Template, Danh mục & Thuộc tính, Mô tả, Đóng gói, SKU & Giá. Tiêu đề, ảnh và Seller SKU sẽ làm mới."
+      }
     },
     "media": {
       "section": "Hình ảnh & Video",
@@ -1404,7 +1420,20 @@
       "hasImage": "Đã có ảnh",
       "noImage": "Chưa có ảnh",
       "noValues": "Thêm giá trị cho biến thể trước rồi mới gắn ảnh.",
-      "uploadFailed": "Không tải được ảnh cho biến thể {{value}}."
+      "uploadFailed": "Không tải được ảnh cho biến thể {{value}}.",
+      "url": {
+        "toggle": "Dùng URL",
+        "label": "URL ảnh cho biến thể {{value}}",
+        "load": "Tải ảnh",
+        "use": "Dùng ảnh này",
+        "applied": "Đã gắn ảnh cho biến thể {{value}}.",
+        "previewFailed": "Không hiển thị được ảnh này — hãy thử link khác.",
+        "hint": "Link công khai tới ảnh JPEG / PNG / WEBP, tối đa 5 MB. Hệ thống tải ảnh về, lưu lại và chỉ gắn khi bạn bấm \"Dùng ảnh này\".",
+        "problem": {
+          "EMPTY": "Hãy nhập URL ảnh.",
+          "MULTIPLE": "Mỗi biến thể chỉ nhận một URL ảnh."
+        }
+      }
     },
     "templatePicker": {
       "none": "— Không dùng mẫu —",

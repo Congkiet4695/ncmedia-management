@@ -227,6 +227,21 @@ describe('PodListingPublisherService.publishListing', () => {
     expect(body.skus[0].inventory[0].warehouseId).toBe('TT-WH-1');
   });
 
+  it('🔴 Tồn kho 0 của Listing Session gửi ĐÚNG 0 trong inventory, không bị đổi hay bỏ trường', async () => {
+    const { publish, publishArgs } = buildService();
+    const base = buildPayload();
+
+    await publish(
+      'TT-PRODUCT-1',
+      buildPayload({ variants: [{ ...base.variants[0], quantity: 0 }] }),
+    );
+
+    const body = publishArgs()[2] as {
+      skus: Array<{ inventory: Array<{ quantity: number }> }>;
+    };
+    expect(body.skus[0].inventory[0].quantity).toBe(0);
+  });
+
   it('Trả về đủ dấu vết cho Publish History: request, response, audit, request_id, sku id', async () => {
     const { publish } = buildService();
 

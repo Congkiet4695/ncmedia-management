@@ -1,6 +1,7 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import { CheckCircle2, Loader2, RefreshCw, Rocket, Save, Send } from 'lucide-react';
 import { toast } from 'sonner';
@@ -40,6 +41,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { buildSkuCombinations, countCombinations, reconcileSkus } from '../manual-sku';
 import {
   useCreateCustomListing,
+  useListingRun,
   useListingSession,
   useSessionProducts,
   usePublishLiveSession,
@@ -72,6 +74,7 @@ import {
 } from '../custom-listing-group';
 import {
   buildCustomListingPayload,
+  buildManualData,
   buildUpdateCustomListingPayload,
   checkCustomListingForm,
   emptyCustomListingForm,
@@ -82,6 +85,16 @@ import {
   type CustomListingCheck,
   type CustomListingForm as FormState,
 } from '../custom-listing-state';
+import {
+  LISTING_RUN_IDLE,
+  carryOverCustomListingForm,
+  clearCustomListingCarry,
+  listingRunReducer,
+  peekCustomListingCarry,
+  stashCustomListingCarry,
+  type ListingRunMode,
+} from '../custom-listing-next';
+import { ListingDoneDialog } from './listing-done-dialog';
 import { MEDIA_LIMITS, MediaEditor } from './media-editor';
 import { TemplatePicker } from './template-picker';
 import { ShopMultiSelect } from './shop-multi-select';
@@ -141,12 +154,16 @@ const CHECK_MESSAGE: Record<CustomListingCheck, string> = {
  * 🔴 Danh mục và brand khoá theo MÃ TIKTOK và giữ luôn nhãn: danh sách tìm kiếm chỉ là 500 dòng
  * đầu của một cây ~10.000 nút, nên "tra ngược danh sách để tìm cái đã chọn" là mất lựa chọn
  * ngay khi ô tìm kiếm được dọn (đúng lỗi "chọn Poster rồi vẫn bảo chưa chọn danh mục").
+ *
+ * `carryToken`: mở form cho sản phẩm MỚI, giữ cấu hình của sản phẩm vừa đăng (`custom-listing-next.ts`). Trang gắn
+ * token vào `key` nên mỗi lần là một component mới hoàn toàn: không còn session id, kết quả chạy hay trạng thái cũ.
  */
-export function CustomListingForm({ sessionId }: { sessionId?: string }) {
+export function CustomListingForm({ sessionId, carryToken }: { sessionId?: string; carryToken?: string }) {
   const { t } = useTranslation(['pod', 'common']);
   const router = useRouter();
   const translateApiError = useApiError();
-  const { hasPermission } = useAuth();
+  const { hasPermission, user, organization } = useAuth();
+  const ownerId = user?.id && organization?.id ? `${organization.id}:${user.id}` : null;
   const canRun = hasPermission('pod.listing.run');
   // Publish Live = đưa hàng lên sàn THẬT ⇒ cần thêm quyền publish (backend kiểm lại cả hai).
   const canPublishLive = canRun && hasPermission('pod.listing.publish');
@@ -158,7 +175,12 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
   const start = useStartSessionListing();
   const publishLive = usePublishLiveSession();
 
-  const [form, setForm] = useState<FormState>(emptyCustomListingForm);
+  const [carried] = useState(() => peekCustomListingCarry(carryToken, ownerId));
+  // Chỉ dọn sau khi mount: StrictMode gọi hàm khởi tạo state hai lần, đọc xong xoá ngay là lần sau ra form rỗng.
+  useEffect(() => {
+    clearCustomListingCarry(carryToken);
+  }, [carryToken]);
+  const [form, setForm] = useState<FormState>(() => carried?.form ?? emptyCustomListingForm());
   /** Bản form mới nhất cho các handler bất đồng bộ (áp group sau khi chờ tải xong). */
   const formRef = useRef(form);
   formRef.current = form;
@@ -184,7 +206,7 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
    * Bộ thuộc tính đã lưu trong nháp — dự phòng cho lúc bấm Lưu khi định nghĩa thuộc tính của
    * danh mục chưa nạp xong (gửi `[]` lúc đó là xoá sạch thuộc tính đã chọn).
    */
-  const savedAttributes = useRef<ManualAttribute[]>([]);
+  const savedAttributes = useRef<ManualAttribute[]>(carried?.attributes ?? []);
   useEffect(() => {
     if (!sessionId || !session.data || !products.data) return;
     if (restoredFrom.current === sessionId) return;
@@ -464,6 +486,24 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
     });
   };
 
+  // --- Sau khi bấm Đăng / Publish Live: chờ KẾT QUẢ THẬT của lượt chạy rồi mới hỏi bước tiếp theo ---
+  const [run, dispatchRun] = useReducer(listingRunReducer, LISTING_RUN_IDLE);
+  const running = run.phase === 'RUNNING';
+  const listingRun = useListingRun(running ? run.sessionId : undefined, running ? run.jobId : undefined);
+  /** Chặn bấm đúp trong khoảng từ lúc xác nhận tới khi mutation kịp bật `isPending`. */
+  const submitting = useRef(false);
+
+  useEffect(() => {
+    if (run.phase !== 'RUNNING' || listingRun.outcome === 'RUNNING') return;
+    if (listingRun.outcome !== 'SUCCESS') toast.error(t('listing.custom.runFailedToast'));
+    dispatchRun({
+      type: 'SETTLED',
+      jobId: run.jobId,
+      outcome: listingRun.outcome,
+      job: listingRun.job,
+    });
+  }, [listingRun.job, listingRun.outcome, run, t]);
+
   const pendingSkuCount = useMemo(() => countCombinations(form.variations), [form.variations]);
   const busy =
     createCustom.isPending ||
@@ -602,44 +642,80 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
     }
   };
 
-  const handleSubmit = async () => {
+  /**
+   * Lưu form rồi đưa lượt đăng vào hàng đợi. Lỗi ⇒ toast + ở lại form (dữ liệu còn nguyên). Thành công ở đây mới chỉ là
+   * "đã vào hàng đợi": form ở lại, theo dõi job qua `useListingRun`, và popup chỉ mở khi job kết thúc thành công.
+   */
+  const runListing = async (
+    mode: ListingRunMode,
+    confirmKey: string,
+    enqueue: (id: string) => Promise<{ job: { id: string }; started: number; targets: number }>,
+    onStarted: (result: { started: number; targets: number }) => void,
+    onFailed: (error: unknown) => void,
+  ) => {
+    if (submitting.current || running) return;
     if (!precheck('SUBMIT')) return;
-    if (!window.confirm(t('listing.custom.confirmSubmit', { count: form.shopIds.length }))) return;
-    const id = await persist('SUBMIT');
-    if (!id) return;
+    if (!window.confirm(t(confirmKey, { count: form.shopIds.length }))) return;
+    submitting.current = true;
     try {
-      const result = await start.mutateAsync({ id });
-      toast.success(
-        t('listing.sessions.started', { products: result.started, targets: result.targets }),
-      );
-      // Sang màn hình chi tiết — nơi đã có tiến độ và kết quả theo từng shop.
-      router.push(`/dashboard/pod/auto-listing/${id}`);
+      const id = await persist('SUBMIT');
+      if (!id) return;
+      const result = await enqueue(id);
+      onStarted(result);
+      dispatchRun({ type: 'STARTED', sessionId: id, jobId: result.job.id, mode });
     } catch (error) {
-      toast.error(translateApiError(error));
+      onFailed(error);
+    } finally {
+      submitting.current = false;
     }
   };
+
+  const handleSubmit = () =>
+    runListing(
+      'LIST',
+      'listing.custom.confirmSubmit',
+      (id) => start.mutateAsync({ id }),
+      (result) =>
+        toast.success(t('listing.sessions.started', { products: result.started, targets: result.targets })),
+      (error) => toast.error(translateApiError(error)),
+    );
 
   /**
    * **Publish Live TikTok** — không tạo Draft trên sàn, không chờ Publish Draft: validate → lưu
    * form (đúng lượt đang mở, không đẻ bản nháp thứ hai) → backend gửi Create Product LISTING.
-   * Lỗi ⇒ toast + ở lại form (dữ liệu còn nguyên, sửa rồi bấm lại); thành công ⇒ sang màn chi
-   * tiết lượt đăng để theo dõi TikTok Product ID / trạng thái duyệt theo từng shop.
+   * Lỗi ⇒ toast + ở lại form (dữ liệu còn nguyên, sửa rồi bấm lại).
    */
-  const handlePublishLive = async () => {
-    if (publishLive.isPending) return;
-    if (!precheck('SUBMIT')) return;
-    if (!window.confirm(t('listing.custom.confirmPublishLive', { count: form.shopIds.length }))) return;
-    const id = await persist('SUBMIT');
-    if (!id) return;
-    try {
-      const result = await publishLive.mutateAsync({ id });
-      toast.success(
-        t('listing.custom.publishLiveStarted', { products: result.started, targets: result.targets }),
-      );
-      router.push(`/dashboard/pod/auto-listing/${id}`);
-    } catch (error) {
-      toast.error(t('listing.custom.publishLiveFailed'), { description: translateApiError(error) });
-    }
+  const handlePublishLive = () =>
+    runListing(
+      'LIVE',
+      'listing.custom.confirmPublishLive',
+      (id) => publishLive.mutateAsync({ id }),
+      (result) =>
+        toast.success(
+          t('listing.custom.publishLiveStarted', { products: result.started, targets: result.targets }),
+        ),
+      (error) => toast.error(t('listing.custom.publishLiveFailed'), { description: translateApiError(error) }),
+    );
+
+  /** Về danh sách: `useListingRun` đã làm mới danh sách lúc job xong, không gửi lại gì. */
+  const handleDoneToList = () => {
+    dispatchRun({ type: 'DISMISS' });
+    router.push('/dashboard/pod/auto-listing');
+  };
+
+  /** Sang sản phẩm mới: chỉ điều hướng + chuyển cấu hình, không gọi API listing nào. */
+  const handleDoneToNew = () => {
+    const current = formRef.current;
+    const attributeSource = {
+      definitions: attributes.isSuccess ? attributes.data : undefined,
+      fallback: savedAttributes.current,
+    };
+    const token = stashCustomListingCarry(ownerId ?? '', {
+      form: carryOverCustomListingForm(current, skuSeedRef.current),
+      attributes: buildManualData(current, attributeSource).attributes ?? [],
+    });
+    dispatchRun({ type: 'DISMISS' });
+    router.push(`/dashboard/pod/auto-listing/custom?carry=${token}`);
   };
 
   if (editing && (session.isLoading || products.isLoading)) {
@@ -1110,7 +1186,7 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
           />
         </div>
 
-        <VariationEditor variations={form.variations} onChange={handleVariationsChange} />
+        <VariationEditor variations={form.variations} onChange={handleVariationsChange} allowUrlImages />
 
         <div className="my-3 flex flex-wrap items-center gap-3">
           <Button variant="outline" size="sm" onClick={generateSkus} disabled={pendingSkuCount === 0}>
@@ -1168,21 +1244,56 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
         </Card>
       )}
 
+      {/* ---------- Lượt chạy chưa thành công trọn vẹn: không có popup, ở lại form và chỉ đường tới kết quả từng shop ---------- */}
+      {run.phase === 'FAILED' && (
+        <Card className="border-destructive" role="alert">
+          <CardHeader>
+            <p className="font-medium">
+              {run.outcome === 'PARTIAL'
+                ? t('listing.custom.runPartial', { success: run.successItems, total: run.totalItems })
+                : t('listing.custom.runFailed')}
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-2">
+            {run.lastError && <p className="break-words text-sm">{run.lastError}</p>}
+            <Button asChild variant="outline" size="sm">
+              <Link href={`/dashboard/pod/auto-listing/${run.sessionId}`}>{t('listing.custom.viewShopResults')}</Link>
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      <ListingDoneDialog
+        open={run.phase === 'DONE'}
+        mode={run.phase === 'DONE' ? run.mode : 'LIST'}
+        onBackToList={handleDoneToList}
+        onStay={() => dispatchRun({ type: 'DISMISS' })}
+        onNewProduct={handleDoneToNew}
+      />
+
       {/* ---------- Thanh hành động ---------- */}
       <div className="fixed inset-x-0 bottom-0 z-20 border-t bg-background/95 px-6 py-3 backdrop-blur">
         <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-end gap-2">
-          {form.shopIds.length > 0 && (
+          {running ? (
+            <span className="mr-auto flex items-center gap-2 text-sm text-muted-foreground" role="status">
+              <Loader2 className="size-4 animate-spin" />
+              {t('listing.custom.runInProgress')}
+              <Link href={`/dashboard/pod/auto-listing/${run.sessionId}`} className="text-primary underline">
+                {t('listing.custom.viewShopResults')}
+              </Link>
+            </span>
+          ) : form.shopIds.length > 0 ? (
             <span className="mr-auto text-sm text-muted-foreground">
               {t('listing.custom.willListTo', { count: form.shopIds.length })}
             </span>
-          )}
+          ) : null}
           <Button variant="ghost" onClick={() => router.back()} disabled={busy}>
             {t('common:action.cancel')}
           </Button>
           <Button
             variant="outline"
             onClick={() => void handleValidate()}
-            disabled={busy || sessionLocked}
+            disabled={busy || sessionLocked || running}
           >
             {validate.isPending ? (
               <Loader2 className="size-4 animate-spin" />
@@ -1194,14 +1305,14 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
           <Button
             variant="outline"
             onClick={() => void handleSaveDraft()}
-            disabled={busy || sessionLocked}
+            disabled={busy || sessionLocked || running}
           >
             <Save className="size-4" />
             {editing ? t('common:action.save') : t('listing.custom.saveDraft')}
           </Button>
           {/* Nút đăng chỉ hiện với người có quyền chạy listing — backend kiểm lại (§15). */}
           {canRun && (
-            <Button onClick={() => void handleSubmit()} disabled={busy || sessionLocked}>
+            <Button onClick={() => void handleSubmit()} disabled={busy || sessionLocked || running}>
               {start.isPending ? (
                 <Loader2 className="size-4 animate-spin" />
               ) : (
@@ -1215,7 +1326,7 @@ export function CustomListingForm({ sessionId }: { sessionId?: string }) {
             <Button
               variant="destructive"
               onClick={() => void handlePublishLive()}
-              disabled={busy || sessionLocked}
+              disabled={busy || sessionLocked || running}
               title={t('listing.custom.publishLiveHint')}
             >
               {publishLive.isPending ? (

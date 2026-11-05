@@ -25,9 +25,12 @@ import type { ManualVariation, ManualVariationImage } from '../types';
 export function VariationEditor({
   variations,
   onChange,
+  allowUrlImages,
 }: {
   variations: ManualVariation[];
   onChange: (next: ManualVariation[]) => void;
+  /** Cho nhập ảnh biến thể bằng URL (Custom Listing). */
+  allowUrlImages?: boolean;
 }) {
   const { t } = useTranslation('pod');
   const [imagesFor, setImagesFor] = useState<number | null>(null);
@@ -107,6 +110,7 @@ export function VariationEditor({
           images={toImageMap(editing.images)}
           onChange={(next) => patch(imagesFor, { images: fromImageMap(next) })}
           onClose={() => setImagesFor(null)}
+          allowUrlImages={allowUrlImages}
         />
       )}
     </div>

@@ -1,6 +1,8 @@
 'use client';
 
+import { useEffect } from 'react';
 import { keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { listingRunOutcome } from './custom-listing-next';
 import { podListingSessionService } from './service';
 import type {
   CreateSessionPayload,
@@ -42,6 +44,33 @@ export function useListingSession(id?: string) {
     refetchInterval: (result) =>
       result.state.data && RUNNING_STATUSES.includes(result.state.data.status) ? POLL_MS : false,
   });
+}
+
+/**
+ * Theo dõi MỘT lượt chạy (`jobId`) tới khi có kết quả cuối — `start` / `publish-live` chỉ đưa vào hàng đợi.
+ *
+ * Hỏi lại theo chính job đó, không theo `session.status`: ngay sau khi bấm, dữ liệu trong cache có thể còn của lượt
+ * trước. Xong thì làm mới danh sách lượt đăng + sản phẩm (không đụng form đang mở) rồi dừng hỏi.
+ */
+export function useListingRun(sessionId?: string, jobId?: string) {
+  const queryClient = useQueryClient();
+  const query = useQuery({
+    queryKey: [KEY, 'detail', sessionId],
+    queryFn: () => podListingSessionService.get(sessionId as string),
+    enabled: Boolean(sessionId && jobId),
+    refetchInterval: (result) =>
+      listingRunOutcome(result.state.data?.lastJob, jobId) === 'RUNNING' ? POLL_MS : false,
+  });
+  const job = query.data?.lastJob ?? null;
+  const outcome = listingRunOutcome(job, jobId);
+
+  useEffect(() => {
+    if (!sessionId || !jobId || outcome === 'RUNNING') return;
+    void queryClient.invalidateQueries({ queryKey: [KEY, 'list'] });
+    void queryClient.invalidateQueries({ queryKey: [KEY, 'products', sessionId] });
+  }, [jobId, outcome, queryClient, sessionId]);
+
+  return { outcome, job };
 }
 
 export function useSessionProducts(id?: string, query: PodSessionProductQuery = {}, live = false) {

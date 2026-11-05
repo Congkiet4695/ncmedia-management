@@ -95,7 +95,7 @@ export class PodListingValidatorService {
     }
 
     this.validateImages(payload, blockers, warnings);
-    this.validateVariants(payload, blockers);
+    this.validateVariants(payload, blockers, warnings);
     this.validateDescriptionImages(payload, blockers);
 
     return { ok: blockers.length === 0, blockers, warnings };
@@ -155,7 +155,11 @@ export class PodListingValidatorService {
     );
   }
 
-  private validateVariants(payload: ResolvedListing, blockers: ListingBlocker[]): void {
+  private validateVariants(
+    payload: ResolvedListing,
+    blockers: ListingBlocker[],
+    warnings: ListingBlocker[],
+  ): void {
     if (payload.variants.length === 0) {
       blockers.push(this.blocker('MISSING_SKU', 'variants', 'Listing chưa có biến thể nào'));
       return;
@@ -182,17 +186,7 @@ export class PodListingValidatorService {
           ),
         );
       }
-      // Tồn kho 0 ⇒ TikTok nhận nhưng sản phẩm không bán được. Với bulk listing thì đó là
-      // hàng nghìn sản phẩm chết lặng trên sàn, nên coi là lỗi chặn.
-      if (variant.quantity <= 0) {
-        blockers.push(
-          this.blocker(
-            'MISSING_STOCK',
-            `variant.${variant.sellerSku}`,
-            `Biến thể "${variant.variantName}" có tồn kho bằng 0`,
-          ),
-        );
-      }
+      this.validateStock(payload, variant, blockers, warnings);
       if (!variant.sellerSku?.trim()) {
         blockers.push(
           this.blocker(
@@ -202,6 +196,43 @@ export class PodListingValidatorService {
           ),
         );
       }
+    }
+  }
+
+  /**
+   * Tồn kho của một biến thể.
+   *
+   * 🔴 Listing Session (CSV/Excel và Add Custom Listing — đều có `source.sessionProductId`): `0` là giá trị HỢP LỆ,
+   * chỉ cảnh báo; số âm / không nguyên vẫn chặn. Không đổi `0` thành số khác: thứ người dùng khai là thứ được gửi.
+   * Mô tả SDK ghi `quantity` "Valid range: [1, 99,999]" nên TikTok vẫn có thể từ chối — khi đó lỗi thật của sàn hiện
+   * theo từng shop (item FAILED), không có gì bị đổi âm thầm để lọt qua.
+   *
+   * Luồng ngoài session (sản phẩm đã đồng bộ + Listing Template) giữ luật cũ: `<= 0` chặn. Nhân bản tự hạ blocker này
+   * thành cảnh báo (`processCloneItem`).
+   */
+  private validateStock(
+    payload: ResolvedListing,
+    variant: ResolvedListing['variants'][number],
+    blockers: ListingBlocker[],
+    warnings: ListingBlocker[],
+  ): void {
+    const field = `variant.${variant.sellerSku}`;
+    if (!payload.source?.sessionProductId) {
+      if (variant.quantity <= 0) {
+        blockers.push(
+          this.blocker('MISSING_STOCK', field, `Biến thể "${variant.variantName}" có tồn kho bằng 0`),
+        );
+      }
+      return;
+    }
+    if (!Number.isInteger(variant.quantity) || variant.quantity < 0) {
+      blockers.push(
+        this.blocker('MISSING_STOCK', field, `Biến thể "${variant.variantName}" có tồn kho không hợp lệ`),
+      );
+    } else if (variant.quantity === 0) {
+      warnings.push(
+        this.blocker('MISSING_STOCK', field, `Biến thể "${variant.variantName}" có tồn kho bằng 0 (hết hàng)`),
+      );
     }
   }
 

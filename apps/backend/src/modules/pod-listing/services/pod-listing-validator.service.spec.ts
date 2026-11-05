@@ -162,10 +162,42 @@ describe('PodListingValidatorService', () => {
     expect(codesOf(payload)).toContain(POD_LISTING_BLOCKER_CODES.MISSING_PRICE);
   });
 
-  it('thiếu Stock ⇒ chặn', () => {
+  it('sản phẩm đã đồng bộ (ngoài session): tồn 0 ⇒ vẫn chặn như cũ', () => {
     const payload = buildPayload();
     payload.variants[0].quantity = 0;
     expect(codesOf(payload)).toContain(POD_LISTING_BLOCKER_CODES.MISSING_STOCK);
+  });
+
+  describe('tồn kho của Listing Session (CSV/Excel + Add Custom Listing)', () => {
+    const sessionPayload = (quantity: number) => {
+      const base = buildPayload();
+      const payload = buildPayload({
+        source: { ...base.source, productId: null, sessionProductId: 'session-product-1' },
+      });
+      payload.variants[0].quantity = quantity;
+      return payload;
+    };
+
+    it('🔴 tồn 0 ⇒ hợp lệ: không chặn, chỉ cảnh báo, giá trị giữ nguyên', () => {
+      const payload = sessionPayload(0);
+      const result = validator.validate(payload);
+
+      expect(result.ok).toBe(true);
+      expect(result.blockers).toEqual([]);
+      expect(result.warnings.map((warning) => warning.code)).toContain(POD_LISTING_BLOCKER_CODES.MISSING_STOCK);
+      expect(payload.variants[0].quantity).toBe(0);
+    });
+
+    it('tồn dương ⇒ hợp lệ, không cảnh báo', () => {
+      const result = validator.validate(sessionPayload(25));
+
+      expect(result.ok).toBe(true);
+      expect(result.warnings).toEqual([]);
+    });
+
+    it.each([-1, 1.5, Number.NaN])('tồn %p ⇒ vẫn chặn', (quantity) => {
+      expect(codesOf(sessionPayload(quantity))).toContain(POD_LISTING_BLOCKER_CODES.MISSING_STOCK);
+    });
   });
 
   it('thiếu khối lượng kiện hàng ⇒ chặn', () => {

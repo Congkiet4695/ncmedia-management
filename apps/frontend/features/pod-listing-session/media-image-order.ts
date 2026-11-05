@@ -64,6 +64,98 @@ function imageUrlProblem(url: string): ImageUrlProblem | null {
   return parsed.protocol === 'http:' || parsed.protocol === 'https:' ? null : 'NOT_HTTP';
 }
 
+/** Lỗi hình thức của ô nhập URL cho MỘT giá trị biến thể. */
+export type SingleImageUrlProblem = ImageUrlProblem | 'EMPTY' | 'MULTIPLE';
+
+/** Ô URL của một giá trị biến thể nhận đúng MỘT link. Trả về link đã trim, hoặc lý do từ chối. */
+export function checkSingleImageUrl(
+  raw: string,
+): { url: string; problem: null } | { url: null; problem: SingleImageUrlProblem } {
+  const parsed = parseImageUrls(raw);
+  if (parsed.length === 0) return { url: null, problem: 'EMPTY' };
+  if (parsed.length > 1) return { url: null, problem: 'MULTIPLE' };
+  const [{ url, problem }] = parsed;
+  return problem ? { url: null, problem } : { url, problem: null };
+}
+
+/** File đã được server tải về từ URL và lưu Storage. */
+export interface ImportedVariationImage {
+  fileId: string;
+  url: string | null;
+}
+
+/**
+ * Trạng thái ô URL của một giá trị biến thể:
+ * `IDLE → LOADING (server tải + kiểm) → PREVIEW (trình duyệt đang tải ảnh) → READY (mới được dùng)`.
+ *
+ * 🔴 `requestId` chống kết quả về muộn: người dùng đổi URL lúc server còn đang tải thì kết quả của URL cũ phải bị
+ * bỏ, không được hiện thành preview của URL mới rồi gắn nhầm vào biến thể.
+ */
+export interface VariationUrlState {
+  input: string;
+  status: 'IDLE' | 'LOADING' | 'PREVIEW' | 'READY' | 'ERROR';
+  requestId: number;
+  image: ImportedVariationImage | null;
+  /** Lỗi hình thức (mã để dịch). */
+  problem: SingleImageUrlProblem | null;
+  /** Lỗi từ server, đã dịch. */
+  errorMessage: string | null;
+  /** Ảnh tải được về server nhưng trình duyệt không hiển thị được. */
+  previewFailed: boolean;
+}
+
+export type VariationUrlEvent =
+  | { type: 'INPUT'; input: string }
+  | { type: 'REJECTED'; problem: SingleImageUrlProblem }
+  | { type: 'START'; requestId: number }
+  | { type: 'LOADED'; requestId: number; image: ImportedVariationImage }
+  | { type: 'FAILED'; requestId: number; message: string }
+  | { type: 'PREVIEW_OK'; requestId: number }
+  | { type: 'PREVIEW_ERROR'; requestId: number }
+  | { type: 'RESET' };
+
+export const EMPTY_VARIATION_URL: VariationUrlState = {
+  input: '',
+  status: 'IDLE',
+  requestId: 0,
+  image: null,
+  problem: null,
+  errorMessage: null,
+  previewFailed: false,
+};
+
+export function variationUrlReducer(state: VariationUrlState, event: VariationUrlEvent): VariationUrlState {
+  const cleared = { image: null, problem: null, errorMessage: null, previewFailed: false };
+  switch (event.type) {
+    case 'INPUT':
+      // Đổi URL ⇒ preview + lỗi cũ không còn đúng. Tăng `requestId` để kết quả đang chờ của URL cũ thành vô hiệu.
+      return { ...state, ...cleared, input: event.input, status: 'IDLE', requestId: state.requestId + 1 };
+    case 'REJECTED':
+      return { ...state, ...cleared, status: 'ERROR', problem: event.problem };
+    case 'START':
+      return { ...state, ...cleared, status: 'LOADING', requestId: event.requestId };
+    case 'LOADED':
+      if (event.requestId !== state.requestId) return state;
+      // Không có URL công khai ⇒ không có gì để trình duyệt tải; file đã qua kiểm tra chữ ký ở server.
+      return { ...state, ...cleared, status: event.image.url ? 'PREVIEW' : 'READY', image: event.image };
+    case 'FAILED':
+      if (event.requestId !== state.requestId) return state;
+      return { ...state, ...cleared, status: 'ERROR', errorMessage: event.message };
+    case 'PREVIEW_OK':
+      return event.requestId === state.requestId && state.status === 'PREVIEW' ? { ...state, status: 'READY' } : state;
+    case 'PREVIEW_ERROR':
+      if (event.requestId !== state.requestId) return state;
+      return { ...state, ...cleared, status: 'ERROR', previewFailed: true };
+    case 'RESET':
+      return { ...EMPTY_VARIATION_URL, requestId: state.requestId + 1 };
+  }
+}
+
+/** Gắn ảnh cho ĐÚNG một giá trị biến thể; ảnh của các giá trị khác giữ nguyên. */
+export function setVariationImage<T>(images: Record<string, T>, value: string, image: T): Record<string, T> {
+  return { ...images, [value]: image };
+}
+
 /** So khớp hai URL ảnh "là một": bỏ `#…`, host chữ thường (đường dẫn / query giữ nguyên — có thể phân biệt ảnh). */
 export function normalizeImageUrl(url: string): string {
   try {

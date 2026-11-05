@@ -393,7 +393,7 @@ console.log('Biên — mặc định template, tổ hợp tắt, bản ghi cũ, 
     { defaultSalePrice: '10.00', defaultRetailPrice: '15.00', defaultQuantity: 50 },
   );
   const { skus } = applySkuTemplate(template);
-  check('🔴 SKU-level trống ⇒ mặc định template (10.00 / 15.00 / 50)', [skus[0].salePrice, skus[0].retailPrice, skus[0].quantity], ['10.00', '15.00', 50]);
+  check('🔴 giá SKU-level trống ⇒ mặc định template (10.00 / 15.00); tồn 0 KHÔNG bị đổi thành tồn mặc định 50', [skus[0].salePrice, skus[0].retailPrice, skus[0].quantity], ['10.00', '15.00', 0]);
   check('🔴 SKU-level có giá trị ⇒ ưu tiên SKU-level, không lấy mặc định', [skus[1].salePrice, skus[1].retailPrice, skus[1].quantity], ['30.00', '35.00', 3]);
   check('ảnh SKU mang sang', skus[1].imageFileId, 'file-m');
 }

@@ -289,7 +289,10 @@ function itemOptionValues(
  * Giá: `effectiveSalePrice` / `effectiveRetailPrice` là con số SERVER tính bằng đúng hàm
  * engine dùng (`resolveSkuItemPrice`: giá bán khai tường minh → giá gốc trừ % → giá gốc) —
  * dùng nó thay vì tự tính lại ở frontend. Không có (bản ghi từ API list cũ) thì đọc trường
- * thô. Vẫn trống ⇒ mặc định template. Tồn: `quantity` của tổ hợp, `0` (chưa đặt) ⇒ mặc định.
+ * thô. Vẫn trống ⇒ mặc định template.
+ *
+ * 🔴 Tồn: `quantity` của tổ hợp, kể cả `0` — `0` là giá trị hợp lệ, không được đổi thành tồn mặc
+ * định (engine lúc đăng cũng đọc thẳng `item.quantity`, nên form và lô CSV ra cùng một con số).
  */
 function itemToSkuData(item: PodSkuTemplateItem, template: PodSkuTemplate): Partial<ManualSku> {
   const hasEffective = item.effectiveSalePrice !== undefined;
@@ -305,7 +308,7 @@ function itemToSkuData(item: PodSkuTemplateItem, template: PodSkuTemplate): Part
     sellerSku: item.skuCode?.trim() || undefined,
     salePrice: salePrice ?? '',
     retailPrice: usable(retailPrice) ? (retailPrice as string) : '',
-    quantity: item.quantity > 0 ? item.quantity : template.defaultQuantity,
+    quantity: item.quantity ?? template.defaultQuantity,
     // Ảnh KHÔNG đi theo dòng: Custom Listing kế thừa ảnh từ `variations[0].images` (`deriveVariantImages`).
     ...(item.barcode ? { barcode: item.barcode } : {}),
   };

@@ -1351,7 +1351,23 @@
       "publishLiveStarted": "Publish Live sent: {{products}} product(s) × {{targets}} shop(s). Track each shop on the listing run screen.",
       "publishLiveFailed": "Could not send Publish Live",
       "resetCategory": "Clear category",
-      "confirmResetCategory": "Clear the category, the selected Category Template and its attributes? Brand, warehouse, package, size chart and video are kept."
+      "confirmResetCategory": "Clear the category, the selected Category Template and its attributes? Brand, warehouse, package, size chart and video are kept.",
+      "zeroStockHint": "{{count}} SKU(s) with 0 stock will be listed as out of stock. TikTok may reject 0 stock; if so, the error appears per shop.",
+      "runInProgress": "Listing on TikTok…",
+      "runFailedToast": "The listing run did not fully succeed.",
+      "runPartial": "Listed successfully on only {{success}}/{{total}} shops.",
+      "runFailed": "Listing the product failed.",
+      "viewShopResults": "View results per shop",
+      "done": {
+        "titleList": "Product listed successfully",
+        "titleLive": "Publish Live sent successfully",
+        "descriptionList": "The product was created on every selected shop. What would you like to do next?",
+        "descriptionLive": "The product was sent to every selected shop and is awaiting TikTok review. What would you like to do next?",
+        "backToList": "Back to listing list",
+        "stay": "Stay on this product",
+        "newProduct": "Create a listing for a new product",
+        "newProductHint": "Keeps Shops, Group Template, Category & Attributes, Description, Package, SKU & Pricing. Title, images and Seller SKUs start fresh."
+      }
     },
     "media": {
       "section": "Images & Video",
@@ -1404,7 +1420,20 @@
       "hasImage": "Image set",
       "noImage": "No image",
       "noValues": "Add values to the variation first, then attach images.",
-      "uploadFailed": "Could not upload the image for variant {{value}}."
+      "uploadFailed": "Could not upload the image for variant {{value}}.",
+      "url": {
+        "toggle": "Use URL",
+        "label": "Image URL for variant {{value}}",
+        "load": "Load image",
+        "use": "Use this image",
+        "applied": "Image added to variant {{value}}.",
+        "previewFailed": "This image could not be displayed. Try another link.",
+        "hint": "A public link to a JPEG / PNG / WEBP image, up to 5 MB. The system downloads and stores the image, and only attaches it when you click \"Use this image\".",
+        "problem": {
+          "EMPTY": "Enter an image URL.",
+          "MULTIPLE": "Each variant accepts one image URL only."
+        }
+      }
     },
     "templatePicker": {
       "none": "— No template —",
