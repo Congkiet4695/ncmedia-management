@@ -205,8 +205,8 @@ export function MappingFormDialog({
   const source = presetTiktok ?? tiktok;
 
   /**
-   * 🔴 Ánh xạ chỉ hợp lệ khi có khoá: Product ID + Seller SKU, hoặc (biến thể không có Seller SKU trên TikTok)
-   * Product ID + TikTok SKU ID — cùng luật `productKeyOf` với backend. Chặn ngay tại nút Lưu thay vì để backend trả 400.
+   * 🔴 Ánh xạ chỉ hợp lệ khi có khoá biến thể: Product ID + TikTok SKU ID — cùng luật `productKeyOf` với backend. Chặn
+   * ngay tại nút Lưu thay vì để backend trả 400.
    */
   const sourceKey = source
     ? productKeyOf({ productId: source.tiktokProductId, sellerSku: source.sellerSku, skuId: source.tiktokSkuId })
@@ -353,9 +353,9 @@ export function MappingFormDialog({
               >
                 {tiktokProducts.data?.map((option) => (
                   <button
-                    // Khoá theo ĐÚNG cặp khoá nghiệp vụ — backend cũng gom danh sách theo cặp
-                    // này, nên mỗi sản phẩm chỉ xuất hiện một lần.
-                    key={`${option.tiktokProductId ?? ''}-${option.sellerSku ?? ''}`}
+                    // Khoá theo ĐÚNG khoá nghiệp vụ — backend cũng gom danh sách theo biến thể,
+                    // nên mỗi biến thể chỉ xuất hiện một lần.
+                    key={`${option.tiktokProductId ?? ''}-${option.tiktokSkuId ?? ''}`}
                     type="button"
                     onClick={() => setTiktok(option)}
                     className="flex w-full items-center justify-between gap-3 rounded px-3 py-2 text-left text-sm hover:bg-accent"
@@ -365,7 +365,8 @@ export function MappingFormDialog({
                         {option.productName ?? option.sellerSku}
                       </span>
                       <span className="block truncate font-mono text-xs text-muted-foreground">
-                        {option.tiktokProductId} · {option.sellerSku}
+                        {option.tiktokProductId} · {option.sellerSku || `SKU ID ${option.tiktokSkuId}`}
+                        {option.skuName ? ` · ${option.skuName}` : ''}
                       </span>
                     </span>
                     {option.mapped && <Badge variant="muted">{t('mapping.alreadyMapped')}</Badge>}

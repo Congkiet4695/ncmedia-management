@@ -245,6 +245,7 @@ describe('FulfillmentService.updateMapping — đổi nhà cung cấp của sả
       {
         accountId: 'acc-swx',
         tiktokProductId: 'TT-P1',
+        tiktokSkuId: 'TT-V1',
         sellerSku: 'SELLER-1',
         providerSku: 'SW-MD-MPTG-BL-XL',
         placementMap: { FRONT: 'CF' },

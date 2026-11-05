@@ -55,22 +55,28 @@ export function MappingDesignDialog({ open, mapping, onClose }: MappingDesignDia
               {t('mapping.designScopeHint')}
             </p>
 
-            <div className="grid gap-4 sm:grid-cols-2">
-              {POD_ACTIVE_PLACEMENTS.map((placement) => (
-                <DesignSlot
-                  key={placement}
-                  // Ánh xạ của biến thể không có Seller SKU ⇒ design theo Product ID + SKU ID.
-                  productKey={
-                    mapping.sellerSku
-                      ? { tiktokProductId: mapping.tiktokProductId ?? '', sellerSku: mapping.sellerSku }
-                      : { tiktokProductId: mapping.tiktokProductId ?? '', tiktokSkuId: mapping.tiktokSkuId ?? '' }
-                  }
-                  placement={placement}
-                  design={mapping.designs.find((design) => design.placement === placement) ?? null}
-                  onPreview={setLightbox}
-                />
-              ))}
-            </div>
+            {/* Bản ghi legacy không thuộc biến thể nào ⇒ không có chỗ để lưu design theo khoá biến thể. */}
+            {mapping.legacySharedKey ? (
+              <p className="rounded-md border border-warning/40 bg-warning/10 p-3 text-xs text-warning">
+                {t('mapping.legacyHint')}
+              </p>
+            ) : (
+              <div className="grid gap-4 sm:grid-cols-2">
+                {POD_ACTIVE_PLACEMENTS.map((placement) => (
+                  <DesignSlot
+                    key={placement}
+                    productKey={{
+                      tiktokProductId: mapping.tiktokProductId ?? '',
+                      tiktokSkuId: mapping.tiktokSkuId ?? '',
+                      ...(mapping.sellerSku ? { sellerSku: mapping.sellerSku } : {}),
+                    }}
+                    placement={placement}
+                    design={mapping.designs.find((design) => design.placement === placement) ?? null}
+                    onPreview={setLightbox}
+                  />
+                ))}
+              </div>
+            )}
 
             <div className="flex justify-end">
               <Button variant="outline" onClick={onClose}>

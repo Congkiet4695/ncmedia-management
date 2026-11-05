@@ -28,8 +28,7 @@ const encryption = {
 /**
  * Một file design đang hiệu lực ở vị trí `placement`.
  *
- * 🔴 Design khoá theo (Product ID + Seller SKU) và ĐỘC LẬP với ánh xạ — nên fixture mang
- * theo cặp khoá, không gắn vào bản ghi ánh xạ nữa.
+ * 🔴 Design khoá theo biến thể và ĐỘC LẬP với ánh xạ — nên fixture mang theo khoá, không gắn vào bản ghi ánh xạ nữa.
  */
 function design(placement: PodDesignPlacement, over: Record<string, unknown> = {}) {
   return {
@@ -37,6 +36,7 @@ function design(placement: PodDesignPlacement, over: Record<string, unknown> = {
     placement,
     version: 1,
     tiktokProductId: 'TT-P1',
+    tiktokSkuId: 'TT-S1',
     sellerSku: 'SELLER-1',
     storageFile: {
       id: `file-${placement}`,
@@ -307,7 +307,7 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
   describe('listTiktokProductOptions', () => {
     // 🔴 Luật ghép là CẶP (Product ID + Seller SKU). Ba bài dưới đây khoá đúng luật đó lại:
     // trước refactor, khớp một trong ba khoá là đủ, và đó là cách một sản phẩm có hai bộ design.
-    it('đánh dấu `mapped` khi khớp ĐỦ cặp Product ID + Seller SKU', async () => {
+    it('đánh dấu `mapped` khi khớp ĐỦ Product ID + SKU ID', async () => {
       const { service } = build({
         listDistinctTiktokSkus: jest
           .fn()
@@ -329,7 +329,7 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
       expect(option.mapped).toBe(true);
     });
 
-    it('KHÔNG đánh dấu `mapped` khi chỉ khớp Seller SKU (khác Product ID)', async () => {
+    it('KHÔNG đánh dấu `mapped` khi khác Product ID', async () => {
       const { service } = build({
         listDistinctTiktokSkus: jest
           .fn()
@@ -351,15 +351,15 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
       expect(option.mapped).toBe(false);
     });
 
-    it('KHÔNG đánh dấu `mapped` khi chỉ khớp TikTok SKU ID', async () => {
+    it('🔴 KHÔNG đánh dấu `mapped` khi cùng Seller SKU nhưng khác biến thể', async () => {
       const { service } = build({
         listDistinctTiktokSkus: jest
           .fn()
           .mockResolvedValue([
             {
-              productId: 'KHAC-P',
-              skuId: 'TT-S1',
-              sellerSku: 'KHAC-SELLER',
+              productId: 'TT-P1',
+              skuId: 'BIEN-THE-KHAC',
+              sellerSku: 'SELLER-1',
               productName: 'Hoodie',
               skuName: null,
               productCategory: null,
@@ -392,6 +392,7 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
         FulfillmentProvider.MANGO,
         {
           tiktokProductId: 'TT-P9',
+          tiktokSkuId: 'SKU-ID-9',
           sellerSku: 'SELLER-9',
           providerSku: 'MANGO-SKU-9',
           baseCost: 12.5,
@@ -419,7 +420,7 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
       expect(data.providerVariantName).toBe('White / M');
     });
 
-    it('kiểm trùng theo CẶP khoá, ở phạm vi tổ chức (không kèm accountId)', async () => {
+    it('kiểm trùng theo biến thể, ở phạm vi tổ chức (không kèm accountId)', async () => {
       const { service, repo } = build();
 
       await service.createMapping(
@@ -428,6 +429,7 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
         FulfillmentProvider.MANGO,
         {
           tiktokProductId: 'TT-P9',
+          tiktokSkuId: 'SKU-ID-9',
           sellerSku: 'SELLER-9',
           providerSku: 'MANGO-SKU-9',
         },
@@ -436,12 +438,12 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
 
       expect(repo.findConflictingMapping).toHaveBeenCalledWith(
         'org-1',
-        { tiktokProductId: 'TT-P9', sellerSku: 'SELLER-9', tiktokSkuId: null },
+        { tiktokProductId: 'TT-P9', sellerSku: 'SELLER-9', tiktokSkuId: 'SKU-ID-9' },
         undefined,
       );
     });
 
-    describe('🔴 biến thể KHÔNG có Seller SKU trên TikTok (PO 2026-11-03)', () => {
+    describe('🔴 biến thể KHÔNG có Seller SKU trên TikTok', () => {
       it.each([
         ['bỏ trống', undefined],
         ['chuỗi rỗng', ''],
@@ -465,14 +467,14 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
         );
       });
 
-      it('thiếu CẢ Seller SKU lẫn SKU ID ⇒ 400 FULFILLMENT_MAPPING_KEY_INVALID, không ghi gì', async () => {
+      it('🔴 có Seller SKU nhưng thiếu SKU ID ⇒ 400 FULFILLMENT_MAPPING_KEY_INVALID, không ghi gì', async () => {
         const { service, repo } = build();
         await expect(
           service.createMapping(
             'org-1',
             'user-1',
             FulfillmentProvider.MANGO,
-            { tiktokProductId: 'TT-P9', sellerSku: ' ', providerSku: 'MANGO-SKU-9' },
+            { tiktokProductId: 'TT-P9', sellerSku: 'SELLER-9', providerSku: 'MANGO-SKU-9' } as never,
             POD_SCOPE_SYSTEM,
           ),
         ).rejects.toMatchObject({ response: { code: 'FULFILLMENT_MAPPING_KEY_INVALID' } });
@@ -516,20 +518,20 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
         });
       });
 
-      it('DTO: thiếu Seller SKU phải có tiktokSkuId; có một trong hai ⇒ hợp lệ', () => {
+      it('DTO: SKU ID bắt buộc, Seller SKU tuỳ chọn', () => {
         const errorsOf = (body: Record<string, unknown>) =>
           validateSync(plainToInstance(UpsertProductMappingDto, { tiktokProductId: 'P', providerSku: 'X', ...body }))
             .map((error) => error.property)
             .filter((property) => property === 'sellerSku' || property === 'tiktokSkuId');
-        expect(errorsOf({ sellerSku: 'S' })).toEqual([]);
         expect(errorsOf({ tiktokSkuId: 'K' })).toEqual([]);
+        expect(errorsOf({ sellerSku: 'S', tiktokSkuId: 'K' })).toEqual([]);
         expect(errorsOf({ sellerSku: '  ', tiktokSkuId: 'K' })).toEqual([]);
         expect(errorsOf({})).toEqual(['tiktokSkuId']);
-        expect(errorsOf({ sellerSku: '   ' })).toEqual(['tiktokSkuId']);
+        expect(errorsOf({ sellerSku: 'S' })).toEqual(['tiktokSkuId']);
       });
     });
 
-    it('chặn ánh xạ trùng — một Product ID + Seller SKU chỉ có MỘT bộ Design', async () => {
+    it('chặn ánh xạ trùng — mỗi biến thể chỉ có MỘT ánh xạ', async () => {
       const { service, repo } = build({
         findConflictingMapping: jest.fn().mockResolvedValue(mapping()),
       });
@@ -541,6 +543,7 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
           FulfillmentProvider.MANGO,
           {
             tiktokProductId: 'TT-P1',
+            tiktokSkuId: 'TT-S1',
             sellerSku: 'SELLER-1',
             providerSku: 'MANGO-SKU-2',
           },
@@ -562,6 +565,7 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
         'map-1',
         {
           tiktokProductId: 'TT-P1',
+          tiktokSkuId: 'TT-S1',
           sellerSku: 'SELLER-1',
           providerSku: 'MANGO-SKU-2',
           baseCost: 9.99,
@@ -587,6 +591,7 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
         'map-1',
         {
           tiktokProductId: 'TT-P1',
+          tiktokSkuId: 'TT-S1',
           sellerSku: 'SELLER-1',
           providerSku: 'MANGO-SKU-2',
         },
@@ -595,7 +600,7 @@ describe('FulfillmentService — ánh xạ sản phẩm', () => {
 
       expect(repo.findConflictingMapping).toHaveBeenCalledWith(
         'org-1',
-        { tiktokProductId: 'TT-P1', sellerSku: 'SELLER-1', tiktokSkuId: null },
+        { tiktokProductId: 'TT-P1', sellerSku: 'SELLER-1', tiktokSkuId: 'TT-S1' },
         'map-1',
       );
     });
@@ -610,7 +615,7 @@ describe('Base Cost — không lấy được giá', () => {
       'org-1',
       'user-1',
       FulfillmentProvider.MANGO,
-      { tiktokProductId: 'TT-P7', sellerSku: 'SELLER-7', providerSku: 'NO-PRICE', baseCost: 5 },
+      { tiktokProductId: 'TT-P7', tiktokSkuId: 'TT-S7', sellerSku: 'SELLER-7', providerSku: 'NO-PRICE', baseCost: 5 },
       POD_SCOPE_SYSTEM,
     );
 
@@ -634,7 +639,7 @@ describe('Base Cost — không lấy được giá', () => {
       'org-1',
       'user-1',
       'map-1',
-      { tiktokProductId: 'TT-P1', sellerSku: 'SELLER-1', providerSku: 'MANGO-SKU-1', providerVariantId: 'MV-1' },
+      { tiktokProductId: 'TT-P1', tiktokSkuId: 'TT-S1', sellerSku: 'SELLER-1', providerSku: 'MANGO-SKU-1', providerVariantId: 'MV-1' },
       POD_SCOPE_SYSTEM,
     );
 
@@ -657,7 +662,7 @@ describe('Base Cost — không lấy được giá', () => {
       'org-1',
       'user-1',
       'map-1',
-      { tiktokProductId: 'TT-P1', sellerSku: 'SELLER-1', providerSku: 'OTHER-SKU', providerVariantId: 'MV-9' },
+      { tiktokProductId: 'TT-P1', tiktokSkuId: 'TT-S1', sellerSku: 'SELLER-1', providerSku: 'OTHER-SKU', providerVariantId: 'MV-9' },
       POD_SCOPE_SYSTEM,
     );
 
@@ -670,9 +675,9 @@ describe('Base Cost — không lấy được giá', () => {
     const { service, repo } = build();
 
     await service.createMapping('org-1', 'user-1', FulfillmentProvider.MANGO,
-      { tiktokProductId: 'TT-A', sellerSku: 'S-A', providerSku: 'MANGO-SKU-1' }, POD_SCOPE_SYSTEM);
+      { tiktokProductId: 'TT-A', tiktokSkuId: 'TT-SA', sellerSku: 'S-A', providerSku: 'MANGO-SKU-1' }, POD_SCOPE_SYSTEM);
     await service.createMapping('org-1', 'user-1', FulfillmentProvider.MANGO,
-      { tiktokProductId: 'TT-B', sellerSku: 'S-B', providerSku: 'MANGO-SKU-2' }, POD_SCOPE_SYSTEM);
+      { tiktokProductId: 'TT-B', tiktokSkuId: 'TT-SB', sellerSku: 'S-B', providerSku: 'MANGO-SKU-2' }, POD_SCOPE_SYSTEM);
 
     expect(callArg<Record<string, unknown>>(repo.createMapping, 0, 0).baseCost).toBe(11.25);
     expect(callArg<Record<string, unknown>>(repo.createMapping, 1, 0).baseCost).toBe(14.9);
@@ -684,8 +689,108 @@ describe('Base Cost — không lấy được giá', () => {
 
     await expect(
       service.createMapping('org-1', 'user-1', FulfillmentProvider.MANGO,
-        { tiktokProductId: 'TT-C', sellerSku: 'S-C', providerSku: 'MANGO-SKU-1' }, POD_SCOPE_SYSTEM),
+        { tiktokProductId: 'TT-C', tiktokSkuId: 'TT-SC', sellerSku: 'S-C', providerSku: 'MANGO-SKU-1' }, POD_SCOPE_SYSTEM),
     ).rejects.toThrow('connection lost');
     expect(repo.createMapping).not.toHaveBeenCalled();
+  });
+});
+
+describe('🔴 cấu hình legacy theo Seller SKU', () => {
+  const ITEM = { id: 'item-1', productId: 'TT-P1', skuId: 'TT-V2', sellerSku: 'SELLER-1' };
+  const legacyMapping = () => mapping({ id: 'legacy', tiktokSkuId: 'TT-OTHER', legacySharedKey: true, isActive: true });
+  const legacyDesign = (over: Record<string, unknown> = {}) =>
+    design(PodDesignPlacement.FRONT, {
+      tiktokSkuId: null,
+      legacySharedKey: true,
+      storageFileId: 'file-legacy',
+      sourceUrl: null,
+      ...over,
+    });
+
+  function adoptHarness(overrides: Record<string, jest.Mock> = {}) {
+    const adoptLegacyConfig = jest.fn().mockResolvedValue({ mappingAdopted: true, designsAdopted: 1 });
+    const { service } = build({
+      listMappingsForProducts: jest.fn().mockResolvedValue([legacyMapping()]),
+      listProductDesignsForProducts: jest.fn().mockResolvedValue([legacyDesign()]),
+      adoptLegacyConfig,
+      ...overrides,
+    });
+    const findById = jest.fn().mockResolvedValue({ id: 'order-1', shopId: 'shop-1', items: [ITEM] });
+    const assertShopAllowed = jest.fn();
+    Object.assign(service, {
+      podOrderRepo: { findById },
+      accessScope: { assertShopAllowed },
+    });
+    return { service, adoptLegacyConfig, findById, assertShopAllowed };
+  }
+
+  it('xác nhận ⇒ chép cho ĐÚNG biến thể của dòng đơn (lấy từ database), kiểm phạm vi shop', async () => {
+    const { service, adoptLegacyConfig, assertShopAllowed } = adoptHarness();
+
+    await service.adoptLegacyConfig('org-1', 'user-1', 'order-1', 'item-1', POD_SCOPE_SYSTEM);
+
+    expect(assertShopAllowed).toHaveBeenCalledWith(POD_SCOPE_SYSTEM, 'shop-1');
+    const params = callArg<{ key: unknown; mapping: { id: string }; designs: Array<{ storageFileId: string }> }>(
+      adoptLegacyConfig,
+      0,
+      0,
+    );
+    expect(params.key).toEqual({ tiktokProductId: 'TT-P1', tiktokSkuId: 'TT-V2', sellerSku: 'SELLER-1' });
+    expect(params.mapping.id).toBe('legacy');
+    expect(params.designs.map((row) => row.storageFileId)).toEqual(['file-legacy']);
+  });
+
+  it('biến thể đã có cấu hình riêng ⇒ KHÔNG ghi đè, chỉ chép phần thiếu', async () => {
+    const own = mapping({ id: 'own', tiktokSkuId: 'TT-V2', isActive: true });
+    const { service, adoptLegacyConfig } = adoptHarness({
+      listMappingsForProducts: jest.fn().mockResolvedValue([legacyMapping(), own]),
+    });
+
+    await service.adoptLegacyConfig('org-1', 'user-1', 'order-1', 'item-1', POD_SCOPE_SYSTEM);
+
+    const params = callArg<{ mapping: unknown; designs: unknown[] }>(adoptLegacyConfig, 0, 0);
+    expect(params.mapping).toBeNull();
+    expect(params.designs).toHaveLength(1);
+  });
+
+  it('không có gì để xác nhận ⇒ 404, không ghi', async () => {
+    const { service, adoptLegacyConfig } = adoptHarness({
+      listMappingsForProducts: jest.fn().mockResolvedValue([]),
+      listProductDesignsForProducts: jest.fn().mockResolvedValue([]),
+    });
+    await expect(
+      service.adoptLegacyConfig('org-1', 'user-1', 'order-1', 'item-1', POD_SCOPE_SYSTEM),
+    ).rejects.toMatchObject({ response: { code: 'FULFILLMENT_LEGACY_CONFIG_NOT_FOUND' } });
+    expect(adoptLegacyConfig).not.toHaveBeenCalled();
+  });
+
+  it('dòng hàng không thuộc đơn, hoặc thiếu SKU ID ⇒ 404, không ghi', async () => {
+    const { service, adoptLegacyConfig, findById } = adoptHarness();
+    await expect(
+      service.adoptLegacyConfig('org-1', 'user-1', 'order-1', 'item-KHAC', POD_SCOPE_SYSTEM),
+    ).rejects.toMatchObject({ response: { code: 'FULFILLMENT_LEGACY_CONFIG_NOT_FOUND' } });
+
+    findById.mockResolvedValue({ id: 'order-1', shopId: 'shop-1', items: [{ ...ITEM, skuId: null }] });
+    await expect(
+      service.adoptLegacyConfig('org-1', 'user-1', 'order-1', 'item-1', POD_SCOPE_SYSTEM),
+    ).rejects.toMatchObject({ response: { code: 'FULFILLMENT_LEGACY_CONFIG_NOT_FOUND' } });
+    expect(adoptLegacyConfig).not.toHaveBeenCalled();
+  });
+
+  it('ánh xạ legacy không sửa được; khoá theo mapping id cũng từ chối', async () => {
+    const { service, repo } = build({ findMappingById: jest.fn().mockResolvedValue(legacyMapping()) });
+    await expect(
+      service.updateMapping(
+        'org-1',
+        'user-1',
+        'legacy',
+        { tiktokProductId: 'TT-P1', tiktokSkuId: 'TT-V2', providerSku: 'MANGO-SKU-1' },
+        POD_SCOPE_SYSTEM,
+      ),
+    ).rejects.toMatchObject({ response: { code: 'FULFILLMENT_MAPPING_LEGACY_READONLY' } });
+    expect(repo.updateMapping).not.toHaveBeenCalled();
+    await expect(service.requireMappingProductKey('org-1', 'legacy')).rejects.toMatchObject({
+      response: { code: 'FULFILLMENT_MAPPING_LEGACY_READONLY' },
+    });
   });
 });

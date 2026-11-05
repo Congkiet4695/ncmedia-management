@@ -1771,16 +1771,17 @@ model FulfillmentProductDesign {
   id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
 
-  /// 🔴 KHOÁ NGHIỆP VỤ — cùng cặp khoá định danh Product Mapping, nhưng ĐỘC LẬP với nó.
+  /// 🔴 KHOÁ NGHIỆP VỤ = BIẾN THỂ: (`tiktok_product_id`, `tiktok_sku_id`) — cùng khoá với Product Mapping, nhưng ĐỘC LẬP
+  /// với nó. Xem `fulfillment/shared/mapping-match.ts`.
   ///
-  /// Nullable ở tầng DB có chủ đích (giống `FulfillmentProductMapping`): bản ghi cũ chuyển
-  /// từ mô hình theo mapping có thể thiếu khoá nếu mapping nguồn đã bị xoá. Thiếu khoá ⇒
-  /// không ghép được đơn nào; CHECK `NOT VALID` chặn mọi bản ghi MỚI thiếu khoá.
+  /// Nullable ở tầng DB có chủ đích: bản ghi cũ có thể thiếu khoá. Thiếu khoá ⇒ không ghép được đơn nào.
   tiktokProductId String? @map("tiktok_product_id") @db.VarChar(64)
+  /// Thông tin kèm theo để hiển thị / đối chiếu. KHÔNG tham gia ghép (trừ khi đề xuất bản ghi legacy).
   sellerSku       String? @map("seller_sku") @db.VarChar(255)
-  /// Khoá dự phòng (2026-11-03): CHỈ khi biến thể không có Seller SKU trên TikTok — bản ghi lưu `seller_sku = NULL`
-  /// + `tiktok_sku_id`. Xem `fulfillment/shared/mapping-match.ts`.
   tiktokSkuId     String? @map("tiktok_sku_id") @db.VarChar(64)
+  /// Design cũ khai theo Seller SKU mà khoá đó ứng với nhiều biến thể ⇒ không tự áp cho đơn nào, chờ xác nhận theo
+  /// từng biến thể ở màn Fulfill (migration `20261105090000`).
+  legacySharedKey Boolean @default(false) @map("legacy_shared_key")
 
   /// Vị trí in: FRONT | BACK | LEFT | RIGHT | SLEEVE | LABEL.
   ///
@@ -1809,7 +1810,7 @@ model FulfillmentProductDesign {
   /// Restrict: không cho xoá bản ghi file khi vẫn còn design tham chiếu.
   storageFile StorageFile? @relation("FulfillmentProductDesignFile", fields: [storageFileId], references: [id], onDelete: Restrict, onUpdate: Cascade)
 
-  /// Mỗi (sản phẩm × vị trí in) chỉ có MỘT design đang hiệu lực.
+  /// Mỗi (biến thể × vị trí in) chỉ có MỘT design đang hiệu lực.
   /// (Bản đã xoá mềm vẫn nằm lại — xem chỉ mục từng phần ở migration.)
   @@index([organizationId])
   @@index([organizationId, tiktokProductId, sellerSku])
@@ -2401,19 +2402,18 @@ model FulfillmentProductMapping {
   accountId      String              @map("account_id") @db.Uuid
   provider       FulfillmentProvider
 
-  /// 🔴 KHOÁ NGHIỆP VỤ — cặp này xác định ánh xạ. Bắt buộc khi tạo/sửa qua API.
+  /// 🔴 KHOÁ NGHIỆP VỤ = BIẾN THỂ: (`tiktok_product_id`, `tiktok_sku_id`). Bắt buộc khi tạo/sửa qua API.
   ///
-  /// Nullable ở tầng DB **có chủ đích**: bản ghi khai từ trước sprint này có thể thiếu một
-  /// trong hai. Ép NOT NULL sẽ làm migration chết trên môi trường có dữ liệu như vậy, mà
-  /// bịa giá trị thay thế thì còn tệ hơn. Thiếu khoá ⇒ không ghép được đơn nào (xem
-  /// `findMappingForItem`) ⇒ hiện lên giao diện là "ánh xạ chưa đủ khoá" để người dùng sửa.
+  /// Nullable ở tầng DB **có chủ đích**: bản ghi khai từ trước có thể thiếu khoá. Thiếu khoá ⇒ không ghép được đơn nào
+  /// (xem `findMappingForItem`).
   tiktokProductId String? @map("tiktok_product_id") @db.VarChar(64)
+  /// Thông tin kèm theo để hiển thị / đối chiếu. KHÔNG tham gia ghép (trừ khi đề xuất bản ghi legacy).
   sellerSku       String? @map("seller_sku") @db.VarChar(255)
+  tiktokSkuId     String? @map("tiktok_sku_id") @db.VarChar(64)
 
-  /// ⚠️ THAM CHIẾU, KHÔNG PHẢI KHOÁ GHÉP. Trước sprint này `tiktokSkuId` là khoá ưu tiên số
-  /// một; nó bị loại khỏi luật ghép vì một Seller SKU có thể mang nhiều `sku_id` khác nhau
-  /// giữa các shop, khiến cùng một sản phẩm bị tách thành nhiều bộ design.
-  tiktokSkuId String? @map("tiktok_sku_id") @db.VarChar(64)
+  /// Ánh xạ cũ khai theo Seller SKU mà khoá đó ứng với nhiều biến thể ⇒ không tự áp cho đơn nào, chờ xác nhận theo
+  /// từng biến thể ở màn Fulfill (migration `20261105090000`). `tiktok_sku_id` của nó chỉ còn ý nghĩa tham chiếu.
+  legacySharedKey Boolean @default(false) @map("legacy_shared_key")
 
   /// SKU biến thể phía nhà cung cấp — giá trị gửi vào `items[].sku` khi tạo đơn.
   providerSku         String  @map("provider_sku") @db.VarChar(255)
@@ -2458,7 +2458,7 @@ model FulfillmentProductMapping {
   organization Organization       @relation(fields: [organizationId], references: [id], onDelete: Restrict, onUpdate: Cascade)
   account      FulfillmentAccount @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
 
-  /// ⚠️ KHÔNG có quan hệ `designs` ở đây nữa. Design khoá theo (Product ID + Seller SKU) và
+  /// ⚠️ KHÔNG có quan hệ `designs` ở đây nữa. Design khoá theo biến thể và
   /// ĐỘC LẬP với ánh xạ — xem `FulfillmentProductDesign`. Nối lại quan hệ này là dựng lại
   /// đúng ràng buộc "phải ánh xạ xong mới upload được design" mà sprint này gỡ bỏ.
 

@@ -59,6 +59,11 @@ describe('resolveItemProductKeys', () => {
     expect(resolved.get('item-1')).toMatchObject({ sellerSku: 'dung2740', sellerSkuSource: 'CATALOG' });
   });
 
+  it('thiếu SKU ID ⇒ NO_SKU_ID kể cả khi dòng có Seller SKU (giữ Seller SKU để hiển thị)', () => {
+    const resolved = resolveItemProductKeys(SHOP, [item({ skuId: null, sellerSku: 'SELLER-1' })], []);
+    expect(resolved.get('item-1')).toEqual({ sellerSku: 'SELLER-1', sellerSkuSource: 'ORDER', productKeyIssue: 'NO_SKU_ID' });
+  });
+
   it('thiếu Product ID ⇒ NO_PRODUCT_ID; thiếu cả Seller SKU lẫn SKU ID ⇒ NO_SKU_ID', () => {
     const resolved = resolveItemProductKeys(
       SHOP,
@@ -151,29 +156,13 @@ describe('PodOrderRepository gắn khoá sản phẩm lúc đọc', () => {
     const order = await repo.findById('org-1', 'order-1');
     expect(order?.items[0]).toMatchObject({ sellerSku: 'dung2740', sellerSkuSource: 'CATALOG', productKeyIssue: null });
     expect(order?.items[1]).toMatchObject({ sellerSku: 'SELLER-2', sellerSkuSource: 'ORDER' });
-    // Truy vấn 1: tra Seller SKU cho dòng rỗng. Truy vấn 2: đếm biến thể dùng chung Seller SKU HIỆU LỰC (sau khi tra).
-    expect(prisma.podProductVariant.findMany).toHaveBeenCalledTimes(2);
-    for (const call of prisma.podProductVariant.findMany.mock.calls as unknown[][]) {
-      expect((call[0] as { where: Record<string, unknown> }).where).toMatchObject({
-        organizationId: 'org-1',
-        deletedAt: null,
-        product: { organizationId: 'org-1', deletedAt: null, shopId: { in: [SHOP] } },
-      });
-    }
-    const countWhere = (prisma.podProductVariant.findMany.mock.calls[1] as unknown[])[0] as { where: Record<string, unknown> };
-    expect(countWhere.where.sellerSku).toEqual({ in: ['dung2740', 'SELLER-2'] });
-  });
-
-  it('gắn sellerSkuVariantCount = số SKU ID mang cùng Seller SKU trong CÙNG sản phẩm của shop đơn', async () => {
-    const { repo, prisma } = build([]);
-    prisma.podProductVariant.findMany.mockResolvedValue([
-      { tiktokSkuId: 'S2', sellerSku: 'SELLER-2', product: { shopId: SHOP, tiktokProductId: 'P2' } },
-      { tiktokSkuId: 'S3', sellerSku: 'SELLER-2', product: { shopId: SHOP, tiktokProductId: 'P2' } },
-      // Sản phẩm khác cùng Seller SKU ⇒ không đếm.
-      { tiktokSkuId: 'S9', sellerSku: 'SELLER-2', product: { shopId: SHOP, tiktokProductId: 'P-OTHER' } },
-    ]);
-    const order = await repo.findById('org-1', 'order-1');
-    expect(order?.items[1]).toMatchObject({ sellerSku: 'SELLER-2', sellerSkuVariantCount: 2 });
+    expect(prisma.podProductVariant.findMany).toHaveBeenCalledTimes(1);
+    const [query] = prisma.podProductVariant.findMany.mock.calls[0] as [{ where: Record<string, unknown> }];
+    expect(query.where).toMatchObject({
+      organizationId: 'org-1',
+      deletedAt: null,
+      product: { organizationId: 'org-1', deletedAt: null, shopId: { in: [SHOP] } },
+    });
   });
 
   it('đồng bộ Products rồi mở lại đơn ⇒ đọc lại thấy Seller SKU mới; dữ liệu đơn đã lưu KHÔNG bị ghi đè', async () => {
@@ -193,7 +182,7 @@ describe('PodOrderRepository gắn khoá sản phẩm lúc đọc', () => {
     expect(prisma.podOrder.findFirst).toHaveBeenCalledTimes(2);
   });
 
-  it('không có dòng nào cần tra ⇒ KHÔNG truy vấn tra Seller SKU (chỉ còn truy vấn đếm biến thể dùng chung)', async () => {
+  it('không có dòng nào cần tra ⇒ KHÔNG truy vấn danh mục', async () => {
     const { repo, prisma } = build([]);
     prisma.podOrder.findFirst.mockResolvedValue({
       id: 'order-1',
@@ -201,10 +190,7 @@ describe('PodOrderRepository gắn khoá sản phẩm lúc đọc', () => {
       items: [{ id: 'item-2', productId: 'P2', skuId: 'S2', sellerSku: 'SELLER-2' }],
     });
     await repo.findById('org-1', 'order-1');
-    expect(prisma.podProductVariant.findMany).toHaveBeenCalledTimes(1);
-    const where = (prisma.podProductVariant.findMany.mock.calls[0] as unknown[])[0] as { where: Record<string, unknown> };
-    expect(where.where).not.toHaveProperty('tiktokSkuId');
-    expect(where.where.sellerSku).toEqual({ in: ['SELLER-2'] });
+    expect(prisma.podProductVariant.findMany).not.toHaveBeenCalled();
   });
 
   it('không dòng nào có khoá Seller SKU lẫn SKU ID ⇒ KHÔNG truy vấn danh mục', async () => {

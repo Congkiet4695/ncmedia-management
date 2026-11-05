@@ -119,13 +119,10 @@ export function Drawer({
 export function DrawerSection({
   title,
   action,
-  issues,
   children,
 }: {
   title: ReactNode;
   action?: ReactNode;
-  /** Câu lỗi thuộc khối này (backend đã phân loại theo `section`). */
-  issues?: string[];
   children?: ReactNode;
 }) {
   return (
@@ -137,16 +134,6 @@ export function DrawerSection({
         {action}
       </div>
       {children}
-      {issues && issues.length > 0 && (
-        <ul className="space-y-1 rounded-md bg-destructive/10 p-2 text-xs text-destructive">
-          {issues.map((issue, index) => (
-            <li key={index} className="flex gap-1.5">
-              <span aria-hidden>✕</span>
-              <span>{issue}</span>
-            </li>
-          ))}
-        </ul>
-      )}
     </section>
   );
 }

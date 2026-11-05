@@ -34,7 +34,7 @@
     "blocked": {
       "busy": "Đang gửi — chờ lượt này xong đã.",
       "loading": "Đang đọc trạng thái đơn…",
-      "notReady": "Chưa gửi được: {{reasons}}",
+      "notReadySummary": "Chưa gửi được: {{count}} vấn đề cần xử lý.",
       "notReadyUnknown": "Đơn chưa đủ điều kiện gửi sang xưởng in.",
       "status": "Đơn đang ở trạng thái {{status}} nên không gửi được nữa.",
       "tiktokLabelRequired": "Phương thức \"By TikTok\" cần nhãn vận chuyển của TikTok — bấm \"Lấy nhãn từ TikTok\" trước khi gửi đơn này."
@@ -50,7 +50,7 @@
       "loadingOptions": "Đang tải cấu hình nhà cung cấp…",
       "loadingProducts": "Đang tải danh mục…",
       "loadingVariants": "Đang tải biến thể…",
-      "missingKey": "Dòng hàng thiếu Product ID hoặc Seller SKU nên không khai ánh xạ được.",
+      "missingKey": "Dòng hàng thiếu Product ID hoặc TikTok SKU ID nên không khai ánh xạ được.",
       "missingProduct": "Chưa chọn sản phẩm của nhà cung cấp.",
       "missingVariant": "Chưa chọn được biến thể của nhà cung cấp (thiếu Color/Size hoặc SKU).",
       "noPrintLocations": "Nhà cung cấp chưa khai báo vị trí in nào.",
@@ -97,7 +97,7 @@
       "baseCostNotFound": "Đã lưu cấu hình, nhưng biến thể này chưa có giá nhà cung cấp — Base Cost để trống"
     },
     "defaultsHint": "Ô để trống = dùng mặc định của đơn vị Fulfill đã cấu hình.",
-    "designHint": "File design lấy theo Product ID + Seller SKU; xưởng in tải trực tiếp từ URL công khai.",
+    "designHint": "File design lấy theo biến thể (Product ID + TikTok SKU ID); xưởng in tải trực tiếp từ URL công khai.",
     "designMissingShort": "Chưa có",
     "drawerTitle": "Fulfill đơn hàng #{{orderId}}",
     "dropshipUnavailable": "Hệ thống chưa có nhà cung cấp Dropship nào; hiện chỉ gửi được đơn POD.",
@@ -141,10 +141,58 @@
         "TIKTOK_SHIPPING_LABEL_UNAVAILABLE": "TikTok từ chối yêu cầu: {{message}}"
       }
     },
+    "issue": {
+      "code": {
+        "ACCOUNT_MISSING": "Chưa có tài khoản nhà cung cấp",
+        "ADDRESS_INCOMPLETE": "Địa chỉ người nhận chưa đầy đủ",
+        "ADDRESS_MASKED": "Địa chỉ người nhận đã bị che",
+        "ADDRESS_MISSING": "Thiếu địa chỉ người nhận",
+        "DESIGN_LEGACY_CONFIRM_REQUIRED": "Design mapping unavailable — design cũ chờ xác nhận",
+        "DESIGN_MISSING": "Chưa có file design",
+        "DESIGN_NOT_PUBLIC": "File design không có URL công khai",
+        "MAPPING_KEY_MISSING": "Dòng hàng thiếu khoá biến thể",
+        "MAPPING_LEGACY_CONFIRM_REQUIRED": "Design mapping unavailable — cấu hình cũ chờ xác nhận",
+        "MAPPING_MISSING": "Chưa khai báo ánh xạ sản phẩm",
+        "MAPPING_PROVIDER_MISMATCH": "Ánh xạ thuộc nhà cung cấp khác",
+        "NO_FULFILLABLE_ITEMS": "Không có sản phẩm nào để gửi",
+        "NO_ITEMS": "Đơn không có sản phẩm",
+        "ORDER_CANCELLED": "Trạng thái đơn không thể sản xuất",
+        "PLACEMENT_UNSUPPORTED": "Vị trí in chưa có ánh xạ sang nhà cung cấp",
+        "PRODUCTION_LINE_CONFLICT": "Các sản phẩm khác line sản xuất",
+        "PROMOTION_GIFT_NOT_SENT": "Quà tặng không gửi sang nhà cung cấp",
+        "PROVIDER_INACTIVE": "Nhà cung cấp đang tắt",
+        "PROVIDER_NOT_ASSIGNED": "Chưa gán nhà cung cấp",
+        "PROVIDER_NOT_SELECTED": "Chưa chọn nhà cung cấp",
+        "SUBMITTED_TO_OTHER_PROVIDER": "Đơn đã gửi sang nhà cung cấp khác",
+        "TIKTOK_SHIPPING_LABEL_REQUIRED": "Cần địa chỉ hoặc nhãn vận chuyển"
+      },
+      "hideDetails": "Thu gọn",
+      "hint": {
+        "DESIGN_LEGACY_CONFIRM_REQUIRED": "Design cũ của Seller SKU này dùng chung cho nhiều biến thể nên không tự áp dụng. Kiểm tra rồi xác nhận dùng cho biến thể ở khối Cấu hình sản phẩm, hoặc upload design mới.",
+        "MAPPING_LEGACY_CONFIRM_REQUIRED": "Cấu hình cũ của Seller SKU này dùng chung cho nhiều biến thể nên không tự áp dụng. Kiểm tra rồi xác nhận dùng cho biến thể ở khối Cấu hình sản phẩm, hoặc khai cấu hình mới.",
+        "DESIGN_MISSING": "Upload design cho biến thể này — một lần là dùng cho mọi đơn cùng biến thể, kể cả đơn đồng bộ về sau này.",
+        "MAPPING_MISSING": "Vào màn hình Ánh xạ sản phẩm để khai cho biến thể này — khai một lần là mọi đơn cùng biến thể đều dùng được.",
+        "MAPPING_PROVIDER_MISMATCH": "Sản phẩm đã có ánh xạ, nhưng ánh xạ đó khai cho một nhà cung cấp KHÁC với nhà cung cấp gán cho kết nối TikTok của đơn này. Sửa ánh xạ, hoặc đổi nhà cung cấp của kết nối TikTok cho khớp.",
+        "PROMOTION_GIFT_NOT_SENT": "Quà tặng khuyến mãi của TikTok không yêu cầu Product Configuration và KHÔNG được gửi sang nhà cung cấp. Quà vẫn thuộc đơn TikTok: hãy đảm bảo quà được giao cho người mua."
+      },
+      "lineCount": "Số dòng đơn",
+      "sellerSku": "Seller SKU",
+      "showDetails": "Xem chi tiết",
+      "skuId": "SKU ID",
+      "unknownTitle": "Vấn đề cần kiểm tra"
+    },
+    "legacy": {
+      "adopt": "Xác nhận dùng cho biến thể này",
+      "adoptFailed": "Không xác nhận được cấu hình cũ",
+      "adopted": "Đã áp dụng cấu hình cũ cho biến thể này",
+      "description": "Cấu hình này khai theo Seller SKU và đang dùng chung cho nhiều biến thể, nên hệ thống không tự áp dụng. Kiểm tra đúng SKU nhà cung cấp và file in của biến thể này rồi xác nhận; các biến thể khác không bị ảnh hưởng.",
+      "providerSku": "SKU nhà cung cấp cũ",
+      "title": "Design mapping unavailable — có cấu hình cũ chờ xác nhận"
+    },
     "labelUrlHint": "Link nhãn vận chuyển (PDF/PNG/JPG) — xưởng in phải tải được, nên URL phải công khai.",
     "labelUrlInvalid": "Link nhãn phải là URL http(s) hợp lệ.",
     "labelUrlLabel": "Label đơn hàng (URL)",
-    "mappingHint": "Provider SKU, production config và giá vốn lấy từ Ánh xạ sản phẩm — khai một lần dùng cho mọi đơn cùng Product ID + Seller SKU.",
+    "mappingHint": "Provider SKU, production config và giá vốn lấy từ Ánh xạ sản phẩm — khai một lần dùng cho mọi đơn cùng biến thể (Product ID + TikTok SKU ID).",
     "promotionGift": {
       "label": "Quà tặng khuyến mãi",
       "noConfig": "Quà tặng khuyến mãi — không yêu cầu Product Configuration.",
@@ -254,7 +302,7 @@
       "MISSING": "Chưa có design",
       "READY": "Đã có design"
     },
-    "designScopeHint": "Design thuộc về sản phẩm này (Product ID + Seller SKU). Upload hoặc thay file là MỌI đơn chưa gửi sản xuất — kể cả đơn đồng bộ về sau này — nhận ngay file mới. Xoá là mọi đơn đó quay về trạng thái thiếu design. Đơn đã gửi sản xuất giữ nguyên file đã gửi.",
+    "designScopeHint": "Design thuộc về biến thể này (Product ID + TikTok SKU ID). Upload hoặc thay file là MỌI đơn chưa gửi của biến thể đều dùng file mới.",
     "designStatusValue": {
       "MISSING_ALL": "Chưa có design",
       "MISSING_FRONT": "Thiếu mặt trước",
@@ -264,7 +312,9 @@
     "empty": "Chưa có ánh xạ nào. Bấm “Thêm ánh xạ” để bắt đầu.",
     "emptyFiltered": "Không có ánh xạ nào khớp bộ lọc.",
     "keyIncomplete": "Thiếu khoá",
-    "keyRequiredHint": "Sản phẩm này thiếu Product ID hoặc Seller SKU nên không thể ánh xạ. Đồng bộ lại đơn từ TikTok để lấy đủ hai khoá.",
+    "legacyBadge": "Cấu hình cũ",
+    "legacyHint": "Ánh xạ này khai theo Seller SKU dùng chung nhiều biến thể nên không tự áp dụng và không sửa được. Xác nhận dùng cho từng biến thể ở màn Fulfill, hoặc khai ánh xạ mới cho biến thể.",
+    "keyRequiredHint": "Biến thể này thiếu Product ID hoặc TikTok SKU ID nên không thể ánh xạ. Đồng bộ lại đơn từ TikTok.",
     "lastSyncedAt": "Đồng bộ lúc {{time}}",
     "loadFailed": "Không tải được danh sách ánh xạ",
     "loadedProducts": "Đã tải {{count}} sản phẩm",
@@ -280,7 +330,7 @@
     "noVariantMatch": "Không có biến thể nào khớp từ khoá.",
     "noVariation": "Sản phẩm này không có biến thể nào.",
     "notMapped": "Not Mapped",
-    "pageSubtitle": "Mỗi sản phẩm được xác định bằng Product ID + Seller SKU. Design, Fulfillment SKU và Base Cost khai ở đây một lần, mọi đơn cùng sản phẩm dùng chung.",
+    "pageSubtitle": "Mỗi biến thể được xác định bằng Product ID + TikTok SKU ID. Design, Fulfillment SKU và Base Cost khai theo từng biến thể.",
     "pageTitle": "Product Mapping",
     "provider": "Provider",
     "providerSku": "Provider SKU",

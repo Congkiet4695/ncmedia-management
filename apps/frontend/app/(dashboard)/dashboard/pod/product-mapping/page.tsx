@@ -325,6 +325,11 @@ function MappingView() {
                         <Badge variant={mapping.isActive ? 'success' : 'muted'}>
                           {t(`mapping.statusValue.${mapping.status}`)}
                         </Badge>
+                        {mapping.legacySharedKey && (
+                          <Badge variant="warning" className="ml-1" title={t('mapping.legacyHint')}>
+                            {t('mapping.legacyBadge')}
+                          </Badge>
+                        )}
                       </TableCell>
                       <TableCell className="max-w-[140px] truncate text-muted-foreground">
                         {mapping.updatedByName ?? '—'}
@@ -338,6 +343,7 @@ function MappingView() {
                             variant="ghost"
                             size="icon"
                             aria-label={t('common:action.edit')}
+                            disabled={mapping.legacySharedKey}
                             onClick={() => {
                               setEditing(mapping);
                               setFormOpen(true);

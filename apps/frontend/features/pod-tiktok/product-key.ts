@@ -1,6 +1,6 @@
 /**
- * Khoá sản phẩm của dòng đơn (TikTok Product ID + Seller SKU) — khoá của ánh xạ nhà cung cấp và design in.
- * Backend giải sẵn (`order-item-product-key.ts`): Seller SKU lấy từ đơn, hoặc từ danh mục Products khi đơn rỗng.
+ * Khoá sản phẩm của dòng đơn = BIẾN THỂ (TikTok Product ID + TikTok SKU ID) — khoá của ánh xạ nhà cung cấp và design in.
+ * Seller SKU chỉ để hiển thị; backend giải sẵn (`order-item-product-key.ts`): lấy từ đơn, hoặc từ danh mục Products khi đơn rỗng.
  */
 
 export type SellerSkuSource = 'ORDER' | 'CATALOG';
@@ -29,23 +29,19 @@ export function productKeyMessageKey(issue: string | null | undefined): string {
 }
 
 /**
- * Khoá lưu ánh xạ / design của MỘT dòng đơn — cùng luật với backend `fulfillment/shared/mapping-match.ts`:
- * Seller SKU hiệu lực nếu có; biến thể KHÔNG có Seller SKU trên TikTok ⇒ TikTok SKU ID (không gửi `sellerSku`).
- * `null` = thiếu Product ID hoặc thiếu cả hai ⇒ không lưu được.
- *
- * 🔴 Không bao giờ gửi Seller SKU rỗng / chỉ khoảng trắng làm khoá, không tự sinh Seller SKU.
+ * Khoá lưu ánh xạ / design của MỘT dòng đơn — cùng luật với backend `fulfillment/shared/mapping-match.ts`.
+ * `sellerSku` chỉ gửi kèm để lưu hiển thị. `null` = thiếu Product ID hoặc SKU ID ⇒ không lưu được.
  */
 export function productKeyOf(item: {
   productId: string | null;
   sellerSku: string | null;
   skuId?: string | null;
-}): { tiktokProductId: string; sellerSku?: string; tiktokSkuId?: string } | null {
+}): { tiktokProductId: string; tiktokSkuId: string; sellerSku?: string } | null {
   const tiktokProductId = item.productId?.trim();
-  if (!tiktokProductId) return null;
-  const sellerSku = item.sellerSku?.trim();
   const tiktokSkuId = item.skuId?.trim();
-  if (sellerSku) return { tiktokProductId, sellerSku, ...(tiktokSkuId ? { tiktokSkuId } : {}) };
-  return tiktokSkuId ? { tiktokProductId, tiktokSkuId } : null;
+  if (!tiktokProductId || !tiktokSkuId) return null;
+  const sellerSku = item.sellerSku?.trim();
+  return { tiktokProductId, tiktokSkuId, ...(sellerSku ? { sellerSku } : {}) };
 }
 
 /** Dòng đơn không có Seller SKU nhưng vẫn có khoá (SKU ID) ⇒ hiện cảnh báo KHÔNG chặn thao tác. */

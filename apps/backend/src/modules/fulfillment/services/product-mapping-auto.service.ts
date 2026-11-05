@@ -13,7 +13,7 @@ import { mappingKeyOf } from '../shared/mapping-match';
 
 /** Kết quả một lượt rà ánh xạ tự động. */
 export interface AutoMapRunResult {
-  /** Số cặp (Product ID + Seller SKU) chưa có ánh xạ được đem đi rà. */
+  /** Số cặp (Product ID + Seller SKU) có biến thể chưa ánh xạ được đem đi rà. */
   scanned: number;
   autoMapped: number;
   needManual: number;
@@ -24,7 +24,14 @@ export interface AutoMapRunResult {
 /** Một dòng hàng chưa ánh xạ, đã gom theo cặp khoá. */
 interface UnmappedKey {
   tiktokProductId: string;
+  /** Biến thể chưa có ánh xạ. */
+  tiktokSkuId: string;
   sellerSku: string;
+  /**
+   * Số biến thể đã biết (dòng đơn ∪ danh mục Products) mang Seller SKU này. Việc rà dựa trên Seller SKU nên chỉ đủ chắc
+   * chắn để TỰ tạo ánh xạ khi Seller SKU ứng với đúng một biến thể.
+   */
+  variantCount: number;
   productName: string | null;
   skuName: string | null;
   productCategory: string | null;
@@ -141,7 +148,9 @@ export class ProductMappingAutoService {
           rows,
         );
 
-        if (outcome.candidates.length === 1) {
+        // 🔴 Seller SKU dùng chung nhiều biến thể ⇒ một ứng viên duy nhất vẫn có thể sai size/màu với biến thể này.
+        // Không tự tạo: giữ làm gợi ý cho người vận hành chọn tay.
+        if (outcome.candidates.length === 1 && key.variantCount === 1) {
           const mappingId = await this.createMapping(
             organizationId,
             key,
@@ -162,7 +171,7 @@ export class ProductMappingAutoService {
           continue;
         }
 
-        if (outcome.candidates.length > 1) {
+        if (outcome.candidates.length > 0) {
           result.needManual += 1;
           candidateRows.push({
             tiktokProductId: key.tiktokProductId,
@@ -242,7 +251,7 @@ export class ProductMappingAutoService {
   // ---------------------------------------------------------------------------
 
   /**
-   * Các cặp (Product ID + Seller SKU) CHƯA có ánh xạ, kèm tài khoản nhà cung cấp của đơn.
+   * Các cặp (Product ID + Seller SKU) có biến thể CHƯA có ánh xạ, kèm tài khoản nhà cung cấp của đơn.
    *
    * 🔴 MỘT truy vấn cho cả tổ chức. Gom ở tầng DATABASE (`DISTINCT ON`) thay vì tải hết dòng
    * hàng rồi lọc trong bộ nhớ: một tổ chức chạy lâu có hàng chục nghìn dòng hàng nhưng chỉ
@@ -255,7 +264,25 @@ export class ProductMappingAutoService {
     return this.prisma.$queryRaw<UnmappedKey[]>`
       SELECT DISTINCT ON (i.product_id, i.seller_sku)
              i.product_id       AS "tiktokProductId",
+             i.sku_id           AS "tiktokSkuId",
              i.seller_sku       AS "sellerSku",
+             (
+               SELECT COUNT(DISTINCT known.sid)::int
+               FROM (
+                 SELECT x.sku_id AS sid
+                 FROM pod_order_items x
+                 WHERE x.organization_id = i.organization_id
+                   AND x.product_id = i.product_id
+                   AND x.seller_sku = i.seller_sku
+                 UNION
+                 SELECT v.tiktok_sku_id
+                 FROM pod_product_variants v
+                 JOIN pod_products p ON p.id = v.product_id
+                 WHERE p.organization_id = i.organization_id
+                   AND p.tiktok_product_id = i.product_id
+                   AND v.seller_sku = i.seller_sku
+               ) known
+             )                  AS "variantCount",
              i.product_name     AS "productName",
              i.sku_name         AS "skuName",
              i.product_category AS "productCategory",
@@ -270,16 +297,18 @@ export class ProductMappingAutoService {
        AND fa.is_active = true
       WHERE i.organization_id = ${organizationId}::uuid
         AND i.product_id  IS NOT NULL
+        AND i.sku_id      IS NOT NULL
         AND i.seller_sku  IS NOT NULL
-        -- Seller SKU rỗng KHÔNG phải khoá: biến thể không có Seller SKU được khai tay theo SKU ID ở màn Fulfill.
+        -- Việc rà dựa trên Seller SKU: biến thể không có Seller SKU được khai tay ở màn Fulfill.
         AND TRIM(i.seller_sku) <> ''
         AND (${accountFilter ?? null}::uuid IS NULL OR fa.id = ${accountFilter ?? null}::uuid)
         AND NOT EXISTS (
           SELECT 1 FROM fulfillment_product_mappings m
           WHERE m.organization_id   = i.organization_id
             AND m.deleted_at        IS NULL
+            AND NOT m.legacy_shared_key
             AND m.tiktok_product_id = i.product_id
-            AND m.seller_sku        = i.seller_sku
+            AND m.tiktok_sku_id     = i.sku_id
         )
       ORDER BY i.product_id, i.seller_sku, i.created_at DESC
       LIMIT ${AUTO_MAP.maxKeysPerRun}`;
@@ -308,6 +337,7 @@ export class ProductMappingAutoService {
           accountId: key.accountId,
           provider: key.provider,
           tiktokProductId: key.tiktokProductId,
+          tiktokSkuId: key.tiktokSkuId,
           sellerSku: key.sellerSku,
           providerSku: candidate.sku,
           providerProductId: candidate.externalProductId,

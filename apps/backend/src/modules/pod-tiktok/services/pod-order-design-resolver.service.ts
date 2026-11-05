@@ -67,9 +67,9 @@ export interface ItemMappingCandidate {
  * Design + tình trạng ánh xạ của MỘT line item.
  *
  * 🔴 `designs` và `mappingId` được giải quyết ĐỘC LẬP với nhau:
- *   - `designs`   tra theo khoá sản phẩm (Product ID + Seller SKU, hoặc + SKU ID khi biến thể không có Seller
- *                 SKU — `shared/mapping-match.ts`) — có ngay cả khi chưa ánh xạ.
- *   - `mappingId` tra theo cùng cặp khoá nhưng trong bảng ánh xạ — `null` nghĩa là chưa khai.
+ *   - `designs`   tra theo biến thể (Product ID + TikTok SKU ID — `shared/mapping-match.ts`) — có ngay cả khi chưa
+ *                 ánh xạ.
+ *   - `mappingId` tra theo cùng khoá nhưng trong bảng ánh xạ — `null` nghĩa là chưa khai.
  * Một dòng hàng hoàn toàn có thể có design mà chưa có ánh xạ, và ngược lại.
  */
 export interface ResolvedItemDesigns {
@@ -84,8 +84,8 @@ export interface ResolvedItemDesigns {
  * PodOrderDesignResolver — trả lời "line item này có design nào, và đã ánh xạ chưa?".
  *
  * ```
- *   line item ──(Product ID + Seller SKU)──┬──▶ fulfillment_product_designs   → design
- *                                          └──▶ fulfillment_product_mappings  → ánh xạ
+ *   line item ──(Product ID + SKU ID)──┬──▶ fulfillment_product_designs   → design
+ *                                      └──▶ fulfillment_product_mappings  → ánh xạ
  * ```
  *
  * 🔴 **Hai nhánh độc lập, cùng một cặp khoá.** Trước đây design được đọc QUA ánh xạ
@@ -171,9 +171,9 @@ export class PodOrderDesignResolver {
           tiktokProductId: { in: productIds },
           OR: HAS_KEY,
         },
-        select: { id: true, tiktokProductId: true, sellerSku: true, tiktokSkuId: true, isActive: true },
+        select: { id: true, tiktokProductId: true, sellerSku: true, tiktokSkuId: true, legacySharedKey: true, isActive: true },
       }),
-      // Kết quả rà ánh xạ tự động gần nhất (chỉ khoá Seller SKU — biến thể không có Seller SKU được khai tay).
+      // Kết quả rà ánh xạ tự động gần nhất — dữ liệu GỢI Ý, lưu theo Seller SKU (biến thể không có Seller SKU khai tay).
       // Không có bản ghi ⇒ chưa rà bao giờ ⇒ `MISSING`.
       this.prisma.fulfillmentMappingCandidate.findMany({
         where: { organizationId, tiktokProductId: { in: productIds } },

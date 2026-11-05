@@ -45,6 +45,7 @@ const PROVIDER_ACCOUNT = { id: 'facc-1', provider: FulfillmentProvider.MANGO };
 const line = (over: Record<string, unknown> = {}) => ({
   id: `line-${Math.random().toString(36).slice(2, 8)}`,
   productId: 'P1',
+  skuId: 'V-1',
   sellerSku: 'SKU-1',
   isGift: false,
   ...over,
@@ -52,6 +53,7 @@ const line = (over: Record<string, unknown> = {}) => ({
 const MAPPING = {
   accountId: PROVIDER_ACCOUNT.id,
   tiktokProductId: 'P1',
+  tiktokSkuId: 'V-1',
   sellerSku: 'SKU-1',
   providerSku: 'MG-TEE-BLK-L',
   productionConfig: 'DTG',
@@ -636,7 +638,7 @@ describe('Import Excel Base Cost + Tracking Number', () => {
     it('chưa có Product Mapping / ánh xạ của nhà cung cấp KHÁC ⇒ vẫn import, không mượn SKU của nhà cung cấp khác', async () => {
       const { service, repo } = build(
         [
-          { tiktokOrderId: 'NM', shopId: 'shop-1', record: null, lines: [line({ sellerSku: 'UNMAPPED' })] },
+          { tiktokOrderId: 'NM', shopId: 'shop-1', record: null, lines: [line({ skuId: 'V-UNMAPPED', sellerSku: 'UNMAPPED' })] },
           { tiktokOrderId: 'OP', shopId: 'shop-1', record: null, lines: [line({ productId: 'P-OTHER' })] },
           { tiktokOrderId: 'OK', shopId: 'shop-1', record: null },
         ],
@@ -661,7 +663,7 @@ describe('Import Excel Base Cost + Tracking Number', () => {
     it('validation khác GIỮ NGUYÊN: nhiều dòng hàng ⇒ MULTI_ITEM; quà chưa ánh xạ không tính là dòng thứ hai', async () => {
       const { service, repo } = build([
         { tiktokOrderId: 'ML', shopId: 'shop-1', record: null, fulfillmentAccount: null, lines: [line(), line()] },
-        { tiktokOrderId: 'GF', shopId: 'shop-1', record: null, fulfillmentAccount: null, lines: [line(), line({ isGift: true, sellerSku: 'GIFT' })] },
+        { tiktokOrderId: 'GF', shopId: 'shop-1', record: null, fulfillmentAccount: null, lines: [line(), line({ isGift: true, skuId: 'V-GIFT', sellerSku: 'GIFT' })] },
         { tiktokOrderId: 'TC', shopId: 'shop-1', record: null, fulfillmentAccount: null, tiktokStatus: 'CANCELLED' },
       ]);
       const result = await service.import(ORG, ADMIN_ID, await xlsx([HEAD, ['ML', 1, 'TRK-4'], ['GF', 1, 'TRK-5'], ['TC', 1, 'TRK-6']]), ADMIN, false);

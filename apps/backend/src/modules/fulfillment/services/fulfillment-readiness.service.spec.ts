@@ -1,6 +1,6 @@
 import { TiktokEncryptionService } from '../../pod-tiktok/services/tiktok-encryption.service';
 import { MangoOrderMapper } from '../mango/mappers/mango-order.mapper';
-import { mappingKeyOf, skuIdKeyOf } from '../shared/mapping-match';
+import { skuIdKeyOf } from '../shared/mapping-match';
 import { FulfillmentReadinessService, READINESS_CODES } from './fulfillment-readiness.service';
 
 const RECIPIENT = {
@@ -64,12 +64,12 @@ function design(over: Record<string, unknown> = {}) {
 }
 
 /**
- * Design của tổ chức, tra theo (Product ID + Seller SKU) — ĐỘC LẬP với ánh xạ.
+ * Design của tổ chức, tra theo biến thể — ĐỘC LẬP với ánh xạ.
  *
- * `order()` mặc định dùng cặp khoá `PROD-1` / `SELLER-1`, nên helper này dựng sẵn đúng khoá đó.
+ * `order()` mặc định dùng biến thể `PROD-1` / `SKU-TT-1`, nên helper này dựng sẵn đúng khoá đó.
  */
 function designs(rows: Array<ReturnType<typeof design>> = [design()]) {
-  return new Map([[mappingKeyOf('PROD-1', 'SELLER-1') as string, rows]]) as never;
+  return new Map([[skuIdKeyOf('PROD-1', 'SKU-TT-1') as string, rows]]) as never;
 }
 
 /** Không có design nào — dùng cho các bài kiểm "thiếu design". */
@@ -78,8 +78,7 @@ const noDesigns = new Map() as never;
 /**
  * Ánh xạ sản phẩm — mặc định ĐÃ có design FRONT.
  *
- * 🔴 Khoá là CẶP (tiktokProductId + sellerSku) và phải khớp line item ở `order()`. Thiếu một
- * nửa thì bản ghi không ghép được với đơn nào — đó chính là luật mà refactor này thiết lập.
+ * 🔴 Khoá là biến thể (tiktokProductId + tiktokSkuId) và phải khớp line item ở `order()`.
  */
 function mapping(over: Record<string, unknown> = {}) {
   return {
@@ -88,7 +87,6 @@ function mapping(over: Record<string, unknown> = {}) {
     accountId: 'nha-cung-cap-A',
     tiktokProductId: 'PROD-1',
     sellerSku: 'SELLER-1',
-    // Có mặt để chứng minh nó KHÔNG tham gia ghép nữa.
     tiktokSkuId: 'SKU-TT-1',
     providerSku: 'MANGO-1',
     baseCost: null,
@@ -123,7 +121,7 @@ describe('FulfillmentReadinessService', () => {
     });
   });
 
-  describe('🔴 biến thể KHÔNG có Seller SKU — khoá dự phòng Product ID + TikTok SKU ID (PO 2026-11-03)', () => {
+  describe('🔴 biến thể KHÔNG có Seller SKU', () => {
     const keyless = (over: Record<string, unknown>) =>
       order({
         items: [
@@ -182,16 +180,6 @@ describe('FulfillmentReadinessService', () => {
       expect(otherProduct.issues.map((i) => i.code)).toEqual([READINESS_CODES.MAPPING_MISSING]);
     });
 
-    it('ánh xạ theo Seller SKU (có tiktok_sku_id tham chiếu) KHÔNG bị dùng cho dòng không có Seller SKU', () => {
-      // Bản ghi Seller SKU chỉ tra bằng khoá Seller SKU — luật cũ của đơn có Seller SKU giữ nguyên.
-      const result = service.check(
-        keyless({}) as never,
-        [mapping({ tiktokProductId: '1732716254750544348', tiktokSkuId: '1732716272490942940' })] as never,
-        skuIdDesigns(),
-      );
-      expect(result.issues.map((i) => i.code)).toEqual([READINESS_CODES.MAPPING_MISSING]);
-    });
-
     it('người bán đặt Seller SKU SAU khi đã khai theo SKU ID ⇒ ánh xạ/design SKU ID của chính biến thể vẫn dùng được', () => {
       const result = service.check(
         keyless({ sellerSku: 'SET-LATER', sellerSkuSource: 'CATALOG' }) as never,
@@ -215,7 +203,7 @@ describe('FulfillmentReadinessService', () => {
 
     it('Seller SKU khôi phục từ danh mục (CATALOG) ⇒ ghép ánh xạ + design như dòng bình thường', () => {
       const result = service.check(
-        keyless({ sellerSku: 'SELLER-1', productId: 'PROD-1', sellerSkuSource: 'CATALOG' }) as never,
+        keyless({ sellerSku: 'SELLER-1', productId: 'PROD-1', skuId: 'SKU-TT-1', sellerSkuSource: 'CATALOG' }) as never,
         [mapping()] as never,
         designs(),
       );
@@ -321,99 +309,44 @@ describe('FulfillmentReadinessService', () => {
    * chính là cách một sản phẩm có thể rơi vào hai bản ghi ánh xạ khác nhau, mỗi bản một bộ
    * design. Nếu một bài dưới đây đỏ lên, luật ghép đã bị nới lỏng trở lại.
    */
-  describe('luật ghép: Product ID + Seller SKU', () => {
-    it('khớp ĐỦ cặp khoá ⇒ ghép được', () => {
-      const result = service.check(
-        order() as never,
-        [
-          mapping({ tiktokProductId: 'PROD-1', sellerSku: 'SELLER-1', providerSku: 'DUNG-CAP' }),
-        ] as never,
-        designs(),
-      );
+  describe('luật ghép: Product ID + TikTok SKU ID', () => {
+    it('khớp ĐỦ khoá ⇒ ghép được', () => {
+      const result = service.check(order() as never, [mapping({ providerSku: 'DUNG-CAP' })] as never, designs());
       expect(result.items?.[0].providerSku).toBe('DUNG-CAP');
     });
 
-    it('KHÔNG ghép khi chỉ khớp Seller SKU (Product ID khác)', () => {
-      const result = service.check(
-        order() as never,
-        [mapping({ tiktokProductId: 'SAN-PHAM-KHAC', sellerSku: 'SELLER-1' })] as never,
-        designs(),
-      );
+    it('KHÔNG ghép khi chỉ khớp SKU ID (Product ID khác)', () => {
+      const result = service.check(order() as never, [mapping({ tiktokProductId: 'SAN-PHAM-KHAC' })] as never, designs());
       expect(result.issues.map((i) => i.code)).toContain(READINESS_CODES.MAPPING_MISSING);
     });
 
-    it('KHÔNG ghép khi chỉ khớp Product ID (Seller SKU khác)', () => {
-      const result = service.check(
-        order() as never,
-        [mapping({ tiktokProductId: 'PROD-1', sellerSku: 'SKU-KHAC' })] as never,
-        designs(),
-      );
+    it('KHÔNG ghép khi chỉ khớp Product ID + Seller SKU (SKU ID khác)', () => {
+      const result = service.check(order() as never, [mapping({ tiktokSkuId: 'BIEN-THE-KHAC' })] as never, designs());
       expect(result.issues.map((i) => i.code)).toContain(READINESS_CODES.MAPPING_MISSING);
     });
 
-    it('🔴 KHÔNG còn ghép theo TikTok SKU ID', () => {
-      const result = service.check(
-        order() as never,
-        [mapping({ tiktokProductId: null, sellerSku: null, tiktokSkuId: 'SKU-TT-1' })] as never,
-        designs(),
-      );
+    it('ánh xạ thiếu SKU ID (dữ liệu cũ) KHÔNG ghép với đơn nào', () => {
+      const result = service.check(order() as never, [mapping({ tiktokSkuId: null })] as never, designs());
       expect(result.issues.map((i) => i.code)).toContain(READINESS_CODES.MAPPING_MISSING);
-    });
-
-    it('ánh xạ thiếu CẢ Seller SKU lẫn SKU ID (dữ liệu cũ) KHÔNG ghép với đơn nào', () => {
-      const result = service.check(
-        order() as never,
-        [mapping({ sellerSku: null, tiktokSkuId: null })] as never,
-        designs(),
-      );
-      expect(result.issues.map((i) => i.code)).toContain(READINESS_CODES.MAPPING_MISSING);
-    });
-
-    it('ánh xạ khoá SKU ID của ĐÚNG biến thể là dự phòng khi chưa có ánh xạ theo Seller SKU (PO 2026-11-03)', () => {
-      // Biến thể từng không có Seller SKU (khai theo SKU ID), sau đó người bán đặt Seller SKU 'SELLER-1'.
-      const fallback = service.check(order() as never, [mapping({ sellerSku: null, providerSku: 'BY-SKU-ID' })] as never, designs());
-      expect(fallback.items?.[0].providerSku).toBe('BY-SKU-ID');
-      // Có cả hai ⇒ ánh xạ theo Seller SKU thắng.
-      const both = service.check(
-        order() as never,
-        [mapping({ sellerSku: null, providerSku: 'BY-SKU-ID' }), mapping({ id: 'map-2', providerSku: 'BY-SELLER-SKU' })] as never,
-        designs(),
-      );
-      expect(both.items?.[0].providerSku).toBe('BY-SELLER-SKU');
     });
 
     it('khoảng trắng thừa hai đầu khoá không làm hỏng phép ghép', () => {
       const result = service.check(
         order() as never,
-        [
-          mapping({ tiktokProductId: ' PROD-1 ', sellerSku: 'SELLER-1 ', providerSku: 'TRIMMED' }),
-        ] as never,
+        [mapping({ tiktokProductId: ' PROD-1 ', tiktokSkuId: 'SKU-TT-1 ', providerSku: 'TRIMMED' })] as never,
         designs(),
       );
       expect(result.items?.[0].providerSku).toBe('TRIMMED');
     });
 
-    it('🔴 Seller SKU phân biệt HOA/thường (TikTok coi đó là hai SKU khác nhau)', () => {
-      const result = service.check(
-        order() as never,
-        [mapping({ sellerSku: 'seller-1' })] as never,
-        designs(),
-      );
-      expect(result.issues.map((i) => i.code)).toContain(READINESS_CODES.MAPPING_MISSING);
-    });
-
     it('🔴 ánh xạ đã tắt (isActive=false) KHÔNG được dùng', () => {
-      const result = service.check(
-        order() as never,
-        [mapping({ isActive: false })] as never,
-        designs(),
-      );
+      const result = service.check(order() as never, [mapping({ isActive: false })] as never, designs());
       expect(result.issues.map((i) => i.code)).toContain(READINESS_CODES.MAPPING_MISSING);
     });
   });
 
   /**
-   * 🔴 Ánh xạ được tra ở phạm vi TỔ CHỨC vì danh tính của nó là (org, Product ID, Seller SKU)
+   * 🔴 Ánh xạ được tra ở phạm vi TỔ CHỨC vì danh tính của nó là (org, Product ID, SKU ID)
    * — lọc thêm theo tài khoản nhà cung cấp sẽ khiến màn hình đơn và luồng gửi đơn nhìn thấy
    * hai kết quả khác nhau. Đổi lại, phải phát hiện được ánh xạ khai cho nhà cung cấp khác.
    */
@@ -479,8 +412,7 @@ describe('FulfillmentReadinessService', () => {
     // 11 lần cùng một file. Giờ một lần khai theo sản phẩm là đủ cho mọi đơn.
     const twoItems = order({
       items: [
-        // Hai dòng hàng khác nhau, thậm chí khác `skuId` (hai shop) — nhưng CÙNG cặp khoá
-        // nghiệp vụ, nên dùng chung đúng một bộ design.
+        // Hai dòng hàng khác nhau của CÙNG biến thể (mua 2 cái) ⇒ dùng chung đúng một bộ design.
         {
           id: 'item-1',
           skuId: 'SKU-TT-1',
@@ -490,7 +422,7 @@ describe('FulfillmentReadinessService', () => {
         },
         {
           id: 'item-2',
-          skuId: 'SKU-TT-9',
+          skuId: 'SKU-TT-1',
           sellerSku: 'SELLER-1',
           productId: 'PROD-1',
           productName: 'Tee',
@@ -569,15 +501,15 @@ describe('FulfillmentReadinessService', () => {
     });
     // Khoá tra design dùng ĐÚNG hàm thuần của hệ thống, không tự ghép chuỗi.
     const designsForBoth = new Map([
-      [mappingKeyOf('PROD-1', 'SELLER-1') as string, [design()]],
-      [mappingKeyOf('PROD-2', 'SELLER-2') as string, [design()]],
+      [skuIdKeyOf('PROD-1', 'SKU-TT-1') as string, [design()]],
+      [skuIdKeyOf('PROD-2', 'SKU-TT-2') as string, [design()]],
     ]);
 
     const result = service.check(
       twoItems as never,
       [
         mapping({ productionLine: 'TIKTOK' }),
-        mapping({ id: 'map-2', tiktokProductId: 'PROD-2', sellerSku: 'SELLER-2', providerSku: 'MANGO-2', productionLine: 'FASTUS' }),
+        mapping({ id: 'map-2', tiktokProductId: 'PROD-2', tiktokSkuId: 'SKU-TT-2', sellerSku: 'SELLER-2', providerSku: 'MANGO-2', productionLine: 'FASTUS' }),
       ] as never,
       designsForBoth as never,
     );
@@ -598,7 +530,7 @@ describe('FulfillmentReadinessService', () => {
    * `pod_order_items.is_gift` lúc đồng bộ). Không đoán theo tên, không theo giá 0.
    */
   describe('quà tặng khuyến mãi (TikTok line_items[].is_gift)', () => {
-    /** Dòng thường đã cấu hình đủ (khoá PROD-1 / SELLER-1 — khớp `mapping()` + `designs()`). */
+    /** Dòng thường đã cấu hình đủ (khoá PROD-1 / SKU-TT-1 — khớp `mapping()` + `designs()`). */
     const normal = (over: Record<string, unknown> = {}) => ({
       id: 'item-1',
       skuId: 'SKU-TT-1',
@@ -705,7 +637,7 @@ describe('FulfillmentReadinessService', () => {
 
     it('quà ĐÃ có Product Mapping + design ⇒ được gửi sang xưởng như dòng thường', () => {
       const result = service.check(
-        order({ items: [normal(), gift({ sellerSku: 'SELLER-1', productId: 'PROD-1' })] }) as never,
+        order({ items: [normal(), gift({ sellerSku: 'SELLER-1', productId: 'PROD-1', skuId: 'SKU-TT-1' })] }) as never,
         [mapping()] as never,
         designs(),
       );
@@ -716,7 +648,7 @@ describe('FulfillmentReadinessService', () => {
 
     it('🔴 quà ĐÃ có Product Mapping nhưng thiếu design ⇒ vẫn CHẶN (không âm thầm bỏ quà đã cấu hình)', () => {
       const result = service.check(
-        order({ items: [gift({ sellerSku: 'SELLER-1', productId: 'PROD-1' })] }) as never,
+        order({ items: [gift({ sellerSku: 'SELLER-1', productId: 'PROD-1', skuId: 'SKU-TT-1' })] }) as never,
         [mapping()] as never,
         noDesigns,
       );

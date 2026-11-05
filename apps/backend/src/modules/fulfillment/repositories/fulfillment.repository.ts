@@ -11,6 +11,7 @@ import {
   FulfillmentSource,
   FulfillmentStatus,
   FulfillmentTrigger,
+  PodDesignPlacement,
   Prisma,
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
@@ -325,12 +326,10 @@ export class FulfillmentRepository {
     const keyword = search?.trim();
     const like = keyword ? `%${keyword}%` : null;
 
-    // 🔴 Gom theo ĐÚNG khoá nghiệp vụ (product_id, seller_sku) — một dòng cho mỗi sản phẩm
-    // cần ánh xạ. Gom theo sku_id như trước sẽ hiện cùng một sản phẩm nhiều lần (mỗi shop
-    // một sku_id), mời người dùng khai trùng đúng cái mà UNIQUE index sẽ từ chối.
+    // 🔴 Gom theo ĐÚNG khoá nghiệp vụ (product_id, sku_id) — một dòng cho mỗi biến thể cần ánh xạ.
     // Dòng hàng thiếu một trong hai khoá không thể ánh xạ ⇒ loại luôn.
     return this.prisma.$queryRaw`
-      SELECT DISTINCT ON (i.product_id, i.seller_sku)
+      SELECT DISTINCT ON (i.product_id, i.sku_id)
              i.product_id        AS "productId",
              i.sku_id            AS "skuId",
              i.seller_sku        AS "sellerSku",
@@ -340,15 +339,14 @@ export class FulfillmentRepository {
              i.sku_image         AS "skuImage"
       FROM pod_order_items i
       WHERE i.organization_id = ${organizationId}::uuid
-        AND i.deleted_at IS NULL
         AND i.product_id IS NOT NULL
-        AND i.seller_sku IS NOT NULL
+        AND i.sku_id IS NOT NULL
         AND (${like}::text IS NULL
              OR i.product_name ILIKE ${like}
              OR i.seller_sku   ILIKE ${like}
              OR i.product_id   ILIKE ${like}
              OR i.sku_name     ILIKE ${like})
-      ORDER BY i.product_id, i.seller_sku, i.created_at DESC
+      ORDER BY i.product_id, i.sku_id, i.created_at DESC
       LIMIT 200`;
   }
 
@@ -414,8 +412,7 @@ export class FulfillmentRepository {
   }
 
   /**
-   * Design đang hiệu lực của MỘT tổ chức, tra theo khoá sản phẩm (Product ID + Seller SKU, hoặc + SKU ID khi biến thể
-   * không có Seller SKU — `productKeyFilter`).
+   * Design đang hiệu lực của MỘT tổ chức, tra theo biến thể (`productKeyFilter`).
    *
    * 🔴 MỘT truy vấn cho cả trang. Design không còn là quan hệ của ánh xạ nên không
    * `include` được; bù lại bằng một lượt đọc theo lô rồi ghép trong bộ nhớ — chi phí như cũ,
@@ -446,13 +443,11 @@ export class FulfillmentRepository {
   }
 
   /**
-   * Ánh xạ đã tồn tại cho cặp khoá (Product ID + Seller SKU) — chặn khai hai bộ Design cho
-   * cùng một sản phẩm.
+   * Ánh xạ đã tồn tại cho biến thể này — mỗi biến thể chỉ có MỘT ánh xạ.
    *
-   * 🔴 Phạm vi là TỔ CHỨC, không phải tài khoản nhà cung cấp. Nếu giới hạn theo tài khoản
-   * thì hai nhà cung cấp vẫn khai được cùng một sản phẩm, và sản phẩm đó có hai bộ Design —
-   * đúng thứ mà UNIQUE index ở migration `20260826170000` loại bỏ. Kiểm ở đây để người dùng
-   * nhận thông báo nghiệp vụ rõ ràng thay vì lỗi ràng buộc thô của Postgres.
+   * 🔴 Phạm vi là TỔ CHỨC, không phải tài khoản nhà cung cấp, đúng như UNIQUE index ở migration
+   * `20261105090000`. Kiểm ở đây để người dùng nhận thông báo nghiệp vụ rõ ràng thay vì lỗi ràng
+   * buộc thô của Postgres.
    */
   findConflictingMapping(
     organizationId: string,
@@ -463,7 +458,6 @@ export class FulfillmentRepository {
       where: {
         organizationId,
         deletedAt: null,
-        // Khoá SKU ID chỉ đụng bản ghi `seller_sku IS NULL` — đúng phạm vi partial unique của nó.
         ...productKeyFilter(key),
         ...(excludeId ? { id: { not: excludeId } } : {}),
       },
@@ -485,6 +479,69 @@ export class FulfillmentRepository {
     return this.prisma.fulfillmentProductMapping.update({
       where: { id },
       data,
+    });
+  }
+
+  /**
+   * Xác nhận cấu hình legacy cho MỘT biến thể: CHÉP ánh xạ và design sang bản ghi của biến thể, bản legacy giữ nguyên để
+   * các biến thể khác còn xác nhận được. Không ghi đè thứ biến thể đã có. Idempotent: `skipDuplicates` dựa vào partial
+   * UNIQUE, nên bấm lại hoặc hai người cùng bấm đều không tạo trùng.
+   */
+  adoptLegacyConfig(params: {
+    organizationId: string;
+    actorUserId: string;
+    key: ProductKey;
+    mapping: MappingWithDesigns | null;
+    designs: Array<{ placement: PodDesignPlacement; storageFileId: string | null; sourceUrl: string | null }>;
+  }): Promise<{ mappingAdopted: boolean; designsAdopted: number }> {
+    const { organizationId, actorUserId, key, mapping, designs } = params;
+    return this.prisma.$transaction(async (tx) => {
+      const adoptedMapping = mapping
+        ? await tx.fulfillmentProductMapping.createMany({
+            data: [
+              {
+                organizationId,
+                accountId: mapping.accountId,
+                provider: mapping.provider,
+                tiktokProductId: key.tiktokProductId,
+                tiktokSkuId: key.tiktokSkuId,
+                sellerSku: key.sellerSku,
+                providerSku: mapping.providerSku,
+                providerProductId: mapping.providerProductId,
+                providerVariantId: mapping.providerVariantId,
+                providerProductName: mapping.providerProductName,
+                providerVariantName: mapping.providerVariantName,
+                providerColor: mapping.providerColor,
+                providerSize: mapping.providerSize,
+                baseCost: mapping.baseCost,
+                productionConfig: mapping.productionConfig,
+                productionLine: mapping.productionLine,
+                placementMap: mapping.placementMap ?? Prisma.JsonNull,
+                isActive: mapping.isActive,
+                note: mapping.note,
+                createdBy: actorUserId,
+                updatedBy: actorUserId,
+              },
+            ],
+            skipDuplicates: true,
+          })
+        : { count: 0 };
+      const adoptedDesigns = await tx.fulfillmentProductDesign.createMany({
+        data: designs.map((design) => ({
+          organizationId,
+          tiktokProductId: key.tiktokProductId,
+          tiktokSkuId: key.tiktokSkuId,
+          sellerSku: key.sellerSku,
+          placement: design.placement,
+          // Dùng chung file với bản legacy: xoá / thay design phải kiểm số tham chiếu (`ProductDesignService`).
+          storageFileId: design.storageFileId,
+          sourceUrl: design.sourceUrl,
+          createdBy: actorUserId,
+          updatedBy: actorUserId,
+        })),
+        skipDuplicates: true,
+      });
+      return { mappingAdopted: adoptedMapping.count > 0, designsAdopted: adoptedDesigns.count };
     });
   }
 

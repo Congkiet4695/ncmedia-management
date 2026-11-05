@@ -21,7 +21,6 @@ import {
   MinLength,
   Min,
   ValidateNested,
-  ValidateIf,
   type ValidationArguments,
 } from 'class-validator';
 import { FulfillmentProvider, FulfillmentSource, FulfillmentStatus, PodDesignPlacement } from '@prisma/client';
@@ -556,7 +555,7 @@ export class ProductDesignKeyDto {
   tiktokProductId!: string;
 
   @ApiPropertyOptional({
-    description: 'Seller SKU do người bán đặt. Bỏ trống CHỈ khi biến thể không có Seller SKU trên TikTok ⇒ gửi tiktokSkuId.',
+    description: 'Seller SKU của biến thể — chỉ lưu kèm để hiển thị, KHÔNG phải khoá.',
     example: 'POSTER_24x36',
   })
   @IsOptional()
@@ -565,24 +564,21 @@ export class ProductDesignKeyDto {
   @MaxLength(255)
   sellerSku?: string;
 
-  @ApiPropertyOptional({
-    description:
-      'TikTok sku_id — BẮT BUỘC khi sellerSku trống (biến thể không có Seller SKU): design lưu theo Product ID + SKU ID.',
+  @ApiProperty({
+    description: 'TikTok sku_id của biến thể — design lưu theo Product ID + SKU ID.',
     example: '1732793676959617452',
   })
-  @ValidateIf((o: { sellerSku?: string | null }) => !o.sellerSku?.trim())
   @Transform(trim)
   @IsString()
-  @IsNotEmpty({ message: 'Cần Seller SKU, hoặc TikTok SKU ID khi biến thể không có Seller SKU.' })
+  @IsNotEmpty({ message: 'TikTok SKU ID là bắt buộc — design lưu theo biến thể.' })
   @MaxLength(64)
-  tiktokSkuId?: string;
+  tiktokSkuId!: string;
 }
 
 export class UpsertProductMappingDto {
   /**
-   * 🔴 KHOÁ NGHIỆP VỤ — bắt buộc. Cặp (Product ID + Seller SKU) là DANH TÍNH của ánh xạ: nó quyết định đơn nào dùng
-   * bộ Design nào. Biến thể KHÔNG có Seller SKU trên TikTok ⇒ danh tính là (Product ID + TikTok SKU ID) — xem
-   * `shared/mapping-match.ts`. Thiếu cả hai thì bản ghi không ghép được với đơn nào ⇒ từ chối ngay tại cổng.
+   * 🔴 KHOÁ NGHIỆP VỤ — bắt buộc. (Product ID + TikTok SKU ID) là DANH TÍNH của ánh xạ — xem `shared/mapping-match.ts`.
+   * Thiếu khoá thì bản ghi không ghép được với đơn nào ⇒ từ chối ngay tại cổng.
    */
   @ApiProperty({
     description: 'TikTok product_id. Nửa đầu của khoá nghiệp vụ.',
@@ -595,9 +591,7 @@ export class UpsertProductMappingDto {
   tiktokProductId!: string;
 
   @ApiPropertyOptional({
-    description:
-      'Seller SKU do người bán đặt — nửa sau của khoá nghiệp vụ. Bỏ trống CHỈ khi biến thể không có Seller SKU trên ' +
-      'TikTok ⇒ gửi tiktokSkuId.',
+    description: 'Seller SKU của biến thể — chỉ lưu kèm để hiển thị, KHÔNG phải khoá.',
     example: 'POSTER_24x36',
   })
   @IsOptional()
@@ -606,17 +600,12 @@ export class UpsertProductMappingDto {
   @MaxLength(255)
   sellerSku?: string;
 
-  @ApiPropertyOptional({
-    description:
-      'TikTok sku_id. Có Seller SKU ⇒ chỉ để tham chiếu/đối soát. sellerSku trống ⇒ BẮT BUỘC, là nửa sau của khoá ' +
-      '(Product ID + SKU ID) — xem mapping-match.ts.',
-  })
-  @ValidateIf((o: { sellerSku?: string | null }) => !o.sellerSku?.trim())
+  @ApiProperty({ description: 'TikTok sku_id của biến thể — nửa sau của khoá nghiệp vụ. Xem mapping-match.ts.' })
   @Transform(trim)
   @IsString()
-  @IsNotEmpty({ message: 'Cần Seller SKU, hoặc TikTok SKU ID khi biến thể không có Seller SKU.' })
+  @IsNotEmpty({ message: 'TikTok SKU ID là bắt buộc — ánh xạ khai theo biến thể.' })
   @MaxLength(64)
-  tiktokSkuId?: string;
+  tiktokSkuId!: string;
 
   @ApiPropertyOptional({
     format: 'uuid',
@@ -809,14 +798,15 @@ export class ProductMappingDto {
     description: 'Nửa đầu khoá nghiệp vụ. NULL = bản ghi cũ chưa đủ khoá, không ghép được đơn.',
   })
   tiktokProductId!: string | null;
-  @ApiProperty({ nullable: true, type: String, description: 'Nửa sau khoá nghiệp vụ.' })
+  @ApiProperty({ nullable: true, type: String, description: 'Chỉ để hiển thị, KHÔNG phải khoá.' })
   sellerSku!: string | null;
-  @ApiProperty({
-    nullable: true,
-    type: String,
-    description: 'Tham chiếu, KHÔNG tham gia ghép đơn.',
-  })
+  @ApiProperty({ nullable: true, type: String, description: 'Nửa sau khoá nghiệp vụ (trừ bản ghi legacy).' })
   tiktokSkuId!: string | null;
+  @ApiProperty({
+    description:
+      'Ánh xạ cũ theo Seller SKU dùng chung nhiều biến thể: không ghép với đơn nào, không sửa được, chờ xác nhận theo biến thể.',
+  })
+  legacySharedKey!: boolean;
   @ApiProperty({ description: 'Fulfillment SKU gửi sang nhà cung cấp.' }) providerSku!: string;
   @ApiProperty({
     nullable: true,
@@ -1302,6 +1292,21 @@ export class ShippingLabelDto {
  * vào trang đó hay không. Tổ chức nhiều ánh xạ hơn một trang là màn hình báo "chưa ánh xạ"
  * cho một sản phẩm đã ánh xạ, rồi lưu đè lại và đâm vào ràng buộc UNIQUE.
  */
+/** Cấu hình cũ cùng Seller SKU, chờ người vận hành xác nhận cho biến thể của dòng hàng. Chưa được áp dụng. */
+export class FulfillmentLegacyConfigDto {
+  @ApiProperty({ nullable: true, type: String, description: 'NULL = biến thể đã có ánh xạ riêng.' })
+  providerSku!: string | null;
+  @ApiProperty({ nullable: true, type: String }) providerProductName!: string | null;
+  @ApiProperty({ nullable: true, type: String }) providerVariantName!: string | null;
+  @ApiProperty({ type: PodDesignDto, isArray: true, description: 'Rỗng = biến thể đã có design riêng.' })
+  designs!: PodDesignDto[];
+}
+
+export class AdoptLegacyConfigResultDto {
+  @ApiProperty() mappingAdopted!: boolean;
+  @ApiProperty() designsAdopted!: number;
+}
+
 export class FulfillmentStateItemDto {
   @ApiProperty({ description: 'Khoá nội bộ của dòng hàng (pod_order_items.id).' })
   podOrderItemId!: string;
@@ -1311,7 +1316,7 @@ export class FulfillmentStateItemDto {
   @ApiProperty({
     nullable: true,
     type: String,
-    description: 'TikTok sku_id — khoá ánh xạ / design khi biến thể không có Seller SKU.',
+    description: 'TikTok sku_id — khoá ánh xạ / design của biến thể.',
   })
   tiktokSkuId!: string | null;
   @ApiProperty({
@@ -1320,6 +1325,12 @@ export class FulfillmentStateItemDto {
     description: 'Ánh xạ đang áp dụng cho dòng hàng này. NULL = chưa khai.',
   })
   mapping!: ProductMappingDto | null;
+  @ApiProperty({
+    nullable: true,
+    type: FulfillmentLegacyConfigDto,
+    description: 'Cấu hình cũ có thể xác nhận cho biến thể này. NULL = không có.',
+  })
+  legacyConfig!: FulfillmentLegacyConfigDto | null;
 }
 
 /** Body bật/tắt chế độ dùng chung của một nhà cung cấp (Super Admin). */

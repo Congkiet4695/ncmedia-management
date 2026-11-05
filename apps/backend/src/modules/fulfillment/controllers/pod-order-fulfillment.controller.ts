@@ -30,6 +30,7 @@ import type { PodAccessScope } from '../../pod-tiktok/services/pod-access-scope.
 import { RequirePermissions } from '../../auth/decorators/require-permissions.decorator';
 import { AuthenticatedUser } from '../../auth/types/authenticated-user.interface';
 import {
+  AdoptLegacyConfigResultDto,
   FulfillPodOrderDto,
   FulfillmentOrderDto,
   FetchTiktokLabelDto,
@@ -97,6 +98,25 @@ export class PodOrderFulfillmentController {
       scope,
     );
     return this.service.toOrderDto(record);
+  }
+
+  @Post(':id/fulfillment/items/:itemId/adopt-legacy-config')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('fulfillment.mapping')
+  @ApiOperation({
+    summary: 'Xác nhận cấu hình cũ theo Seller SKU cho biến thể của một dòng hàng',
+    description:
+      'Chép ánh xạ và design cũ (dùng chung nhiều biến thể) sang riêng biến thể của dòng hàng; chỉ chép phần còn thiếu, ' +
+      'không ghi đè và không đổi bản cũ. Biến thể lấy từ dòng đơn trong database. Bấm lại không tạo trùng.',
+  })
+  @ApiOkResponse({ type: AdoptLegacyConfigResultDto })
+  adoptLegacyConfig(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Param('id', ParseUUIDPipe) podOrderId: string,
+    @Param('itemId', ParseUUIDPipe) itemId: string,
+  ): Promise<AdoptLegacyConfigResultDto> {
+    return this.service.adoptLegacyConfig(user.organizationId, user.userId, podOrderId, itemId, scope);
   }
 
   @Post(':id/fulfillment/tiktok-label')

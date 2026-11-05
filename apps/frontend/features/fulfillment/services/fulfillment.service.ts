@@ -64,6 +64,11 @@ export const fulfillmentService = {
     return res.data.data;
   },
 
+  /** Xác nhận cấu hình cũ cho biến thể của một dòng hàng — backend chép sang bản ghi riêng của biến thể. */
+  async adoptLegacyConfig(podOrderId: string, podOrderItemId: string): Promise<void> {
+    await apiClient.post(`/pod/orders/${podOrderId}/fulfillment/items/${podOrderItemId}/adopt-legacy-config`);
+  },
+
   async fulfill(podOrderId: string, payload: FulfillPayload = {}): Promise<FulfillmentOrder> {
     const res = await apiClient.post<ApiResponse<FulfillmentOrder>>(
       `${BASE_PATH}/orders/${podOrderId}/fulfill`,

@@ -63,7 +63,7 @@ export interface OrderProductRow {
   key: string;
   productId: string | null;
   productName: string | null;
-  /** Ảnh BIẾN THỂ — chỉ dùng cho khoá gộp dòng, KHÔNG hiển thị. */
+  /** Ảnh BIẾN THỂ của line item đầu tiên — nguồn thumbnail (`item-image.ts`). KHÔNG tham gia khoá gộp. */
   skuImage: string | null;
   /** **Ảnh CHÍNH của sản phẩm** — thứ được hiển thị. `null` ⇒ ô trống. */
   productImage: string | null;
@@ -73,7 +73,7 @@ export interface OrderProductRow {
   skuName: string | null;
   productCategory: string | null;
   isPodCustomized: boolean;
-  /** Quà tặng khuyến mãi TikTok (`is_gift`) — chỉ true khi MỌI line item gộp vào dòng này là quà. */
+  /** Quà tặng khuyến mãi TikTok (`is_gift`). Quà và hàng thường không bao giờ gộp chung một dòng. */
   isGift: boolean;
   quantity: number;
   /** Các line item gốc tạo nên dòng này (theo đúng thứ tự API trả về). */
@@ -96,26 +96,50 @@ export interface OrderProductRow {
 }
 
 /**
- * Gộp line item theo (productId, sellerSku/skuId, ảnh).
+ * Hai line item có phải cùng MỘT dòng hiển thị không.
  *
- * Cố ý KHÔNG gộp theo mỗi `productId`: cùng một sản phẩm với hai biến thể (24x36 và 18x24)
- * là hai việc phải in khác nhau, gộp lại là mất thông tin cần để đóng gói.
+ * TikTok không có field số lượng: mua 2 cái là 2 `line_items` (id khác nhau), mỗi cái 1 đơn vị. Dòng
+ * hiển thị = các đơn vị GIỐNG HỆT nhau về mặt sản xuất và giao hàng:
+ *  - `productId` + `skuId` + `sellerSku`: đúng biến thể, đúng khoá ánh xạ / design. Biến thể khác nhau
+ *    (kể cả khi người bán đặt chung Seller SKU) là các dòng riêng — gộp lại là mất size/màu.
+ *  - `isGift`, `podInfoId`: quà tặng và dữ liệu tuỳ biến POD được xử lý riêng.
+ *  - `packageId`, `displayStatus`: đơn vị đã tách gói hoặc khác trạng thái không phải một việc chung.
+ *
+ * 🔴 `skuImage` KHÔNG thuộc khoá: cùng một ảnh, TikTok trả qua nhiều host CDN (`p16-…`, `p19-…`) ngay
+ * trong một đơn — chính là nguyên nhân từng tách "×2" thành hai dòng "×1".
+ *
+ * Thiếu Product ID hoặc thiếu cả SKU ID lẫn Seller SKU ⇒ không biết là gì ⇒ không gộp.
+ */
+export function orderItemRowKey(item: PodOrderItem): string {
+  const productId = item.productId?.trim();
+  const skuId = item.skuId?.trim();
+  const sellerSku = item.sellerSku?.trim();
+  if (!productId || (!skuId && !sellerSku)) return `line:${item.id}`;
+  return JSON.stringify([
+    productId,
+    skuId ?? null,
+    sellerSku ?? null,
+    item.isGift,
+    item.podInfoId,
+    item.packageId,
+    item.displayStatus,
+  ]);
+}
+
+/**
+ * Gộp line item thành dòng hiển thị theo `orderItemRowKey`. CHỈ là cách hiển thị: `sources` giữ nguyên
+ * từng line item, và luồng gửi nhà cung cấp ở backend vẫn đi theo từng line item.
  */
 export function groupOrderProducts(items: PodOrderItem[]): OrderProductRow[] {
   const rows = new Map<string, OrderProductRow>();
 
   for (const item of items) {
-    const key = [
-      item.productId ?? '',
-      item.sellerSku ?? item.skuId ?? '',
-      item.skuImage ?? '',
-    ].join('|');
+    const key = orderItemRowKey(item);
 
     const existing = rows.get(key);
     if (existing) {
       existing.quantity += item.quantity;
       existing.sources.push(item);
-      existing.isGift = existing.isGift && item.isGift;
       // Design/mapping giống nhau ở mọi đơn vị cùng SKU — chỉ bù khi line item đầu thiếu.
       if (existing.mappingId === null) {
         existing.mappingId = item.mappingId;

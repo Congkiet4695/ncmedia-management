@@ -47,10 +47,9 @@ type ProductDesignWithFile = Prisma.FulfillmentProductDesignGetPayload<{
   include: typeof DESIGN_INCLUDE;
 }>;
 
-/** Khoá nghiệp vụ của một sản phẩm POD. */
 /**
- * Khoá của design như client gửi lên: Product ID + Seller SKU; biến thể không có Seller SKU trên TikTok ⇒ Product ID +
- * TikTok SKU ID (`sellerSku` trống). Chuẩn hoá bằng `normalizeProductKey` (shared/mapping-match.ts).
+ * Khoá của design như client gửi lên: Product ID + TikTok SKU ID của biến thể; `sellerSku` chỉ lưu kèm để hiển thị.
+ * Chuẩn hoá bằng `normalizeProductKey` (shared/mapping-match.ts).
  */
 export interface ProductDesignKey {
   tiktokProductId: string;
@@ -63,8 +62,8 @@ export class ProductDesignKeyInvalidException extends BadRequestException {
     super({
       code: 'POD_DESIGN_KEY_INVALID',
       message:
-        'Thiếu Product ID, hoặc thiếu cả Seller SKU lẫn TikTok SKU ID. Design được lưu theo Product ID + Seller SKU ' +
-        '(biến thể không có Seller SKU: Product ID + SKU ID), nên thiếu khoá thì không xác định được lưu cho sản phẩm nào.',
+        'Thiếu Product ID hoặc TikTok SKU ID. Design được lưu theo biến thể, nên thiếu khoá thì không xác định được ' +
+        'lưu cho biến thể nào.',
     });
   }
 }
@@ -105,25 +104,26 @@ export class DesignUrlFetchFailedException extends UnprocessableEntityException 
 }
 
 /**
- * ProductDesignService — file in gắn theo **SẢN PHẨM** (Product ID + Seller SKU).
+ * ProductDesignService — file in gắn theo **BIẾN THỂ** (Product ID + TikTok SKU ID).
  *
  * 🔴 **ĐỘC LẬP với Product Mapping.** Đây là thay đổi nghiệp vụ của sprint này: trước đây
  * design treo vào `mapping_id` nên phải khai ánh xạ xong mới upload được. Sai —
- *   · Design  trả lời "in cái gì"  → chỉ cần Product ID + Seller SKU
+ *   · Design  trả lời "in cái gì"  → chỉ cần Product ID + SKU ID
  *   · Mapping trả lời "in ở đâu"   → chỉ cần khi Fulfill
  * Hai việc không phụ thuộc nhau, người vận hành làm theo thứ tự nào cũng được.
  *
  * 🔴 Đây là ĐƯỜNG GHI DUY NHẤT của design trong toàn hệ thống. Hệ quả của việc đơn hàng
  * ĐỌC-XUYÊN-SUỐT thay vì giữ bản sao — không có bước đồng bộ nào ở đây, và cũng không cần có:
- *   - `upload` (lần đầu hoặc thay thế) ⇒ mọi đơn cùng cặp khoá thấy file mới ngay.
- *   - `remove`                          ⇒ mọi đơn cùng cặp khoá quay về "Design Missing" ngay.
+ *   - `upload` (lần đầu hoặc thay thế) ⇒ mọi đơn cùng biến thể thấy file mới ngay.
+ *   - `remove`                          ⇒ mọi đơn cùng biến thể quay về "Design Missing" ngay.
  *   - Đơn ĐỒNG BỘ VỀ SAU                ⇒ tự nhận design đã có, không phải upload lại.
  * Đơn ĐÃ GỬI sản xuất không bị ảnh hưởng: file đã gửi được chụp lại ở
  * `fulfillment_order_items.print_files`.
  *
  * Nguyên tắc kỹ thuật giữ nguyên vì chúng đã đúng:
  *  - Mỗi (sản phẩm × vị trí in) độc lập: upload FRONT không đụng BACK.
- *  - Thay design ⇒ ghi đè bản ghi, tăng `version`, xoá file cũ khỏi kho để không tích rác.
+ *  - Thay design ⇒ ghi đè bản ghi, tăng `version`, xoá file cũ khỏi kho để không tích rác — trừ khi bản ghi khác còn
+ *    dùng file đó (xác nhận cấu hình legacy khiến nhiều bản ghi dùng chung một file, xem `removeFileIfUnused`).
  *  - Không tự ghi file: mọi thao tác lưu trữ đi qua `StorageService`.
  *  - Đẩy file lên kho TRƯỚC transaction (không giữ kết nối DB trong lúc chờ I/O mạng);
  *    ghi DB hỏng thì dọn file vừa lưu.
@@ -228,7 +228,7 @@ export class ProductDesignService {
 
     // Design nguồn URL không có file trên kho của mình — chỉ xoá mềm bản ghi.
     if (storageFileId) {
-      await this.storage.removeInternal(organizationId, actorUserId, storageFileId);
+      await this.removeFileIfUnused(organizationId, actorUserId, storageFileId);
     }
 
     this.logger.log({
@@ -327,7 +327,7 @@ export class ProductDesignService {
       module: StorageModuleName.POD_TIKTOK,
       referenceType: StorageReferenceType.FULFILLMENT_MAPPING_DESIGN,
       // 🔴 `referenceId` phải NULL: cột này là UUID, mà khoá của design nay là một CẶP CHUỖI
-      // (Product ID + Seller SKU). Nhét mapping id vào đây như trước sẽ dựng lại đúng ràng
+      // (Product ID + SKU ID). Nhét mapping id vào đây như trước sẽ dựng lại đúng ràng
       // buộc "phải ánh xạ xong mới upload được" — và với sản phẩm chưa ánh xạ thì không có
       // giá trị nào để nhét. Đường tra ngược từ file về sản phẩm nằm ở `folderSegments`
       // ngay dưới: object key chứa đủ cả hai nửa khoá.
@@ -337,8 +337,7 @@ export class ProductDesignService {
         'designs',
         organizationId,
         identity.tiktokProductId,
-        // Biến thể không có Seller SKU ⇒ thư mục theo SKU ID (chỉ là đường dẫn file, KHÔNG phải Seller SKU).
-        identity.sellerSku ?? `sku-id-${identity.tiktokSkuId}`,
+        `sku-id-${identity.tiktokSkuId}`,
       ],
     });
 
@@ -363,8 +362,7 @@ export class ProductDesignService {
             organizationId,
             tiktokProductId: identity.tiktokProductId,
             sellerSku: identity.sellerSku,
-            // Chỉ là khoá khi KHÔNG có Seller SKU; design theo Seller SKU dùng chung mọi biến thể cùng SKU ⇒ để trống.
-            tiktokSkuId: identity.sellerSku ? null : identity.tiktokSkuId,
+            tiktokSkuId: identity.tiktokSkuId,
             placement,
             storageFileId: stored.id,
             createdBy: actorUserId,
@@ -380,9 +378,28 @@ export class ProductDesignService {
     }
 
     if (previous?.storageFileId && previous.storageFileId !== stored.id) {
-      await this.storage.removeInternal(organizationId, actorUserId, previous.storageFileId);
+      await this.removeFileIfUnused(organizationId, actorUserId, previous.storageFileId);
     }
     return saved;
+  }
+
+  /**
+   * Xoá file khỏi kho khi KHÔNG còn design nào dùng nó.
+   *
+   * 🔴 `StorageService.removeInternal` xoá object vô điều kiện, mà sau khi xác nhận cấu hình legacy nhiều biến thể (và
+   * chính bản legacy) cùng trỏ vào một file. Xoá theo một biến thể mà không kiểm là phá file in của các biến thể còn lại.
+   * Gọi SAU khi đã gỡ liên kết của bản ghi hiện tại.
+   */
+  private async removeFileIfUnused(
+    organizationId: string,
+    actorUserId: string,
+    storageFileId: string,
+  ): Promise<void> {
+    const stillUsed = await this.prisma.fulfillmentProductDesign.count({
+      where: { organizationId, storageFileId, deletedAt: null },
+    });
+    if (stillUsed > 0) return;
+    await this.storage.removeInternal(organizationId, actorUserId, storageFileId);
   }
 
   /**
@@ -474,9 +491,9 @@ export class ProductDesignService {
   }
 
   /**
-   * Cặp khoá (Product ID + Seller SKU) này có thuộc shop của người dùng không.
+   * Biến thể này có thuộc shop của người dùng không.
    *
-   * 🔴 Design cố ý KHÔNG mang `shop_id`: một bộ design dùng chung cho MỌI đơn cùng cặp khoá,
+   * 🔴 Design cố ý KHÔNG mang `shop_id`: một bộ design dùng chung cho MỌI đơn cùng biến thể,
    * kể cả khác shop — đó là quyết định của sprint "Refactor Design Storage" và không đổi ở
    * đây. Nhưng "dùng chung" không có nghĩa là "ai cũng sửa được": Seller chỉ được đụng vào
    * cặp khoá THẬT SỰ xuất hiện trong shop mình, dù là ở sản phẩm đã đồng bộ hay ở một đơn
@@ -510,8 +527,7 @@ export class ProductDesignService {
           // Cột trên `pod_order_items` tên là `product_id` (id sản phẩm phía TikTok) —
           // cùng một thứ với `tiktokProductId` của `pod_products`, khác tên bảng.
           productId: key.tiktokProductId,
-          // Khoá SKU ID ⇒ tra theo `sku_id` của dòng đơn (Seller SKU của dòng đó rỗng).
-          ...(key.sellerSku?.trim() ? { sellerSku: key.sellerSku } : { skuId: key.tiktokSkuId ?? undefined }),
+          skuId: key.tiktokSkuId ?? undefined,
           order: { organizationId, deletedAt: null, shopId: { in: scope.shopIds } },
         },
         select: { id: true },
@@ -533,7 +549,7 @@ export class ProductDesignService {
     return this.whereOf(organizationId, this.resolveKey(key));
   }
 
-  /** Khoá đã chuẩn hoá — Seller SKU rỗng KHÔNG bao giờ được dùng làm khoá; thiếu cả hai ⇒ 400. */
+  /** Khoá đã chuẩn hoá — thiếu Product ID hoặc SKU ID ⇒ 400. */
   private resolveKey(key: ProductDesignKey): ProductKey {
     const identity = normalizeProductKey(key);
     if (!identity) throw new ProductDesignKeyInvalidException();
@@ -549,7 +565,7 @@ export class ProductDesignService {
     return {
       tiktokProductId: key.tiktokProductId,
       sellerSku: key.sellerSku?.trim() || null,
-      tiktokSkuId: key.sellerSku?.trim() ? null : (key.tiktokSkuId ?? null),
+      tiktokSkuId: key.tiktokSkuId ?? null,
     };
   }
 

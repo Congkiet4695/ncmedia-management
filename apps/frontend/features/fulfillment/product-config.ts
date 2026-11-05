@@ -153,7 +153,7 @@ export function mergeProductOptions(
 export type ConfigBlocker =
   /** Kết nối TikTok của đơn chưa gán nhà cung cấp fulfillment. */
   | 'NO_PROVIDER'
-  /** Dòng hàng thiếu Product ID, hoặc thiếu CẢ Seller SKU lẫn TikTok SKU ID ⇒ không có khoá để lưu ánh xạ. */
+  /** Dòng hàng thiếu Product ID hoặc TikTok SKU ID ⇒ không có khoá biến thể để lưu ánh xạ. */
   | 'MISSING_PRODUCT_KEY'
   /** Chưa chọn sản phẩm của nhà cung cấp. */
   | 'NO_PRODUCT'
@@ -165,8 +165,7 @@ export type ConfigBlocker =
 export interface ConfigDraft {
   accountId: string | null;
   tiktokProductId: string | null;
-  sellerSku: string | null;
-  /** TikTok SKU ID — khoá dự phòng khi biến thể không có Seller SKU. */
+  /** TikTok SKU ID — nửa sau của khoá biến thể. */
   tiktokSkuId?: string | null;
   providerProductId: string;
   productUnavailable?: boolean;
@@ -175,10 +174,8 @@ export interface ConfigDraft {
 
 /**
  * Những gì còn THIẾU để lưu được cấu hình — theo đúng hợp đồng của
- * `POST/PATCH /fulfillment/mappings` (`accountId`, `tiktokProductId`, `sellerSku` — hoặc `tiktokSkuId` khi biến thể
- * không có Seller SKU —, `providerSku`, `providerProductId`, `providerVariantId`).
- *
- * 🔴 Thiếu Seller SKU KHÔNG còn là lý do chặn (quyết định PO 2026-11-03) nếu dòng có TikTok SKU ID.
+ * `POST/PATCH /fulfillment/mappings` (`accountId`, `tiktokProductId`, `tiktokSkuId`, `providerSku`,
+ * `providerProductId`, `providerVariantId`). Seller SKU không phải điều kiện: nó không tham gia khoá.
  *
  * 🔴 KHÔNG tự thêm điều kiện mà API không đòi: production line, production config và giá vốn
  * đều là tuỳ chọn ở backend, nên chúng cũng không được chặn nút Lưu ở đây.
@@ -186,7 +183,7 @@ export interface ConfigDraft {
 export function configBlockers(draft: ConfigDraft): ConfigBlocker[] {
   const blockers: ConfigBlocker[] = [];
   if (!draft.accountId) blockers.push('NO_PROVIDER');
-  const hasKey = Boolean(draft.tiktokProductId?.trim() && (draft.sellerSku?.trim() || draft.tiktokSkuId?.trim()));
+  const hasKey = Boolean(draft.tiktokProductId?.trim() && draft.tiktokSkuId?.trim());
   if (!hasKey) blockers.push('MISSING_PRODUCT_KEY');
   if (!draft.providerProductId) blockers.push('NO_PRODUCT');
   else if (draft.productUnavailable) blockers.push('PRODUCT_UNAVAILABLE');

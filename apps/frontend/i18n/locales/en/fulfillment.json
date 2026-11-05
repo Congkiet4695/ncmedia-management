@@ -34,7 +34,7 @@
     "blocked": {
       "busy": "A submission is already running — wait for it to finish.",
       "loading": "Reading order state…",
-      "notReady": "Not ready: {{reasons}}",
+      "notReadySummary": "Not ready: {{count}} issue(s) to resolve.",
       "notReadyUnknown": "This order does not meet the requirements yet.",
       "status": "The order is {{status}}, so it can no longer be submitted.",
       "tiktokLabelRequired": "Please get the TikTok shipping label before submitting this order."
@@ -50,7 +50,7 @@
       "loadingOptions": "Loading provider configuration…",
       "loadingProducts": "Loading catalogue…",
       "loadingVariants": "Loading variants…",
-      "missingKey": "This line has no Product ID or Seller SKU, so it cannot be mapped.",
+      "missingKey": "This line has no Product ID or TikTok SKU ID, so it cannot be mapped.",
       "missingProduct": "No provider product selected yet.",
       "missingVariant": "No provider variant resolved yet (missing Color/Size or SKU).",
       "noPrintLocations": "The provider exposes no print location.",
@@ -97,7 +97,7 @@
       "baseCostNotFound": "Configuration saved, but this variant has no provider price — Base Cost left empty"
     },
     "defaultsHint": "Empty field = use the configured provider default.",
-    "designHint": "Design files are resolved by Product ID + Seller SKU; the print shop downloads them from the public URL.",
+    "designHint": "Design files are looked up by variant (Product ID + TikTok SKU ID); the print shop downloads them from the public URL.",
     "designMissingShort": "None",
     "drawerTitle": "Fulfill order #{{orderId}}",
     "dropshipUnavailable": "No Dropship provider exists in this system yet; only POD orders can be sent.",
@@ -141,10 +141,58 @@
         "TIKTOK_SHIPPING_LABEL_UNAVAILABLE": "TikTok rejected the request: {{message}}"
       }
     },
+    "issue": {
+      "code": {
+        "ACCOUNT_MISSING": "No provider account",
+        "ADDRESS_INCOMPLETE": "Recipient address is incomplete",
+        "ADDRESS_MASKED": "Recipient address is masked",
+        "ADDRESS_MISSING": "Recipient address is missing",
+        "DESIGN_LEGACY_CONFIRM_REQUIRED": "Design mapping unavailable — previous design awaiting confirmation",
+        "DESIGN_MISSING": "No design file",
+        "DESIGN_NOT_PUBLIC": "Design file has no public URL",
+        "MAPPING_KEY_MISSING": "Order line has no variant key",
+        "MAPPING_LEGACY_CONFIRM_REQUIRED": "Design mapping unavailable — previous configuration awaiting confirmation",
+        "MAPPING_MISSING": "Product mapping required",
+        "MAPPING_PROVIDER_MISMATCH": "Mapping belongs to another provider",
+        "NO_FULFILLABLE_ITEMS": "No products to submit",
+        "NO_ITEMS": "Order has no products",
+        "ORDER_CANCELLED": "Order status cannot be produced",
+        "PLACEMENT_UNSUPPORTED": "Print placement is not mapped to the provider",
+        "PRODUCTION_LINE_CONFLICT": "Products use different production lines",
+        "PROMOTION_GIFT_NOT_SENT": "Gift not sent to the provider",
+        "PROVIDER_INACTIVE": "Provider is inactive",
+        "PROVIDER_NOT_ASSIGNED": "No provider assigned",
+        "PROVIDER_NOT_SELECTED": "No provider selected",
+        "SUBMITTED_TO_OTHER_PROVIDER": "Already submitted to another provider",
+        "TIKTOK_SHIPPING_LABEL_REQUIRED": "Address or shipping label required"
+      },
+      "hideDetails": "Collapse",
+      "hint": {
+        "DESIGN_LEGACY_CONFIRM_REQUIRED": "The previous design of this Seller SKU is shared by several variants, so it is not applied automatically. Check it and confirm for the variant under Product configuration, or upload a new design.",
+        "MAPPING_LEGACY_CONFIRM_REQUIRED": "The previous configuration of this Seller SKU is shared by several variants, so it is not applied automatically. Check it and confirm for the variant under Product configuration, or declare a new one.",
+        "DESIGN_MISSING": "Upload a design for this variant — once is enough for every order of the variant, including orders synced later.",
+        "MAPPING_MISSING": "Go to Product Mapping to declare this variant — once declared, every order of the variant can use it.",
+        "MAPPING_PROVIDER_MISMATCH": "The product already has a mapping, but it is declared for a DIFFERENT provider than the one assigned to this order's TikTok connection. Fix the mapping, or change the connection's provider to match.",
+        "PROMOTION_GIFT_NOT_SENT": "TikTok promotion gifts need no Product Configuration and are NOT sent to the provider. The gift still belongs to the TikTok order: make sure it reaches the buyer."
+      },
+      "lineCount": "Order lines",
+      "sellerSku": "Seller SKU",
+      "showDetails": "View details",
+      "skuId": "SKU ID",
+      "unknownTitle": "Issue to review"
+    },
+    "legacy": {
+      "adopt": "Use for this variant",
+      "adoptFailed": "Could not confirm the previous configuration",
+      "adopted": "Previous configuration applied to this variant",
+      "description": "This configuration was declared by Seller SKU and is shared by several variants, so it is not applied automatically. Check that the provider SKU and print files are right for this variant, then confirm; other variants are not affected.",
+      "providerSku": "Previous provider SKU",
+      "title": "Design mapping unavailable — previous configuration awaiting confirmation"
+    },
     "labelUrlHint": "Shipping label link (PDF/PNG/JPG) — the print shop downloads it, so the URL must be public.",
     "labelUrlInvalid": "The label link must be a valid http(s) URL.",
     "labelUrlLabel": "Order label (URL)",
-    "mappingHint": "Provider SKU, production config and base cost come from Product Mapping — declare once per Product ID + Seller SKU.",
+    "mappingHint": "Provider SKU, production config and base cost come from Product Mapping — declare once per variant (Product ID + TikTok SKU ID).",
     "promotionGift": {
       "label": "Promotion Gift",
       "noConfig": "Promotion gift — Product Configuration not required.",
@@ -254,7 +302,7 @@
       "MISSING": "No design",
       "READY": "Has design"
     },
-    "designScopeHint": "Design belongs to this product (Product ID + Seller SKU). Uploading or replacing a file updates EVERY order not yet sent to production — including orders synced later. Deleting sends all of them back to \"design missing\". Orders already sent keep the files they were sent with.",
+    "designScopeHint": "Design belongs to this variant (Product ID + TikTok SKU ID). Uploading or replacing a file updates EVERY order of the variant not yet sent.",
     "designStatusValue": {
       "MISSING_ALL": "No design",
       "MISSING_FRONT": "Front missing",
@@ -264,7 +312,9 @@
     "empty": "No mappings yet. Click “Add mapping” to get started.",
     "emptyFiltered": "No mappings match the filter.",
     "keyIncomplete": "Key missing",
-    "keyRequiredHint": "This product has no Product ID or Seller SKU, so it cannot be mapped. Re-sync the order from TikTok to obtain both keys.",
+    "legacyBadge": "Previous config",
+    "legacyHint": "This mapping was declared by a Seller SKU shared by several variants, so it is not applied automatically and cannot be edited. Confirm it per variant on the Fulfill screen, or declare a new mapping for the variant.",
+    "keyRequiredHint": "This variant has no Product ID or TikTok SKU ID, so it cannot be mapped. Sync the order from TikTok again.",
     "lastSyncedAt": "Synced at {{time}}",
     "loadFailed": "Could not load the mapping list",
     "loadedProducts": "Loaded {{count}} products",
@@ -280,7 +330,7 @@
     "noVariantMatch": "No variants match your search.",
     "noVariation": "This product has no variants.",
     "notMapped": "Not mapped",
-    "pageSubtitle": "Each product is identified by Product ID + Seller SKU. Design, Fulfillment SKU and Base Cost are declared here once and shared by every order for that product.",
+    "pageSubtitle": "Each variant is identified by Product ID + TikTok SKU ID. Design, Fulfillment SKU and Base Cost are declared per variant.",
     "pageTitle": "Product Mapping",
     "provider": "Provider",
     "providerSku": "Provider SKU",

@@ -1,11 +1,9 @@
 /**
- * **Khoá sản phẩm của một dòng đơn** = (TikTok Product ID + Seller SKU) — khoá của Product Mapping (ánh xạ nhà
- * cung cấp) và của design in (`mapping-match.ts`).
+ * **Seller SKU hiệu lực của một dòng đơn** — để hiển thị và đề xuất cấu hình legacy. Khoá của Product Mapping / design
+ * là biến thể (TikTok Product ID + TikTok SKU ID, `fulfillment/shared/mapping-match.ts`), KHÔNG phụ thuộc Seller SKU.
  *
- * 🔴 Vấn đề thật (đối chiếu dữ liệu 2026-10-21): TikTok trả `line_items[].seller_sku = ""` khi biến thể CHƯA có
- * Seller SKU tại thời điểm đặt đơn — ~23% dòng đơn. Đơn là ẢNH CHỤP: seller đặt Seller SKU sau đó thì đơn cũ vẫn
- * mang chuỗi rỗng, trong khi danh mục Products (đồng bộ lại) đã có. Không có Seller SKU ⇒ không có khoá ⇒ không
- * khai được ánh xạ, không tra được design ("Dòng hàng thiếu Product ID hoặc Seller SKU…").
+ * TikTok trả `line_items[].seller_sku = ""` khi biến thể CHƯA có Seller SKU tại thời điểm đặt đơn — ~23% dòng đơn
+ * (đối chiếu dữ liệu 2026-10-21). Đơn là ẢNH CHỤP: seller đặt Seller SKU sau đó thì đơn cũ vẫn mang chuỗi rỗng.
  *
  * Luật khôi phục (CHỈ khi chắc chắn):
  *  - Đơn có Seller SKU ⇒ dùng nguyên văn (`ORDER`), không bao giờ ghi đè.
@@ -22,7 +20,7 @@ export type SellerSkuSource = 'ORDER' | 'CATALOG';
 export type ProductKeyIssue =
   /** Dòng đơn không có TikTok Product ID. */
   | 'NO_PRODUCT_ID'
-  /** Đơn không có Seller SKU và cũng không có TikTok SKU ID để tra danh mục. */
+  /** Dòng đơn không có TikTok SKU ID ⇒ không xác định được biến thể. */
   | 'NO_SKU_ID'
   /** Biến thể chưa có trong danh mục Products đã đồng bộ (sản phẩm ngừng bán / chưa đồng bộ). */
   | 'VARIANT_NOT_SYNCED'
@@ -81,12 +79,14 @@ export function resolveItemProductKeys(
       result.set(item.id, { sellerSku: blank(item.sellerSku) ? null : item.sellerSku, sellerSkuSource: blank(item.sellerSku) ? null : 'ORDER', productKeyIssue: 'NO_PRODUCT_ID' });
       continue;
     }
-    if (!blank(item.sellerSku)) {
-      result.set(item.id, { sellerSku: item.sellerSku, sellerSkuSource: 'ORDER', productKeyIssue: null });
+    // Không có SKU ID ⇒ không xác định được biến thể, dù dòng có Seller SKU.
+    if (blank(item.skuId)) {
+      const hasSku = !blank(item.sellerSku);
+      result.set(item.id, { sellerSku: hasSku ? item.sellerSku : null, sellerSkuSource: hasSku ? 'ORDER' : null, productKeyIssue: 'NO_SKU_ID' });
       continue;
     }
-    if (blank(item.skuId)) {
-      result.set(item.id, { sellerSku: null, sellerSkuSource: null, productKeyIssue: 'NO_SKU_ID' });
+    if (!blank(item.sellerSku)) {
+      result.set(item.id, { sellerSku: item.sellerSku, sellerSkuSource: 'ORDER', productKeyIssue: null });
       continue;
     }
     const skus = skusByVariant.get(catalogKey(shopId, item.productId as string, item.skuId as string));
@@ -103,50 +103,19 @@ export function resolveItemProductKeys(
   return result;
 }
 
-/**
- * Số biến thể TikTok (SKU ID khác nhau) trong danh mục Products đã đồng bộ đang mang CÙNG Seller SKU với dòng đơn —
- * cùng shop, cùng TikTok Product ID. Khoá `(Product ID + Seller SKU)` của ánh xạ / design gom tất cả các biến thể đó
- * vào MỘT Product Mapping (một Fulfillment SKU): đúng ý khi người bán đặt chung mã cho mọi size/màu cùng phôi, nhưng
- * sai size/màu nếu phôi khác nhau. Số > 1 ⇒ readiness CẢNH BÁO (không chặn — quyết định PO 2026-11-03 giữ khoá).
- *
- * Chỉ tính dòng có Seller SKU hiệu lực; dòng không có trong danh mục ⇒ không có mục (không đoán).
- */
-export function countVariantsSharingSellerSku(
-  shopId: string,
-  items: ReadonlyArray<{ id: string; productId: string | null; sellerSku: string | null }>,
-  catalog: readonly CatalogVariantRow[],
-): Map<string, number> {
-  const skuIdsByKey = new Map<string, Set<string>>();
-  for (const row of catalog) {
-    if (blank(row.sellerSku)) continue;
-    const key = catalogKey(row.shopId, row.tiktokProductId, (row.sellerSku as string).trim());
-    const set = skuIdsByKey.get(key) ?? new Set<string>();
-    set.add(row.tiktokSkuId);
-    skuIdsByKey.set(key, set);
-  }
-  const result = new Map<string, number>();
-  for (const item of items) {
-    if (blank(item.productId) || blank(item.sellerSku)) continue;
-    const skuIds = skuIdsByKey.get(catalogKey(shopId, (item.productId as string).trim(), (item.sellerSku as string).trim()));
-    if (skuIds) result.set(item.id, skuIds.size);
-  }
-  return result;
-}
-
 /** Câu hướng dẫn cho từng lý do — backend dùng trong readiness, nói rõ phải sửa ở ĐÂU. */
 export const PRODUCT_KEY_ISSUE_MESSAGE: Readonly<Record<ProductKeyIssue, string>> = {
   NO_PRODUCT_ID: 'Dòng hàng không có TikTok Product ID — đồng bộ lại đơn từ TikTok.',
-  NO_SKU_ID: 'Dòng hàng không có Seller SKU và không có TikTok SKU ID để tra danh mục — đồng bộ lại đơn từ TikTok.',
-  // 🔴 Hai lý do dưới KHÔNG chặn fulfill (quyết định PO 2026-11-03): dòng còn TikTok SKU ID ⇒ ánh xạ / design khai theo
-  // khoá Product ID + SKU ID (fulfillment/shared/mapping-match.ts). Câu chữ là CẢNH BÁO, nói rõ khoá đang dùng.
+  NO_SKU_ID: 'Dòng hàng không có TikTok SKU ID nên không xác định được biến thể — đồng bộ lại đơn từ TikTok.',
+  // 🔴 Các lý do dưới KHÔNG chặn fulfill: dòng có TikTok SKU ID ⇒ ánh xạ / design khai theo biến thể
+  // (fulfillment/shared/mapping-match.ts). Câu chữ là CẢNH BÁO.
   VARIANT_NOT_SYNCED:
-    'Dòng hàng không có Seller SKU và biến thể chưa có trong danh mục Products đã đồng bộ — ánh xạ và design khai ' +
-    'theo Product ID + TikTok SKU ID của biến thể. Nếu biến thể thật ra CÓ Seller SKU trên TikTok, đồng bộ sản phẩm ' +
-    '(Products → Đồng bộ) để dùng chung ánh xạ / design theo Seller SKU.',
+    'Dòng hàng không có Seller SKU và biến thể chưa có trong danh mục Products đã đồng bộ — ánh xạ và design vẫn khai ' +
+    'theo Product ID + TikTok SKU ID của biến thể.',
   SELLER_SKU_EMPTY_ON_TIKTOK:
     'Biến thể này trên TikTok không có Seller SKU (cả trong đơn lẫn danh mục Products) — ánh xạ và design khai theo ' +
     'Product ID + TikTok SKU ID của biến thể; không cần sửa trên TikTok để fulfill.',
   SELLER_SKU_AMBIGUOUS:
-    'Danh mục Products có NHIỀU Seller SKU khác nhau cho cùng biến thể này — hệ thống không tự chọn. Kiểm tra lại ' +
-    'Seller SKU của biến thể trên TikTok rồi đồng bộ sản phẩm.',
+    'Danh mục Products có NHIỀU Seller SKU khác nhau cho cùng biến thể này nên không hiển thị được Seller SKU. Ánh xạ ' +
+    'và design vẫn khai theo TikTok SKU ID của biến thể.',
 };

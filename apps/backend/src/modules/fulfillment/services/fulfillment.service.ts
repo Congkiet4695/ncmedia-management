@@ -43,7 +43,9 @@ import {
 import { FULFILLMENT_PROVIDER_LABELS, FULFILLMENT_WEBHOOK_PATHS, providerLabelOf } from '../constants/fulfillment-provider.constants';
 import {
   FulfillmentAccountNotFoundException,
+  FulfillmentLegacyConfigNotFoundException,
   FulfillmentMappingConflictException,
+  FulfillmentMappingLegacyReadonlyException,
   FulfillmentMappingNotFoundException,
   FulfillmentManualBaseCostInvalidException,
   FulfillmentOrderNotFoundException,
@@ -65,6 +67,7 @@ import {
   findMappingInIndex,
   itemKeysOf,
   lookupForItem,
+  lookupLegacyForItem,
   normalizeProductKey,
   productIdsOf,
   rowKeyOf,
@@ -423,7 +426,7 @@ export class FulfillmentService {
   }
 
   /**
-   * Design của cả tổ chức, dựng theo `rowKeyOf` (Seller SKU, hoặc SKU ID khi biến thể không có Seller SKU).
+   * Design của cả tổ chức, dựng theo `rowKeyOf`.
    *
    * 🔴 Nạp MỘT lần rồi ghép trong bộ nhớ. Design đã tách khỏi ánh xạ nên không `include`
    * được nữa; đọc theo từng dòng sẽ là N+1 trên cả màn hình ánh xạ lẫn luồng kiểm tra đơn.
@@ -432,10 +435,15 @@ export class FulfillmentService {
     return this.groupDesignsByKey(await this.repo.listProductDesigns(organizationId));
   }
 
-  private groupDesignsByKey(
-    rows: Array<DesignForDto & { tiktokProductId: string | null; sellerSku: string | null; tiktokSkuId: string | null }>,
-  ): Map<string, DesignForDto[]> {
-    const byKey = new Map<string, DesignForDto[]>();
+  private groupDesignsByKey<
+    T extends DesignForDto & {
+      tiktokProductId: string | null;
+      sellerSku: string | null;
+      tiktokSkuId: string | null;
+      legacySharedKey: boolean;
+    },
+  >(rows: T[]): Map<string, T[]> {
+    const byKey = new Map<string, T[]>();
     for (const row of rows) {
       const key = rowKeyOf(row);
       if (!key) continue;
@@ -480,7 +488,7 @@ export class FulfillmentService {
       this.repo.listMappingsForOrganization(organizationId),
     ]);
 
-    // 🔴 Đã ánh xạ hay chưa được đo bằng ĐÚNG khoá nghiệp vụ (Product ID + Seller SKU) —
+    // 🔴 Đã ánh xạ hay chưa được đo bằng ĐÚNG khoá nghiệp vụ (biến thể) —
     // cùng một hàm mà luồng gửi đơn dùng. Đo bằng luật khác sẽ có cảnh "đã ánh xạ" nhưng
     // đơn vẫn báo thiếu ánh xạ.
     const mappedKeys = new Set(
@@ -520,7 +528,7 @@ export class FulfillmentService {
       accountId: account.id,
       provider: account.provider,
       tiktokProductId: key.tiktokProductId,
-      // Có Seller SKU ⇒ SKU ID chỉ để tham chiếu (như trước); không có ⇒ SKU ID là khoá. Seller SKU trống lưu NULL.
+      // SKU ID là khoá; Seller SKU chỉ là thông tin kèm theo, trống lưu NULL.
       tiktokSkuId: key.tiktokSkuId,
       sellerSku: key.sellerSku,
       providerSku: dto.providerSku,
@@ -554,6 +562,7 @@ export class FulfillmentService {
   ): Promise<ProductMappingDto> {
     const existing = await this.repo.findMappingById(organizationId, id);
     if (!existing) throw new FulfillmentMappingNotFoundException();
+    if (existing.legacySharedKey) throw new FulfillmentMappingLegacyReadonlyException();
     // Kiểm CẢ khoá cũ lẫn khoá mới: sửa một ánh xạ mình được phép thành khoá của shop khác
     // cũng là một đường ghi vào dữ liệu shop khác.
     const key = this.requireMappingKey(dto);
@@ -561,7 +570,7 @@ export class FulfillmentService {
     await this.assertMappingKeyInScope(organizationId, key.tiktokProductId, scope);
     await this.assertNoConflict(organizationId, key, id);
     // 🔴 Đổi nhà cung cấp của sản phẩm (vd Mango → Sellerwix) là một thao tác SỬA ánh xạ: danh tính
-    // (Product ID + Seller SKU) giữ nguyên, chỉ tài khoản/SKU nhà cung cấp đổi. Bỏ qua `accountId`
+    // (biến thể) giữ nguyên, chỉ tài khoản/SKU nhà cung cấp đổi. Bỏ qua `accountId`
     // ở đây thì ánh xạ kẹt ở nhà cung cấp cũ và đơn bị MAPPING_PROVIDER_MISMATCH mãi.
     const account = dto.accountId
       ? await this.resolveMappingAccount(organizationId, existing.provider, dto.accountId)
@@ -642,7 +651,7 @@ export class FulfillmentService {
   }
 
   /**
-   * Cặp khoá (Product ID + Seller SKU) của một ánh xạ.
+   * Khoá biến thể của một ánh xạ.
    *
    * ⚠️ Chỉ phục vụ ba route design theo `mappingId` còn giữ lại cho tương thích ngược. Ánh xạ
    * thiếu khoá thì không quy đổi được — đó là hạn chế cố hữu của đường dẫn cũ, và cũng là lý
@@ -654,6 +663,7 @@ export class FulfillmentService {
   ): Promise<ProductKey> {
     const mapping = await this.repo.findMappingById(organizationId, mappingId);
     if (!mapping) throw new FulfillmentMappingNotFoundException();
+    if (mapping.legacySharedKey) throw new FulfillmentMappingLegacyReadonlyException();
     const key = normalizeProductKey(mapping);
     if (!key) throw new FulfillmentMappingNotFoundException();
     return key;
@@ -989,6 +999,7 @@ export class FulfillmentService {
           sellerSku: item.sellerSku,
           tiktokSkuId: item.skuId,
           mapping: null,
+          legacyConfig: null,
         })),
         shippingLabel: FulfillmentShippingLabelService.labelOf(order),
         shippingMode: 'ADDRESS' as const,
@@ -1064,6 +1075,69 @@ export class FulfillmentService {
   }
 
   /**
+   * Người vận hành xác nhận dùng cấu hình legacy (theo Seller SKU, dùng chung nhiều biến thể) cho biến thể của MỘT dòng đơn.
+   *
+   * 🔴 Biến thể lấy từ CHÍNH dòng đơn trong database, không nhận từ client. Chỉ chép thứ biến thể còn thiếu, không ghi đè
+   * cấu hình đã có và không đổi bản legacy. Phần còn lại vẫn đi qua readiness như mọi cấu hình khác (vd lệch nhà cung cấp
+   * vẫn bị chặn).
+   */
+  async adoptLegacyConfig(
+    organizationId: string,
+    actorUserId: string,
+    podOrderId: string,
+    podOrderItemId: string,
+    scope: PodAccessScope,
+  ): Promise<{ mappingAdopted: boolean; designsAdopted: number }> {
+    const order = await this.podOrderRepo.findById(organizationId, podOrderId);
+    if (!order) throw new FulfillmentOrderNotFoundException();
+    this.accessScope.assertShopAllowed(scope, order.shopId);
+    const item = order.items.find((entry) => entry.id === podOrderItemId);
+    if (!item) throw new FulfillmentLegacyConfigNotFoundException();
+    const key = normalizeProductKey({
+      tiktokProductId: item.productId,
+      tiktokSkuId: item.skuId,
+      sellerSku: item.sellerSku,
+    });
+    if (!key) throw new FulfillmentLegacyConfigNotFoundException();
+
+    const productIds = [key.tiktokProductId];
+    const [mappings, designRows] = await Promise.all([
+      this.repo.listMappingsForProducts(organizationId, productIds),
+      this.repo.listProductDesignsForProducts(organizationId, productIds),
+    ]);
+    const mappingIndex = createMappingIndex(mappings);
+    const designsByKey = this.groupDesignsByKey(designRows);
+
+    const legacyMapping = findMappingInIndex(item, mappingIndex) ? null : lookupLegacyForItem(item, mappingIndex);
+    const existingPlacements = new Set((lookupForItem(item, designsByKey) ?? []).map((row) => row.placement));
+    const legacyDesigns = (lookupLegacyForItem(item, designsByKey) ?? []).filter(
+      (row) => !existingPlacements.has(row.placement),
+    );
+    if (!legacyMapping && legacyDesigns.length === 0) throw new FulfillmentLegacyConfigNotFoundException();
+
+    const result = await this.repo.adoptLegacyConfig({
+      organizationId,
+      actorUserId,
+      key,
+      mapping: legacyMapping,
+      designs: legacyDesigns,
+    });
+    this.logger.log({
+      module: 'fulfillment',
+      operation: 'mapping.adopt-legacy',
+      organizationId,
+      podOrderId,
+      podOrderItemId,
+      tiktokProductId: key.tiktokProductId,
+      tiktokSkuId: key.tiktokSkuId,
+      legacyMappingId: legacyMapping?.id ?? null,
+      ...result,
+      msg: 'Đã xác nhận cấu hình cũ cho biến thể',
+    });
+    return result;
+  }
+
+  /**
    * Từng dòng hàng kèm ánh xạ ĐÃ GHÉP.
    *
    * 🔴 Không truy vấn thêm: `mappings` và `designsByKey` đã được nạp một lần ở `getState`.
@@ -1079,14 +1153,25 @@ export class FulfillmentService {
     const index = createMappingIndex(mappings);
     return order.items.map((item) => {
       const mapping = findMappingInIndex(item, index);
+      const designs = lookupForItem(item, designsByKey) ?? [];
+      // Chỉ đề xuất phần biến thể còn thiếu — cùng điều kiện với readiness, nên hễ có lỗi cần xác nhận là có đề xuất.
+      const legacyMapping = mapping ? null : lookupLegacyForItem(item, index);
+      const legacyDesigns = designs.length > 0 ? [] : (lookupLegacyForItem(item, designsByKey) ?? []);
       return {
         podOrderItemId: item.id,
         tiktokProductId: item.productId,
         sellerSku: item.sellerSku,
         tiktokSkuId: item.skuId,
-        mapping: mapping
-          ? this.toMappingDto(mapping, providerName, null, lookupForItem(item, designsByKey) ?? [])
-          : null,
+        mapping: mapping ? this.toMappingDto(mapping, providerName, null, designs) : null,
+        legacyConfig:
+          legacyMapping || legacyDesigns.length > 0
+            ? {
+                providerSku: legacyMapping?.providerSku ?? null,
+                providerProductName: legacyMapping?.providerProductName ?? null,
+                providerVariantName: legacyMapping?.providerVariantName ?? null,
+                designs: this.designMapper.toDtoList(legacyDesigns),
+              }
+            : null,
       };
     });
   }
@@ -1215,25 +1300,23 @@ export class FulfillmentService {
   }
 
   /**
-   * Khoá của ánh xạ từ DTO — Seller SKU trống / chỉ khoảng trắng ⇒ khoá SKU ID (bắt buộc có `tiktokSkuId`). DTO đã
-   * chặn ở cổng; kiểm lại ở đây vì service còn được gọi từ luồng nội bộ.
+   * Khoá biến thể của ánh xạ từ DTO. DTO đã chặn ở cổng; kiểm lại ở đây vì service còn được gọi từ luồng nội bộ.
    */
   private requireMappingKey(dto: UpsertProductMappingDto): ProductKey {
     const key = normalizeProductKey(dto);
     if (!key) {
       throw new BadRequestException({
         code: 'FULFILLMENT_MAPPING_KEY_INVALID',
-        message: 'Cần Product ID và Seller SKU — hoặc TikTok SKU ID khi biến thể không có Seller SKU.',
+        message: 'Cần Product ID và TikTok SKU ID của biến thể.',
       });
     }
     return key;
   }
 
   /**
-   * Chặn ánh xạ thứ hai cho cùng một khoá (Product ID + Seller SKU, hoặc Product ID + SKU ID).
+   * Chặn ánh xạ thứ hai cho cùng một biến thể.
    *
-   * 🔴 Đây là điều kiện "một Product ID + Seller SKU chỉ có MỘT bộ Design". DB cũng có UNIQUE
-   * index cho việc này (hàng rào cuối, chống chạy đua giữa hai request); kiểm ở đây để người
+   * DB cũng có UNIQUE index cho việc này (hàng rào cuối, chống chạy đua giữa hai request); kiểm ở đây để người
    * dùng nhận thông báo nghiệp vụ thay vì lỗi ràng buộc thô.
    */
   private async assertNoConflict(
@@ -1375,6 +1458,7 @@ export class FulfillmentService {
       tiktokProductId: mapping.tiktokProductId,
       tiktokSkuId: mapping.tiktokSkuId,
       sellerSku: mapping.sellerSku,
+      legacySharedKey: mapping.legacySharedKey,
       providerSku: mapping.providerSku,
       baseCost: mapping.baseCost === null ? null : Number(mapping.baseCost),
       designs,

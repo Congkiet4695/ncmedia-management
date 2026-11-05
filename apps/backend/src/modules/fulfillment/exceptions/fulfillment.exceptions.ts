@@ -343,6 +343,28 @@ export function toProviderHttpException(providerLabel: string, error: unknown): 
 }
 
 /** Ánh xạ sản phẩm bị trùng (một khoá TikTok trỏ tới hai SKU khác nhau). */
+/** Ánh xạ legacy theo Seller SKU không sửa trực tiếp được: mỗi biến thể phải có bản ghi riêng. */
+export class FulfillmentMappingLegacyReadonlyException extends ConflictException {
+  constructor() {
+    super({
+      code: 'FULFILLMENT_MAPPING_LEGACY_READONLY',
+      message:
+        'Ánh xạ này khai theo Seller SKU dùng chung nhiều biến thể nên không sửa được. Xác nhận dùng cho từng biến thể ở ' +
+        'màn Fulfill, hoặc khai ánh xạ mới cho biến thể.',
+    });
+  }
+}
+
+/** Dòng hàng không có cấu hình legacy nào để xác nhận (đã được xử lý, hoặc không cùng Seller SKU). */
+export class FulfillmentLegacyConfigNotFoundException extends NotFoundException {
+  constructor() {
+    super({
+      code: 'FULFILLMENT_LEGACY_CONFIG_NOT_FOUND',
+      message: 'Dòng hàng này không có cấu hình cũ nào để xác nhận.',
+    });
+  }
+}
+
 export class FulfillmentMappingConflictException extends ConflictException {
   constructor() {
     super({

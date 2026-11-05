@@ -189,6 +189,10 @@ export function useFulfillmentActions(podOrderId: string) {
   };
 
   return {
+    adoptLegacyConfig: useMutation({
+      mutationFn: (podOrderItemId: string) => fulfillmentService.adoptLegacyConfig(podOrderId, podOrderItemId),
+      onSuccess: refresh,
+    }),
     fulfill: useMutation({
       mutationFn: (payload: FulfillPayload = {}) => fulfillmentService.fulfill(podOrderId, payload),
       // 🔴 onSettled chứ không onSuccess: gửi HỎNG cũng đổi dữ liệu (bản ghi FAILED + lỗi nhà cung

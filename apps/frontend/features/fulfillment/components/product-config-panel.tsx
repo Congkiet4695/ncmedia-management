@@ -353,14 +353,13 @@ export function ProductConfigPanel({
       }))
     : (options.data?.printLocations ?? []);
 
-  /** Khoá lưu ánh xạ / design: Seller SKU, hoặc TikTok SKU ID khi biến thể không có Seller SKU. */
+  /** Khoá lưu ánh xạ / design: biến thể của dòng hàng. */
   const productKey = productKeyOf(item);
 
   /** Nguồn DUY NHẤT của "lưu được chưa" — nút, thông điệp và chốt chặn đều đọc từ đây. */
   const blockers = configBlockers({
     accountId,
     tiktokProductId: item.productId,
-    sellerSku: item.sellerSku,
     tiktokSkuId: item.skuId,
     providerProductId: selectedProduct?.id ?? '',
     productUnavailable,
@@ -379,7 +378,6 @@ export function ProductConfigPanel({
 
     const input: UpsertProductMappingInput = {
       accountId: accountId as string,
-      // Seller SKU nếu có; không có ⇒ chỉ gửi tiktokSkuId (backend lưu seller_sku = NULL). Không gửi chuỗi rỗng.
       ...key,
       providerSku: variant.sku,
       // 🔴 LUÔN là id phía nhà cung cấp, lấy từ chính bản ghi đang chọn — không bao giờ là id

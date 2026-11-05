@@ -10,7 +10,13 @@ import {
   type ResolvedPrintFile,
 } from '../mango/mappers/mango-order.mapper';
 import { PRODUCT_KEY_ISSUE_MESSAGE } from '../../pod-tiktok/shared/order-item-product-key';
-import { createMappingIndex, findMappingInIndex, itemHasProductKey, lookupForItem } from '../shared/mapping-match';
+import {
+  createMappingIndex,
+  findMappingInIndex,
+  itemHasProductKey,
+  lookupForItem,
+  lookupLegacyForItem,
+} from '../shared/mapping-match';
 import {
   FulfillmentShippingLabelService,
   type ShippingLabelState,
@@ -20,7 +26,7 @@ import {
  * Product Mapping — chỉ còn phần "in ở đâu".
  *
  * ⚠️ KHÔNG còn quan hệ `designs`. Design tách hẳn khỏi ánh xạ và được tra riêng theo
- * (Product ID + Seller SKU) — xem `DesignsByProductKey`. Giữ alias này để mọi nơi gọi không
+ * biến thể (Product ID + TikTok SKU ID) — xem `DesignsByProductKey`. Giữ alias này để mọi nơi gọi không
  * phải đổi kiểu, nhưng tên vẫn nói đúng nội dung mới.
  */
 export type MappingWithDesigns = Prisma.FulfillmentProductMappingGetPayload<object>;
@@ -41,8 +47,7 @@ export interface ReadinessDesign {
 }
 
 /**
- * Design của cả tổ chức, dựng theo `rowKeyOf` (Product ID + Seller SKU, hoặc + SKU ID khi biến thể không có Seller
- * SKU) và tra bằng `lookupForItem` — xem `shared/mapping-match.ts`.
+ * Design của cả tổ chức, dựng theo `rowKeyOf` và tra bằng `lookupForItem` — xem `shared/mapping-match.ts`.
  *
  * 🔴 Truyền vào thay vì để `check()` tự truy vấn: `check()` là hàm ĐỒNG BỘ và được gọi cho
  * hàng loạt đơn trong một vòng lặp; cho nó tự query là mở đường cho N+1.
@@ -86,8 +91,7 @@ export interface ReadinessResult {
   issues: ReadinessIssue[];
   /**
    * Cảnh báo KHÔNG chặn gửi — `PROMOTION_GIFT_NOT_SENT` (quà tặng khuyến mãi không được gửi sang nhà
-   * cung cấp) và `MAPPING_SHARED_BY_VARIANTS` (một ánh xạ áp cho nhiều biến thể TikTok). Luôn có mặt
-   * (mảng rỗng khi không có gì).
+   * cung cấp). Luôn có mặt (mảng rỗng khi không có gì).
    */
   warnings: ReadinessIssue[];
   address?: NormalizedAddress;
@@ -126,13 +130,6 @@ export const READINESS_CODES = {
    * TikTok; người bán phải tự lo phần giao quà. Chỉ nằm trong `ReadinessResult.warnings`.
    */
   PROMOTION_GIFT_NOT_SENT: 'PROMOTION_GIFT_NOT_SENT',
-  /**
-   * CẢNH BÁO (không chặn): Product Mapping của dòng khoá theo `(Product ID + Seller SKU)`, mà trên TikTok Seller SKU
-   * đó đang gắn cho NHIỀU biến thể (SKU ID khác nhau) của cùng sản phẩm ⇒ mọi biến thể dùng chung MỘT Fulfillment
-   * SKU. Đúng nếu chúng cùng phôi; sai size/màu nếu khác phôi. Khoá giữ nguyên theo quyết định PO 2026-11-03 —
-   * cảnh báo để người vận hành đối chiếu trước khi gửi, không tự đổi ánh xạ.
-   */
-  MAPPING_SHARED_BY_VARIANTS: 'MAPPING_SHARED_BY_VARIANTS',
   ADDRESS_MISSING: 'ADDRESS_MISSING',
   ADDRESS_MASKED: 'ADDRESS_MASKED',
   ADDRESS_INCOMPLETE: 'ADDRESS_INCOMPLETE',
@@ -146,11 +143,17 @@ export const READINESS_CODES = {
   TIKTOK_SHIPPING_LABEL_REQUIRED: 'TIKTOK_SHIPPING_LABEL_REQUIRED',
   MAPPING_MISSING: 'MAPPING_MISSING',
   /**
-   * Dòng đơn KHÔNG có khoá sản phẩm (TikTok Product ID + Seller SKU) — kể cả sau khi đã thử lấy Seller SKU từ danh
-   * mục Products. Tách khỏi `MAPPING_MISSING`: không khai ánh xạ được cho tới khi có khoá, nên câu "vào Product
+   * Dòng đơn KHÔNG có khoá biến thể (TikTok Product ID + TikTok SKU ID). Tách khỏi `MAPPING_MISSING`: không khai ánh xạ được cho tới khi có khoá, nên câu "vào Product
    * Mapping khai đi" là sai hướng. `message` nói đúng lý do và chỗ phải sửa (`order-item-product-key.ts`).
    */
   MAPPING_KEY_MISSING: 'MAPPING_KEY_MISSING',
+  /**
+   * Biến thể chưa có ánh xạ, nhưng có ánh xạ CŨ khai theo Seller SKU dùng chung cho nhiều biến thể. Không tự áp dụng vì
+   * không biết nó có đúng biến thể này không ⇒ chặn, chờ người vận hành xác nhận (`adoptLegacyConfig`).
+   */
+  MAPPING_LEGACY_CONFIRM_REQUIRED: 'MAPPING_LEGACY_CONFIRM_REQUIRED',
+  /** Như trên, cho design: biến thể chưa có design riêng nhưng có design cũ cùng Seller SKU. */
+  DESIGN_LEGACY_CONFIRM_REQUIRED: 'DESIGN_LEGACY_CONFIRM_REQUIRED',
   /**
    * Sản phẩm ĐÃ có ánh xạ, nhưng ánh xạ đó khai cho một nhà cung cấp KHÁC với nhà cung cấp
    * mà kết nối TikTok của đơn đang dùng.
@@ -197,7 +200,6 @@ const SECTION_BY_CODE: Readonly<Record<string, FulfillmentIssueSection>> = {
   NO_ITEMS: 'ORDER',
   NO_FULFILLABLE_ITEMS: 'ORDER',
   PROMOTION_GIFT_NOT_SENT: 'MAPPING',
-  MAPPING_SHARED_BY_VARIANTS: 'MAPPING',
   ACCOUNT_MISSING: 'PROVIDER',
   PROVIDER_NOT_ASSIGNED: 'PROVIDER',
   PROVIDER_INACTIVE: 'PROVIDER',
@@ -207,6 +209,8 @@ const SECTION_BY_CODE: Readonly<Record<string, FulfillmentIssueSection>> = {
   TIKTOK_SHIPPING_LABEL_REQUIRED: 'SHIPPING',
   MAPPING_MISSING: 'MAPPING',
   MAPPING_KEY_MISSING: 'MAPPING',
+  MAPPING_LEGACY_CONFIRM_REQUIRED: 'MAPPING',
+  DESIGN_LEGACY_CONFIRM_REQUIRED: 'DESIGN',
   MAPPING_PROVIDER_MISMATCH: 'MAPPING',
   PRODUCTION_LINE_CONFLICT: 'MAPPING',
   DESIGN_MISSING: 'DESIGN',
@@ -254,7 +258,7 @@ export class FulfillmentReadinessService {
   check(
     order: PodOrderWithRelations,
     mappings: MappingWithDesigns[],
-    /** Design của tổ chức, tra theo (Product ID + Seller SKU). Rỗng = chưa upload gì. */
+    /** Design của tổ chức, tra theo biến thể. Rỗng = chưa upload gì. */
     designsByKey: DesignsByProductKey,
     publicBaseUrl?: string,
     /**
@@ -457,11 +461,9 @@ export class FulfillmentReadinessService {
 
       // 🔴 Không có khoá ⇒ không thể có ánh xạ lẫn design: báo ĐÚNG MỘT lỗi kèm lý do, thay vì cặp "chưa khai ánh
       // xạ" + "chưa có design" (cả hai đều không sửa được khi chưa có khoá).
-      // Thiếu Seller SKU nhưng có SKU ID ⇒ VẪN có khoá (Product ID + SKU ID) — khai ánh xạ / design bình thường.
+      // Không có SKU ID ⇒ KHÔNG tìm theo Seller SKU thay thế: Seller SKU không chỉ ra được đúng biến thể.
       if (!itemHasProductKey(item)) {
-        const reason =
-          // Không có khoá nào ⇒ chỉ còn hai khả năng: thiếu Product ID, hoặc thiếu cả Seller SKU lẫn SKU ID.
-          item.productId?.trim() ? ('NO_SKU_ID' as const) : ('NO_PRODUCT_ID' as const);
+        const reason = item.productId?.trim() ? ('NO_SKU_ID' as const) : ('NO_PRODUCT_ID' as const);
         issues.push({
           code: READINESS_CODES.MAPPING_KEY_MISSING,
           podOrderItemId: item.id,
@@ -479,6 +481,23 @@ export class FulfillmentReadinessService {
       }
 
       const mapping = findMappingInIndex(item, index);
+      if (!mapping && lookupLegacyForItem(item, index)) {
+        issues.push({
+          code: READINESS_CODES.MAPPING_LEGACY_CONFIRM_REQUIRED,
+          podOrderItemId: item.id,
+          tiktokProductId: item.productId,
+          tiktokSkuId: item.skuId,
+          sellerSku: item.sellerSku,
+          productName: item.productName,
+          skuName: item.skuName,
+          productCategory: item.productCategory,
+          message:
+            `Design mapping unavailable — "${item.productName ?? item.id}"${item.skuName ? ` (${item.skuName})` : ''} chưa ` +
+            `có cấu hình riêng. Seller SKU "${item.sellerSku}" có cấu hình cũ dùng chung cho nhiều biến thể nên hệ thống ` +
+            'không tự áp dụng. Kiểm tra rồi xác nhận dùng cho biến thể này ở Cấu hình sản phẩm, hoặc khai cấu hình mới.',
+        });
+        continue;
+      }
       if (!mapping) {
         issues.push({
           code: READINESS_CODES.MAPPING_MISSING,
@@ -491,9 +510,9 @@ export class FulfillmentReadinessService {
           productCategory: item.productCategory,
           message:
             `Chưa khai báo ánh xạ sản phẩm cho "${item.productName ?? item.sellerSku ?? item.id}"` +
-            ` (Product ID: ${item.productId ?? '—'} · Seller SKU: ${item.sellerSku ?? '—'}). ` +
-            'Vào màn hình Ánh xạ sản phẩm để khai cặp khoá này — khai một lần là mọi đơn ' +
-            'cùng sản phẩm đều dùng được.',
+            ` (Product ID: ${item.productId ?? '—'} · SKU ID: ${item.skuId ?? '—'} · Seller SKU: ${item.sellerSku ?? '—'}). ` +
+            'Vào màn hình Ánh xạ sản phẩm để khai cho biến thể này — khai một lần là mọi đơn ' +
+            'cùng biến thể đều dùng được.',
         });
         continue;
       }
@@ -517,25 +536,6 @@ export class FulfillmentReadinessService {
             'của đơn này. Sửa ánh xạ, hoặc đổi nhà cung cấp của kết nối TikTok cho khớp.',
         });
         continue;
-      }
-
-      const sharedBy = item.sellerSkuVariantCount ?? 0;
-      if (mapping.sellerSku?.trim() && sharedBy > 1) {
-        warnings.push({
-          code: READINESS_CODES.MAPPING_SHARED_BY_VARIANTS,
-          podOrderItemId: item.id,
-          tiktokProductId: item.productId,
-          tiktokSkuId: item.skuId,
-          sellerSku: item.sellerSku,
-          productName: item.productName,
-          skuName: item.skuName,
-          productCategory: item.productCategory,
-          message:
-            `Seller SKU "${item.sellerSku}" đang gắn cho ${sharedBy} biến thể của sản phẩm này trên TikTok — mọi biến ` +
-            `thể dùng chung ánh xạ "${mapping.providerSku}". Kiểm tra biến thể đặt mua` +
-            `${item.skuName ? ` (${item.skuName})` : ''} đúng phôi / size / màu của SKU nhà cung cấp trước khi gửi; ` +
-            'nếu khác phôi, đặt Seller SKU riêng cho từng biến thể trên TikTok rồi đồng bộ sản phẩm.',
-        });
       }
 
       const printFiles = this.resolvePrintFiles(
@@ -580,20 +580,25 @@ export class FulfillmentReadinessService {
     issues: ReadinessIssue[],
     resolvePlacement: PlacementResolver,
   ): ResolvedPrintFile[] {
-    // 🔴 Design tra theo khoá sản phẩm của CHÍNH line item (Seller SKU, rồi SKU ID), KHÔNG qua ánh xạ.
+    // 🔴 Design tra theo biến thể của CHÍNH line item, KHÔNG qua ánh xạ.
     // Design và ánh xạ là hai nghiệp vụ độc lập: đơn có thể đã có design từ trước khi ai đó
     // khai ánh xạ, và đổi ánh xạ sang nhà cung cấp khác không được làm mất file in.
     const designs = lookupForItem(item, designsByKey) ?? [];
 
     if (designs.length === 0) {
+      // Có design cũ cùng Seller SKU ⇒ vẫn là thiếu design, nhưng người vận hành xác nhận được thay vì upload lại.
+      const legacy = lookupLegacyForItem(item, designsByKey);
       issues.push({
-        code: READINESS_CODES.DESIGN_MISSING,
+        code: legacy ? READINESS_CODES.DESIGN_LEGACY_CONFIRM_REQUIRED : READINESS_CODES.DESIGN_MISSING,
         podOrderItemId: item.id,
         // Nêu đúng chỗ phải sửa: design giờ khai ở Product Mapping, không khai ở đơn.
-        message:
-          `Sản phẩm "${item.productName ?? item.id}" chưa có file design. ` +
-          'Upload design ở Product Mapping tương ứng — một lần là dùng cho mọi đơn cùng ' +
-          'Product ID + Seller SKU, kể cả đơn đồng bộ về sau này.',
+        message: legacy
+          ? `Design mapping unavailable — "${item.productName ?? item.id}" chưa có design riêng cho biến thể này. Design ` +
+            `cũ của Seller SKU "${item.sellerSku}" dùng chung cho nhiều biến thể nên hệ thống không tự áp dụng. Kiểm tra ` +
+            'rồi xác nhận dùng cho biến thể này ở Cấu hình sản phẩm, hoặc upload design mới.'
+          : `Sản phẩm "${item.productName ?? item.id}" chưa có file design. ` +
+            'Upload design ở Product Mapping tương ứng — một lần là dùng cho mọi đơn cùng ' +
+            'biến thể, kể cả đơn đồng bộ về sau này.',
       });
       return [];
     }

@@ -3,11 +3,7 @@ import { FulfillmentStatus, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { SUBMITTABLE_FULFILLMENT_STATUSES } from '../../fulfillment/shared/fulfillment-lifecycle';
 import { accountScopeFilter, shopScopeFilter } from '../shared/shop-scope';
-import {
-  countVariantsSharingSellerSku,
-  needsCatalogLookup,
-  resolveItemProductKeys,
-} from '../shared/order-item-product-key';
+import { needsCatalogLookup, resolveItemProductKeys } from '../shared/order-item-product-key';
 import { POD_ORDER_INCLUDE, PodOrderWithRelations } from '../types/pod-order-with-relations.type';
 
 /** Ảnh chụp tối thiểu của đơn đã có trong DB — dùng để so sánh, KHÔNG tải nguyên bản ghi. */
@@ -58,14 +54,13 @@ export interface PodOrderFilterParams {
 }
 
 /**
- * Khoá sản phẩm ĐÃ có design, của một tổ chức: Product ID → các Seller SKU, và các TikTok SKU ID (design của biến thể
- * KHÔNG có Seller SKU — xem `fulfillment/shared/mapping-match.ts`).
+ * Biến thể ĐÃ có design, của một tổ chức: Product ID → các TikTok SKU ID (xem `fulfillment/shared/mapping-match.ts`).
  *
  * 🔴 Gom theo Product ID chứ không để phẳng thành danh sách cặp: một sản phẩm thường có hàng
  * chục SKU, và `OR` phẳng sẽ sinh ra một mệnh đề SQL dài bằng số cặp. Gom lại thì số nhánh
  * `OR` chỉ còn bằng số SẢN PHẨM, mỗi nhánh một `IN` — cùng kết quả, SQL nhỏ hơn hẳn.
  */
-export type DesignKeyIndex = Map<string, { sellerSkus: string[]; skuIds: string[] }>;
+export type DesignKeyIndex = Map<string, string[]>;
 
 /**
  * Trạng thái fulfillment vẫn còn gửi (lại) được ⇒ đơn tính là **CHƯA đẩy**.
@@ -343,7 +338,7 @@ export class PodOrderRepository {
       sellerSku: variant.sellerSku,
     }));
 
-    const keyed = orders.map((order) => {
+    return orders.map((order) => {
       const keys = resolveItemProductKeys(order.shopId, order.items, catalog);
       return {
         ...order,
@@ -353,55 +348,6 @@ export class PodOrderRepository {
             ? { ...item, sellerSku: key.sellerSku, sellerSkuSource: key.sellerSkuSource, productKeyIssue: key.productKeyIssue }
             : item;
         }),
-      };
-    });
-    return this.withSellerSkuVariantCounts(organizationId, keyed);
-  }
-
-  /**
-   * Gắn `sellerSkuVariantCount` cho từng dòng có Seller SKU hiệu lực (MỘT truy vấn danh mục cho cả trang) — để
-   * readiness cảnh báo khi một Product Mapping `(Product ID + Seller SKU)` đang áp cho nhiều biến thể TikTok.
-   */
-  private async withSellerSkuVariantCounts<T extends Pick<PodOrderWithRelations, 'shopId' | 'items'>>(
-    organizationId: string,
-    orders: T[],
-  ): Promise<T[]> {
-    const keyed = orders.flatMap((order) =>
-      order.items
-        .filter((item) => item.productId?.trim() && item.sellerSku?.trim())
-        .map((item) => ({ shopId: order.shopId, productId: item.productId as string, sellerSku: item.sellerSku as string })),
-    );
-    if (keyed.length === 0) return orders;
-
-    const variants = await this.prisma.podProductVariant.findMany({
-      where: {
-        organizationId,
-        deletedAt: null,
-        sellerSku: { in: [...new Set(keyed.map(({ sellerSku }) => sellerSku.trim()))] },
-        product: {
-          organizationId,
-          deletedAt: null,
-          shopId: { in: [...new Set(keyed.map(({ shopId }) => shopId))] },
-          tiktokProductId: { in: [...new Set(keyed.map(({ productId }) => productId.trim()))] },
-        },
-      },
-      select: { tiktokSkuId: true, sellerSku: true, product: { select: { shopId: true, tiktokProductId: true } } },
-    });
-    if (variants.length === 0) return orders;
-    const catalog = variants.map((variant) => ({
-      shopId: variant.product.shopId,
-      tiktokProductId: variant.product.tiktokProductId,
-      tiktokSkuId: variant.tiktokSkuId,
-      sellerSku: variant.sellerSku,
-    }));
-
-    return orders.map((order) => {
-      const counts = countVariantsSharingSellerSku(order.shopId, order.items, catalog);
-      return {
-        ...order,
-        items: order.items.map((item) =>
-          counts.has(item.id) ? { ...item, sellerSkuVariantCount: counts.get(item.id) } : item,
-        ),
       };
     });
   }
@@ -415,10 +361,10 @@ export class PodOrderRepository {
    * lần thêm bộ lọc tiếp theo.
    */
   /**
-   * Cặp khoá sản phẩm ĐÃ có design của tổ chức, gom theo Product ID.
+   * Biến thể ĐÃ có design của tổ chức, gom theo Product ID. Design legacy không tính: nó chưa áp cho biến thể nào.
    *
    * 🔴 Vì sao phải nạp ra bộ nhớ thay vì lọc thẳng trong một câu SQL: design KHÔNG có khoá
-   * ngoại tới order item. Chúng nối với nhau bằng GIÁ TRỊ của cặp (Product ID + Seller SKU)
+   * ngoại tới order item. Chúng nối với nhau bằng GIÁ TRỊ của cặp (Product ID + SKU ID)
    * — xem `mapping-match.ts`, luật dùng chung của cả `FulfillmentReadinessService` lẫn
    * `PodOrderDesignResolver`. Prisma không diễn đạt được phép nối theo giá trị giữa hai bảng
    * trong `where`.
@@ -432,26 +378,21 @@ export class PodOrderRepository {
       where: {
         organizationId,
         deletedAt: null,
+        legacySharedKey: false,
         tiktokProductId: { not: null },
-        OR: [{ sellerSku: { not: null } }, { tiktokSkuId: { not: null } }],
+        tiktokSkuId: { not: null },
       },
-      distinct: ['tiktokProductId', 'sellerSku', 'tiktokSkuId'],
-      select: { tiktokProductId: true, sellerSku: true, tiktokSkuId: true },
+      distinct: ['tiktokProductId', 'tiktokSkuId'],
+      select: { tiktokProductId: true, tiktokSkuId: true },
     });
 
     const index: DesignKeyIndex = new Map();
     for (const row of rows) {
       // `trim` để khớp đúng `mapping-match.ts` — dữ liệu nhập tay hay dính khoảng trắng.
-      // KHÔNG đổi hoa/thường: Seller SKU của TikTok phân biệt hoa thường.
       const product = row.tiktokProductId?.trim();
-      if (!product) continue;
-      const entry = index.get(product) ?? { sellerSkus: [], skuIds: [] };
-      const sku = row.sellerSku?.trim();
       const skuId = row.tiktokSkuId?.trim();
-      if (sku) entry.sellerSkus.push(sku);
-      else if (skuId) entry.skuIds.push(skuId);
-      else continue;
-      index.set(product, entry);
+      if (!product || !skuId) continue;
+      index.set(product, [...(index.get(product) ?? []), skuId]);
     }
     return index;
   }
@@ -464,11 +405,7 @@ export class PodOrderRepository {
   private buildItemHasDesign(keys: DesignKeyIndex): Prisma.PodOrderItemWhereInput | null {
     if (keys.size === 0) return null;
     return {
-      OR: [...keys.entries()].flatMap(([productId, { sellerSkus, skuIds }]) => [
-        ...(sellerSkus.length > 0 ? [{ productId, sellerSku: { in: sellerSkus } }] : []),
-        // Design khai theo SKU ID ⇒ khớp dòng đơn đúng biến thể (khoá dự phòng áp cho mọi dòng cùng sku_id).
-        ...(skuIds.length > 0 ? [{ productId, skuId: { in: skuIds } }] : []),
-      ]),
+      OR: [...keys.entries()].map(([productId, skuIds]) => ({ productId, skuId: { in: skuIds } })),
     };
   }
 

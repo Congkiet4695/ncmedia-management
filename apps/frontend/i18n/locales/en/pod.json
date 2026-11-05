@@ -165,9 +165,9 @@
     "uploaded": "{{placement}} uploaded",
     "uploadingPercent": "Uploading {{percent}}%",
     "viewLarge": "View larger image",
-    "sharedScopeHint": "Design belongs to the product (Product ID + Seller SKU), not to this order alone. Replacing or deleting a file here applies to every order for the same product that has not been sent to production.",
+    "sharedScopeHint": "The design belongs to the variant (Product ID + TikTok SKU ID), not to this order alone. Replacing or deleting the file affects every unsent order of the variant.",
     "noKeyTitle": "Product key missing",
-    "noKeyHint": "This line item has no Product ID or Seller SKU. Design is stored under that key pair, so there is no product to store it against. Re-sync the order from TikTok.",
+    "noKeyHint": "This line has no Product ID or TikTok SKU ID. Designs are saved per variant, so there is nowhere to save it.",
     "mode": {
       "UPLOAD": "Upload file",
       "URL": "Public URL"
@@ -2316,10 +2316,10 @@
     "fromCatalogHint": "The TikTok order has no Seller SKU for this line; the Seller SKU of the exact variant (same Product ID + SKU ID) was taken from the synced Products catalog.",
     "issue": {
       "NO_PRODUCT_ID": "This line has no TikTok Product ID — re-sync the order from TikTok.",
-      "NO_SKU_ID": "This line has no Seller SKU and no TikTok SKU ID to look it up — re-sync the order from TikTok.",
-      "VARIANT_NOT_SYNCED": "This line has no Seller SKU and the variant is not in the synced Products catalog — mapping and design are saved by the variant’s TikTok SKU ID. If the variant actually has a Seller SKU on TikTok, sync the shop products to share mapping/design by Seller SKU.",
+      "NO_SKU_ID": "This line has no TikTok SKU ID, so the variant cannot be identified — sync the order from TikTok again.",
+      "VARIANT_NOT_SYNCED": "This line has no Seller SKU and the variant is not in the synced Products catalog — mapping and design are still saved by the variant TikTok SKU ID.",
       "SELLER_SKU_EMPTY_ON_TIKTOK": "This variant has no Seller SKU on TikTok (neither in the order nor in Products) — mapping and design are saved by the variant’s TikTok SKU ID; no change on TikTok is needed to fulfill.",
-      "SELLER_SKU_AMBIGUOUS": "The Products catalog has several different Seller SKUs for this variant — the system will not pick one. Check the variant Seller SKU on TikTok, then sync products.",
+      "SELLER_SKU_AMBIGUOUS": "The Products catalog has several Seller SKUs for this variant, so none can be shown. Mapping and design are still saved by TikTok SKU ID.",
       "UNKNOWN": "This line has no Product ID or Seller SKU, so it cannot be mapped."
     },
     "skuIdKeyHint": "TikTok has no Seller SKU for this variant — mapping and design are saved by its TikTok SKU ID ({{skuId}}). You can still configure and fulfill; no change on TikTok is needed."

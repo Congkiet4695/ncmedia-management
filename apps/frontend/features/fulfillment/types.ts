@@ -398,9 +398,21 @@ export interface FulfillmentStateItem {
   podOrderItemId: string;
   tiktokProductId: string | null;
   sellerSku: string | null;
-  /** Khoá ánh xạ / design khi biến thể không có Seller SKU. */
+  /** Khoá ánh xạ / design của biến thể. */
   tiktokSkuId: string | null;
   mapping: ProductMapping | null;
+  /** Cấu hình cũ có thể xác nhận cho biến thể này. `null` = không có. */
+  legacyConfig: FulfillmentLegacyConfig | null;
+}
+
+/** Cấu hình cũ cùng Seller SKU, dùng chung nhiều biến thể — CHƯA được áp dụng cho dòng hàng. */
+export interface FulfillmentLegacyConfig {
+  /** `null` = biến thể đã có ánh xạ riêng, chỉ còn thiếu design. */
+  providerSku: string | null;
+  providerProductName: string | null;
+  providerVariantName: string | null;
+  /** Rỗng = biến thể đã có design riêng. */
+  designs: PodDesign[];
 }
 
 /**
@@ -593,10 +605,12 @@ export interface ProductMapping {
   id: string;
   /** Nửa đầu khoá nghiệp vụ. NULL = bản ghi cũ chưa đủ khoá, không ghép được đơn nào. */
   tiktokProductId: string | null;
-  /** Nửa sau khoá nghiệp vụ. */
+  /** Chỉ để hiển thị, KHÔNG phải khoá. */
   sellerSku: string | null;
-  /** Tham chiếu, KHÔNG tham gia ghép đơn. */
+  /** Nửa sau khoá nghiệp vụ (trừ bản ghi legacy). */
   tiktokSkuId: string | null;
+  /** Ánh xạ cũ theo Seller SKU dùng chung nhiều biến thể: không ghép với đơn nào, không sửa được. */
+  legacySharedKey: boolean;
   /** Fulfillment SKU — giá trị THỰC SỰ gửi đi khi tạo đơn. */
   providerSku: string;
   /** Giá vốn nhà cung cấp — backend lấy từ giá biến thể đã đồng bộ khi lưu. NULL = chưa có giá. */
@@ -691,7 +705,7 @@ export interface ProductDesignKey {
   tiktokProductId: string;
   /** Có Seller SKU ⇒ khoá chính. */
   sellerSku?: string;
-  /** Biến thể KHÔNG có Seller SKU trên TikTok ⇒ khoá là Product ID + SKU ID (`productKeyOf`). */
+  /** Khoá biến thể (`productKeyOf`). */
   tiktokSkuId?: string;
 }
 

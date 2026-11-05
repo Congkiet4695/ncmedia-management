@@ -21,7 +21,7 @@ import { PodOrderRepository } from './pod-order.repository';
  */
 
 /** Prisma giả: chỉ giữ lại `where` mà repository dựng ra. */
-function buildRepo(designRows: Array<{ tiktokProductId: string; sellerSku: string }> = []) {
+function buildRepo(designRows: Array<{ tiktokProductId: string; tiktokSkuId: string }> = []) {
   let capturedWhere: Prisma.PodOrderWhereInput = {};
 
   const prisma = {
@@ -54,16 +54,16 @@ function buildRepo(designRows: Array<{ tiktokProductId: string; sellerSku: strin
 }
 
 const DESIGN_ROWS = [
-  { tiktokProductId: 'p1', sellerSku: 'sku-a' },
-  { tiktokProductId: 'p1', sellerSku: 'sku-b' },
-  { tiktokProductId: 'p2', sellerSku: 'sku-c' },
+  { tiktokProductId: 'p1', tiktokSkuId: 'sku-a' },
+  { tiktokProductId: 'p1', tiktokSkuId: 'sku-b' },
+  { tiktokProductId: 'p2', tiktokSkuId: 'sku-c' },
 ];
 
 /** Điều kiện "item khớp một khoá design" mà repository phải dựng. */
 const EXPECTED_ITEM_HAS_DESIGN = {
   OR: [
-    { productId: 'p1', sellerSku: { in: ['sku-a', 'sku-b'] } },
-    { productId: 'p2', sellerSku: { in: ['sku-c'] } },
+    { productId: 'p1', skuId: { in: ['sku-a', 'sku-b'] } },
+    { productId: 'p2', skuId: { in: ['sku-c'] } },
   ],
 };
 
@@ -98,13 +98,13 @@ describe('PodOrderRepository — lọc theo DESIGN', () => {
     expect(or).toHaveLength(2);
   });
 
-  it('cắt khoảng trắng thừa ở khoá (khớp `mappingKeyOf`), KHÔNG đổi hoa/thường', async () => {
-    const ctx = buildRepo([{ tiktokProductId: '  p1 ', sellerSku: ' SKU-A ' }]);
+  it('cắt khoảng trắng thừa ở khoá (khớp `skuIdKeyOf`)', async () => {
+    const ctx = buildRepo([{ tiktokProductId: '  p1 ', tiktokSkuId: ' SKU-A ' }]);
 
     await ctx.find({ hasDesign: false });
 
     const or = (ctx.where().items as { some: { NOT: { OR: unknown[] } } }).some.NOT.OR;
-    expect(or).toEqual([{ productId: 'p1', sellerSku: { in: ['SKU-A'] } }]);
+    expect(or).toEqual([{ productId: 'p1', skuId: { in: ['SKU-A'] } }]);
   });
 
   it('tổ chức CHƯA có design nào ⇒ "đã có design" trả về rỗng, "chưa có" lấy mọi đơn có item', async () => {

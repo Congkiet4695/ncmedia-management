@@ -12,7 +12,7 @@ import {
 import { TiktokFulfillmentApiService } from '../../tiktok-sdk/tiktok-fulfillment-api.service';
 import { PrismaService } from '../../../database/prisma.service';
 import { MangoOrderMapper } from '../mango/mappers/mango-order.mapper';
-import { mappingKeyOf } from '../shared/mapping-match';
+import { skuIdKeyOf } from '../shared/mapping-match';
 import { FulfillmentReadinessService, READINESS_CODES } from './fulfillment-readiness.service';
 import {
   FulfillmentShippingLabelService,
@@ -104,7 +104,7 @@ function mapping(over: Record<string, unknown> = {}) {
 const designs = () =>
   new Map([
     [
-      mappingKeyOf('PROD-1', 'SELLER-1') as string,
+      skuIdKeyOf('PROD-1', 'SKU-TT-1') as string,
       [{ placement: 'FRONT', storageFile: { publicUrl: 'https://cdn.example.com/a.png' } }],
     ],
   ]) as never;

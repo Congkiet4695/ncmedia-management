@@ -28,6 +28,7 @@ import { useBusinessLocaleFormat, useLocaleFormat } from '@/hooks/use-locale-for
 import { ImageLightbox } from '@/features/pod-tiktok/components/image-lightbox';
 import { usePodOrder } from '@/features/pod-tiktok/hooks/use-pod-orders';
 import { POD_DESIGN_PLACEMENTS } from '@/features/pod-tiktok/order-types';
+import { groupOrderProducts } from '@/features/pod-tiktok/order-view-model';
 import { cn } from '@/lib/utils';
 import {
   useFulfillmentActions,
@@ -44,6 +45,13 @@ import {
   submitBlockers,
   isUnconfiguredPromotionGift,
 } from '../product-config';
+import {
+  countIssueEntries,
+  groupFulfillmentIssues,
+  hasIssueHint,
+  issuesOfLines,
+  type FulfillmentIssueGroup,
+} from '../issue-summary';
 import { isNoResponseError, providerErrorText } from '../provider-error';
 import {
   shippingServiceLabel,
@@ -57,11 +65,12 @@ import {
   FULFILL_SHIPPING_METHODS,
   FULFILL_SPEED_TYPES,
   type FulfillPayload,
-  type FulfillmentIssue,
   type FulfillmentIssueSection,
   type FulfillmentOrder,
   type FulfillmentStatus,
 } from '../types';
+import { FulfillmentIssueGroups } from './fulfillment-issue-groups';
+import { LegacyConfigNotice } from './legacy-config-notice';
 import { ProductConfigPanel } from './product-config-panel';
 import { PromotionGiftItem } from './promotion-gift-item';
 
@@ -131,12 +140,16 @@ function isHttpUrl(value: string): boolean {
  * cung cấp thì KHÔNG hiện — không gửi một tuỳ chọn mà nhà cung cấp sẽ bỏ qua hoặc từ chối.
  *
  * 🔴 Mọi lý do "chưa gửi được" do BACKEND quyết định (`readiness`), và hiện ngay tại khối cần
- * sửa nhờ `issue.section` — không dồn hết vào một toast chung chung.
+ * sửa nhờ `issue.section`, dạng tóm tắt mở được (`FulfillmentIssueGroups`) để danh sách dài không
+ * làm vỡ bố cục — không dồn hết vào một toast chung chung.
  *
- * 🔴 Nút gửi chỉ bật khi `submitBlockers()` rỗng, và khi nó TẮT thì lý do hiện ngay cạnh nút
- * (không bắt người dùng đoán, cũng không phải đi dò từng khối). Đang gửi thì khoá nút, khoá
- * cả nút đóng drawer. Chống gửi trùng thật sự nằm ở backend (khoá phân tán · unique DB ·
- * `order_id` idempotency).
+ * 🔴 Nút gửi chỉ bật khi `submitBlockers()` rỗng, và khi nó TẮT thì cạnh nút có một dòng tóm tắt
+ * kèm "Xem chi tiết" (footer luôn gọn, không đẩy nút đi). Đang gửi thì khoá nút, khoá cả nút đóng
+ * drawer. Chống gửi trùng thật sự nằm ở backend (khoá phân tán · unique DB · `order_id` idempotency).
+ *
+ * 🔴 Khối Cấu hình sản phẩm hiện theo DÒNG HIỂN THỊ (`groupOrderProducts`), không theo line item: các
+ * đơn vị cùng biến thể dùng chung MỘT ánh xạ nên chỉ cần MỘT panel "× N". Bản ghi gửi đi vẫn do backend
+ * dựng theo từng line item — màn hình này không gửi danh sách dòng hàng lên.
  */
 export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDrawerProps) {
   const { t } = useTranslation(['fulfillment', 'pod', 'common']);
@@ -188,6 +201,9 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
   /** Kết quả lần gửi vừa rồi — có giá trị ⇒ thân drawer chuyển sang màn kết quả. */
   const [result, setResult] = useState<FulfillmentOrder | null>(null);
   const [designOpen, setDesignOpen] = useState(true);
+  /** Nhóm lỗi / cảnh báo đang mở (`FulfillmentIssueGroup.key`). */
+  const [openIssueGroups, setOpenIssueGroups] = useState<ReadonlySet<string>>(new Set());
+  const bodyRef = useRef<HTMLDivElement>(null);
   /** Ảnh design đang xem phóng to. */
   const [preview, setPreview] = useState<string | null>(null);
 
@@ -204,6 +220,11 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
     () => new Map((state?.items ?? []).map((entry) => [entry.podOrderItemId, entry.mapping])),
     [state?.items],
   );
+  /** Cấu hình cũ chờ xác nhận của từng dòng hàng — cũng do backend ghép. */
+  const legacyConfigByItemId = useMemo(
+    () => new Map((state?.items ?? []).map((entry) => [entry.podOrderItemId, entry.legacyConfig])),
+    [state?.items],
+  );
   /** Lịch sử chỉ nạp khi người dùng thực sự mở — không tốn request cho mỗi lần mở drawer. */
   const [historyOpen, setHistoryOpen] = useState(false);
   const historyQuery = useFulfillmentHistory(podOrderId, open && historyOpen);
@@ -215,6 +236,7 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
     setForm({});
     setLabelError(null);
     setResult(null);
+    setOpenIssueGroups(new Set());
   }, [open]);
 
   /**
@@ -301,18 +323,54 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
     tiktokLabelRequired: labelRequired,
   });
 
-  /** Lỗi đã nhóm theo khối — backend gửi kèm `section`, giao diện không tự đoán. */
-  const issuesBySection = useMemo(() => {
-    const grouped = new Map<FulfillmentIssueSection, FulfillmentIssue[]>();
-    for (const issue of state?.issues ?? []) {
-      const list = grouped.get(issue.section) ?? [];
-      list.push(issue);
-      grouped.set(issue.section, list);
-    }
-    return grouped;
-  }, [state?.issues]);
-  const messagesOf = (section: FulfillmentIssueSection) =>
-    (issuesBySection.get(section) ?? []).map((issue) => issue.message);
+  /** Lỗi đã nhóm — backend gửi kèm `section`, giao diện không tự đoán. */
+  const errorGroups = useMemo(
+    () => groupFulfillmentIssues(state?.issues, order?.items, 'error'),
+    [state?.issues, order?.items],
+  );
+  /** Cảnh báo không chặn gửi — chỉ có ích trước khi gửi. */
+  const warningGroups = useMemo(
+    () =>
+      SUBMITTABLE.has(status) && !result
+        ? groupFulfillmentIssues(state?.warnings, order?.items, 'warning')
+        : [],
+    [state?.warnings, order?.items, status, result],
+  );
+  const issueGroupsOf = (sections: FulfillmentIssueSection[]): FulfillmentIssueGroup[] =>
+    [...errorGroups, ...warningGroups].filter((group) => sections.includes(group.section));
+  const renderIssues = (...sections: FulfillmentIssueSection[]) => (
+    <FulfillmentIssueGroups
+      groups={issueGroupsOf(sections)}
+      openKeys={openIssueGroups}
+      onToggle={(key) =>
+        setOpenIssueGroups((prev) => {
+          const next = new Set(prev);
+          if (!next.delete(key)) next.add(key);
+          return next;
+        })
+      }
+    />
+  );
+  /** Nút "Xem chi tiết" ở footer: mở mọi nhóm lỗi rồi cuộn tới nhóm đầu tiên. */
+  const showIssueDetails = () => {
+    setOpenIssueGroups((prev) => new Set([...prev, ...errorGroups.map((group) => group.key)]));
+    bodyRef.current
+      ?.querySelector('[data-fulfillment-issues]')
+      ?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  /**
+   * Các đơn vị giống hệt nhau gộp thành một dòng; `item` mang tổng số lượng của dòng để hiển thị "× N".
+   * Mọi line item trong dòng cùng khoá sản phẩm nên ánh xạ tra từ line item nào cũng là một bản ghi.
+   */
+  const productRows = useMemo(
+    () =>
+      groupOrderProducts(order?.items ?? []).map((row) => ({
+        row,
+        item: { ...row.sources[0], quantity: row.quantity },
+        lineIds: row.sources.map((source) => source.id),
+      })),
+    [order?.items],
+  );
 
   const option = (value: string, label: string) => ({ value, label });
 
@@ -441,8 +499,6 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
     }
   };
 
-  const items = order?.items ?? [];
-
   return (
     <>
       <Drawer
@@ -482,7 +538,7 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
               </p>
               {/* Nút tắt ⇒ nói thẳng vì sao, ngay tại chỗ người dùng đang nhìn. */}
               {!result && blockers.length > 0 && (
-                <ul className="space-y-0.5 text-[11px] text-destructive">
+                <ul className="max-h-16 space-y-0.5 overflow-y-auto text-[11px] text-destructive">
                   {blockers.map((blocker, index) => (
                     <li key={index}>
                       {blocker.code === 'LOADING' && t('fulfill.blocked.loading')}
@@ -492,17 +548,28 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                       {blocker.code === 'TIKTOK_LABEL_REQUIRED' &&
                         t('fulfill.blocked.tiktokLabelRequired')}
                       {blocker.code === 'NOT_READY' &&
-                        (blocker.issues.length > 0
-                          ? t('fulfill.blocked.notReady', {
-                              reasons: blocker.issues.map((issue) => issue.message).join(' · '),
-                            })
-                          : t('fulfill.blocked.notReadyUnknown'))}
+                        (blocker.issues.length > 0 ? (
+                          <>
+                            {t('fulfill.blocked.notReadySummary', {
+                              count: countIssueEntries(errorGroups),
+                            })}{' '}
+                            <button
+                              type="button"
+                              className="font-medium underline underline-offset-2"
+                              onClick={showIssueDetails}
+                            >
+                              {t('fulfill.issue.showDetails')}
+                            </button>
+                          </>
+                        ) : (
+                          t('fulfill.blocked.notReadyUnknown')
+                        ))}
                     </li>
                   ))}
                 </ul>
               )}
             </div>
-            <div className="flex gap-2">
+            <div className="flex shrink-0 gap-2">
               <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
                 {result ? t('common:action.close') : t('common:action.cancel')}
               </Button>
@@ -533,7 +600,7 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
             {translateApiError(stateQuery.error)}
           </p>
         ) : (
-          <div className="space-y-4">
+          <div ref={bodyRef} className="space-y-4">
             {/* ---------------------------------------------- Kết quả / lỗi lần gửi gần nhất */}
             {(result ?? (record && !SUBMITTABLE.has(status))) && record && (
               <FulfillResult record={record} />
@@ -553,10 +620,8 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
             )}
 
             {/* ---------------------------------------------------------- Thông tin đơn hàng */}
-            <DrawerSection
-              title={t('fulfill.section.order')}
-              issues={[...messagesOf('ORDER'), ...messagesOf('ADDRESS')]}
-            >
+            <DrawerSection title={t('fulfill.section.order')}>
+              {renderIssues('ORDER', 'ADDRESS')}
               {/* Chỉ ĐÚNG 3 thông tin: Order ID · Shop · Order amount. Sản phẩm / SKU / biến thể của từng dòng
                   vẫn hiện ở mục Cấu hình Design bên dưới — không mất dữ liệu nghiệp vụ. */}
               <dl className="grid grid-cols-1 gap-x-6 gap-y-2 text-sm sm:grid-cols-3">
@@ -592,7 +657,8 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
             </DrawerSection>
 
             {/* ------------------------------------------------------------- Loại fulfillment */}
-            <DrawerSection title={t('fulfill.section.type')} issues={messagesOf('PROVIDER')}>
+            <DrawerSection title={t('fulfill.section.type')}>
+              {renderIssues('PROVIDER')}
               {/* --------------------------------------------- Nhà cung cấp fulfillment */}
               <div className="space-y-1">
                 <Label>{t('fulfill.providerLabel')}</Label>
@@ -628,7 +694,8 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
 
             {/* ----------------------------------------------------------- Thiết lập Fulfill */}
             {SUBMITTABLE.has(status) && !result && (
-              <DrawerSection title={t('fulfill.section.config')} issues={messagesOf('SHIPPING')}>
+              <DrawerSection title={t('fulfill.section.config')}>
+                {renderIssues('SHIPPING')}
                 <div className="grid gap-3 sm:grid-cols-2">
                   <div className="space-y-1">
                     <Label>{t('fulfill.shippingMethodLabel')}</Label>
@@ -899,23 +966,41 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
             {/* --------------------------------------------------------- Cấu hình sản phẩm */}
             {/* 🔴 Mỗi dòng hàng MỘT khối cấu hình đầy đủ (sản phẩm nhà cung cấp · production
                 config · màu/size hoặc SKU · artwork) — không còn wizard nhiều bước mở riêng. */}
-            <DrawerSection title={t('fulfill.section.product')} issues={messagesOf('MAPPING')}>
+            <DrawerSection title={t('fulfill.section.product')}>
+              {renderIssues('MAPPING')}
               <div className="space-y-3">
-                {items.map((item) => {
+                {productRows.map(({ row, item, lineIds }) => {
                   // Quà tặng khuyến mãi chưa cấu hình ⇒ chỉ đọc, không đòi Product Configuration.
                   if (isUnconfiguredPromotionGift(item, mappingByItemId.get(item.id))) {
-                    return <PromotionGiftItem key={item.id} item={item} />;
+                    return <PromotionGiftItem key={row.key} item={item} />;
                   }
+                  const legacyConfig = legacyConfigByItemId.get(item.id);
                   return (
+                    <div key={row.key} className="space-y-2">
+                    {legacyConfig && (
+                      <LegacyConfigNotice
+                        podOrderId={podOrderId}
+                        podOrderItemId={item.id}
+                        config={legacyConfig}
+                        onAdopted={() => {
+                          void stateQuery.refetch();
+                          void orderQuery.refetch();
+                        }}
+                        onPreviewDesign={setPreview}
+                      />
+                    )}
                     <ProductConfigPanel
-                      key={item.id}
                       item={item}
                       accountId={activeProviderId || order?.fulfillmentAccountId || null}
                       mapping={mappingByItemId.get(item.id) ?? null}
                       designs={item.designs}
-                      issues={(issuesBySection.get('MAPPING') ?? [])
-                        .filter((issue) => issue.podOrderItemId === item.id)
-                        .map((issue) => issue.message)}
+                      // Đầu panel đã có tên · Product ID · Seller SKU ⇒ mã đã rút gọn chỉ cần tên lỗi.
+                      issues={issuesOfLines(
+                        (state?.issues ?? []).filter((issue) => issue.section === 'MAPPING'),
+                        lineIds,
+                      ).map((issue) =>
+                        hasIssueHint(issue.code) ? t(`fulfill.issue.code.${issue.code}`) : issue.message,
+                      )}
                       onSaved={() => {
                         // Trạng thái (ready/issues/ánh xạ) và đơn (design) cùng đến từ hai
                         // query này — không còn danh sách ánh xạ riêng để phải đồng bộ.
@@ -924,9 +1009,10 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                       }}
                       onPreviewDesign={setPreview}
                     />
+                    </div>
                   );
                 })}
-                {items.length === 0 && (
+                {productRows.length === 0 && (
                   <p className="text-xs text-muted-foreground">{t('fulfill.noItems')}</p>
                 )}
               </div>
@@ -936,7 +1022,6 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
             {/* ------------------------------------------------------------ Cấu hình Design */}
             <DrawerSection
               title={t('fulfill.section.design')}
-              issues={messagesOf('DESIGN')}
               action={
                 <button
                   type="button"
@@ -953,12 +1038,13 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                 </button>
               }
             >
+              {renderIssues('DESIGN')}
               {designOpen &&
-                items
+                productRows
                   // Quà tặng chưa cấu hình không cần design — không hiện ô "thiếu design" cho nó.
-                  .filter((item) => !isUnconfiguredPromotionGift(item, mappingByItemId.get(item.id)))
-                  .map((item) => (
-                  <div key={item.id} className="space-y-1">
+                  .filter(({ item }) => !isUnconfiguredPromotionGift(item, mappingByItemId.get(item.id)))
+                  .map(({ row, item }) => (
+                  <div key={row.key} className="space-y-1">
                     <p className="text-xs text-muted-foreground">
                       <Package className="mr-1 inline size-3" />
                       {item.productName ?? item.sellerSku ?? t('fulfill.config.unnamedProduct')}

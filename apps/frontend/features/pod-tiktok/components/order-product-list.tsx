@@ -8,6 +8,7 @@ import { Button } from '@/components/ui/button';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { cn } from '@/lib/utils';
 import { POD_ACTIVE_PLACEMENTS, type PodOrderItem } from '../order-types';
+import { groupOrderProducts } from '../order-view-model';
 
 interface OrderProductListProps {
   items: PodOrderItem[];
@@ -29,8 +30,9 @@ const PLACEMENT_SHORT: Record<string, string> = {
 /**
  * Danh sách sản phẩm bên trong một đơn.
  *
- * Mỗi sản phẩm là MỘT dòng riêng (không gộp) — đúng mô hình POD: TikTok trả
- * 1 line item = 1 đơn vị sản phẩm, và mỗi đơn vị có thể có design khác nhau.
+ * TikTok trả 1 line item = 1 đơn vị sản phẩm; các đơn vị giống hệt nhau hiện thành một dòng kèm số
+ * lượng theo CÙNG luật với danh sách đơn (`orderItemRowKey`). Design thuộc Product Mapping nên mọi đơn
+ * vị trong một dòng dùng chung một bộ file in.
  * Đơn nhiều sản phẩm được thu gọn còn 3 dòng + nút mở rộng để không kéo dài trang.
  */
 export function OrderProductList({
@@ -51,14 +53,19 @@ export function OrderProductList({
     );
   }
 
-  const visible = expanded ? items : items.slice(0, COLLAPSED_LIMIT);
-  const hiddenCount = items.length - visible.length;
+  const rows = groupOrderProducts(items);
+  const visible = expanded ? rows : rows.slice(0, COLLAPSED_LIMIT);
+  const hiddenCount = rows.length - visible.length;
 
   return (
     <div className="space-y-2">
-      {visible.map((item, index) => (
+      {visible.map((row, index) => {
+        const item = row.sources[0];
+        // Các đơn vị trong một dòng có thể khác giá (khuyến mãi theo đơn vị) ⇒ hiện đủ, không lấy đại một giá.
+        const prices = [...new Set(row.sources.map((source) => source.salePrice))];
+        return (
         <div
-          key={item.id}
+          key={row.key}
           className="flex flex-col gap-3 rounded-md border p-2 sm:flex-row sm:items-center"
         >
           {/* Ảnh CHÍNH của sản phẩm — KHÔNG phải `skuImage` (ảnh biến thể TikTok gửi kèm
@@ -90,7 +97,7 @@ export function OrderProductList({
                   POD
                 </Badge>
               )}
-              {items.length > 1 && (
+              {rows.length > 1 && (
                 <span className="text-xs text-muted-foreground">#{index + 1}</span>
               )}
             </div>
@@ -100,7 +107,7 @@ export function OrderProductList({
               <Meta label={t('product.sku')} value={item.sellerSku ?? item.skuId} mono />
               <Meta label={t('product.variant')} value={item.skuName} />
               <Meta label={t('product.category')} value={item.productCategory} />
-              <Meta label={t('product.qty')} value={String(item.quantity)} />
+              <Meta label={t('product.qty')} value={String(row.quantity)} />
             </dl>
           </div>
 
@@ -145,7 +152,7 @@ export function OrderProductList({
 
             <div className="text-right">
               <p className="whitespace-nowrap text-sm font-medium tabular-nums">
-                {formatCurrency(item.salePrice, item.currency)}
+                {prices.map((price) => formatCurrency(price, item.currency)).join(' · ')}
               </p>
               {/* Chưa khai ánh xạ ⇒ chưa có nơi lưu design (§7): nói đúng nguyên nhân. */}
               <Button
@@ -161,7 +168,8 @@ export function OrderProductList({
             </div>
           </div>
         </div>
-      ))}
+        );
+      })}
 
       {hiddenCount > 0 && (
         <Button variant="ghost" size="sm" className="w-full" onClick={() => setExpanded(true)}>
@@ -169,7 +177,7 @@ export function OrderProductList({
           {t('product.showMore', { count: hiddenCount })}
         </Button>
       )}
-      {expanded && items.length > COLLAPSED_LIMIT && (
+      {expanded && rows.length > COLLAPSED_LIMIT && (
         <Button variant="ghost" size="sm" className="w-full" onClick={() => setExpanded(false)}>
           {t('product.collapse')}
         </Button>

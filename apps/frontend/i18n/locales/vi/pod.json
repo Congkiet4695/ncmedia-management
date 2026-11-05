@@ -165,9 +165,9 @@
     "uploaded": "Đã tải lên {{placement}}",
     "uploadingPercent": "Đang tải {{percent}}%",
     "viewLarge": "Xem ảnh lớn",
-    "sharedScopeHint": "Design thuộc về sản phẩm (Product ID + Seller SKU), không thuộc riêng đơn này. Thay hoặc xoá file ở đây sẽ áp cho mọi đơn cùng sản phẩm chưa gửi sản xuất.",
+    "sharedScopeHint": "Design thuộc về biến thể (Product ID + TikTok SKU ID), không thuộc riêng đơn này. Thay hoặc xoá file là mọi đơn chưa gửi của biến thể đều bị ảnh hưởng.",
     "noKeyTitle": "Sản phẩm thiếu khoá",
-    "noKeyHint": "Dòng hàng này thiếu Product ID hoặc Seller SKU. Design được lưu theo cặp khoá đó, nên không xác định được lưu cho sản phẩm nào. Hãy đồng bộ lại đơn từ TikTok.",
+    "noKeyHint": "Dòng hàng này thiếu Product ID hoặc TikTok SKU ID. Design được lưu theo biến thể, nên không xác định được lưu cho đâu.",
     "mode": {
       "UPLOAD": "Upload file",
       "URL": "Public URL"
@@ -2316,10 +2316,10 @@
     "fromCatalogHint": "Đơn TikTok không có Seller SKU cho dòng này; hệ thống lấy Seller SKU của đúng biến thể (cùng Product ID + SKU ID) trong danh mục Products đã đồng bộ.",
     "issue": {
       "NO_PRODUCT_ID": "Dòng hàng không có TikTok Product ID — đồng bộ lại đơn từ TikTok.",
-      "NO_SKU_ID": "Dòng hàng không có Seller SKU và không có TikTok SKU ID để tra danh mục — đồng bộ lại đơn từ TikTok.",
-      "VARIANT_NOT_SYNCED": "Dòng hàng không có Seller SKU và biến thể chưa có trong danh mục Products đã đồng bộ — ánh xạ và design lưu theo TikTok SKU ID của biến thể. Nếu biến thể thật ra CÓ Seller SKU trên TikTok, đồng bộ sản phẩm để dùng chung ánh xạ / design theo Seller SKU.",
+      "NO_SKU_ID": "Dòng hàng không có TikTok SKU ID nên không xác định được biến thể — đồng bộ lại đơn từ TikTok.",
+      "VARIANT_NOT_SYNCED": "Dòng hàng không có Seller SKU và biến thể chưa có trong danh mục Products đã đồng bộ — ánh xạ và design vẫn lưu theo TikTok SKU ID của biến thể.",
       "SELLER_SKU_EMPTY_ON_TIKTOK": "Biến thể này trên TikTok không có Seller SKU (cả trong đơn lẫn danh mục Products) — ánh xạ và design lưu theo TikTok SKU ID của biến thể; không cần sửa trên TikTok để fulfill.",
-      "SELLER_SKU_AMBIGUOUS": "Danh mục Products có nhiều Seller SKU khác nhau cho cùng biến thể — hệ thống không tự chọn. Kiểm tra Seller SKU của biến thể trên TikTok rồi đồng bộ sản phẩm.",
+      "SELLER_SKU_AMBIGUOUS": "Danh mục Products có nhiều Seller SKU khác nhau cho cùng biến thể nên không hiển thị được Seller SKU. Ánh xạ và design vẫn lưu theo TikTok SKU ID.",
       "UNKNOWN": "Dòng hàng thiếu Product ID hoặc Seller SKU nên không khai ánh xạ được."
     },
     "skuIdKeyHint": "Biến thể này không có Seller SKU trên TikTok — ánh xạ và design được lưu theo TikTok SKU ID ({{skuId}}). Vẫn cấu hình và fulfill bình thường, không cần sửa trên TikTok."

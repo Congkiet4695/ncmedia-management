@@ -156,6 +156,7 @@ function build(options: Harness = {}) {
       id: 'poi-1',
       tiktokLineItemId: 'li-1',
       productId: 'TT-P1',
+      skuId: 'TT-V1',
       sellerSku: 'SELLER-1',
       productName: 'Tee',
     },
@@ -165,6 +166,7 @@ function build(options: Harness = {}) {
             id: 'poi-2',
             tiktokLineItemId: 'li-2',
             productId: 'TT-P2',
+            skuId: 'TT-V2',
             sellerSku: 'SELLER-2',
             productName: 'Tee 2',
           },
@@ -196,6 +198,7 @@ function build(options: Harness = {}) {
     accountId: ACCOUNT.id,
     provider: FulfillmentProvider.SELLERWIX,
     tiktokProductId: item.productId,
+    tiktokSkuId: item.skuId,
     sellerSku: item.sellerSku,
     providerSku: index === 0 ? SKU_BLACK_XL : SKU_WHITE_S,
     baseCost: null,
@@ -206,6 +209,7 @@ function build(options: Harness = {}) {
   const designs = items.flatMap((item) =>
     placements.map((placement) => ({
       tiktokProductId: item.productId,
+      tiktokSkuId: item.skuId,
       sellerSku: item.sellerSku,
       placement,
       storageFile: { publicUrl: `https://cdn.ncmedia/${item.productId}-${placement}.png` },

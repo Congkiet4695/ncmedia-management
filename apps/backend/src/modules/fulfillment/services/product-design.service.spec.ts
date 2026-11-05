@@ -18,7 +18,7 @@ const fetchMock = fetchRemoteFile as jest.MockedFunction<typeof fetchRemoteFile>
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const USER = '22222222-2222-4222-8222-222222222222';
-const KEY = { tiktokProductId: '1729000000000000001', sellerSku: 'POSTER-24X36' };
+const KEY = { tiktokProductId: '1729000000000000001', tiktokSkuId: '1732793676959617452', sellerSku: 'POSTER-24X36' };
 const ADMIN: PodAccessScope = { allShops: true, accountIds: [], shopIds: [] };
 const PNG = Buffer.concat([
   Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]),
@@ -38,7 +38,10 @@ function remote(overrides: Partial<Awaited<ReturnType<typeof fetchRemoteFile>>> 
 }
 
 function build(
-  options: { previous?: { id: string; storageFileId: string | null; version: number } } = {},
+  options: {
+    previous?: { id: string; storageFileId: string | null; version: number };
+    fileStillUsedBy?: number;
+  } = {},
 ) {
   const designRow = (data: Record<string, unknown>) => ({
     id: 'design-1',
@@ -57,6 +60,8 @@ function build(
   const prisma = {
     fulfillmentProductDesign: {
       findFirst: jest.fn().mockResolvedValue(options.previous ?? null),
+      // Số bản ghi KHÁC còn dùng file (xác nhận cấu hình legacy khiến nhiều bản ghi chung một file).
+      count: jest.fn().mockResolvedValue(options.fileStillUsedBy ?? 0),
       create: jest.fn(),
       update: jest.fn(),
     },
@@ -108,7 +113,7 @@ describe('ProductDesignService.setUrl — URL ⇒ tải về ⇒ lưu R2', () =>
       module: StorageModuleName.POD_TIKTOK,
       referenceType: StorageReferenceType.FULFILLMENT_MAPPING_DESIGN,
       referenceId: null,
-      folderSegments: ['fulfillment', 'designs', ORG, KEY.tiktokProductId, KEY.sellerSku],
+      folderSegments: ['fulfillment', 'designs', ORG, KEY.tiktokProductId, `sku-id-${KEY.tiktokSkuId}`],
     });
     const created = tx.fulfillmentProductDesign.create.mock.calls[0][0].data;
     expect(created).toMatchObject({
@@ -285,45 +290,53 @@ describe('ProductDesignService.setUrl — URL ⇒ tải về ⇒ lưu R2', () =>
   });
 });
 
-describe('ProductDesignService — biến thể KHÔNG có Seller SKU (khoá Product ID + TikTok SKU ID)', () => {
+describe('ProductDesignService — design theo BIẾN THỂ', () => {
   beforeEach(() => fetchMock.mockReset());
-  const SKU_ID_KEY = { tiktokProductId: '1729000000000000001', sellerSku: '  ', tiktokSkuId: '1732793676959617452' };
+  const NO_SELLER_SKU = { tiktokProductId: '1729000000000000001', sellerSku: '  ', tiktokSkuId: '1732793676959617452' };
 
-  it('lưu design theo SKU ID: seller_sku = NULL (không Seller SKU giả / rỗng), thư mục theo SKU ID', async () => {
+  it('tra và lưu theo Product ID + SKU ID; Seller SKU chỉ lưu kèm', async () => {
     fetchMock.mockResolvedValue(remote());
-    const { service, storage, tx, prisma } = build();
+    const { service, tx, prisma } = build();
 
-    await service.setUrl(ORG, USER, SKU_ID_KEY, PodDesignPlacement.FRONT, 'https://cdn.example.com/a.png', ADMIN);
+    await service.setUrl(ORG, USER, KEY, PodDesignPlacement.FRONT, 'https://cdn.example.com/a.png', ADMIN);
 
-    expect(callArg<Row>(prisma.fulfillmentProductDesign.findFirst, 0, 0)).toMatchObject({
-      where: {
-        organizationId: ORG,
-        tiktokProductId: SKU_ID_KEY.tiktokProductId,
-        sellerSku: null,
-        tiktokSkuId: SKU_ID_KEY.tiktokSkuId,
-        deletedAt: null,
-        placement: PodDesignPlacement.FRONT,
-      },
+    const query = callArg<{ where: Row }>(prisma.fulfillmentProductDesign.findFirst, 0, 0);
+    expect(query.where).toMatchObject({
+      organizationId: ORG,
+      tiktokProductId: KEY.tiktokProductId,
+      tiktokSkuId: KEY.tiktokSkuId,
+      legacySharedKey: false,
+      deletedAt: null,
+      placement: PodDesignPlacement.FRONT,
     });
-    const ctx = storage.upload.mock.calls[0][1];
-    expect(ctx.folderSegments).toEqual(['fulfillment', 'designs', ORG, SKU_ID_KEY.tiktokProductId, `sku-id-${SKU_ID_KEY.tiktokSkuId}`]);
+    expect(query.where.sellerSku).toBeUndefined();
     expect(tx.fulfillmentProductDesign.create.mock.calls[0][0].data).toMatchObject({
-      tiktokProductId: SKU_ID_KEY.tiktokProductId,
-      sellerSku: null,
-      tiktokSkuId: SKU_ID_KEY.tiktokSkuId,
+      tiktokProductId: KEY.tiktokProductId,
+      tiktokSkuId: KEY.tiktokSkuId,
+      sellerSku: KEY.sellerSku,
     });
   });
 
-  it('có Seller SKU ⇒ khoá Seller SKU như cũ, tiktok_sku_id KHÔNG lưu (design dùng chung mọi biến thể cùng SKU)', async () => {
+  it('không có Seller SKU ⇒ seller_sku = NULL (không lưu chuỗi rỗng), thư mục theo SKU ID', async () => {
     fetchMock.mockResolvedValue(remote());
-    const { service, tx } = build();
-    await service.setUrl(ORG, USER, { ...KEY, tiktokSkuId: 'K1' }, PodDesignPlacement.FRONT, 'https://cdn.example.com/a.png', ADMIN);
-    expect(tx.fulfillmentProductDesign.create.mock.calls[0][0].data).toMatchObject({ sellerSku: KEY.sellerSku, tiktokSkuId: null });
+    const { service, storage, tx } = build();
+    await service.setUrl(ORG, USER, NO_SELLER_SKU, PodDesignPlacement.FRONT, 'https://cdn.example.com/a.png', ADMIN);
+    expect(storage.upload.mock.calls[0][1].folderSegments).toEqual([
+      'fulfillment',
+      'designs',
+      ORG,
+      NO_SELLER_SKU.tiktokProductId,
+      `sku-id-${NO_SELLER_SKU.tiktokSkuId}`,
+    ]);
+    expect(tx.fulfillmentProductDesign.create.mock.calls[0][0].data).toMatchObject({
+      sellerSku: null,
+      tiktokSkuId: NO_SELLER_SKU.tiktokSkuId,
+    });
   });
 
   it.each([
-    ['thiếu cả Seller SKU lẫn SKU ID', { tiktokProductId: 'P', sellerSku: '' }],
-    ['Seller SKU chỉ khoảng trắng, không SKU ID', { tiktokProductId: 'P', sellerSku: '   ', tiktokSkuId: '  ' }],
+    ['🔴 có Seller SKU nhưng thiếu SKU ID', { tiktokProductId: 'P', sellerSku: 'S' }],
+    ['SKU ID chỉ khoảng trắng', { tiktokProductId: 'P', sellerSku: 'S', tiktokSkuId: '  ' }],
     ['thiếu Product ID', { tiktokProductId: '', tiktokSkuId: 'K1' }],
   ])('%s ⇒ 400 POD_DESIGN_KEY_INVALID, không tải / không lưu gì', async (_label, key) => {
     const { service, storage } = build();
@@ -334,7 +347,7 @@ describe('ProductDesignService — biến thể KHÔNG có Seller SKU (khoá Pro
     expect(storage.upload).not.toHaveBeenCalled();
   });
 
-  it('🔴 Seller: khoá SKU ID chỉ sửa được khi biến thể có trong shop được gán (tra dòng đơn theo sku_id)', async () => {
+  it('🔴 Seller: chỉ sửa được khi biến thể có trong shop được gán (tra dòng đơn theo sku_id)', async () => {
     const seller: PodAccessScope = { allShops: false, accountIds: ['acc-1'], shopIds: ['shop-1'] };
     const { service, prisma } = build();
     const orderItemFind = jest.fn().mockResolvedValue(null);
@@ -342,15 +355,44 @@ describe('ProductDesignService — biến thể KHÔNG có Seller SKU (khoá Pro
       podProduct: { findFirst: jest.fn().mockResolvedValue(null) },
       podOrderItem: { findFirst: orderItemFind },
     });
-    await expect(service.findByProduct(ORG, SKU_ID_KEY, seller)).rejects.toMatchObject({ status: 403 });
-    expect(callArg<Row>(orderItemFind, 0, 0)).toMatchObject({
-      where: {
-        organizationId: ORG,
-        productId: SKU_ID_KEY.tiktokProductId,
-        skuId: SKU_ID_KEY.tiktokSkuId,
-        order: { organizationId: ORG, deletedAt: null, shopId: { in: ['shop-1'] } },
-      },
+    await expect(service.findByProduct(ORG, KEY, seller)).rejects.toMatchObject({ status: 403 });
+    const query = callArg<{ where: Row }>(orderItemFind, 0, 0);
+    expect(query.where).toMatchObject({
+      organizationId: ORG,
+      productId: KEY.tiktokProductId,
+      skuId: KEY.tiktokSkuId,
+      order: { organizationId: ORG, deletedAt: null, shopId: { in: ['shop-1'] } },
     });
-    expect(callArg<{ where: Row }>(orderItemFind, 0, 0).where.sellerSku).toBeUndefined();
+    expect(query.where.sellerSku).toBeUndefined();
+  });
+
+  describe('🔴 file dùng chung sau khi xác nhận cấu hình legacy', () => {
+    const previous = { id: 'design-old', storageFileId: 'file-shared', version: 1 };
+
+    it('thay design của một biến thể ⇒ KHÔNG xoá file khi bản ghi khác còn dùng', async () => {
+      fetchMock.mockResolvedValue(remote());
+      const { service, storage } = build({ previous, fileStillUsedBy: 1 });
+      await service.setUrl(ORG, USER, KEY, PodDesignPlacement.FRONT, 'https://cdn.example.com/a.png', ADMIN);
+      expect(storage.removeInternal).not.toHaveBeenCalled();
+    });
+
+    it('thay design ⇒ xoá file khi không còn bản ghi nào dùng', async () => {
+      fetchMock.mockResolvedValue(remote());
+      const { service, storage } = build({ previous });
+      await service.setUrl(ORG, USER, KEY, PodDesignPlacement.FRONT, 'https://cdn.example.com/a.png', ADMIN);
+      expect(storage.removeInternal).toHaveBeenCalledWith(ORG, USER, 'file-shared');
+    });
+
+    it('xoá design của một biến thể ⇒ bản ghi xoá mềm nhưng KHÔNG xoá file đang dùng chung', async () => {
+      const { service, storage, prisma } = build({ fileStillUsedBy: 2 });
+      const findFirst = jest.fn().mockResolvedValue({ id: 'design-old', storageFileId: 'file-shared' });
+      const update = jest.fn().mockResolvedValue({});
+      prisma.$transaction.mockImplementation((fn: (t: unknown) => unknown) =>
+        fn({ fulfillmentProductDesign: { findFirst, update } }),
+      );
+      await service.remove(ORG, USER, KEY, PodDesignPlacement.FRONT, ADMIN);
+      expect(update).toHaveBeenCalledTimes(1);
+      expect(storage.removeInternal).not.toHaveBeenCalled();
+    });
   });
 });
