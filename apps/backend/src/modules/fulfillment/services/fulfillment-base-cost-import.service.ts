@@ -27,6 +27,7 @@ import {
   FulfillmentRepository,
   type FulfillmentOrderWithRelations,
   type HistoryEntry,
+  type ImportOrderBaseCost,
   type ImportRowBaseCost,
   type ImportRowWrite,
 } from '../repositories/fulfillment.repository';
@@ -36,7 +37,17 @@ import {
   holdsFulfilledOrder,
 } from '../shared/fulfillment-lifecycle';
 import { currencyFractionDigits, exceedsFractionDigits, resolveOrderLevelBaseCost } from '../shared/manual-base-cost';
+import { productCostOf } from '../shared/product-cost';
 import { createMappingIndex, findMappingInIndex, productIdsOf } from '../shared/mapping-match';
+import type { Prisma } from '@prisma/client';
+
+/** Phần của đơn mà luật từng dòng cần đọc (`findRefsByTiktokOrderIds`). */
+interface OrderRef {
+  id: string;
+  status: string;
+  currency?: string | null;
+  baseCost?: Prisma.Decimal | null;
+}
 
 /** Một dòng dữ liệu đã đọc từ file (chưa kiểm nghiệp vụ). `null` = ô trống / không có cột ⇒ không đổi. */
 interface RawRow {
@@ -87,12 +98,17 @@ const headerKey = (raw: string): string => normalizeHeader(raw).replace(/[\s_-]+
  *  4. Ô trống = KHÔNG đổi (không xoá giá / mã đang có). Dòng không có gì thay đổi không ghi lại ⇒ gửi lại cùng file
  *     không tạo bản ghi / nhật ký thừa.
  *
+ * Base Cost trong file là giá TỔNG của đơn, không bao giờ bị chia xuống từng dòng:
+ *  - Đơn đúng một dòng, số lượng 1 ⇒ ghi vào dòng đó (tổng của đơn chính là dòng đó), xoá Base Cost tổng cũ nếu có.
+ *  - Đơn nhiều dòng, số lượng > 1, hoặc không có dòng cần fulfill ⇒ ghi `pod_orders.base_cost`, không đụng dòng hàng.
+ *
  * Luật theo trạng thái lần fulfill HIỆN HÀNH:
- *  - Đã fulfill (đang giữ đơn): cập nhật Base Cost (luật `resolveOrderLevelBaseCost`) và/hoặc Tracking Number; KHÔNG
- *    đổi trạng thái, KHÔNG tạo lần fulfill mới.
- *  - Chưa fulfill / `DRAFT` / `FAILED`: phải có CẢ Base Cost lẫn Tracking Number ⇒ ghi cả hai và chuyển sang
- *    `IMPORT_FULFILLED_STATUS` với nguồn `MANUAL_IMPORT` (nhà cung cấp KHÔNG xác nhận). Đơn chưa có bản ghi ⇒ tạo bản
- *    ghi dưới nhà cung cấp gán cho kết nối TikTok, dòng hàng theo Product Mapping.
+ *  - Đã fulfill (đang giữ đơn): cập nhật Base Cost và/hoặc Tracking Number; KHÔNG đổi trạng thái, KHÔNG tạo lần fulfill mới.
+ *  - Chưa fulfill / `DRAFT` / `FAILED`:
+ *      · Base Cost + Tracking Number ⇒ ghi cả hai và chuyển sang `IMPORT_FULFILLED_STATUS` với nguồn `MANUAL_IMPORT` (nhà
+ *        cung cấp KHÔNG xác nhận). Đơn chưa có bản ghi ⇒ tạo bản ghi dưới nhà cung cấp gán cho kết nối TikTok.
+ *      · Chỉ Base Cost ⇒ lưu `pod_orders.base_cost`, KHÔNG đổi trạng thái; chưa vào lợi nhuận cho tới khi đơn được fulfill.
+ *      · Chỉ Tracking Number ⇒ từ chối: mã vận đơn không có giá không đủ để đánh dấu đã fulfill.
  *  - Từ chối: đơn TikTok đã huỷ, lần fulfill `CANCELLED` / `REJECTED` / `SUBMITTING`, `FAILED` mà nhà cung cấp đã có
  *    mã đơn (đối soát sẽ lấy trạng thái thật — không import đè).
  *
@@ -115,7 +131,7 @@ export class FulfillmentBaseCostImportService {
     scope: PodAccessScope,
     dryRun: boolean,
   ): Promise<BaseCostImportResultDto> {
-    const { rows, ignoredHeaders, hasTrackingColumn } = await this.readFile(buffer);
+    const { rows, ignoredHeaders } = await this.readFile(buffer);
 
     const errors: BaseCostImportErrorDto[] = rows.flatMap((row) => (row.error ? [row.error] : []));
     let duplicateRows = 0;
@@ -175,8 +191,8 @@ export class FulfillmentBaseCostImportService {
       const record = records.get(ref.id) ?? null;
       const verdict =
         !record || IMPORT_MARKABLE_STATUSES.includes(record.status)
-          ? this.planMark(organizationId, actorUserId, row, orderId, ref, record, context, hasTrackingColumn)
-          : this.planUpdate(organizationId, actorUserId, row, orderId, record);
+          ? this.planMark(organizationId, actorUserId, row, orderId, ref, record, context)
+          : this.planUpdate(organizationId, actorUserId, row, orderId, ref, record);
       if (verdict.ok) plans.push(verdict.plan);
       else errors.push({ row: row.row, orderId, code: verdict.code, message: verdict.message });
     }
@@ -246,6 +262,7 @@ export class FulfillmentBaseCostImportService {
     actorUserId: string,
     row: RawRow,
     orderId: string,
+    ref: OrderRef,
     record: FulfillmentOrderWithRelations,
   ): RowVerdict {
     if (!holdsFulfilledOrder(record)) {
@@ -263,11 +280,21 @@ export class FulfillmentBaseCostImportService {
           };
     }
 
+    if (row.baseCost !== null && !this.isSingleUnit(record.items)) {
+      return this.planOrderLevel(organizationId, actorUserId, row, orderId, ref, record, row.baseCost);
+    }
+
+    const stored = this.storedCost(ref);
     let baseCost: { itemId: string; before: number | null; changed: boolean; currency: string } | null = null;
     if (row.baseCost !== null) {
       const verdict = resolveOrderLevelBaseCost(record, row.baseCost, MANUAL_BASE_COST_MAX);
       if (!verdict.ok) return { ok: false, code: verdict.reason, message: verdict.message };
-      baseCost = { itemId: verdict.itemId, before: verdict.before, changed: !verdict.unchanged, currency: verdict.currency };
+      baseCost = {
+        itemId: verdict.itemId,
+        before: stored ?? verdict.before,
+        changed: !verdict.unchanged || stored !== null,
+        currency: verdict.currency,
+      };
     }
     const trackingChanged = row.trackingNumber !== null && row.trackingNumber !== record.trackingNumber;
     const baseCostChanged = baseCost?.changed ?? false;
@@ -278,7 +305,7 @@ export class FulfillmentBaseCostImportService {
     ];
     const plan: PlannedRow = {
       ...this.change(row, orderId, 'UPDATE', {
-        before: baseCost?.before ?? this.singleItemCost(record),
+        before: baseCost?.before ?? stored ?? this.singleItemCost(record),
         currency: baseCost?.currency ?? record.currency?.toUpperCase() ?? null,
         baseCostChanged,
         trackingBefore: record.trackingNumber,
@@ -286,8 +313,9 @@ export class FulfillmentBaseCostImportService {
         statusBefore: record.status,
         statusAfter: record.status,
       }),
+      // Còn Base Cost tổng cần xoá ⇒ không đi đường gộp (đường đó chỉ ghi dòng hàng).
       batchCost:
-        baseCostChanged && baseCost && !trackingChanged
+        baseCostChanged && baseCost && !trackingChanged && stored === null
           ? {
               itemId: baseCost.itemId,
               fulfillmentOrderId: record.id,
@@ -296,7 +324,7 @@ export class FulfillmentBaseCostImportService {
             }
           : null,
       write:
-        trackingChanged
+        trackingChanged || (baseCostChanged && stored !== null)
           ? {
               organizationId,
               actorUserId,
@@ -310,6 +338,7 @@ export class FulfillmentBaseCostImportService {
               currency: null,
               trackingNumber: row.trackingNumber,
               baseCost: baseCostChanged && baseCost ? { itemId: baseCost.itemId, value: row.baseCost as number } : null,
+              orderBaseCost: baseCostChanged && stored !== null ? this.clearOrderCost(ref) : null,
               histories,
             }
           : null,
@@ -317,16 +346,91 @@ export class FulfillmentBaseCostImportService {
     return { ok: true, plan };
   }
 
-  /** Đơn chưa fulfill / `DRAFT` / `FAILED`: ghi Base Cost + Tracking Number và chuyển sang đã fulfill. */
+  /**
+   * Lưu Base Cost tổng ở cấp ĐƠN, không đổi trạng thái và không đụng dòng hàng. Dùng cho đơn đang giữ đơn nhưng không phải
+   * một dòng / số lượng 1, và đơn chưa fulfill chỉ có Base Cost.
+   */
+  private planOrderLevel(
+    organizationId: string,
+    actorUserId: string,
+    row: RawRow,
+    orderId: string,
+    ref: OrderRef,
+    record: FulfillmentOrderWithRelations | null,
+    value: number,
+  ): RowVerdict {
+    const currency = (record?.currency ?? ref.currency)?.toUpperCase() ?? null;
+    const costError = this.checkCost(value, currency);
+    if (costError) return costError;
+
+    const stored = this.storedCost(ref);
+    const before = stored ?? productCostOf(false, record?.items ?? []).productCost;
+    const baseCostChanged = stored !== value;
+    const trackingChanged =
+      record !== null && row.trackingNumber !== null && row.trackingNumber !== record.trackingNumber;
+    const histories = [
+      ...(baseCostChanged ? [this.baseCostHistory(actorUserId, row, { before, currency: currency as string }, value)] : []),
+      ...(trackingChanged ? [this.trackingHistory(actorUserId, row, record.trackingNumber, row.trackingNumber as string)] : []),
+    ];
+    const plan: PlannedRow = {
+      ...this.change(row, orderId, 'UPDATE', {
+        before,
+        currency,
+        baseCostChanged,
+        trackingBefore: record?.trackingNumber ?? null,
+        trackingChanged,
+        statusBefore: record?.status ?? null,
+        statusAfter: record?.status ?? null,
+      }),
+      batchCost: null,
+      write:
+        baseCostChanged || trackingChanged
+          ? {
+              organizationId,
+              actorUserId,
+              target: record
+                ? {
+                    kind: 'EXISTING',
+                    fulfillmentOrderId: record.id,
+                    expectedStatus: record.status,
+                    requireNoProviderOrder: false,
+                  }
+                : { kind: 'ORDER_ONLY' },
+              markFulfilled: false,
+              currency: null,
+              trackingNumber: trackingChanged ? row.trackingNumber : null,
+              baseCost: null,
+              orderBaseCost: baseCostChanged ? { podOrderId: ref.id, value, currency } : null,
+              histories,
+            }
+          : null,
+    };
+    return { ok: true, plan };
+  }
+
+  /** Một con số chỉ ghi xuống dòng hàng được khi đúng một dòng, số lượng 1 — các trường hợp khác không chia được. */
+  private isSingleUnit(items: ReadonlyArray<{ quantity: number }>): boolean {
+    return items.length === 1 && items[0].quantity === 1;
+  }
+
+  /** `pod_orders.base_cost` đang lưu; `null` = không có (0 là một giá hợp lệ). */
+  private storedCost(ref: OrderRef): number | null {
+    return ref.baseCost === null || ref.baseCost === undefined ? null : Number(ref.baseCost.toString());
+  }
+
+  private clearOrderCost(ref: OrderRef): ImportOrderBaseCost {
+    return { podOrderId: ref.id, value: null, currency: null };
+  }
+
+  /** Đơn chưa fulfill / `DRAFT` / `FAILED`: xem luật ở đầu class. */
   private planMark(
     organizationId: string,
     actorUserId: string,
     row: RawRow,
     orderId: string,
-    ref: { id: string; status: string },
+    ref: OrderRef,
     record: FulfillmentOrderWithRelations | null,
     context: MarkContext,
-    hasTrackingColumn: boolean,
   ): RowVerdict {
     if (ref.status === TIKTOK_CANCELLED_STATUS) {
       return { ok: false, code: 'ORDER_CANCELLED', message: 'Đơn TikTok đã bị huỷ — không chuyển sang đã fulfill.' };
@@ -340,23 +444,8 @@ export class FulfillmentBaseCostImportService {
           'soát lấy trạng thái thật; không import đè.',
       };
     }
-    if (!hasTrackingColumn) {
-      // File cũ (chỉ OrderID · Basecost): giữ đúng mã lỗi cũ, chỉ thêm hướng dẫn.
-      return record
-        ? {
-            ok: false,
-            code: 'NOT_SUBMITTED',
-            message:
-              `Đơn chưa được nhà cung cấp nhận (trạng thái ${record.status}). Muốn đánh dấu đã fulfill: thêm cột ` +
-              'Tracking Number và nhập cả Basecost lẫn Tracking Number.',
-          }
-        : {
-            ok: false,
-            code: 'NOT_FULFILLED',
-            message:
-              'Đơn chưa được gửi fulfillment. Muốn đánh dấu đã fulfill: thêm cột Tracking Number và nhập cả Basecost ' +
-              'lẫn Tracking Number.',
-          };
+    if (row.baseCost !== null && row.trackingNumber === null) {
+      return this.planOrderLevel(organizationId, actorUserId, row, orderId, ref, record, row.baseCost);
     }
     if (row.baseCost === null || row.trackingNumber === null) {
       return {
@@ -382,24 +471,27 @@ export class FulfillmentBaseCostImportService {
         ? { id: order.account.fulfillmentAccount.id, provider: order.account.fulfillmentAccount.provider }
         : null;
 
-    // Dòng hàng: bản ghi đã có dòng ⇒ dùng đúng dòng đó; chưa có ⇒ dựng từ dòng đơn (kèm Product Mapping nếu có).
-    let item: { itemId: string } | { create: Extract<ImportRowBaseCost, { create: unknown }>['create'] };
+    // Nơi ghi giá: đúng một dòng ⇒ dòng đó (đã có, hoặc dựng từ dòng đơn kèm Product Mapping nếu có); còn lại ⇒ cấp đơn,
+    // KHÔNG tạo dòng hàng và không chia tiền.
+    let item:
+      | { itemId: string }
+      | { create: Extract<ImportRowBaseCost, { create: unknown }>['create'] }
+      | null = null;
     const existingItems = record?.items ?? [];
     if (existingItems.length > 0) {
-      const [only, ...rest] = existingItems;
-      if (rest.length > 0 || only.quantity !== 1) return this.multiItem(existingItems.length);
-      item = { itemId: only.id };
+      if (this.isSingleUnit(existingItems)) item = { itemId: existingItems[0].id };
     } else {
-      const built = this.itemFromOrderLine(order, account?.id ?? null, context);
-      if (!built.ok) return built;
-      item = { create: built.create };
+      const create = this.itemFromOrderLine(order, account?.id ?? null, context);
+      if (create) item = { create };
     }
 
     const currency = (record?.currency ?? order.currency)?.toUpperCase() ?? null;
     const costError = this.checkCost(row.baseCost, currency);
     if (costError) return costError;
 
-    const before = 'itemId' in item ? this.singleItemCost(record) : null;
+    const stored = this.storedCost(ref);
+    const before =
+      stored ?? (item ? ('itemId' in item ? this.singleItemCost(record) : null) : productCostOf(false, existingItems).productCost);
     const histories = [
       this.markHistory(actorUserId, row, record),
       this.baseCostHistory(actorUserId, row, { before, currency: currency as string }, row.baseCost),
@@ -431,7 +523,16 @@ export class FulfillmentBaseCostImportService {
         markFulfilled: true,
         currency: record?.currency ? null : currency,
         trackingNumber: row.trackingNumber,
-        baseCost: 'itemId' in item ? { itemId: item.itemId, value: row.baseCost } : { create: item.create, value: row.baseCost },
+        baseCost: !item
+          ? null
+          : 'itemId' in item
+            ? { itemId: item.itemId, value: row.baseCost }
+            : { create: item.create, value: row.baseCost },
+        orderBaseCost: !item
+          ? { podOrderId: ref.id, value: row.baseCost, currency }
+          : stored !== null
+            ? this.clearOrderCost(ref)
+            : null,
         histories,
       },
     };
@@ -439,7 +540,8 @@ export class FulfillmentBaseCostImportService {
   }
 
   /**
-   * Dòng hàng cho bản ghi nhập tay mới: đúng MỘT dòng đơn (một Base Cost cho cả đơn không chia được — luật sẵn có).
+   * Dòng hàng cho bản ghi nhập tay mới, khi đơn có đúng MỘT dòng cần fulfill; `null` = không có hoặc có nhiều dòng ⇒ giá lưu ở
+   * cấp đơn, không dựng dòng hàng.
    *
    * Product Mapping KHÔNG bắt buộc (quyết định PO 2026-11-03): có ánh xạ của ĐÚNG nhà cung cấp của bản ghi ⇒ ghi lại SKU /
    * màu / size nhà cung cấp để đối soát; không có (hoặc chưa gán nhà cung cấp, hoặc ánh xạ của nhà cung cấp khác) ⇒ để
@@ -449,25 +551,19 @@ export class FulfillmentBaseCostImportService {
     order: PodOrderWithRelations,
     accountId: string | null,
     context: MarkContext,
-  ):
-    | { ok: true; create: Extract<ImportRowBaseCost, { create: unknown }>['create'] }
-    | { ok: false; code: string; message: string } {
+  ): Extract<ImportRowBaseCost, { create: unknown }>['create'] | null {
     // Quà tặng khuyến mãi chưa khai ánh xạ không đi sang nhà cung cấp (như luồng Fulfill) ⇒ không tính.
     const lines = order.items.filter((line) => !(line.isGift && !findMappingInIndex(line, context.mappingIndex)));
-    if (lines.length === 0) return { ok: false, code: 'NO_ITEMS', message: 'Đơn không có dòng hàng nào cần fulfill.' };
-    if (lines.length > 1) return this.multiItem(lines.length);
+    if (lines.length !== 1) return null;
     const [line] = lines;
     const found = findMappingInIndex(line, context.mappingIndex);
     const mapping = found && accountId !== null && found.accountId === accountId ? found : null;
     return {
-      ok: true,
-      create: {
-        podOrderItemId: line.id,
-        providerSku: mapping?.providerSku ?? null,
-        productionConfig: mapping?.productionConfig ?? null,
-        color: mapping?.providerColor ?? null,
-        size: mapping?.providerSize ?? null,
-      },
+      podOrderItemId: line.id,
+      providerSku: mapping?.providerSku ?? null,
+      productionConfig: mapping?.productionConfig ?? null,
+      color: mapping?.providerColor ?? null,
+      size: mapping?.providerSize ?? null,
     };
   }
 
@@ -493,14 +589,6 @@ export class FulfillmentBaseCostImportService {
       };
     }
     return null;
-  }
-
-  private multiItem(count: number): { ok: false; code: string; message: string } {
-    return {
-      ok: false,
-      code: 'MULTI_ITEM',
-      message: `Đơn có ${count} dòng hàng — một Base Cost cho cả đơn không chia được; nhập từng dòng bằng "Cập nhật Base Cost".`,
-    };
   }
 
   private singleItemCost(record: FulfillmentOrderWithRelations | null): number | null {
@@ -706,7 +794,7 @@ export class FulfillmentBaseCostImportService {
    */
   private async readFile(
     buffer: Buffer,
-  ): Promise<{ rows: RawRow[]; ignoredHeaders: string[]; hasTrackingColumn: boolean }> {
+  ): Promise<{ rows: RawRow[]; ignoredHeaders: string[] }> {
     // `.xlsx` là file ZIP — kiểm chữ ký thay vì tin MIME / đuôi file client gửi.
     if (buffer.length < 4 || buffer.readUInt32LE(0) !== 0x04034b50) {
       throw new FulfillmentBaseCostImportInvalidException('FORMAT', 'File không phải Excel .xlsx hợp lệ.');
@@ -780,7 +868,7 @@ export class FulfillmentBaseCostImportService {
     if (rows.length === 0) {
       throw new FulfillmentBaseCostImportInvalidException('EMPTY', 'File không có dòng dữ liệu nào dưới header.');
     }
-    return { rows, ignoredHeaders, hasTrackingColumn: columns.trackingNumber !== null };
+    return { rows, ignoredHeaders };
   }
 
   private parseRow(

@@ -1449,6 +1449,13 @@ model PodOrder {
   /// "Design Amount" — chi phí design của đơn, đơn vị `DESIGN_AMOUNT_CURRENCY` (USD). Mặc định 0, không âm
   /// (CHECK ở migration). Trừ MỘT lần vào lợi nhuận đơn (`order-financials.ts` / `order-profit.sql.ts`).
   designAmount                Decimal  @default(0) @map("design_amount") @db.Decimal(18, 4)
+  /// Base Cost TỔNG của đơn, nhập qua Import Base Cost / Tracking. NULL = không có, giá vốn đơn là tổng các dòng
+  /// (`fulfillment_order_items.base_cost`). Có giá trị thì thay cho tổng đó (`shared/product-cost.ts`), kể cả khi nhà cung
+  /// cấp báo giá theo dòng; sửa dòng bằng "Cập nhật Base Cost" hoặc fulfill lại sau khi huỷ thì xoá. 0 là giá hợp lệ.
+  baseCost                    Decimal? @map("base_cost") @db.Decimal(18, 4)
+  baseCostCurrency            String?  @map("base_cost_currency") @db.VarChar(10)
+  baseCostUpdatedAt           DateTime? @map("base_cost_updated_at") @db.Timestamptz(6)
+  baseCostUpdatedBy           String?  @map("base_cost_updated_by") @db.Uuid
 
   // --- recipient_address{} — PII, MÃ HOÁ at-rest (AES-256-GCM) ---
   /// Toàn bộ object `recipient_address` đã mã hoá. Chỉ giải mã khi có quyền.

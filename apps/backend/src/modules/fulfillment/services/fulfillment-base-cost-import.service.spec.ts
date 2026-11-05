@@ -39,6 +39,8 @@ interface FakeOrder {
   /** Nhà cung cấp gán cho kết nối TikTok; `null` = chưa gán. */
   fulfillmentAccount?: { id: string; provider: FulfillmentProvider } | null;
   currency?: string | null;
+  /** `pod_orders.base_cost` đang lưu. */
+  baseCost?: Prisma.Decimal | null;
 }
 
 const PROVIDER_ACCOUNT = { id: 'facc-1', provider: FulfillmentProvider.MANGO };
@@ -98,7 +100,14 @@ function build(orders: FakeOrder[], mappings: Array<Record<string, unknown>> = [
               ids.includes(order.tiktokOrderId) &&
               (shopIds === null || shopIds.includes(order.shopId)),
           )
-          .map(([id, order]) => ({ id, tiktokOrderId: order.tiktokOrderId, status: order.tiktokStatus ?? 'AWAITING_SHIPMENT' })),
+          .map(([id, order]) => ({
+            id,
+            tiktokOrderId: order.tiktokOrderId,
+            status: order.tiktokStatus ?? 'AWAITING_SHIPMENT',
+            currency: order.currency === undefined ? 'USD' : order.currency,
+            baseCost: order.baseCost ?? null,
+            baseCostCurrency: order.baseCost ? 'USD' : null,
+          })),
       ),
     ),
     findManyByIds: jest.fn((_org: string, ids: string[]) =>
@@ -237,16 +246,14 @@ describe('FulfillmentBaseCostImportService', () => {
     ]);
     const result = await service.import(ORG, ADMIN_ID, file, ADMIN, false);
     expect(result.status).toBe('PARTIAL');
-    expect(result.updatedOrders).toBe(1);
+    expect(result.updatedOrders).toBe(3);
     expect(repo.applyManualItemCostsBatch).toHaveBeenCalledTimes(1);
     expect((repo.applyManualItemCostsBatch.mock.calls[0][0] as ApplyParams).costs).toHaveLength(1);
-    expect(repo.applyImportRow).not.toHaveBeenCalled();
+    expect(repo.applyImportRow).toHaveBeenCalledTimes(2);
     // dòng trống (dòng 3) bị bỏ qua, không tính
     expect(result.totalRows).toBe(10);
     expect(result.errors.map((error) => [error.row, error.code])).toEqual([
-      [4, 'MULTI_ITEM'],
       [5, 'ORDER_NOT_FOUND'],
-      [6, 'NOT_FULFILLED'],
       [7, 'BASE_COST_INVALID'],
       [8, 'BASE_COST_REQUIRED'],
       [9, 'ORDER_ID_REQUIRED'],
@@ -255,7 +262,7 @@ describe('FulfillmentBaseCostImportService', () => {
       [12, 'BASE_COST_INVALID'],
     ]);
     expect(result.notFoundRows).toBe(2);
-    expect(result.validRows).toBe(1);
+    expect(result.validRows).toBe(3);
   });
 
   it('DEC 1.234 USD có đơn ⇒ TOO_MANY_DECIMALS', async () => {
@@ -387,6 +394,7 @@ type ImportRowParams = {
   currency: string | null;
   trackingNumber: string | null;
   baseCost: Record<string, unknown> | null;
+  orderBaseCost?: { podOrderId: string; value: number | null; currency: string | null } | null;
   histories: Array<{ eventType: string; fromStatus?: string | null; toStatus?: string | null; payload: Record<string, unknown> }>;
 };
 const HEAD = ['OrderID', 'Basecost', 'Tracking Number'];
@@ -487,7 +495,7 @@ describe('Import Excel Base Cost + Tracking Number', () => {
     expect(repo.applyManualItemCostsBatch).not.toHaveBeenCalled();
   });
 
-  it('5. file CŨ (không có cột Tracking): đơn đã fulfill vẫn ghi giá; đơn chưa fulfill giữ mã lỗi cũ kèm hướng dẫn', async () => {
+  it('5. file CŨ (không có cột Tracking): đơn đã fulfill ghi vào dòng; đơn chưa fulfill lưu ở cấp đơn, không đổi trạng thái', async () => {
     const { service, repo } = build([
       { tiktokOrderId: 'OK', shopId: 'shop-1', record: fulfilled() },
       { tiktokOrderId: 'NEW', shopId: 'shop-1', record: null },
@@ -500,16 +508,15 @@ describe('Import Excel Base Cost + Tracking Number', () => {
       ADMIN,
       false,
     );
-    expect(result).toMatchObject({ status: 'PARTIAL', baseCostUpdated: 1, markedFulfilled: 0 });
-    expect(result.errors.map((error) => [error.orderId, error.code])).toEqual([
-      ['NEW', 'NOT_FULFILLED'],
-      ['DRF', 'NOT_SUBMITTED'],
-    ]);
-    expect(result.errors[0].message).toContain('Tracking Number');
-    expect(repo.applyImportRow).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ status: 'APPLIED', baseCostUpdated: 3, markedFulfilled: 0, errors: [] });
+    expect(repo.applyManualItemCostsBatch).toHaveBeenCalledTimes(1);
+    const writes = repo.applyImportRow.mock.calls.map(([params]) => params as ImportRowParams);
+    expect(writes.map((params) => params.markFulfilled)).toEqual([false, false]);
+    expect(writes[0].target).toEqual({ kind: 'ORDER_ONLY' });
+    expect(writes[1].target).toMatchObject({ kind: 'EXISTING', expectedStatus: FulfillmentStatus.DRAFT });
   });
 
-  it('6. ô trống KHÔNG ghi đè: chỉ Tracking ⇒ không đụng Base Cost; đơn chưa fulfill thiếu một trong hai ⇒ từ chối', async () => {
+  it('6. ô trống KHÔNG ghi đè: chỉ Tracking ⇒ không đụng Base Cost; đơn chưa fulfill chỉ có Tracking ⇒ từ chối', async () => {
     const one = fulfilled({}, [{ baseCost: new Prisma.Decimal('5'), baseCostConfirmedAt: new Date() }]);
     const { service, repo } = build([
       { tiktokOrderId: 'T1', shopId: 'shop-1', record: one },
@@ -524,11 +531,10 @@ describe('Import Excel Base Cost + Tracking Number', () => {
       false,
     );
     const params = repo.applyImportRow.mock.calls[0][0] as ImportRowParams;
-    expect(repo.applyImportRow).toHaveBeenCalledTimes(1);
+    expect(repo.applyImportRow).toHaveBeenCalledTimes(2);
     expect(params).toMatchObject({ trackingNumber: 'TRK-777', baseCost: null, markFulfilled: false });
     expect(result.changes[0]).toMatchObject({ orderId: 'T1', before: 5, after: null, baseCostChanged: false });
     expect(result.errors.map((error) => [error.orderId, error.code])).toEqual([
-      ['N2', 'MARK_REQUIRES_BOTH'],
       ['N3', 'MARK_REQUIRES_BOTH'],
       ['N4', 'NOTHING_TO_UPDATE'],
     ]);
@@ -660,7 +666,7 @@ describe('Import Excel Base Cost + Tracking Number', () => {
       expect((repo.applyImportRow.mock.calls[0][0] as ImportRowParams).target).toMatchObject({ accountId: 'facc-1', provider: 'MANGO' });
     });
 
-    it('validation khác GIỮ NGUYÊN: nhiều dòng hàng ⇒ MULTI_ITEM; quà chưa ánh xạ không tính là dòng thứ hai', async () => {
+    it('đơn nhiều dòng KHÔNG bị chặn; quà chưa ánh xạ không tính là dòng thứ hai; đơn TikTok huỷ vẫn bị chặn', async () => {
       const { service, repo } = build([
         { tiktokOrderId: 'ML', shopId: 'shop-1', record: null, fulfillmentAccount: null, lines: [line(), line()] },
         { tiktokOrderId: 'GF', shopId: 'shop-1', record: null, fulfillmentAccount: null, lines: [line(), line({ isGift: true, skuId: 'V-GIFT', sellerSku: 'GIFT' })] },
@@ -668,11 +674,16 @@ describe('Import Excel Base Cost + Tracking Number', () => {
       ]);
       const result = await service.import(ORG, ADMIN_ID, await xlsx([HEAD, ['ML', 1, 'TRK-4'], ['GF', 1, 'TRK-5'], ['TC', 1, 'TRK-6']]), ADMIN, false);
       expect(result.errors.map((error) => [error.orderId, error.code])).toEqual([
-        ['ML', 'MULTI_ITEM'],
         ['TC', 'ORDER_CANCELLED'],
       ]);
-      expect(repo.applyImportRow).toHaveBeenCalledTimes(1);
-      expect((repo.applyImportRow.mock.calls[0][0] as ImportRowParams).target).toMatchObject({ externalOrderId: 'IMPORT-GF', provider: null });
+      expect(repo.applyImportRow).toHaveBeenCalledTimes(2);
+      const targets = repo.applyImportRow.mock.calls.map(([params]) => (params as ImportRowParams).target);
+      expect(targets).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({ externalOrderId: 'IMPORT-ML', provider: null }),
+          expect.objectContaining({ externalOrderId: 'IMPORT-GF', provider: null }),
+        ]),
+      );
     });
 
     it('nhiều đơn thuộc các shop được phép (có / không có nhà cung cấp) ⇒ mỗi đơn đúng bản ghi của nó', async () => {
@@ -741,6 +752,195 @@ describe('Import Excel Base Cost + Tracking Number', () => {
     await expect(
       service.import(ORG, ADMIN_ID, await xlsx([['OrderID', 'Note'], ['S1', 'x']]), ADMIN, true),
     ).rejects.toBeInstanceOf(FulfillmentBaseCostImportInvalidException);
+  });
+});
+
+describe('🔴 Base Cost TỔNG của đơn — không chặn vì nhiều dòng / không có dòng cần fulfill', () => {
+  const three = () => fulfilled({}, [{}, {}, {}]);
+  const giftOnly = () => [line({ isGift: true, skuId: 'V-GIFT', sellerSku: 'GIFT' })];
+  const writesOf = (repo: ReturnType<typeof build>['repo']) =>
+    repo.applyImportRow.mock.calls.map(([params]) => params as ImportRowParams);
+
+  it('Test 1 — đơn đã fulfill có 3 dòng ⇒ ghi cấp đơn, KHÔNG đụng dòng hàng', async () => {
+    const record = three();
+    const { service, repo } = build([{ tiktokOrderId: 'A', shopId: 'shop-1', record }]);
+    const result = await service.import(ORG, ADMIN_ID, await xlsx([['OrderID', 'Basecost'], ['A', 15.5]]), ADMIN, false);
+
+    expect(result).toMatchObject({ status: 'APPLIED', baseCostUpdated: 1, markedFulfilled: 0 });
+    expect(repo.applyManualItemCostsBatch).not.toHaveBeenCalled();
+    const [write] = writesOf(repo);
+    expect(write.baseCost).toBeNull();
+    expect(write.orderBaseCost).toEqual({ podOrderId: 'pod-0', value: 15.5, currency: 'USD' });
+    expect(write.markFulfilled).toBe(false);
+  });
+
+  it.each([
+    ['không có dòng', () => fulfilled({}, [])],
+    ['một dòng số lượng 2', () => fulfilled({}, [{ quantity: 2 }])],
+  ])('đơn đã fulfill %s ⇒ cũng ghi cấp đơn', async (_label, make) => {
+    const { service, repo } = build([{ tiktokOrderId: 'A', shopId: 'shop-1', record: make() }]);
+    await service.import(ORG, ADMIN_ID, await xlsx([['OrderID', 'Basecost'], ['A', 10]]), ADMIN, false);
+    expect(writesOf(repo)[0]).toMatchObject({ baseCost: null, orderBaseCost: { value: 10 } });
+  });
+
+  it('Test 2 — đơn chỉ có quà (không có dòng cần fulfill), chỉ Base Cost ⇒ lưu, KHÔNG tạo bản ghi / dòng hàng', async () => {
+    const { service, repo, podOrderRepo } = build([{ tiktokOrderId: 'A', shopId: 'shop-1', record: null, lines: giftOnly() }]);
+    const result = await service.import(ORG, ADMIN_ID, await xlsx([['OrderID', 'Basecost'], ['A', 10]]), ADMIN, false);
+
+    expect(result.errors).toEqual([]);
+    expect(writesOf(repo)[0]).toMatchObject({
+      target: { kind: 'ORDER_ONLY' },
+      markFulfilled: false,
+      baseCost: null,
+      orderBaseCost: { podOrderId: 'pod-0', value: 10, currency: 'USD' },
+    });
+    expect(result.changes[0]).toMatchObject({ action: 'UPDATE', statusBefore: null, statusAfter: null, after: 10 });
+    // Không đánh dấu đã fulfill ⇒ không cần nạp đơn / Product Mapping.
+    expect(podOrderRepo.findManyByIds).not.toHaveBeenCalled();
+  });
+
+  it('Test 3 — đơn đã fulfill nhiều dòng + Tracking ⇒ cập nhật cả hai trong MỘT lần ghi', async () => {
+    const { service, repo } = build([{ tiktokOrderId: 'A', shopId: 'shop-1', record: three() }]);
+    const result = await service.import(ORG, ADMIN_ID, await xlsx([HEAD, ['A', 15.5, 'ABC123']]), ADMIN, false);
+
+    expect(result).toMatchObject({ baseCostUpdated: 1, trackingUpdated: 1, markedFulfilled: 0 });
+    expect(repo.applyImportRow).toHaveBeenCalledTimes(1);
+    expect(writesOf(repo)[0]).toMatchObject({ trackingNumber: 'ABC123', baseCost: null, orderBaseCost: { value: 15.5 } });
+  });
+
+  it('Test 3b — đơn CHƯA fulfill nhiều dòng + Tracking ⇒ đánh dấu đã fulfill, KHÔNG tạo dòng hàng', async () => {
+    const { service, repo } = build([{ tiktokOrderId: 'A', shopId: 'shop-1', record: null, lines: [line(), line(), line()] }]);
+    const result = await service.import(ORG, ADMIN_ID, await xlsx([HEAD, ['A', 15.5, 'ABC123']]), ADMIN, false);
+
+    expect(result).toMatchObject({ markedFulfilled: 1, errors: [] });
+    expect(writesOf(repo)[0]).toMatchObject({
+      markFulfilled: true,
+      trackingNumber: 'ABC123',
+      baseCost: null,
+      orderBaseCost: { podOrderId: 'pod-0', value: 15.5, currency: 'USD' },
+      target: { kind: 'CREATE' },
+    });
+  });
+
+  it('Test 4 — đơn không có dòng cần fulfill + Tracking ⇒ cập nhật cả hai, không còn lỗi NO_ITEMS', async () => {
+    const { service, repo } = build([{ tiktokOrderId: 'A', shopId: 'shop-1', record: null, lines: giftOnly() }]);
+    const result = await service.import(ORG, ADMIN_ID, await xlsx([HEAD, ['A', 15.5, 'ABC123']]), ADMIN, false);
+
+    expect(result.errors).toEqual([]);
+    expect(writesOf(repo)[0]).toMatchObject({ trackingNumber: 'ABC123', baseCost: null, orderBaseCost: { value: 15.5 } });
+  });
+
+  it('Test 5 — Base Cost = 0 là giá trị, không phải thiếu', async () => {
+    const { service, repo } = build([
+      { tiktokOrderId: 'A', shopId: 'shop-1', record: three() },
+      { tiktokOrderId: 'B', shopId: 'shop-1', record: null },
+      { tiktokOrderId: 'C', shopId: 'shop-1', record: three(), baseCost: new Prisma.Decimal(0) },
+    ]);
+    const result = await service.import(ORG, ADMIN_ID, await xlsx([['OrderID', 'Basecost'], ['A', 0], ['B', '0'], ['C', 0]]), ADMIN, false);
+
+    expect(result.errors).toEqual([]);
+    expect(writesOf(repo).map((write) => write.orderBaseCost?.value)).toEqual([0, 0]);
+    // C đã lưu đúng 0 ⇒ không đổi, không ghi lại.
+    expect(result.changes[2]).toMatchObject({ orderId: 'C', before: 0, unchanged: true });
+  });
+
+  it('Test 6 — nhiều đơn: mỗi đơn đúng giá của nó, không cộng dồn', async () => {
+    const { service, repo } = build([
+      { tiktokOrderId: 'A', shopId: 'shop-1', record: three() },
+      { tiktokOrderId: 'B', shopId: 'shop-1', record: null, lines: giftOnly() },
+      { tiktokOrderId: 'C', shopId: 'shop-1', record: fulfilled({}, [{}, {}]) },
+    ]);
+    await service.import(ORG, ADMIN_ID, await xlsx([['OrderID', 'Basecost'], ['A', 10], ['B', 20], ['C', 30]]), ADMIN, false);
+
+    expect(writesOf(repo).map((write) => [write.orderBaseCost?.podOrderId, write.orderBaseCost?.value])).toEqual([
+      ['pod-0', 10],
+      ['pod-1', 20],
+      ['pod-2', 30],
+    ]);
+  });
+
+  it('Test 7 — validation khác vẫn chặn: không tìm thấy, ngoài shop, sai số, sai số lẻ, thiếu đơn vị tiền, trạng thái', async () => {
+    const { service, repo } = build([
+      { tiktokOrderId: 'OTHER', shopId: 'shop-9', record: three() },
+      { tiktokOrderId: 'DEC', shopId: 'shop-1', record: three() },
+      { tiktokOrderId: 'NOCUR', shopId: 'shop-1', record: null, currency: null },
+      { tiktokOrderId: 'TC', shopId: 'shop-1', record: null, tiktokStatus: 'CANCELLED' },
+      { tiktokOrderId: 'CAN', shopId: 'shop-1', record: fulfilled({ status: FulfillmentStatus.CANCELLED }, [{}, {}]) },
+      { tiktokOrderId: 'SENDING', shopId: 'shop-1', record: fulfilled({ status: FulfillmentStatus.SUBMITTING, submittedAt: null }, [{}, {}]) },
+      { tiktokOrderId: 'PR', shopId: 'shop-1', record: fulfilled({ status: FulfillmentStatus.FAILED }, [{}, {}]) },
+    ]);
+    const result = await service.import(
+      ORG,
+      ADMIN_ID,
+      await xlsx([
+        ['OrderID', 'Basecost'],
+        ['GHOST', 1],
+        ['OTHER', 1],
+        ['BAD', 'abc'],
+        ['DEC', 1.234],
+        ['NOCUR', 1],
+        ['TC', 1],
+        ['CAN', 1],
+        ['SENDING', 1],
+        ['PR', 1],
+      ]),
+      SELLER,
+      false,
+    );
+    expect(result.errors.map((error) => [error.orderId, error.code])).toEqual([
+      ['GHOST', 'ORDER_NOT_FOUND'],
+      ['OTHER', 'ORDER_NOT_FOUND'],
+      ['BAD', 'BASE_COST_INVALID'],
+      ['DEC', 'TOO_MANY_DECIMALS'],
+      ['NOCUR', 'CURRENCY_REQUIRED'],
+      ['TC', 'ORDER_CANCELLED'],
+      ['CAN', 'STATUS_NOT_ALLOWED'],
+      ['SENDING', 'NOT_SUBMITTED'],
+      ['PR', 'PROVIDER_RECEIVED'],
+    ]);
+    expect(result.status).toBe('REJECTED');
+    expect(repo.applyImportRow).not.toHaveBeenCalled();
+  });
+
+  it('đơn một dòng ⇒ vẫn ghi vào dòng như trước, không dùng cột cấp đơn', async () => {
+    const { service, repo } = build([{ tiktokOrderId: 'A', shopId: 'shop-1', record: fulfilled() }]);
+    await service.import(ORG, ADMIN_ID, await xlsx([['OrderID', 'Basecost'], ['A', 7]]), ADMIN, false);
+    expect(repo.applyManualItemCostsBatch).toHaveBeenCalledTimes(1);
+    expect(repo.applyImportRow).not.toHaveBeenCalled();
+  });
+
+  it('đơn một dòng đang có Base Cost tổng cũ ⇒ ghi vào dòng VÀ xoá giá cũ cùng transaction', async () => {
+    const item = { baseCost: new Prisma.Decimal('7'), baseCostConfirmedAt: new Date() };
+    const { service, repo } = build([
+      { tiktokOrderId: 'A', shopId: 'shop-1', record: fulfilled({}, [item]), baseCost: new Prisma.Decimal('9') },
+    ]);
+    // Giá trùng giá của dòng nhưng tổng cũ đang đè lên ⇒ vẫn phải ghi.
+    const result = await service.import(ORG, ADMIN_ID, await xlsx([['OrderID', 'Basecost'], ['A', 7]]), ADMIN, false);
+    expect(repo.applyManualItemCostsBatch).not.toHaveBeenCalled();
+    expect(writesOf(repo)[0]).toMatchObject({
+      baseCost: { value: 7 },
+      orderBaseCost: { podOrderId: 'pod-0', value: null },
+    });
+    expect(result.changes[0]).toMatchObject({ before: 9, baseCostChanged: true });
+  });
+
+  it('gửi lại cùng file ⇒ không ghi, không nhật ký; đổi giá ⇒ ghi đè', async () => {
+    const stored = new Prisma.Decimal('15.5');
+    const same = build([{ tiktokOrderId: 'A', shopId: 'shop-1', record: three(), baseCost: stored }]);
+    const result = await same.service.import(ORG, ADMIN_ID, await xlsx([['OrderID', 'Basecost'], ['A', 15.5]]), ADMIN, false);
+    expect(result).toMatchObject({ unchangedRows: 1, updatedOrders: 0 });
+    expect(same.repo.applyImportRow).not.toHaveBeenCalled();
+
+    const changed = build([{ tiktokOrderId: 'A', shopId: 'shop-1', record: three(), baseCost: stored }]);
+    await changed.service.import(ORG, ADMIN_ID, await xlsx([['OrderID', 'Basecost'], ['A', 20]]), ADMIN, false);
+    expect(writesOf(changed.repo)[0]).toMatchObject({ orderBaseCost: { value: 20 } });
+  });
+
+  it('dryRun ⇒ xem trước đúng, không ghi', async () => {
+    const { service, repo } = build([{ tiktokOrderId: 'A', shopId: 'shop-1', record: three() }]);
+    const result = await service.import(ORG, ADMIN_ID, await xlsx([['OrderID', 'Basecost'], ['A', 15.5]]), ADMIN, true);
+    expect(result).toMatchObject({ status: 'READY', updatedOrders: 0, baseCostUpdated: 1 });
+    expect(repo.applyImportRow).not.toHaveBeenCalled();
   });
 });
 

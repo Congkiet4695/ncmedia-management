@@ -889,9 +889,10 @@ export class FulfillmentController {
     summary: 'Import Base Cost / Tracking Number hàng loạt từ Excel (.xlsx: OrderID · Basecost · Tracking Number)',
     description:
       'OrderID = TikTok Order ID. File cũ chỉ OrderID · Basecost vẫn dùng được. Ô trống = không đổi. Đơn đã fulfill: ' +
-      'cập nhật Base Cost / Tracking Number, không đổi trạng thái. Đơn chưa fulfill / DRAFT / FAILED: cần CẢ Basecost ' +
-      'lẫn Tracking Number ⇒ chuyển sang SHIPPED, nguồn MANUAL_IMPORT (nhà cung cấp KHÔNG xác nhận; không gọi API nhà ' +
-      'cung cấp). Kiểm toàn bộ file trước; dòng hợp lệ được ghi, dòng lỗi bị bỏ qua (status PARTIAL), mỗi dòng một ' +
+      'cập nhật Base Cost / Tracking Number, không đổi trạng thái. Base Cost là giá TỔNG của đơn, không chia xuống dòng; đơn ' +
+      'không phải một dòng số lượng 1 lưu ở pod_orders.base_cost. Đơn chưa fulfill / DRAFT / FAILED: đủ Basecost + Tracking ' +
+      'Number ⇒ chuyển sang SHIPPED, nguồn MANUAL_IMPORT (nhà cung cấp KHÔNG xác nhận; không gọi API nhà cung cấp); chỉ ' +
+      'Basecost ⇒ lưu giá, không đổi trạng thái; chỉ Tracking Number ⇒ từ chối. Kiểm toàn bộ file trước; dòng hợp lệ được ghi, dòng lỗi bị bỏ qua (status PARTIAL), mỗi dòng một ' +
       'transaction. dryRun=true ⇒ chỉ xem trước. OrderID trùng trong file là lỗi. ' +
       `Tối đa ${BASE_COST_IMPORT_MAX_ROWS} dòng, ${BASE_COST_IMPORT_MAX_BYTES / 1024 / 1024}MB.`,
   })

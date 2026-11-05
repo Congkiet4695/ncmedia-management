@@ -60,12 +60,11 @@ export type OrderBaseCostVerdict =
   | { ok: false; reason: OrderBaseCostRejection; message: string };
 
 /**
- * **Base Cost cấp ĐƠN** — một con số cho cả đơn, dùng chung cho sửa tại chỗ và Import Excel.
+ * **Sửa tại chỗ một con số cho cả đơn**, ghi xuống DÒNG HÀNG (dùng chung cho cột Giá và đường một dòng của Import Excel).
  *
- * 🔴 Không có cột "base cost của Order": giá vốn đơn = Σ giá vốn × số lượng các dòng của lần fulfill đang
- * hiệu lực. Một con số chỉ ghi được KHÔNG mơ hồ khi lần fulfill có ĐÚNG MỘT dòng, số lượng 1 (quyết định PO
- * 2026-10-19: không tự chia tiền cho nhiều dòng). Đơn nhiều dòng ⇒ `MULTI_ITEM`, dùng hộp thoại "Cập nhật
- * Base Cost" nhập từng dòng.
+ * Một con số chỉ ghi xuống dòng được KHÔNG mơ hồ khi lần fulfill có ĐÚNG MỘT dòng, số lượng 1 (quyết định PO 2026-10-19:
+ * không tự chia tiền cho nhiều dòng). Đơn nhiều dòng ⇒ `MULTI_ITEM`, dùng hộp thoại "Cập nhật Base Cost" nhập từng dòng.
+ * Riêng Import Excel không gọi hàm này cho đơn nhiều dòng: nó lưu giá tổng ở `pod_orders.base_cost`.
  *
  * Các luật còn lại trùng `FulfillmentService.updateBaseCostManually`: chỉ đơn đang giữ đơn (`holdsFulfilledOrder` —
  * nhà cung cấp đã nhận, hoặc Admin đã đánh dấu đã fulfill bằng Import Excel), đơn vị

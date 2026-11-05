@@ -1619,6 +1619,7 @@
       "profitStatus": {
         "NO_PROCEEDS": "TikTok chưa có dữ liệu quyết toán / ước tính quyết toán cho đơn này.",
         "NO_COST": "Chưa có base cost — đơn chưa được fulfill (hoặc lần fulfill đã huỷ).",
+        "NOT_FULFILLED": "Đã có base cost nhập tay nhưng đơn chưa được fulfill — chưa tính lợi nhuận.",
         "COST_PENDING": "Đang chờ nhà cung cấp fulfillment xác nhận base cost.",
         "COST_CURRENCY_UNKNOWN": "Nhà cung cấp không nêu đơn vị tiền của base cost — chưa tính lợi nhuận.",
         "CURRENCY_MISMATCH": "Tiền thu về và base cost khác đơn vị tiền — chưa tính lợi nhuận.",

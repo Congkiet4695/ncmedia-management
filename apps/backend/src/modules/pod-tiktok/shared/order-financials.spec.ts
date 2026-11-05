@@ -296,3 +296,43 @@ describe('calculateOrderFinancials — Design Amount', () => {
     expect(result).toMatchObject({ status: 'NO_PROCEEDS', profit: null, designAmount: 4 });
   });
 });
+
+describe('calculateOrderFinancials — Base Cost tổng đã import, đơn CHƯA fulfill', () => {
+  const input = (over: Partial<Parameters<typeof calculateOrderFinancials>[0]>) =>
+    calculateOrderFinancials({
+      settled: [tx(100)],
+      unsettled: [],
+      cost: null,
+      shipping: { shippingType: 'TIKTOK', sellerShippingDiscount: 0 },
+      labelCost: { amount: 0, currency: 'USD' },
+      ...over,
+    });
+
+  it('hiển thị giá đã lưu, KHÔNG tính lợi nhuận, nói đúng lý do', () => {
+    const result = input({ storedBaseCost: { amount: 12.5, currency: 'USD' } });
+    expect(result).toMatchObject({
+      productCost: 12.5,
+      productCostConfirmed: true,
+      costCurrency: 'USD',
+      profit: null,
+      status: 'NOT_FULFILLED',
+    });
+  });
+
+  it('giá 0 vẫn là giá đã lưu', () => {
+    expect(input({ storedBaseCost: { amount: 0, currency: 'USD' } })).toMatchObject({ productCost: 0, status: 'NOT_FULFILLED' });
+  });
+
+  it('không có giá đã lưu ⇒ NO_COST như cũ', () => {
+    expect(input({})).toMatchObject({ productCost: null, status: 'NO_COST' });
+  });
+
+  it('đã có lần fulfill ⇒ dùng cost, bỏ qua giá đã lưu', () => {
+    const result = input({
+      cost: { productCost: 10, productCostConfirmed: true, currency: 'USD', fulfilledBy: null },
+      storedBaseCost: { amount: 99, currency: 'USD' },
+    });
+    expect(result.productCost).toBe(10);
+    expect(result.status).not.toBe('NOT_FULFILLED');
+  });
+});

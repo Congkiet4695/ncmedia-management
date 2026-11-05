@@ -523,10 +523,10 @@
   "baseCostImport": {
     "action": "Import Basecost / Tracking",
     "title": "Import Basecost & Tracking Number from Excel",
-    "description": "Update Base Cost and Tracking Number of many orders at once (max {{max}} rows per file). Unfulfilled / failed orders can be marked as fulfilled.",
+    "description": "Update the order total Base Cost and Tracking Number of many orders at once (max {{max}} rows per file). Unfulfilled / failed orders can be marked as fulfilled.",
     "formatTitle": "File format (.xlsx, first sheet, header on row 1)",
     "formatColumns": "Columns: OrderID (TikTok Order ID, formatted as Text) · Basecost (e.g. 12.50) · Tracking Number (formatted as Text). Old files with only OrderID · Basecost still work. Column order does not matter; other columns are ignored.",
-    "formatRules": "Empty cell = keep the current value (never cleared). Basecost ≥ 0 with a dot decimal separator. Tracking Number: letters, digits, \"-\" or \"_\", no spaces. Single-line-item orders only. An OrderID may appear only once.",
+    "formatRules": "Empty cell = keep the current value (never cleared). Basecost ≥ 0 with a dot decimal separator; it is the order TOTAL: it is not split across lines, and multi-line orders can be imported. Tracking Number: letters, digits, \"-\" or \"_\", no spaces. Each OrderID may appear only once.",
     "formatAtomic": "The whole file is checked first. Valid rows are written, invalid rows are skipped and listed below — each row is saved on its own (a failed row is never half-saved).",
     "choose": "Choose Excel file",
     "chooseAnother": "Choose another file",
@@ -563,7 +563,7 @@
     "rejected": "{{count}} row(s) are invalid — nothing was updated. Fix the file and choose it again.",
     "applied": "Saved {{count}} order(s).",
     "confirm": "Confirm import ({{count}})",
-    "formatStatus": "Fulfilled orders: Base Cost / Tracking Number are updated, the status does not change. Unfulfilled or failed orders: BOTH Basecost and Tracking Number are required — the order becomes \"Shipped\" with the label \"Manual (Excel)\". Nothing is sent to the provider.",
+    "formatStatus": "Fulfilled orders: Base Cost / Tracking Number are updated, the status does not change. Unfulfilled or failed orders: with BOTH Basecost and Tracking Number the order moves to \"Shipped\" with the \"Manual (Excel)\" label; with Basecost only the cost is saved, the status does not change and profit is not calculated yet; with Tracking Number only the row is rejected. Cancelled orders, or orders the provider already has, cannot be imported.",
     "warningTitle": "Rows with errors",
     "actionValue": {
       "UPDATE": "Update ({{status}})",

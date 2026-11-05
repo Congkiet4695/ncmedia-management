@@ -34,6 +34,8 @@ const HAS_PRODUCT_KEY = {
 export const FULFILLMENT_ORDER_INCLUDE = {
   items: { where: { deletedAt: null }, orderBy: { createdAt: 'asc' } },
   account: { select: { id: true, name: true, provider: true } },
+  // Base Cost tổng của đơn — thay cho tổng các dòng khi có (`withOrderBaseCost`).
+  podOrder: { select: { baseCost: true, baseCostCurrency: true } },
 } as const satisfies Prisma.FulfillmentOrderInclude;
 
 export type FulfillmentOrderWithRelations = Prisma.FulfillmentOrderGetPayload<{
@@ -77,14 +79,23 @@ export type ImportRowBaseCost =
     };
 
 /** Một dòng Import Excel (Base Cost / Tracking Number / đánh dấu đã fulfill) — ghi trong MỘT transaction. */
+/** Ghi `pod_orders.base_cost` (`value = null` ⇒ xoá vì giá vừa được ghi xuống dòng hàng). */
+export interface ImportOrderBaseCost {
+  podOrderId: string;
+  value: number | null;
+  currency: string | null;
+}
+
 export interface ImportRowWrite {
   organizationId: string;
   actorUserId: string;
   /**
    * `EXISTING` = cập nhật bản ghi hiện hành, chỉ khi nó VẪN ở `expectedStatus` (và chưa có mã đơn nhà cung cấp khi
-   * `requireNoProviderOrder`). `CREATE` = đơn chưa fulfill ⇒ tạo bản ghi nhập tay mới.
+   * `requireNoProviderOrder`). `CREATE` = đơn chưa fulfill ⇒ tạo bản ghi nhập tay mới. `ORDER_ONLY` = đơn chưa có bản ghi
+   * và không đánh dấu đã fulfill ⇒ chỉ ghi `orderBaseCost`.
    */
   target:
+    | { kind: 'ORDER_ONLY' }
     | { kind: 'EXISTING'; fulfillmentOrderId: string; expectedStatus: FulfillmentStatus; requireNoProviderOrder: boolean }
     | {
         kind: 'CREATE';
@@ -100,7 +111,10 @@ export interface ImportRowWrite {
   currency: string | null;
   /** `null` = không đổi (ô trống KHÔNG xoá mã đang có). */
   trackingNumber: string | null;
+  /** Giá ghi xuống DÒNG HÀNG (đơn đúng một dòng, số lượng 1). */
   baseCost: ImportRowBaseCost | null;
+  /** Giá ghi ở cấp ĐƠN. */
+  orderBaseCost: ImportOrderBaseCost | null;
   histories: Array<Omit<HistoryEntry, 'organizationId' | 'fulfillmentOrderId'>>;
   /** Dữ liệu đổi giữa lúc kiểm và lúc ghi ⇒ lỗi này được ném, transaction rollback. */
   onStale: () => Error;
@@ -736,6 +750,11 @@ export class FulfillmentRepository {
         data: { deletedAt: new Date(), updatedBy: actorUserId },
       });
       if (archived.count === 0) return false;
+      // Lần fulfill mới có chi phí mới: Base Cost tổng đã import cho lần cũ không được đè lên nó.
+      await tx.podOrder.updateMany({
+        where: { id: record.podOrderId, organizationId: record.organizationId, baseCost: { not: null } },
+        data: { baseCost: null, baseCostCurrency: null, baseCostUpdatedAt: new Date(), baseCostUpdatedBy: actorUserId },
+      });
       await tx.fulfillmentHistory.create({
         data: {
           organizationId: record.organizationId,
@@ -839,6 +858,9 @@ export class FulfillmentRepository {
    * không có trạng thái "đã đổi giá nhưng không có nhật ký".
    */
   async applyManualItemCosts(params: {
+    organizationId: string;
+    podOrderId: string;
+    actorUserId: string;
     fulfillmentOrderId: string;
     costs: Array<{ id: string; baseCost: number }>;
     currency: string | null;
@@ -862,6 +884,16 @@ export class FulfillmentRepository {
             }),
           ]
         : []),
+      // Sửa giá theo dòng là thao tác mới hơn ⇒ bỏ Base Cost tổng đã import, nếu không số vừa nhập sẽ không có tác dụng.
+      this.prisma.podOrder.updateMany({
+        where: { id: params.podOrderId, organizationId: params.organizationId, baseCost: { not: null } },
+        data: {
+          baseCost: null,
+          baseCostCurrency: null,
+          baseCostUpdatedAt: confirmedAt,
+          baseCostUpdatedBy: params.actorUserId,
+        },
+      }),
       this.prisma.fulfillmentHistory.create({ data: this.historyData(params.history) }),
     ]);
   }
@@ -942,11 +974,11 @@ export class FulfillmentRepository {
    * lúc ghi ⇒ 0 dòng ⇒ `onStale()`. Tạo bản ghi mới đụng partial unique `(pod_order_id, provider)` hoặc mã đơn
    * trùng (P2002) ⇒ cũng là `onStale()`. Không xoá gì: dòng hàng cũ, `fulfillment_error_logs` và lịch sử giữ nguyên.
    */
-  async applyImportRow(input: ImportRowWrite): Promise<string> {
+  async applyImportRow(input: ImportRowWrite): Promise<string | null> {
     const { organizationId, actorUserId, target } = input;
     return this.prisma.$transaction(async (tx) => {
       const now = new Date();
-      let fulfillmentOrderId: string;
+      let fulfillmentOrderId: string | null = null;
       if (target.kind === 'CREATE') {
         try {
           const created = await tx.fulfillmentOrder.create({
@@ -970,7 +1002,7 @@ export class FulfillmentRepository {
           if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') throw input.onStale();
           throw error;
         }
-      } else {
+      } else if (target.kind === 'EXISTING') {
         const updated = await tx.fulfillmentOrder.updateMany({
           where: {
             id: target.fulfillmentOrderId,
@@ -999,7 +1031,21 @@ export class FulfillmentRepository {
         fulfillmentOrderId = target.fulfillmentOrderId;
       }
 
-      if (input.baseCost) {
+      if (input.orderBaseCost) {
+        const { podOrderId, value, currency } = input.orderBaseCost;
+        const updated = await tx.podOrder.updateMany({
+          where: { id: podOrderId, organizationId, deletedAt: null },
+          data: {
+            baseCost: value === null ? null : new Prisma.Decimal(value),
+            baseCostCurrency: value === null ? null : currency,
+            baseCostUpdatedAt: now,
+            baseCostUpdatedBy: actorUserId,
+          },
+        });
+        if (updated.count !== 1) throw input.onStale();
+      }
+
+      if (input.baseCost && fulfillmentOrderId) {
         const baseCost = new Prisma.Decimal(input.baseCost.value);
         if ('itemId' in input.baseCost) {
           const updated = await tx.fulfillmentOrderItem.updateMany({
@@ -1021,9 +1067,13 @@ export class FulfillmentRepository {
         }
       }
 
-      if (input.histories.length > 0) {
+      // Đơn chưa có bản ghi fulfillment thì không có nơi ghi nhật ký; dấu vết là `base_cost_updated_at/by` trên đơn.
+      if (fulfillmentOrderId && input.histories.length > 0) {
+        const historyOrderId = fulfillmentOrderId;
         await tx.fulfillmentHistory.createMany({
-          data: input.histories.map((entry) => this.historyData({ ...entry, organizationId, fulfillmentOrderId })),
+          data: input.histories.map((entry) =>
+            this.historyData({ ...entry, organizationId, fulfillmentOrderId: historyOrderId }),
+          ),
         });
       }
       return fulfillmentOrderId;

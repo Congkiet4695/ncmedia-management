@@ -1600,9 +1600,9 @@ export class BaseCostImportChangeDto {
   @ApiProperty({
     enum: ['UPDATE', 'MARK_FULFILLED'],
     description:
-      'UPDATE = đơn đã fulfill: chỉ cập nhật Base Cost / Tracking Number, KHÔNG đổi trạng thái · MARK_FULFILLED = đơn ' +
-      'chưa fulfill / fulfill thất bại: ghi Base Cost + Tracking Number và chuyển sang đã fulfill (nhập tay, nhà cung ' +
-      'cấp không xác nhận).',
+      'UPDATE = cập nhật Base Cost / Tracking Number, KHÔNG đổi trạng thái (gồm đơn chưa fulfill chỉ có Base Cost) · ' +
+      'MARK_FULFILLED = đơn chưa fulfill / fulfill thất bại có đủ Base Cost + Tracking Number: chuyển sang đã fulfill ' +
+      '(nhập tay, nhà cung cấp không xác nhận).',
   })
   action!: 'UPDATE' | 'MARK_FULFILLED';
   @ApiProperty({ nullable: true, type: Number, description: 'Base Cost hiện tại' }) before!: number | null;

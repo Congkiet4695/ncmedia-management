@@ -58,6 +58,8 @@ export type PodOrderFinancialsStatus =
   | 'OK'
   | 'NO_PROCEEDS'
   | 'NO_COST'
+  /** Đã có Base Cost nhập tay nhưng đơn chưa fulfill ⇒ chưa tính lợi nhuận. */
+  | 'NOT_FULFILLED'
   | 'COST_PENDING'
   | 'COST_CURRENCY_UNKNOWN'
   | 'CURRENCY_MISMATCH'

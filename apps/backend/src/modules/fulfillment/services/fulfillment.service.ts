@@ -91,7 +91,7 @@ import {
   exceedsFractionDigits,
   resolveOrderLevelBaseCost,
 } from '../shared/manual-base-cost';
-import { productCostOf } from '../shared/product-cost';
+import { productCostOf, withOrderBaseCost } from '../shared/product-cost';
 
 /** Lý do/cảnh báo của `readiness.check()` → DTO màn hình Fulfill (kèm khối hiển thị). */
 function toIssueDto(issue: ReadinessIssue): FulfillmentIssueDto {
@@ -832,6 +832,9 @@ export class FulfillmentService {
           ) / 10_000;
 
     await this.repo.applyManualItemCosts({
+      organizationId,
+      podOrderId,
+      actorUserId,
       fulfillmentOrderId: record.id,
       costs: after.map((row) => ({ id: row.itemId, baseCost: row.baseCost })),
       currency: record.currency ? null : currency,
@@ -892,7 +895,8 @@ export class FulfillmentService {
     if (!record) throw new FulfillmentOrderNotFoundException();
     const verdict = resolveOrderLevelBaseCost(record, dto.baseCost, MANUAL_BASE_COST_MAX);
     if (!verdict.ok) throw new FulfillmentManualBaseCostInvalidException(verdict.reason, verdict.message);
-    if (verdict.unchanged) return this.toOrderDto(record);
+    // Còn Base Cost tổng đang đè lên dòng hàng thì chưa phải "không đổi": phải ghi để bỏ giá đó.
+    if (verdict.unchanged && record.podOrder?.baseCost == null) return this.toOrderDto(record);
     return this.updateBaseCostManually(
       organizationId,
       actorUserId,
@@ -1512,6 +1516,11 @@ export class FulfillmentService {
   toOrderDto(
     record: FulfillmentOrderWithRelations | (FulfillmentOrder & { items: [] }),
   ): FulfillmentOrderDto {
+    // Base Cost tổng đã import chỉ áp cho lần fulfill đang giữ đơn (cùng điều kiện với lợi nhuận).
+    const orderBaseCost =
+      'podOrder' in record && !NON_BLOCKING_FULFILLMENT_STATUSES.includes(record.status) && record.podOrder?.baseCost != null
+        ? record.podOrder
+        : null;
     return {
       id: record.id,
       podOrderId: record.podOrderId,
@@ -1535,14 +1544,17 @@ export class FulfillmentService {
       shippingFee: record.shippingFee === null ? null : Number(record.shippingFee),
       tax: record.tax === null ? null : Number(record.tax),
       total: record.total === null ? null : Number(record.total),
-      currency: record.currency,
+      currency: record.currency ?? (orderBaseCost ? orderBaseCost.baseCostCurrency : null),
       // 🔴 "Fulfilled by" = nhà cung cấp THỰC SỰ nhận đơn này (tài khoản của CHÍNH bản ghi), không
       // phải nhà cung cấp mặc định của kết nối TikTok.
       fulfilledBy: 'account' in record && record.account ? record.account.name : null,
       // "Chờ báo giá" chỉ có nghĩa khi lần gửi còn giữ đơn ở xưởng — đơn đã huỷ / hỏng không chờ gì.
-      ...productCostOf(
-        record.submittedAt !== null && !NON_BLOCKING_FULFILLMENT_STATUSES.includes(record.status),
-        record.items ?? [],
+      ...withOrderBaseCost(
+        productCostOf(
+          record.submittedAt !== null && !NON_BLOCKING_FULFILLMENT_STATUSES.includes(record.status),
+          record.items ?? [],
+        ),
+        orderBaseCost?.baseCost,
       ),
       attemptCount: record.attemptCount,
       lastErrorCode: record.lastErrorCode,

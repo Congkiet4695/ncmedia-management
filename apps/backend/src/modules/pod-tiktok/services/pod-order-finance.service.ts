@@ -3,7 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { PodStatementTxType, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { NON_BLOCKING_FULFILLMENT_STATUSES } from '../../fulfillment/shared/fulfillment-lifecycle';
-import { productCostOf } from '../../fulfillment/shared/product-cost';
+import { productCostOf, withOrderBaseCost } from '../../fulfillment/shared/product-cost';
 import { labelCostOf } from '../shared/label-cost';
 import {
   calculateOrderFinancials,
@@ -85,7 +85,14 @@ export class PodOrderFinanceService {
       this.prisma.podOrder.findMany({
         where: { organizationId, id: { in: podOrderIds } },
         // + Design Amount nhập tay (chi phí design của đơn — trừ vào lợi nhuận).
-        select: { id: true, shippingType: true, shippingFeeSellerDiscount: true, designAmount: true },
+        select: {
+          id: true,
+          shippingType: true,
+          shippingFeeSellerDiscount: true,
+          designAmount: true,
+          baseCost: true,
+          baseCostCurrency: true,
+        },
       }),
     ]);
     const shippingOf = new Map(shippingRows.map((row) => [row.id, row]));
@@ -101,8 +108,11 @@ export class PodOrderFinanceService {
     const result = new Map<string, OrderFinancials>();
     for (const order of orders) {
       const record = fulfillment.get(order.id);
-      const cost = record ? productCostOf(record.submittedAt !== null, record.items) : null;
       const shipping = shippingOf.get(order.id);
+      const cost = record
+        ? withOrderBaseCost(productCostOf(record.submittedAt !== null, record.items), shipping?.baseCost)
+        : null;
+      const hasOrderBaseCost = shipping?.baseCost !== null && shipping?.baseCost !== undefined;
       result.set(
         order.id,
         calculateOrderFinancials({
@@ -137,9 +147,13 @@ export class PodOrderFinanceService {
               ? {
                   productCost: cost.productCost,
                   productCostConfirmed: cost.productCostConfirmed,
-                  currency: record.currency,
+                  currency: hasOrderBaseCost ? shipping.baseCostCurrency : record.currency,
                   fulfilledBy: record.account?.name ?? null,
                 }
+              : null,
+          storedBaseCost:
+            !record && hasOrderBaseCost
+              ? { amount: Number(shipping.baseCost), currency: shipping.baseCostCurrency }
               : null,
           shipping: {
             shippingType: shipping?.shippingType ?? null,

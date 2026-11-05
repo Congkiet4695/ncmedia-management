@@ -77,6 +77,8 @@ export interface OrderFinancialsInput {
     currency: string | null;
     fulfilledBy: string | null;
   } | null;
+  /** Base Cost đã import cho đơn CHƯA có lần fulfill đang giữ đơn: chỉ để hiển thị, chưa vào lợi nhuận. */
+  storedBaseCost?: { amount: number; currency: string | null } | null;
   shipping: OrderShippingInput;
   labelCost: LabelCostConfig;
   /** `pod_orders.design_amount` (≥ 0, đơn vị `DESIGN_AMOUNT_CURRENCY`). Dữ liệu cũ / thiếu ⇒ 0. */
@@ -86,6 +88,8 @@ export interface OrderFinancialsInput {
 export type OrderFinancialsStatus =
   /** Đủ dữ kiện, đã tính lợi nhuận. */
   | 'OK'
+  /** Đã có Base Cost nhập tay nhưng đơn chưa fulfill ⇒ chưa tính lợi nhuận. */
+  | 'NOT_FULFILLED'
   /** TikTok chưa có dữ liệu quyết toán / ước tính cho đơn. */
   | 'NO_PROCEEDS'
   /** Đơn chưa được fulfill (hoặc lần fulfill đã huỷ) ⇒ chưa có giá vốn. */
@@ -166,14 +170,15 @@ export function calculateOrderFinancials(input: OrderFinancialsInput): OrderFina
   const settledProceeds = proceedsOf(settled, 'SETTLED');
   const proceeds = settledProceeds ?? proceedsOf(unsettled, 'ESTIMATED');
   const cost = input.cost;
+  const stored = cost ? null : (input.storedBaseCost ?? null);
   const sellerShipping = proceeds
     ? resolveSellerShipping(proceeds.source === 'SETTLED' ? settled : unsettled, proceeds.source, input.shipping)
     : null;
   const base = {
     proceeds,
-    productCost: cost?.productCost ?? null,
-    productCostConfirmed: cost?.productCostConfirmed ?? false,
-    costCurrency: cost?.currency ?? null,
+    productCost: cost?.productCost ?? stored?.amount ?? null,
+    productCostConfirmed: cost?.productCostConfirmed ?? stored !== null,
+    costCurrency: cost?.currency ?? stored?.currency ?? null,
     fulfilledBy: cost?.fulfilledBy ?? null,
     sellerShipping,
     labelCost: input.labelCost.amount,
@@ -190,6 +195,7 @@ export function calculateOrderFinancials(input: OrderFinancialsInput): OrderFina
   });
 
   if (!proceeds) return fail('NO_PROCEEDS');
+  if (stored) return fail('NOT_FULFILLED');
   if (!cost || cost.productCost === null) return fail('NO_COST');
   if (!cost.productCostConfirmed) return fail('COST_PENDING');
   if (!cost.currency) return fail('COST_CURRENCY_UNKNOWN');

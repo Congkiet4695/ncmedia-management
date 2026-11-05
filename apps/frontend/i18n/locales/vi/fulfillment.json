@@ -523,10 +523,10 @@
   "baseCostImport": {
     "action": "Import Basecost / Tracking",
     "title": "Import Basecost & Tracking Number từ Excel",
-    "description": "Cập nhật Base cost và Tracking Number cho nhiều đơn cùng lúc (tối đa {{max}} dòng mỗi file). Đơn chưa fulfill / fulfill thất bại có thể được đánh dấu đã fulfill.",
+    "description": "Cập nhật Base cost tổng của đơn và Tracking Number cho nhiều đơn cùng lúc (tối đa {{max}} dòng mỗi file). Đơn chưa fulfill / fulfill thất bại có thể được đánh dấu đã fulfill.",
     "formatTitle": "Định dạng file (.xlsx, sheet đầu tiên, header ở dòng 1)",
     "formatColumns": "Cột: OrderID (TikTok Order ID, định dạng Text) · Basecost (vd 12.50) · Tracking Number (định dạng Text). File cũ chỉ có OrderID · Basecost vẫn dùng được. Không phụ thuộc thứ tự cột; cột khác bị bỏ qua.",
-    "formatRules": "Ô trống = giữ nguyên giá trị hiện có (không bị xoá). Basecost ≥ 0, dấu chấm thập phân. Tracking Number: chữ, số, \"-\" hoặc \"_\", không khoảng trắng. Chỉ đơn một dòng hàng. Mỗi OrderID chỉ xuất hiện một lần.",
+    "formatRules": "Ô trống = giữ nguyên giá trị hiện có (không bị xoá). Basecost ≥ 0, dấu chấm thập phân, là giá TỔNG của đơn: không chia xuống từng dòng, đơn nhiều dòng vẫn import được. Tracking Number: chữ, số, \"-\" hoặc \"_\", không khoảng trắng. Mỗi OrderID chỉ xuất hiện một lần.",
     "formatAtomic": "Kiểm tra toàn bộ file trước. Dòng hợp lệ được ghi, dòng lỗi bị bỏ qua và liệt kê bên dưới — mỗi dòng được lưu riêng (dòng lỗi không bao giờ bị lưu nửa chừng).",
     "choose": "Chọn file Excel",
     "chooseAnother": "Chọn file khác",
@@ -563,7 +563,7 @@
     "rejected": "{{count}} dòng lỗi — chưa cập nhật đơn nào. Sửa file rồi chọn lại.",
     "applied": "Đã ghi {{count}} đơn.",
     "confirm": "Xác nhận import ({{count}})",
-    "formatStatus": "Đơn đã fulfill: cập nhật Base cost / Tracking Number, KHÔNG đổi trạng thái. Đơn chưa fulfill hoặc fulfill thất bại: cần CẢ Basecost lẫn Tracking Number — đơn chuyển sang \"Đã gửi hàng\" kèm nhãn \"Nhập tay (Excel)\". Không gửi gì sang nhà cung cấp.",
+    "formatStatus": "Đơn đã fulfill: cập nhật Base cost / Tracking Number, KHÔNG đổi trạng thái. Đơn chưa fulfill hoặc fulfill thất bại: có CẢ Basecost lẫn Tracking Number thì chuyển sang \"Đã gửi hàng\" kèm nhãn \"Nhập tay (Excel)\"; chỉ có Basecost thì lưu giá, không đổi trạng thái và chưa tính lợi nhuận; chỉ có Tracking Number thì bị từ chối. Đơn đã huỷ, hoặc nhà cung cấp đã có mã đơn, không import được.",
     "warningTitle": "Dòng có lỗi",
     "actionValue": {
       "UPDATE": "Cập nhật ({{status}})",

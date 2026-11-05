@@ -5,7 +5,7 @@ import {
   attemptExternalId,
   isNewAttemptOnSubmit,
 } from './fulfillment-lifecycle';
-import { productCostOf } from './product-cost';
+import { productCostOf, withOrderBaseCost } from './product-cost';
 import { assertPublicHttpsUrl } from './public-url';
 
 describe('fulfillment-lifecycle', () => {
@@ -88,5 +88,19 @@ describe('assertPublicHttpsUrl — design nguồn URL', () => {
         details: { reason },
       });
     }
+  });
+});
+
+describe('withOrderBaseCost', () => {
+  const summary = { productCost: 5, productCostConfirmed: false, baseCostPending: true };
+
+  it('không có giá tổng ⇒ giữ nguyên tổng các dòng', () => {
+    expect(withOrderBaseCost(summary, null)).toBe(summary);
+    expect(withOrderBaseCost(summary, undefined)).toBe(summary);
+  });
+
+  it('có giá tổng ⇒ thay tổng các dòng, coi là đã xác nhận; 0 cũng là giá', () => {
+    expect(withOrderBaseCost(summary, 15.5)).toEqual({ productCost: 15.5, productCostConfirmed: true, baseCostPending: false });
+    expect(withOrderBaseCost(summary, 0)).toEqual({ productCost: 0, productCostConfirmed: true, baseCostPending: false });
   });
 });

@@ -64,7 +64,7 @@ describe('PodDashboardRepository.sellerStats — Shipping Fee / Current Profit',
     const { sql } = await run();
     expect(sql).toContain('sh.amount AS seller_shipping');
     // Công thức Profit Dự kiến KHÔNG đổi: chỉ trừ phần phí ship CHƯA nằm trong tiền thu về.
-    expect(sql).toContain('pr.amount - c.amount - CASE WHEN sh.included THEN 0 ELSE sh.amount END - ?');
+    expect(sql).toContain('pr.amount - ec.amount - CASE WHEN sh.included THEN 0 ELSE sh.amount END - ?');
   });
 
   it('current_profit (để sắp xếp) = Paid − Basecost − Label − Shipping Fee − Design Amount, NULL khi label / design khác đơn vị tiền', async () => {

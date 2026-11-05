@@ -91,6 +91,7 @@ export class PodOrderFinancialsDto {
       'OK',
       'NO_PROCEEDS',
       'NO_COST',
+      'NOT_FULFILLED',
       'COST_PENDING',
       'COST_CURRENCY_UNKNOWN',
       'CURRENCY_MISMATCH',

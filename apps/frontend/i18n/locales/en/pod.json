@@ -1619,6 +1619,7 @@
       "profitStatus": {
         "NO_PROCEEDS": "TikTok has no settlement or estimated settlement for this order yet.",
         "NO_COST": "No base cost yet — the order has not been fulfilled (or the fulfillment was cancelled).",
+        "NOT_FULFILLED": "Base cost entered manually, but the order has not been fulfilled — profit is not calculated yet.",
         "COST_PENDING": "Waiting for the fulfillment provider to confirm the base cost.",
         "COST_CURRENCY_UNKNOWN": "The provider did not state the currency of the base cost — profit is not calculated.",
         "CURRENCY_MISMATCH": "Proceeds and base cost use different currencies — profit is not calculated.",

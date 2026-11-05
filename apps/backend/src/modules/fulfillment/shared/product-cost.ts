@@ -22,6 +22,20 @@ export interface ProductCostSummary {
   baseCostPending: boolean;
 }
 
+/**
+ * Giá vốn HIỆU LỰC của lần fulfill đang giữ đơn: `pod_orders.base_cost` (Base Cost tổng nhập qua Import) nếu có, không thì
+ * tổng các dòng. Bản SQL cùng luật: `pod-tiktok/shared/order-profit.sql.ts`.
+ *
+ * Giá nhập tay là con số có người chịu trách nhiệm ⇒ coi là đã xác nhận. Kiểm `null` chứ không kiểm truthy: 0 là giá hợp lệ.
+ */
+export function withOrderBaseCost(
+  summary: ProductCostSummary,
+  orderBaseCost: { toString(): string } | number | null | undefined,
+): ProductCostSummary {
+  if (orderBaseCost === null || orderBaseCost === undefined) return summary;
+  return { productCost: Number(orderBaseCost), productCostConfirmed: true, baseCostPending: false };
+}
+
 export function productCostOf(
   submitted: boolean,
   items: ReadonlyArray<{

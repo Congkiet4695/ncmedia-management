@@ -18,6 +18,7 @@ function jsonAmount(path: string): Prisma.Sql {
  *   tiền thu về = Σ settlement_amount giao dịch ORDER đã quyết toán (MỘT đơn vị tiền)
  *                 — không có ⇒ Σ est_settlement_amount giao dịch ORDER chưa quyết toán (MỘT đơn vị tiền)
  *   giá vốn     = lần fulfill ĐANG giữ đơn (mới nhất theo updated_at, bỏ DRAFT/FAILED/CANCELLED/REJECTED):
+ *                 pod_orders.base_cost (Base Cost tổng nhập qua Import) nếu có, không thì
  *                 Σ base_cost × quantity — chỉ khi CÓ dòng, MỌI dòng có giá và ĐÃ được xác nhận
  *   phí ship    = đã quyết toán ⇒ −Σ shipping_cost_amount (ĐÃ trong tiền thu về)
  *                 ước tính, TikTok đã tính (est_shipping_cost ≠ 0 / actual_shipping_fee ≠ 0) ⇒ −Σ est_shipping_cost (ĐÃ trong)
@@ -102,21 +103,21 @@ export function orderProfitCtes(organizationId: string, label: LabelCostConfig):
       SELECT o.id, o.shop_id,
              pr.amount                     AS proceeds,
              pr.currency                   AS proceeds_currency,
-             CASE WHEN c.items > 0 AND c.unpriced = 0 AND c.unconfirmed = 0 THEN c.amount END AS base_cost,
-             c.currency                    AS cost_currency,
+             ec.amount                     AS base_cost,
+             ec.currency                   AS cost_currency,
              (c.pod_order_id IS NOT NULL)  AS fulfilled,
              sh.amount                     AS seller_shipping,
              sh.included                   AS seller_shipping_included,
              COALESCE(po.design_amount, 0) AS design_amount,
              CASE
                WHEN pr.amount IS NULL THEN NULL
-               WHEN c.items IS NULL OR c.items = 0 OR c.unpriced > 0 OR c.unconfirmed > 0 THEN NULL
-               WHEN c.currency IS NULL OR c.currency <> pr.currency THEN NULL
+               WHEN ec.amount IS NULL THEN NULL
+               WHEN ec.currency IS NULL OR ec.currency <> pr.currency THEN NULL
                WHEN sh.amount IS NULL THEN NULL
                WHEN UPPER(${label.currency}) <> pr.currency THEN NULL
                WHEN COALESCE(po.design_amount, 0) <> 0 AND pr.currency <> ${DESIGN_AMOUNT_CURRENCY} THEN NULL
                ELSE ROUND(
-                 pr.amount - c.amount - CASE WHEN sh.included THEN 0 ELSE sh.amount END - ${label.amount}::numeric
+                 pr.amount - ec.amount - CASE WHEN sh.included THEN 0 ELSE sh.amount END - ${label.amount}::numeric
                    - COALESCE(po.design_amount, 0),
                  4)
              END AS profit
@@ -140,5 +141,17 @@ export function orderProfitCtes(organizationId: string, label: LabelCostConfig):
                  (pr.src = 'S' OR (u.ship IS NOT NULL AND u.ship <> 0) OR COALESCE(u.any_actual, FALSE)) AS included
         ) sh ON TRUE
         LEFT JOIN op_cost c ON c.pod_order_id = o.id
+        -- Giá vốn hiệu lực (withOrderBaseCost). c.pod_order_id là điều kiện: đơn chưa có lần fulfill đang giữ đơn thì
+        -- giá đã lưu chưa vào lợi nhuận.
+        LEFT JOIN LATERAL (
+          SELECT CASE
+                   WHEN c.pod_order_id IS NOT NULL AND po.base_cost IS NOT NULL THEN po.base_cost
+                   WHEN c.items > 0 AND c.unpriced = 0 AND c.unconfirmed = 0 THEN c.amount
+                 END AS amount,
+                 CASE
+                   WHEN c.pod_order_id IS NOT NULL AND po.base_cost IS NOT NULL THEN UPPER(NULLIF(po.base_cost_currency, ''))
+                   ELSE c.currency
+                 END AS currency
+        ) ec ON TRUE
     )`;
 }

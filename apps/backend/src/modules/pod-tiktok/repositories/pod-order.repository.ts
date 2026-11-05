@@ -264,7 +264,16 @@ export class PodOrderRepository {
     organizationId: string,
     tiktokOrderIds: string[],
     shopIds: string[] | null,
-  ): Promise<Array<{ id: string; tiktokOrderId: string; status: string }>> {
+  ): Promise<
+    Array<{
+      id: string;
+      tiktokOrderId: string;
+      status: string;
+      currency: string | null;
+      baseCost: Prisma.Decimal | null;
+      baseCostCurrency: string | null;
+    }>
+  > {
     if (tiktokOrderIds.length === 0) return Promise.resolve([]);
     return this.prisma.podOrder.findMany({
       where: {
@@ -274,7 +283,7 @@ export class PodOrderRepository {
         ...(shopIds ? { shopId: { in: shopIds } } : {}),
       },
       // `status` = trạng thái đơn phía TikTok — Import Excel không đánh dấu đã fulfill cho đơn TikTok đã huỷ.
-      select: { id: true, tiktokOrderId: true, status: true },
+      select: { id: true, tiktokOrderId: true, status: true, currency: true, baseCost: true, baseCostCurrency: true },
     });
   }
 
