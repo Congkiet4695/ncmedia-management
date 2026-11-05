@@ -138,6 +138,19 @@ export function useFulfillmentErrors(podOrderId?: string, enabled = false) {
  * invalidate rồi hiển thị trạng thái cũ.
  */
 /**
+ * Trạng thái fulfillment của MỘT trang danh sách đơn, trong một request. Key nằm dưới `KEY` nên mọi invalidate fulfillment
+ * hiện có đều làm mới nó; react-query giữ nguyên object của đơn không đổi, nên dòng đó không render lại.
+ */
+export function useFulfillmentStates(podOrderIds: string[], enabled = true) {
+  return useQuery({
+    queryKey: [KEY, 'states', podOrderIds],
+    queryFn: () => fulfillmentService.getStates(podOrderIds),
+    enabled: enabled && podOrderIds.length > 0,
+    retry: retryTransientOnly,
+  });
+}
+
+/**
  * Admin nhập tay Base Cost. Thành công ⇒ làm mới trạng thái fulfillment, danh sách đơn (cột Giá: Lợi
  * nhuận / Margin) và Dashboard — số mới hiện ngay, không tải lại trang.
  */

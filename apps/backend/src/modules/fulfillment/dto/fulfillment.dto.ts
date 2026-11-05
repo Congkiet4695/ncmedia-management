@@ -1333,6 +1333,23 @@ export class FulfillmentStateItemDto {
   legacyConfig!: FulfillmentLegacyConfigDto | null;
 }
 
+/** Khớp cỡ trang lớn nhất của danh sách đơn (`PodOrderQueryDto.limit`). */
+export const FULFILLMENT_STATES_MAX_ORDERS = 100;
+
+export class FulfillmentStatesQueryDto {
+  @ApiProperty({
+    type: String,
+    format: 'uuid',
+    isArray: true,
+    maxItems: FULFILLMENT_STATES_MAX_ORDERS,
+    description: 'Các đơn POD của trang đang xem.',
+  })
+  @IsArray()
+  @ArrayMaxSize(FULFILLMENT_STATES_MAX_ORDERS)
+  @IsUUID(undefined, { each: true })
+  podOrderIds!: string[];
+}
+
 /** Body bật/tắt chế độ dùng chung của một nhà cung cấp (Super Admin). */
 export class SetGlobalProviderDto {
   @ApiProperty({

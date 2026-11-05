@@ -64,13 +64,13 @@ export function OrderInfoCell({ order, accountId }: OrderInfoCellProps) {
       )}
 
       <div className="flex items-center gap-1">
-        <span className="truncate font-mono text-xs text-muted-foreground">
+        <span className="min-w-0 truncate font-mono text-[11px] text-muted-foreground" title={order.tiktokOrderId}>
           {order.tiktokOrderId}
         </span>
         <CopyButton value={order.tiktokOrderId} label={t('orders.copyOrderId')} />
       </div>
 
-      <p className="font-mono text-xs tabular-nums text-muted-foreground">
+      <p className="truncate font-mono text-[11px] tabular-nums text-muted-foreground">
         {formatOrderDateTime(order.createdTime)}
       </p>
 

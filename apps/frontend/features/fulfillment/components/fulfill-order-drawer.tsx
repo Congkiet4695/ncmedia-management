@@ -72,7 +72,6 @@ import {
 import { FulfillmentIssueGroups } from './fulfillment-issue-groups';
 import { LegacyConfigNotice } from './legacy-config-notice';
 import { ProductConfigPanel } from './product-config-panel';
-import { PromotionGiftItem } from './promotion-gift-item';
 
 interface FulfillOrderDrawerProps {
   open: boolean;
@@ -361,15 +360,21 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
   /**
    * Các đơn vị giống hệt nhau gộp thành một dòng; `item` mang tổng số lượng của dòng để hiển thị "× N".
    * Mọi line item trong dòng cùng khoá sản phẩm nên ánh xạ tra từ line item nào cũng là một bản ghi.
+   *
+   * 🔴 Quà tặng chưa cấu hình không phải dòng fulfillment: backend không gửi nó sang nhà cung cấp, nên không hiện ở đây. Quà
+   * ĐÃ có Product Mapping thì backend VẪN gửi đi, nên phải hiện: giấu nó là gửi sản xuất thứ người vận hành không nhìn thấy.
+   * Chỉ lọc hiển thị: `order`, `state` và request gửi đơn không đổi.
    */
   const productRows = useMemo(
     () =>
-      groupOrderProducts(order?.items ?? []).map((row) => ({
-        row,
-        item: { ...row.sources[0], quantity: row.quantity },
-        lineIds: row.sources.map((source) => source.id),
-      })),
-    [order?.items],
+      groupOrderProducts(order?.items ?? [])
+        .map((row) => ({
+          row,
+          item: { ...row.sources[0], quantity: row.quantity },
+          lineIds: row.sources.map((source) => source.id),
+        }))
+        .filter(({ item }) => !isUnconfiguredPromotionGift(item, mappingByItemId.get(item.id))),
+    [order?.items, mappingByItemId],
   );
 
   const option = (value: string, label: string) => ({ value, label });
@@ -970,10 +975,6 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
               {renderIssues('MAPPING')}
               <div className="space-y-3">
                 {productRows.map(({ row, item, lineIds }) => {
-                  // Quà tặng khuyến mãi chưa cấu hình ⇒ chỉ đọc, không đòi Product Configuration.
-                  if (isUnconfiguredPromotionGift(item, mappingByItemId.get(item.id))) {
-                    return <PromotionGiftItem key={row.key} item={item} />;
-                  }
                   const legacyConfig = legacyConfigByItemId.get(item.id);
                   return (
                     <div key={row.key} className="space-y-2">
@@ -1040,10 +1041,7 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
             >
               {renderIssues('DESIGN')}
               {designOpen &&
-                productRows
-                  // Quà tặng chưa cấu hình không cần design — không hiện ô "thiếu design" cho nó.
-                  .filter(({ item }) => !isUnconfiguredPromotionGift(item, mappingByItemId.get(item.id)))
-                  .map(({ row, item }) => (
+                productRows.map(({ row, item }) => (
                   <div key={row.key} className="space-y-1">
                     <p className="text-xs text-muted-foreground">
                       <Package className="mr-1 inline size-3" />

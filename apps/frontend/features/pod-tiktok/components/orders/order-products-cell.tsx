@@ -1,17 +1,17 @@
 'use client';
 
-import { Gift, ImageIcon, ImageUp, Palette, RefreshCw } from 'lucide-react';
+import { useMemo, useState } from 'react';
+import { ChevronDown, ChevronUp, ImageIcon, ImageUp, Palette, RefreshCw } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
-import { isUnconfiguredPromotionGift } from '@/features/fulfillment/product-config';
 import {
   firstUndesignedSource,
-  groupOrderProducts,
   orderProductImages,
   rowDesignImages,
   rowDesignStatus,
+  splitOrderProducts,
   type LightboxRequest,
   type OrderProductRow,
 } from '../../order-view-model';
@@ -19,6 +19,7 @@ import { itemFullImageCandidates, itemThumbnailCandidates } from '../../item-ima
 import type { PodOrderItem } from '../../order-types';
 import { ItemThumbnail } from '../item-thumbnail';
 import { DesignThumbs } from './design-thumbs';
+import { PromotionGiftButton } from './promotion-gift-button';
 
 interface OrderProductsCellProps {
   items: PodOrderItem[];
@@ -27,14 +28,15 @@ interface OrderProductsCellProps {
   onPreviewImages: (request: LightboxRequest) => void;
 }
 
-/** Ảnh 60×60 theo yêu cầu — không lớn hơn, để chiều cao mỗi dòng đơn giữ nguyên. */
-const THUMB = 'size-[60px]';
+const THUMB = 'size-12';
+/** Số sản phẩm hiện trước khi thu gọn, để một đơn nhiều dòng không chiếm cả màn hình. */
+const COLLAPSED_LIMIT = 2;
 
 /**
  * Cột **Products** (§2) — cột lớn nhất của bảng.
  *
- * Mỗi sản phẩm một dòng: ảnh 60×60 · tiêu đề (tối đa 2 dòng) · Product ID · SKU × Quantity ·
- * Variant · Category · nút Upload Design.
+ * Mỗi sản phẩm chính một dòng: ảnh · tiêu đề (tối đa 2 dòng) · Product ID · SKU × Quantity · Variant · Category · nút
+ * Upload Design. Quà tặng khuyến mãi gom vào một nút, xem `PromotionGiftButton`.
  *
  * 🔴 **Design thuộc SẢN PHẨM (Product Mapping), không thuộc đơn.** Upload một lần là mọi đơn
  * cùng SKU đều có file in — nút ở đây gọi vào `/fulfillment/mappings/:id/designs/:placement`.
@@ -50,25 +52,48 @@ export function OrderProductsCell({
   onPreviewImages,
 }: OrderProductsCellProps) {
   const { t } = useTranslation('pod');
-  const rows = groupOrderProducts(items);
+  const { main: rows, gifts } = useMemo(() => splitOrderProducts(items), [items]);
+  const [expanded, setExpanded] = useState(false);
 
-  if (rows.length === 0) {
+  if (rows.length === 0 && gifts.length === 0) {
     return <p className="text-xs text-muted-foreground">{t('product.empty')}</p>;
   }
 
+  const visible = expanded ? rows : rows.slice(0, COLLAPSED_LIMIT);
+  const hiddenCount = rows.length - COLLAPSED_LIMIT;
+
   return (
-    <ul className="space-y-2">
-      {rows.map((row, rowIndex) => (
-        <ProductRow
-          key={row.key}
-          row={row}
-          rowIndex={rowIndex}
-          allRows={rows}
-          onUploadDesign={onUploadDesign}
-          onPreviewImages={onPreviewImages}
-        />
-      ))}
-    </ul>
+    <div className="space-y-2">
+      {rows.length > 0 && (
+        <ul className="space-y-2">
+          {visible.map((row, rowIndex) => (
+            <ProductRow
+              key={row.key}
+              row={row}
+              rowIndex={rowIndex}
+              allRows={rows}
+              onUploadDesign={onUploadDesign}
+              onPreviewImages={onPreviewImages}
+            />
+          ))}
+        </ul>
+      )}
+      {hiddenCount > 0 && (
+        <button
+          type="button"
+          aria-expanded={expanded}
+          onClick={(event) => {
+            event.stopPropagation();
+            setExpanded((prev) => !prev);
+          }}
+          className="flex items-center gap-1 text-[11px] font-medium text-muted-foreground hover:text-foreground"
+        >
+          {expanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
+          {expanded ? t('product.collapse') : t('product.showMore', { count: hiddenCount })}
+        </button>
+      )}
+      {gifts.length > 0 && <PromotionGiftButton gifts={gifts} />}
+    </div>
   );
 }
 
@@ -90,8 +115,6 @@ function ProductRow({
   const { t } = useTranslation('pod');
 
   const design = rowDesignStatus(row);
-  // Quà tặng khuyến mãi chưa cấu hình: không cần design ⇒ không hiện "thiếu design" / nút Upload.
-  const unconfiguredGift = isUnconfiguredPromotionGift(row, row.mappingId);
 
   /**
    * Bấm ảnh sản phẩm ⇒ mở bộ xem ảnh, GIỐNG HỆT bấm ảnh design.
@@ -118,7 +141,8 @@ function ProductRow({
   const thumbnails = itemThumbnailCandidates(row);
 
   return (
-    <li className="flex gap-2.5">
+    <li className="min-w-0 space-y-1">
+      <div className="flex min-w-0 gap-2">
       {/* Ảnh sản phẩm — bấm để xem cỡ lớn (cùng bộ xem với ảnh design). */}
       <button
         type="button"
@@ -170,87 +194,71 @@ function ProductRow({
           <MetaLine label={t('product.category')} value={row.productCategory} />
         </div>
       </div>
+      </div>
 
-      <div className="flex shrink-0 flex-col items-end gap-1">
-        {row.isPodCustomized && (
-          <Badge variant="default" className="h-5 px-1.5 text-[10px]">
-            <Palette className="mr-0.5 size-2.5" />
-            POD
-          </Badge>
-        )}
+      {/* Trạng thái và thao tác nằm dưới thông tin, không chiếm một cột riêng làm hẹp tiêu đề. */}
+        <div className="flex flex-wrap items-center gap-1">
+          {row.isPodCustomized && (
+            <Badge variant="default" className="h-5 px-1.5 text-[10px]">
+              <Palette className="mr-0.5 size-2.5" />
+              POD
+            </Badge>
+          )}
 
-        {/* Ảnh thu nhỏ Front/Back hiện ngay tại chỗ, hover để phóng to. */}
-        <DesignThumbs
-          front={design.front}
-          back={design.back}
-          onPreview={(src) => {
-            const images = rowDesignImages(row);
-            const index = Math.max(
-              0,
-              images.findIndex((image) => image.src === src),
-            );
-            onPreviewImages({ images, index });
-          }}
-        />
+          {/* Ảnh thu nhỏ Front/Back hiện ngay tại chỗ, hover để phóng to. */}
+          <DesignThumbs
+            front={design.front}
+            back={design.back}
+            onPreview={(src) => {
+              const images = rowDesignImages(row);
+              const index = Math.max(
+                0,
+                images.findIndex((image) => image.src === src),
+              );
+              onPreviewImages({ images, index });
+            }}
+          />
 
-        {/* 🔴 Cột Product KHÔNG còn cảnh báo / nút ánh xạ ("Missing Product Mapping", "Needs
-            manual mapping", "Map Product") — theo yêu cầu nghiệp vụ. Cấu hình sản phẩm cho nhà
-            cung cấp nằm trong drawer Fulfill (Cấu hình sản phẩm) và màn hình Product Mapping;
-            readiness ở backend vẫn chặn gửi đơn thiếu ánh xạ như cũ. */}
-
-        {row.isGift && (
-          <Tooltip content={t('product.promotionGiftHint')}>
-            <Badge variant="info" className="h-5 px-1.5 text-[10px]">
-              <Gift className="mr-0.5 size-2.5" />
-              {t('product.promotionGift')}
+          {/* 🔴 Cột Product KHÔNG có cảnh báo / nút ánh xạ — cấu hình sản phẩm nằm trong drawer Fulfill và màn hình Product
+              Mapping; readiness ở backend vẫn chặn gửi đơn thiếu ánh xạ như cũ. */}
+          <Tooltip
+            content={
+              design.state === 'READY'
+                ? // Thiếu mặt sau là GHI CHÚ, không phải lỗi: §5 nói rõ sản phẩm chỉ cần
+                  // Front vẫn Ready. Backend cũng cho gửi.
+                  design.backMissing
+                  ? t('product.designMissingBackHint')
+                  : t('product.designReadyHint')
+                : t('product.designMissingFrontHint')
+            }
+          >
+            <Badge
+              variant={design.state === 'READY' ? 'success' : 'warning'}
+              className="h-5 whitespace-nowrap px-1.5 text-[10px]"
+            >
+              {design.state === 'READY'
+                ? design.backMissing
+                  ? t('product.designReadyNoBack')
+                  : t('product.designReady')
+                : t('product.designMissingFront')}
             </Badge>
           </Tooltip>
-        )}
 
-        {!unconfiguredGift && (
-          <>
-            <Tooltip
-              content={
-                design.state === 'READY'
-                  ? // Thiếu mặt sau là GHI CHÚ, không phải lỗi: §5 nói rõ sản phẩm chỉ cần
-                    // Front vẫn Ready. Backend cũng cho gửi.
-                    design.backMissing
-                    ? t('product.designMissingBackHint')
-                    : t('product.designReadyHint')
-                  : t('product.designMissingFrontHint')
-              }
-            >
-              <Badge
-                variant={design.state === 'READY' ? 'success' : 'warning'}
-                className="h-6 whitespace-nowrap px-2 text-[11px]"
-              >
-                {design.state === 'READY'
-                  ? design.backMissing
-                    ? t('product.designReadyNoBack')
-                    : t('product.designReady')
-                  : t('product.designMissingFront')}
-              </Badge>
-            </Tooltip>
-
+          <Tooltip content={design.state === 'READY' ? t('product.manageDesign') : t('product.uploadDesign')}>
             <Button
               variant={design.state === 'READY' ? 'outline' : 'default'}
               size="sm"
-              className="h-6 whitespace-nowrap px-2 text-[11px]"
+              className="size-5 p-0"
+              aria-label={design.state === 'READY' ? t('product.manageDesign') : t('product.uploadDesign')}
               onClick={(event) => {
                 event.stopPropagation();
                 onUploadDesign(firstUndesignedSource(row));
               }}
             >
-              {design.state === 'READY' ? (
-                <RefreshCw className="size-3" />
-              ) : (
-                <ImageUp className="size-3" />
-              )}
-              {design.state === 'READY' ? t('product.manageDesign') : t('product.uploadDesign')}
+              {design.state === 'READY' ? <RefreshCw className="size-3" /> : <ImageUp className="size-3" />}
             </Button>
-          </>
-        )}
-      </div>
+          </Tooltip>
+        </div>
     </li>
   );
 }
@@ -259,7 +267,7 @@ function ProductRow({
 function MetaLine({ label, value, mono }: { label: string; value: string | null; mono?: boolean }) {
   if (!value) return null;
   return (
-    <div className="flex gap-1 truncate">
+    <div className="flex gap-1 truncate" title={value}>
       <span className="shrink-0 opacity-70">{label}:</span>
       <span className={mono ? 'truncate font-mono' : 'truncate'}>{value}</span>
     </div>

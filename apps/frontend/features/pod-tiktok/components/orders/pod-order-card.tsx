@@ -15,6 +15,7 @@ import { OrderProductsCell } from './order-products-cell';
 import { TrackingCell } from './tracking-cell';
 import type { LightboxRequest } from '../../order-view-model';
 import type { PodOrderItem, PodOrderListItem } from '../../order-types';
+import type { FulfillmentState } from '@/features/fulfillment/types';
 
 interface PodOrderCardProps {
   order: PodOrderListItem;
@@ -24,6 +25,8 @@ interface PodOrderCardProps {
   canViewFulfillment: boolean;
   canFulfill: boolean;
   canCancelFulfillment: boolean;
+  fulfillmentState: FulfillmentState | undefined;
+  fulfillmentLoading: boolean;
   onToggleSelect: (id: string) => void;
   onToggleExpand: (id: string) => void;
   onUploadDesign: (item: PodOrderItem) => void;
@@ -47,6 +50,8 @@ export function PodOrderCard({
   canViewFulfillment,
   canFulfill,
   canCancelFulfillment,
+  fulfillmentState,
+  fulfillmentLoading,
   onToggleSelect,
   onToggleExpand,
   onUploadDesign,
@@ -78,7 +83,7 @@ export function PodOrderCard({
           <OrderActionMenu
             orderId={order.id}
             items={order.items}
-            canViewFulfillment={canViewFulfillment}
+            state={fulfillmentState}
             canFulfill={canFulfill}
             canCancel={canCancelFulfillment}
             onUploadDesign={onUploadDesign}
@@ -116,6 +121,9 @@ export function PodOrderCard({
             podOrderId={order.id}
             enabled={canViewFulfillment}
             canFulfill={canFulfill}
+            state={fulfillmentState}
+            stateLoading={fulfillmentLoading}
+            items={order.items}
           />
         </div>
 

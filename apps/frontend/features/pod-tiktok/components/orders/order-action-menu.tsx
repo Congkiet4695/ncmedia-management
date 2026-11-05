@@ -16,8 +16,8 @@ import { Tooltip } from '@/components/ui/tooltip';
 import { useApiError } from '@/hooks/use-api-error';
 import {
   useFulfillmentActions,
-  useFulfillmentState,
 } from '@/features/fulfillment/hooks/use-fulfillment';
+import type { FulfillmentState } from '@/features/fulfillment/types';
 import { pendingDesignTargets } from '../../order-view-model';
 import type { PodOrderItem } from '../../order-types';
 
@@ -25,7 +25,8 @@ interface OrderActionMenuProps {
   orderId: string;
   items: PodOrderItem[];
   /** Quyền `fulfillment.read` — quyết định có hỏi trạng thái xưởng in hay không. */
-  canViewFulfillment: boolean;
+  /** Trạng thái của đơn, do bảng tải theo lô cho cả trang. */
+  state: FulfillmentState | undefined;
   canFulfill: boolean;
   /**
    * Quyền `fulfillment.cancel` — huỷ đơn đã gửi sang xưởng in (Admin, và Seller với đơn thuộc shop
@@ -58,7 +59,7 @@ interface OrderActionMenuProps {
 export function OrderActionMenu({
   orderId,
   items,
-  canViewFulfillment,
+  state,
   canFulfill,
   canCancel,
   onUploadDesign,
@@ -67,19 +68,18 @@ export function OrderActionMenu({
   const router = useRouter();
   const translateApiError = useApiError();
   const actions = useFulfillmentActions(orderId);
-  // 🔴 KHÔNG thêm request: `FulfillmentCell` của cùng dòng đã hỏi đúng query key này, nên
-  // react-query trả về từ cache thay vì gọi lần hai.
-  const state = useFulfillmentState(orderId, canViewFulfillment);
-  const hasFulfillment = Boolean(state.data?.fulfillment);
+  const hasFulfillment = Boolean(state?.fulfillment);
   // Bản ghi nhập tay (Import Excel) không có ở nhà cung cấp ⇒ không có gì để đồng bộ (backend cũng chặn).
-  const manualRecord = state.data?.fulfillment?.source === 'MANUAL_IMPORT';
+  const manualRecord = state?.fulfillment?.source === 'MANUAL_IMPORT';
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState('');
 
   // Ưu tiên sản phẩm còn thiếu mặt trước; không có thì mở sản phẩm đầu đã khai ánh xạ để
   // người dùng vẫn xem/thay được design đang dùng.
+  // Quà tặng không phải sản phẩm cần design: không mở dialog cho nó khi đơn còn sản phẩm chính.
+  const mainItems = items.filter((item) => !item.isGift);
   const pendingDesign =
-    pendingDesignTargets(items)[0] ?? items.find((item) => item.mappingId !== null) ?? items[0];
+    pendingDesignTargets(mainItems)[0] ?? mainItems.find((item) => item.mappingId !== null) ?? mainItems[0];
 
   return (
     <div className="flex items-center justify-end gap-0.5">
@@ -145,7 +145,7 @@ export function OrderActionMenu({
 
         {/* Chỉ hiện khi CÓ quyền và bản ghi đang ở trạng thái huỷ được (backend tính `canCancel`):
             đơn chưa gửi / đã vào sản xuất / đã huỷ thì không có thao tác này. */}
-        {canCancel && state.data?.canCancel && (
+        {canCancel && state?.canCancel && (
           <DropdownMenuItem
             destructive
             disabled={actions.cancel.isPending}

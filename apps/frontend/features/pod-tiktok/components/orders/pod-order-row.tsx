@@ -1,5 +1,6 @@
 'use client';
 
+import { memo, useMemo } from 'react';
 import { ChevronDown, ChevronRight } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -17,32 +18,35 @@ import { OrderProductsCell } from './order-products-cell';
 import { TrackingCell } from './tracking-cell';
 import type { LightboxRequest } from '../../order-view-model';
 import type { PodOrderItem, PodOrderListItem } from '../../order-types';
+import type { FulfillmentState } from '@/features/fulfillment/types';
 
 /** Số cột của bảng — dùng cho `colSpan` của dòng mở rộng. */
 export const ORDER_COLUMN_COUNT = 9;
 
 /**
- * Kích thước cột — MỘT nguồn cho cả `<th>` (`PodOrderTable`) lẫn `<td>` (dòng đơn).
+ * Độ rộng cột — MỘT nguồn cho cả `<th>` và `<td>`, dùng với `table-fixed`.
  *
- * `cell`: class của `<th>`/`<td>` (độ rộng gợi ý + ẩn theo breakpoint).
- * `content`: `min-width` của khối nội dung BÊN TRONG ô — đây mới là thứ giữ cột không co.
- *
- * 🔴 Vì sao `min-width` đặt ở khối bên trong chứ không đặt trên `<td>`: bảng dùng layout `auto`, độ rộng cột
- * = min-content của nội dung, còn `min-width` trên ô bảng không được trình duyệt áp dụng nhất quán. Đặt ở khối
- * con thì min-content của ô = đúng số này ⇒ cột không bao giờ hẹp hơn nội dung cần, nội dung không tràn sang
- * cột bên cạnh. Tổng các `content` lớn hơn vùng hiển thị ⇒ bảng cuộn NGANG trong khung `Table`
- * (`overflow-x-auto`), không ép cột xuống.
+ * Bảng phải vừa khung mà không cuộn ngang: các cột dữ liệu có độ rộng cố định, chỉ Products co giãn theo phần còn lại, nên
+ * tên sản phẩm dài không thể đẩy Fulfillment và Action ra ngoài. Khung hẹp hơn `ORDER_TABLE_MIN_WIDTH` thì dùng dạng card.
  */
 export const ORDER_COLUMNS = {
-  info: { cell: 'w-[200px]', content: 'min-w-[180px]' },
-  products: { cell: '', content: 'min-w-[300px]' },
-  // Giá: 10 dòng nhãn + số tiền; nhãn dài nhất ("Phí ship Seller (đã trừ)") + "−1,234.56 US$" vẫn vừa 1 dòng.
-  price: { cell: 'w-[250px]', content: 'min-w-[230px]' },
-  status: { cell: 'w-[140px]', content: 'min-w-[120px]' },
-  tracking: { cell: 'w-[160px]', content: 'min-w-[140px]' },
-  fulfillment: { cell: 'w-[170px]', content: 'min-w-[150px]' },
-  action: { cell: 'w-[80px]', content: '' },
+  select: 'w-8 px-2',
+  expand: 'w-7 px-0',
+  info: 'w-[140px] px-2',
+  products: 'px-2',
+  price: 'w-[172px] px-2',
+  status: 'w-[88px] px-2',
+  tracking: 'w-[108px] px-2',
+  fulfillment: 'w-[128px] px-2',
+  action: 'w-[72px] px-1',
 } as const;
+
+/**
+ * Độ rộng KHUNG tối thiểu để dùng bảng: tổng các cột cố định (768px) + cột Products đủ đọc. Màn 1366px với sidebar mở có khung
+ * khoảng 955px, phải dùng được bảng. Đo khung chứ không đo viewport,
+ * vì cùng một màn hình, sidebar mở hay thu gọn chênh nhau 180px.
+ */
+export const ORDER_TABLE_MIN_WIDTH = 920;
 
 interface PodOrderRowProps {
   order: PodOrderListItem;
@@ -52,6 +56,9 @@ interface PodOrderRowProps {
   canViewFulfillment: boolean;
   canFulfill: boolean;
   canCancelFulfillment: boolean;
+  /** Trạng thái fulfillment của đơn, bảng tải theo lô cho cả trang. */
+  fulfillmentState: FulfillmentState | undefined;
+  fulfillmentLoading: boolean;
   onToggleSelect: (id: string) => void;
   onToggleExpand: (id: string) => void;
   onUploadDesign: (item: PodOrderItem) => void;
@@ -67,11 +74,14 @@ interface PodOrderRowProps {
  * gọi ba query; render sẵn rồi giấu đi là 50 dòng × 3 request cho một màn hình mà người dùng
  * chưa mở cái nào.
  *
+ * Bọc `memo`: tick hoặc mở một dòng chỉ render lại dòng đó. Props đều ổn định: callback từ `useCallback`, `order` và
+ * `fulfillmentState` giữ nguyên object khi dữ liệu không đổi nhờ structural sharing của react-query.
+ *
  * 🔴 Click vào dòng để mở rộng, nhưng mọi phần tử tương tác bên trong (checkbox, nút Copy,
  * link, Upload Design, Fulfill) đều `stopPropagation`: bấm Copy mà dòng bật mở ra là một
  * kiểu "đúng theo code, sai theo ý người dùng".
  */
-export function PodOrderRow({
+export const PodOrderRow = memo(function PodOrderRow({
   order,
   accountId,
   selected,
@@ -79,26 +89,28 @@ export function PodOrderRow({
   canViewFulfillment,
   canFulfill,
   canCancelFulfillment,
+  fulfillmentState,
+  fulfillmentLoading,
   onToggleSelect,
   onToggleExpand,
   onUploadDesign,
   onPreviewImages,
 }: PodOrderRowProps) {
   const { t } = useTranslation('pod');
-  const price = buildPriceBreakdown(order);
-  const tracking = collectTrackingNumbers(order);
+  const price = useMemo(() => buildPriceBreakdown(order), [order]);
+  const tracking = useMemo(() => collectTrackingNumbers(order), [order]);
 
   return (
     <>
       <TableRow
         onClick={() => onToggleExpand(order.id)}
         className={cn(
-          'cursor-pointer align-top',
+          'cursor-pointer [&>td]:align-top',
           selected && 'bg-primary/5',
           expanded && 'border-b-0',
         )}
       >
-        <TableCell className="w-9 pr-0">
+        <TableCell className={ORDER_COLUMNS.select}>
           <Checkbox
             checked={selected}
             aria-label={t('orders.bulk.selectRow')}
@@ -107,7 +119,7 @@ export function PodOrderRow({
           />
         </TableCell>
 
-        <TableCell className="w-8 px-1">
+        <TableCell className={ORDER_COLUMNS.expand}>
           <Tooltip content={expanded ? t('orders.collapseRow') : t('orders.expandRow')}>
             <button
               type="button"
@@ -125,61 +137,53 @@ export function PodOrderRow({
         </TableCell>
 
         {/* 1. Info */}
-        <TableCell className={ORDER_COLUMNS.info.cell}>
-          <div className={ORDER_COLUMNS.info.content}>
-            <OrderInfoCell order={order} accountId={accountId} />
-          </div>
+        <TableCell className={ORDER_COLUMNS.info}>
+          <OrderInfoCell order={order} accountId={accountId} />
         </TableCell>
 
-        {/* 2. Products — cột lớn nhất */}
-        <TableCell className={ORDER_COLUMNS.products.cell}>
-          <div className={ORDER_COLUMNS.products.content}>
-            <OrderProductsCell
-              items={order.items}
-              onUploadDesign={onUploadDesign}
-              onPreviewImages={onPreviewImages}
-            />
-          </div>
+        {/* 2. Products — cột co giãn */}
+        <TableCell className={ORDER_COLUMNS.products}>
+          <OrderProductsCell
+            items={order.items}
+            onUploadDesign={onUploadDesign}
+            onPreviewImages={onPreviewImages}
+          />
         </TableCell>
 
-        {/* 3. Price — luôn hiện (bảng cuộn ngang khi thiếu chỗ, không giấu dữ liệu giá). */}
-        <TableCell className={ORDER_COLUMNS.price.cell}>
-          <div className={ORDER_COLUMNS.price.content}>
-            <OrderPriceCell price={price} />
-          </div>
+        {/* 3. Price */}
+        <TableCell className={ORDER_COLUMNS.price}>
+          <OrderPriceCell price={price} />
         </TableCell>
 
-        {/* 4. Order Status — cột độc lập: badge dòng riêng, chữ dài xuống dòng TRONG cột. */}
-        <TableCell className={ORDER_COLUMNS.status.cell}>
-          <div className={ORDER_COLUMNS.status.content}>
-            <PodOrderStatusBadge status={order.status} />
-          </div>
+        {/* 4. Order Status — badge dòng riêng, chữ dài xuống dòng TRONG cột. */}
+        <TableCell className={ORDER_COLUMNS.status}>
+          {/* Cột hẹp: chữ xuống dòng trong badge, không tràn sang cột Tracking. */}
+          <PodOrderStatusBadge status={order.status} className="whitespace-normal rounded-md px-1.5 text-[11px] leading-tight" />
         </TableCell>
 
         {/* 5. Tracking Number */}
-        <TableCell className={ORDER_COLUMNS.tracking.cell}>
-          <div className={ORDER_COLUMNS.tracking.content}>
-            <TrackingCell numbers={tracking} />
-          </div>
+        <TableCell className={ORDER_COLUMNS.tracking}>
+          <TrackingCell numbers={tracking} />
         </TableCell>
 
         {/* 6. Fulfillment Info */}
-        <TableCell className={ORDER_COLUMNS.fulfillment.cell}>
-          <div className={ORDER_COLUMNS.fulfillment.content}>
-            <FulfillmentCell
-              podOrderId={order.id}
-              enabled={canViewFulfillment}
-              canFulfill={canFulfill}
-            />
-          </div>
+        <TableCell className={ORDER_COLUMNS.fulfillment}>
+          <FulfillmentCell
+            podOrderId={order.id}
+            enabled={canViewFulfillment}
+            canFulfill={canFulfill}
+            state={fulfillmentState}
+            stateLoading={fulfillmentLoading}
+            items={order.items}
+          />
         </TableCell>
 
         {/* Action */}
-        <TableCell className={ORDER_COLUMNS.action.cell}>
+        <TableCell className={ORDER_COLUMNS.action}>
           <OrderActionMenu
             orderId={order.id}
             items={order.items}
-            canViewFulfillment={canViewFulfillment}
+            state={fulfillmentState}
             canFulfill={canFulfill}
             canCancel={canCancelFulfillment}
             onUploadDesign={onUploadDesign}
@@ -196,4 +200,4 @@ export function PodOrderRow({
       )}
     </>
   );
-}
+});

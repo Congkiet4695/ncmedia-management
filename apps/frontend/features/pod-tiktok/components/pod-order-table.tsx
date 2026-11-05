@@ -1,14 +1,15 @@
 'use client';
 
+import { useMemo, useState, useCallback, useRef } from 'react';
 import { Package } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Checkbox } from '@/components/ui/checkbox';
 import { Skeleton } from '@/components/ui/skeleton';
-import { useMediaQuery } from '@/hooks/use-media-query';
+import { useFulfillmentStates } from '@/features/fulfillment/hooks/use-fulfillment';
 import { cn } from '@/lib/utils';
 import { Table, TableBody, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { PodOrderCard } from './orders/pod-order-card';
-import { ORDER_COLUMNS, PodOrderRow } from './orders/pod-order-row';
+import { ORDER_COLUMNS, ORDER_TABLE_MIN_WIDTH, PodOrderRow } from './orders/pod-order-row';
 import type { LightboxRequest } from '../order-view-model';
 import type { PodOrderItem, PodOrderListItem } from '../order-types';
 
@@ -29,9 +30,6 @@ interface PodOrderTableProps {
   onPreviewImages: (request: LightboxRequest) => void;
 }
 
-/** Breakpoint `md` của Tailwind — ranh giới giữa bảng và card. */
-const DESKTOP_QUERY = '(min-width: 768px)';
-
 /** Số dòng skeleton khi tải — xấp xỉ một trang để bố cục không nhảy khi dữ liệu về. */
 const SKELETON_ROWS = 6;
 
@@ -39,22 +37,55 @@ const SKELETON_ROWS = 6;
  * Danh sách đơn POD.
  *
  * ```
- *   ≥ lg   →  bảng đủ 6 cột nghiệp vụ + chọn + mở rộng + hành động
- *   md     →  bảng rút gọn (ẩn Price và Tracking — thông tin tra cứu, không phải thao tác)
- *   < md   →  card
+ *   khung ≥ ORDER_TABLE_MIN_WIDTH  →  bảng đủ cột, vừa khung, không cuộn ngang
+ *   khung hẹp hơn                  →  card
  * ```
+ *
+ * 🔴 Trạng thái fulfillment tải theo lô MỘT request cho cả trang, truyền xuống từng dòng. Mỗi dòng tự gọi API là N request
+ * và N lần lặp cùng các truy vấn ở backend.
  *
  * 🔴 Hai bố cục dựng từ CÙNG một bộ cell (xem `pod-order-card.tsx`), nên không có nguy cơ
  * desktop và mobile hiển thị khác nhau.
  *
- * 🔴 Chỉ RENDER bố cục đang hiển thị (theo media query), không render cả hai rồi ẩn bằng CSS.
+ * 🔴 Chỉ RENDER bố cục đang hiển thị, không render cả hai rồi ẩn bằng CSS.
  * Render cả hai là mỗi đơn dựng hai lần mọi cell (ảnh, tooltip, menu, hook fulfillment) và hai
  * lần `OrderExpand` khi mở rộng — gấp đôi DOM và công render cho phần không ai nhìn thấy.
  *
  * 🔴 Không có dòng nào render sẵn phần chi tiết: `OrderExpand` chỉ tồn tại khi người dùng mở
  * dòng đó. Đây là lý do một trang 50 đơn vẫn nhẹ.
  */
-export function PodOrderTable({
+export function PodOrderTable(props: PodOrderTableProps) {
+  const [wide, containerRef] = useContainerAtLeast(ORDER_TABLE_MIN_WIDTH);
+  return (
+    <div ref={containerRef}>
+      <PodOrderList {...props} wide={wide} />
+    </div>
+  );
+}
+
+/**
+ * Khung có rộng ít nhất `minWidth` không. Chỉ đổi state khi vượt ngưỡng, nên kéo cửa sổ hay thu sidebar không render lại danh
+ * sách. Trước khi đo được thì coi là đủ rộng (bố cục phổ biến nhất).
+ */
+function useContainerAtLeast(minWidth: number): [boolean, (node: HTMLDivElement | null) => void] {
+  const [wide, setWide] = useState(true);
+  const observer = useRef<ResizeObserver | null>(null);
+  const attach = useCallback(
+    (node: HTMLDivElement | null) => {
+      observer.current?.disconnect();
+      observer.current = null;
+      if (!node) return;
+      setWide(node.clientWidth >= minWidth);
+      observer.current = new ResizeObserver(([entry]) => setWide(entry.contentRect.width >= minWidth));
+      observer.current.observe(node);
+    },
+    [minWidth],
+  );
+  return [wide, attach];
+}
+
+function PodOrderList({
+  wide,
   orders,
   loading,
   selectedIds,
@@ -67,9 +98,10 @@ export function PodOrderTable({
   onToggleExpand,
   onUploadDesign,
   onPreviewImages,
-}: PodOrderTableProps) {
+}: PodOrderTableProps & { wide: boolean }) {
   const { t } = useTranslation('pod');
-  const isDesktop = useMediaQuery(DESKTOP_QUERY, true);
+  const orderIds = useMemo(() => orders.map((order) => order.id), [orders]);
+  const fulfillment = useFulfillmentStates(orderIds, canViewFulfillment);
 
   if (loading) return <TableSkeleton />;
 
@@ -85,13 +117,13 @@ export function PodOrderTable({
   const allSelected = orders.every((order) => selectedIds.has(order.id));
   const someSelected = !allSelected && orders.some((order) => selectedIds.has(order.id));
 
-  if (isDesktop) {
+  if (wide) {
     return (
       // ---------------------------------------------------------------- Desktop / Tablet
-      <Table>
+      <Table className="table-fixed">
         <TableHeader>
           <TableRow className="hover:bg-transparent">
-            <TableHead className="w-9 pr-0">
+            <TableHead className={ORDER_COLUMNS.select}>
               <Checkbox
                 checked={allSelected}
                 indeterminate={someSelected}
@@ -99,23 +131,22 @@ export function PodOrderTable({
                 onChange={onToggleSelectAll}
               />
             </TableHead>
-            <TableHead className="w-8 px-1" />
-            <TableHead className={ORDER_COLUMNS.info.cell}>{t('orders.columns.info')}</TableHead>
-            <TableHead className={ORDER_COLUMNS.products.cell}>
+            <TableHead className={ORDER_COLUMNS.expand} />
+            <TableHead className={ORDER_COLUMNS.info}>{t('orders.columns.info')}</TableHead>
+            <TableHead className={ORDER_COLUMNS.products}>
               {t('orders.columns.products')}
             </TableHead>
-            {/* Mọi cột luôn hiện; thiếu chỗ ⇒ bảng cuộn ngang trong khung `Table` (không ép cột, không giấu giá). */}
-            <TableHead className={ORDER_COLUMNS.price.cell}>{t('orders.columns.price')}</TableHead>
-            <TableHead className={ORDER_COLUMNS.status.cell}>
+            <TableHead className={ORDER_COLUMNS.price}>{t('orders.columns.price')}</TableHead>
+            <TableHead className={ORDER_COLUMNS.status}>
               {t('orders.columns.status')}
             </TableHead>
-            <TableHead className={ORDER_COLUMNS.tracking.cell}>
+            <TableHead className={ORDER_COLUMNS.tracking}>
               {t('orders.columns.tracking')}
             </TableHead>
-            <TableHead className={ORDER_COLUMNS.fulfillment.cell}>
+            <TableHead className={ORDER_COLUMNS.fulfillment}>
               {t('orders.columns.fulfillment')}
             </TableHead>
-            <TableHead className={cn(ORDER_COLUMNS.action.cell, 'text-right')}>
+            <TableHead className={cn(ORDER_COLUMNS.action, 'text-right')}>
               {t('orders.columns.action')}
             </TableHead>
           </TableRow>
@@ -131,6 +162,8 @@ export function PodOrderTable({
               canViewFulfillment={canViewFulfillment}
               canFulfill={canFulfill}
               canCancelFulfillment={canCancelFulfillment}
+              fulfillmentState={fulfillment.data?.[order.id]}
+              fulfillmentLoading={fulfillment.isLoading}
               onToggleSelect={onToggleSelect}
               onToggleExpand={onToggleExpand}
               onUploadDesign={onUploadDesign}
@@ -155,6 +188,8 @@ export function PodOrderTable({
           canViewFulfillment={canViewFulfillment}
           canFulfill={canFulfill}
           canCancelFulfillment={canCancelFulfillment}
+          fulfillmentState={fulfillment.data?.[order.id]}
+          fulfillmentLoading={fulfillment.isLoading}
           onToggleSelect={onToggleSelect}
           onToggleExpand={onToggleExpand}
           onUploadDesign={onUploadDesign}

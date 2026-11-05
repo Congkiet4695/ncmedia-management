@@ -77,6 +77,7 @@ import {
   FulfillmentReadinessService,
   MappingWithDesigns,
   issueSectionOf,
+  type PlacementResolver,
   type ReadinessIssue,
 } from './fulfillment-readiness.service';
 import { FulfillmentShippingLabelService } from './fulfillment-shipping-label.service';
@@ -938,16 +939,150 @@ export class FulfillmentService {
 
     // Bản ghi HIỆN HÀNH bất kể nhà cung cấp — đơn đã gửi Sellerwix mở ra phải thấy Sellerwix.
     const current = await this.repo.findCurrentByPodOrder(organizationId, podOrderId);
+    const usable = await this.usableAccounts(organizationId);
+    const availableProviders = this.availableProvidersOf(usable, order);
+    const account = await this.pickStateAccount(order, current, usable, selectedAccountId, (id) =>
+      this.repo.findAccountById(organizationId, id),
+    );
+    const record = account
+      ? await this.repo.findByPodOrder(organizationId, podOrderId, account.provider)
+      : current;
 
-    // 🔴 Thứ tự chọn nhà cung cấp GIỐNG HỆT `FulfillmentProviderGateway.resolveAccountForFulfill`:
-    // người dùng chọn → bản ghi hiện hành → nhà cung cấp gán cho kết nối TikTok → nhà cung cấp
-    // DUY NHẤT khả dụng. Hai nơi lệch nhau là màn hình đánh giá một nhà cung cấp còn luồng gửi
-    // dùng nhà cung cấp khác. Danh sách gồm MỌI nhà cung cấp đã tích hợp (Mango, Sellerwix…).
-    const assignedId = order.account?.fulfillmentAccountId ?? null;
-    const usable = (await this.repo.listAccounts(organizationId)).filter(
+    if (!account || !account.isActive) {
+      return this.providerUnavailableState(
+        order,
+        account,
+        record,
+        availableProviders,
+        await this.cancellationOf(organizationId, record),
+      );
+    }
+
+    // 🔴 Phạm vi TỔ CHỨC, không phải tài khoản: danh tính của ánh xạ là
+    // (organization, Product ID, Seller SKU) và DB có UNIQUE đúng bộ ba đó. Lọc thêm theo
+    // tài khoản sẽ khiến màn hình đơn (tra org-wide) và luồng gửi đơn nhìn thấy hai kết quả
+    // khác nhau — đúng triệu chứng "danh sách báo đã ánh xạ mà bấm Fulfill lại bảo thiếu".
+    // Ánh xạ khai cho nhà cung cấp khác được `check()` báo bằng MAPPING_PROVIDER_MISMATCH.
+    //
+    // 🔴 Chỉ nạp ánh xạ/design của ĐÚNG các sản phẩm trong đơn. Kết quả ghép không đổi: `check()`
+    // chỉ tra ánh xạ theo khoá của từng dòng hàng.
+    const productIds = productIdsOf(order.items);
+    const [mappings, designRows] = await Promise.all([
+      this.repo.listMappingsForProducts(organizationId, productIds),
+      this.repo.listProductDesignsForProducts(organizationId, productIds),
+    ]);
+    // Đơn đang ở xưởng của nhà cung cấp KHÁC ⇒ không cho gửi thêm (sản xuất hai lần).
+    const blocking = await this.repo.findBlockingRecordOfOtherProvider(
+      organizationId,
+      podOrderId,
+      account.provider,
+    );
+    return this.readyState({
+      order,
+      account,
+      record,
+      mappings,
+      designsByKey: this.groupDesignsByKey(designRows),
+      placementResolver: await this.gateway.placementResolver(account, mappings),
+      blocking,
+      availableProviders,
+      cancellation: await this.cancellationOf(organizationId, record),
+    });
+  }
+
+  /**
+   * Trạng thái fulfillment của MỘT TRANG đơn — cho danh sách đơn.
+   *
+   * 🔴 Danh sách từng gọi `getState` cho mỗi dòng: N request HTTP, mỗi request lặp lại cùng các truy vấn (tài khoản,
+   * ánh xạ, design, biến thể nhà cung cấp). Hàm này nạp dữ liệu dùng chung MỘT lần rồi dựng kết quả bằng ĐÚNG các hàm
+   * `getState` dùng (`pickStateAccount`, `readyState`, `providerUnavailableState`), nên hai đường không thể đánh giá khác nhau.
+   * Chỉ phần huỷ (`cancellationOf`) còn truy vấn theo đơn, và chỉ với đơn đang `CANCELLED`.
+   *
+   * Đơn không tồn tại hoặc ngoài phạm vi shop không có trong kết quả (không báo lỗi cả trang).
+   */
+  async getStates(
+    organizationId: string,
+    podOrderIds: string[],
+    scope: PodAccessScope,
+  ): Promise<Record<string, FulfillmentStateDto>> {
+    const uniqueIds = [...new Set(podOrderIds)];
+    const orders = (await this.podOrderRepo.findManyByIds(organizationId, uniqueIds)).filter(
+      (order) => scope.allShops || scope.shopIds.includes(order.shopId),
+    );
+    if (orders.length === 0) return {};
+
+    const productIds = productIdsOf(orders.flatMap((order) => order.items));
+    const [usable, recordsByOrder, mappings, designRows] = await Promise.all([
+      this.usableAccounts(organizationId),
+      this.repo.listRecordsByPodOrders(organizationId, orders.map((order) => order.id)),
+      this.repo.listMappingsForProducts(organizationId, productIds),
+      this.repo.listProductDesignsForProducts(organizationId, productIds),
+    ]);
+    const designsByKey = this.groupDesignsByKey(designRows);
+
+    // Mỗi tài khoản / bộ luật vị trí in chỉ tra MỘT lần cho cả trang.
+    const accountLookups = new Map<string, ReturnType<FulfillmentRepository['findAccountById']>>();
+    const findAccount = (id: string) => {
+      const known = accountLookups.get(id) ?? this.repo.findAccountById(organizationId, id);
+      accountLookups.set(id, known);
+      return known;
+    };
+    const resolvers = new Map<string, ReturnType<FulfillmentProviderGateway['placementResolver']>>();
+
+    const entries = await Promise.all(
+      orders.map(async (order): Promise<[string, FulfillmentStateDto]> => {
+        const records = recordsByOrder.get(order.id) ?? [];
+        // Cùng luật chọn với `findCurrentByPodOrder`.
+        const current =
+          records.find((entry) => !NON_BLOCKING_FULFILLMENT_STATUSES.includes(entry.status)) ?? records[0] ?? null;
+        const availableProviders = this.availableProvidersOf(usable, order);
+        const account = await this.pickStateAccount(order, current, usable, undefined, findAccount);
+        const record = account
+          ? (records.find((entry) => entry.provider === account.provider) ?? null)
+          : current;
+        const cancellation = await this.cancellationOf(organizationId, record);
+
+        if (!account || !account.isActive) {
+          return [order.id, this.providerUnavailableState(order, account, record, availableProviders, cancellation)];
+        }
+        const resolver = resolvers.get(account.id) ?? this.gateway.placementResolver(account, mappings);
+        resolvers.set(account.id, resolver);
+        return [
+          order.id,
+          this.readyState({
+            order,
+            account,
+            record,
+            mappings,
+            designsByKey,
+            placementResolver: await resolver,
+            // Cùng điều kiện với `findBlockingRecordOfOtherProvider`: khác nhà cung cấp (kể cả NULL), đang giữ đơn.
+            blocking:
+              records.find(
+                (entry) =>
+                  entry.provider !== account.provider && !NON_BLOCKING_FULFILLMENT_STATUSES.includes(entry.status),
+              ) ?? null,
+            availableProviders,
+            cancellation,
+          }),
+        ];
+      }),
+    );
+    return Object.fromEntries(entries);
+  }
+
+  private async usableAccounts(organizationId: string) {
+    return (await this.repo.listAccounts(organizationId)).filter(
       (entry) => entry.isActive && this.gateway.isSupported(entry.provider),
     );
-    const availableProviders = usable.map((entry) => ({
+  }
+
+  private availableProvidersOf(
+    usable: Awaited<ReturnType<FulfillmentService['usableAccounts']>>,
+    order: PodOrderWithRelations,
+  ) {
+    const assignedId = order.account?.fulfillmentAccountId ?? null;
+    return usable.map((entry) => ({
       id: entry.id,
       name: entry.name,
       provider: entry.provider,
@@ -955,21 +1090,36 @@ export class FulfillmentService {
       isGlobal: entry.isGlobal,
       isAssignedToAccount: entry.id === assignedId,
     }));
+  }
 
+  /**
+   * 🔴 Thứ tự chọn nhà cung cấp GIỐNG HỆT `FulfillmentProviderGateway.resolveAccountForFulfill`:
+   * người dùng chọn → bản ghi hiện hành → nhà cung cấp gán cho kết nối TikTok → nhà cung cấp
+   * DUY NHẤT khả dụng. Hai nơi lệch nhau là màn hình đánh giá một nhà cung cấp còn luồng gửi
+   * dùng nhà cung cấp khác. Danh sách gồm MỌI nhà cung cấp đã tích hợp (Mango, Sellerwix…).
+   */
+  private async pickStateAccount(
+    order: PodOrderWithRelations,
+    current: { accountId: string | null } | null,
+    usable: Awaited<ReturnType<FulfillmentService['usableAccounts']>>,
+    selectedAccountId: string | undefined,
+    findAccount: (id: string) => ReturnType<FulfillmentRepository['findAccountById']>,
+  ) {
     const selected = selectedAccountId?.trim();
     const single = usable.length === 1 ? usable[0] : null;
-    const fallbackId = current?.accountId ?? assignedId;
-    const account = selected
-      ? await this.repo.findAccountById(organizationId, selected)
-      : fallbackId
-        ? ((await this.repo.findAccountById(organizationId, fallbackId)) ?? single)
-        : single;
-    const record = account
-      ? await this.repo.findByPodOrder(organizationId, podOrderId, account.provider)
-      : current;
+    const fallbackId = current?.accountId ?? order.account?.fulfillmentAccountId ?? null;
+    if (selected) return findAccount(selected);
+    return fallbackId ? ((await findAccount(fallbackId)) ?? single) : single;
+  }
 
-    // Chưa cấu hình nhà cung cấp ⇒ không thể kiểm tra ánh xạ, báo rõ thay vì báo "thiếu design".
-    if (!account || !account.isActive) {
+  /** Chưa cấu hình nhà cung cấp ⇒ không thể kiểm tra ánh xạ, báo rõ thay vì báo "thiếu design". */
+  private providerUnavailableState(
+    order: PodOrderWithRelations,
+    account: { id: string; name: string; provider: FulfillmentProvider } | null,
+    record: FulfillmentOrderWithRelations | null,
+    availableProviders: FulfillmentStateDto['availableProviders'],
+    cancellation: FulfillmentStateDto['cancellation'],
+  ): FulfillmentStateDto {
       return {
         fulfillment: record ? this.toOrderDto(record) : null,
         ready: false,
@@ -990,7 +1140,7 @@ export class FulfillmentService {
         warnings: [],
         canFulfill: false,
         canCancel: false,
-        cancellation: await this.cancellationOf(organizationId, record),
+        cancellation,
         provider: account
           ? { id: account.id, name: account.name, type: account.provider, isActive: false }
           : null,
@@ -1009,24 +1159,21 @@ export class FulfillmentService {
         shippingMode: 'ADDRESS' as const,
         recipientMasked: order.recipientMasked,
       };
-    }
+  }
 
-    // 🔴 Phạm vi TỔ CHỨC, không phải tài khoản: danh tính của ánh xạ là
-    // (organization, Product ID, Seller SKU) và DB có UNIQUE đúng bộ ba đó. Lọc thêm theo
-    // tài khoản sẽ khiến màn hình đơn (tra org-wide) và luồng gửi đơn nhìn thấy hai kết quả
-    // khác nhau — đúng triệu chứng "danh sách báo đã ánh xạ mà bấm Fulfill lại bảo thiếu".
-    // Ánh xạ khai cho nhà cung cấp khác được `check()` báo bằng MAPPING_PROVIDER_MISMATCH.
-    //
-    // 🔴 Chỉ nạp ánh xạ/design của ĐÚNG các sản phẩm trong đơn. Màn hình danh sách gọi endpoint
-    // này cho từng dòng; nạp cả tổ chức (kèm biến thể catalog của mọi SKU ở Sellerwix) là
-    // N × toàn bộ dữ liệu ánh xạ cho mỗi lần mở trang. Kết quả ghép không đổi: `check()` chỉ
-    // tra ánh xạ theo khoá của từng dòng hàng.
-    const productIds = productIdsOf(order.items);
-    const [mappings, designRows] = await Promise.all([
-      this.repo.listMappingsForProducts(organizationId, productIds),
-      this.repo.listProductDesignsForProducts(organizationId, productIds),
-    ]);
-    const designsByKey = this.groupDesignsByKey(designRows);
+  /** Trạng thái khi đã có nhà cung cấp đang hoạt động: chạy readiness trên dữ liệu đã nạp, không truy vấn thêm. */
+  private readyState(input: {
+    order: PodOrderWithRelations;
+    account: FulfillmentAccount;
+    record: FulfillmentOrderWithRelations | null;
+    mappings: MappingWithDesigns[];
+    designsByKey: ReturnType<FulfillmentService['groupDesignsByKey']>;
+    placementResolver: PlacementResolver | undefined;
+    blocking: { provider: FulfillmentProvider | null; status: FulfillmentStatus } | null;
+    availableProviders: FulfillmentStateDto['availableProviders'];
+    cancellation: FulfillmentStateDto['cancellation'];
+  }): FulfillmentStateDto {
+    const { order, account, record, mappings, designsByKey, blocking, availableProviders } = input;
     // Luật vị trí in của ĐÚNG nhà cung cấp đang chọn (Sellerwix: `print_areas` của biến thể).
     const check = this.readiness.check(
       order,
@@ -1034,15 +1181,9 @@ export class FulfillmentService {
       designsByKey,
       this.publicBaseUrl(),
       account.id,
-      await this.gateway.placementResolver(account, mappings),
+      input.placementResolver,
     );
     const status = record?.status ?? FulfillmentStatus.DRAFT;
-    // Đơn đang ở xưởng của nhà cung cấp KHÁC ⇒ không cho gửi thêm (sản xuất hai lần).
-    const blocking = await this.repo.findBlockingRecordOfOtherProvider(
-      organizationId,
-      podOrderId,
-      account.provider,
-    );
     const blockingIssue = blocking
       ? [
           {
@@ -1065,7 +1206,7 @@ export class FulfillmentService {
       // CANCELLED (nhà cung cấp đã xác nhận huỷ) ⇒ fulfill lại được, như một lần thử mới.
       canFulfill: check.ready && !blocking && SUBMITTABLE_FULFILLMENT_STATUSES.includes(status),
       canCancel: Boolean(record) && CANCELLABLE_FULFILLMENT_STATUSES.includes(status),
-      cancellation: await this.cancellationOf(organizationId, record),
+      cancellation: input.cancellation,
       provider: { id: account.id, name: account.name, type: account.provider, isActive: true },
       // 🔴 Ghép bằng ĐÚNG chỉ mục mà `readiness.check()` vừa dùng ở trên: màn hình và luồng
       // gửi không thể nhìn thấy hai ánh xạ khác nhau cho cùng một dòng hàng.

@@ -31,9 +31,13 @@ export function usePodOrderStatusLabel(): (status: PodOrderStatus) => string {
   return (status) => (i18n.exists(`pod:status.${status}`) ? t(`status.${status}`) : status);
 }
 
-export function PodOrderStatusBadge({ status }: { status: PodOrderStatus }) {
+export function PodOrderStatusBadge({ status, className }: { status: PodOrderStatus; className?: string }) {
   const label = usePodOrderStatusLabel();
-  return <Badge variant={ORDER_VARIANT[status] ?? 'muted'}>{label(status)}</Badge>;
+  return (
+    <Badge variant={ORDER_VARIANT[status] ?? 'muted'} className={className}>
+      {label(status)}
+    </Badge>
+  );
 }
 
 const SYNC_VARIANT: Record<

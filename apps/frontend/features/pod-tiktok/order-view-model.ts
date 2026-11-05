@@ -175,6 +175,17 @@ export function groupOrderProducts(items: PodOrderItem[]): OrderProductRow[] {
 }
 
 /**
+ * Tách dòng đơn thành sản phẩm chính và quà tặng khuyến mãi, theo `isGift` (`line_items[].is_gift` của TikTok) — cùng tín
+ * hiệu backend dùng. Không suy theo tên hay giá 0. Hai nhóm đã gộp thành dòng hiển thị, số lượng giữ nguyên.
+ */
+export function splitOrderProducts(items: PodOrderItem[]): { main: OrderProductRow[]; gifts: OrderProductRow[] } {
+  return {
+    main: groupOrderProducts(items.filter((item) => !item.isGift)),
+    gifts: groupOrderProducts(items.filter((item) => item.isGift)),
+  };
+}
+
+/**
  * Line item đại diện để mở dialog upload design.
  *
  * 🔴 KHÔNG còn ưu tiên item đã ghép ánh xạ. Design lưu theo (Product ID + Seller SKU) và

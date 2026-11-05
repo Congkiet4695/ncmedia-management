@@ -36,6 +36,8 @@ export function ItemThumbnail({ candidates, alt, className, loading, placeholder
       alt={alt}
       className={className}
       loading={loading}
+      // Ảnh TikTok là ảnh gốc cỡ lớn dù chỉ hiện nhỏ: giải mã ngoài luồng chính để không giật khi cuộn.
+      decoding="async"
       onError={() => setFailure({ key, count: failedCount + 1 })}
     />
   );

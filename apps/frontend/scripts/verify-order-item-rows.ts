@@ -8,7 +8,7 @@
  * thành một `line_items` riêng, và ảnh của hai dòng chỉ khác nhau ở tiền tố `p16-` / `p19-`.
  */
 
-import { groupOrderProducts } from '../features/pod-tiktok/order-view-model';
+import { groupOrderProducts, splitOrderProducts } from '../features/pod-tiktok/order-view-model';
 import type { PodOrderItem } from '../features/pod-tiktok/order-types';
 import {
   countIssueEntries,
@@ -278,6 +278,40 @@ check(
   }),
   true,
 );
+
+// ---------------------------------------------------------------------------
+console.log('tách quà tặng khuyến mãi');
+
+const splitIds = (items: PodOrderItem[]) => {
+  const { main, gifts } = splitOrderProducts(items);
+  return [main.map((row) => row.sources.map((s) => s.id)), gifts.map((row) => row.sources.map((s) => s.id))];
+};
+const productB = { skuId: 'SKU-B', sellerSku: 'SELLER-B', productId: 'PRODUCT-B' };
+const giftOf = (id: string, sku: string) => line({ id, isGift: true, skuId: sku, sellerSku: null, productId: 'GIFT', salePrice: 0 });
+
+check('Test 1 — đơn thường: không có quà', splitIds([line({ id: 'a' }), line({ id: 'b', ...productB })]), [[['a'], ['b']], []]);
+check('Test 2 — một quà', splitIds([line({ id: 'a' }), giftOf('g1', 'G1')]), [[['a']], [['g1']]]);
+check(
+  'Test 3 — nhiều quà: sản phẩm chính giữ nguyên, quà tách riêng',
+  splitIds([line({ id: 'a' }), line({ id: 'b', ...productB }), giftOf('g1', 'G1'), giftOf('g2', 'G2'), giftOf('g3', 'G3')]),
+  [[['a'], ['b']], [['g1'], ['g2'], ['g3']]],
+);
+check(
+  'Test 4 — quà nhiều đơn vị cùng biến thể: một dòng, đúng số lượng',
+  splitOrderProducts([giftOf('g1', 'G1'), giftOf('g2', 'G1'), giftOf('g3', 'G1')]).gifts.map((row) => row.quantity),
+  [3],
+);
+check('Test 5 — đơn chỉ có quà: không có sản phẩm chính giả', splitIds([giftOf('g1', 'G1')]), [[], [['g1']]]);
+check(
+  'chỉ theo cờ isGift: giá 0 hoặc tên có chữ Gift vẫn là sản phẩm chính',
+  splitIds([line({ id: 'a', salePrice: 0, productName: 'Gift Box' })]),
+  [[['a']], []],
+);
+check('không mutate dữ liệu đơn', (() => {
+  const items = [line({ id: 'a' }), giftOf('g1', 'G1')];
+  splitOrderProducts(items);
+  return items.map((item) => item.id);
+})(), ['a', 'g1']);
 
 console.log('');
 console.log(`${passed} pass · ${failed} fail`);

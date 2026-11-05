@@ -24,6 +24,7 @@ import {
   ApiBody,
   ApiConflictResponse,
   ApiConsumes,
+  ApiExtraModels,
   ApiForbiddenResponse,
   ApiNotFoundResponse,
   ApiOkResponse,
@@ -32,6 +33,7 @@ import {
   ApiTags,
   ApiUnauthorizedResponse,
   ApiUnprocessableEntityResponse,
+  getSchemaPath,
 } from '@nestjs/swagger';
 import { FulfillmentProvider, FulfillmentTrigger, PodDesignPlacement } from '@prisma/client';
 import { PodDesignDto, SetDesignUrlDto } from '../../pod-tiktok/dto/pod-design.dto';
@@ -63,7 +65,9 @@ import {
   FulfillPodOrderDto,
   FulfillmentOptionsDto,
   FulfillmentOrderDto,
+  FULFILLMENT_STATES_MAX_ORDERS,
   FulfillmentStateDto,
+  FulfillmentStatesQueryDto,
   FulfillmentSyncResultDto,
   OrderShippingMethodsDto,
   ProductMappingDto,
@@ -699,6 +703,28 @@ export class FulfillmentController {
   // ---------------------------------------------------------------------------
   // Fulfillment theo đơn POD
   // ---------------------------------------------------------------------------
+
+  @Post('orders/states')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('fulfillment.read')
+  @ApiOperation({
+    summary: 'Trạng thái fulfillment của nhiều đơn POD (một trang danh sách đơn)',
+    description:
+      'Cùng nội dung và cùng luật với `GET /fulfillment/orders/{podOrderId}` (không chọn nhà cung cấp), nhưng dữ liệu dùng ' +
+      'chung được nạp MỘT lần cho cả trang. Trả về object theo `podOrderId`; đơn không tồn tại hoặc ngoài phạm vi shop ' +
+      `không có trong kết quả. Tối đa ${FULFILLMENT_STATES_MAX_ORDERS} đơn.`,
+  })
+  @ApiExtraModels(FulfillmentStateDto)
+  @ApiOkResponse({
+    schema: { type: 'object', additionalProperties: { $ref: getSchemaPath(FulfillmentStateDto) } },
+  })
+  getStates(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Body() dto: FulfillmentStatesQueryDto,
+  ): Promise<Record<string, FulfillmentStateDto>> {
+    return this.service.getStates(user.organizationId, dto.podOrderIds, scope);
+  }
 
   @Get('orders/:podOrderId')
   @RequirePermissions('fulfillment.read')

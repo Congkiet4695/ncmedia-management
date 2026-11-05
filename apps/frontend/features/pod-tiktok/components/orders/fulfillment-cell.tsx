@@ -13,17 +13,24 @@ import { useAuth } from '@/hooks/use-auth';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { BaseCostDialog } from '@/features/fulfillment/components/base-cost-dialog';
 import { FulfillOrderDrawer } from '@/features/fulfillment/components/fulfill-order-drawer';
-import { useFulfillmentActions, useFulfillmentState } from '@/features/fulfillment/hooks/use-fulfillment';
-import type { FulfillmentCancellation, FulfillmentStatus } from '@/features/fulfillment/types';
+import { useFulfillmentActions } from '@/features/fulfillment/hooks/use-fulfillment';
+import type { FulfillmentCancellation, FulfillmentState, FulfillmentStatus } from '@/features/fulfillment/types';
 import { SUBMITTABLE_STATUSES } from '@/features/fulfillment/product-config';
 import { EMPTY, formatOrderDateTime, orderCurrency } from '../../order-view-model';
+import type { PodOrderItem } from '../../order-types';
+import { FulfillmentIssueButton } from './fulfillment-issue-button';
 
 interface FulfillmentCellProps {
   podOrderId: string;
-  /** Có quyền `fulfillment.read` — không có thì KHÔNG gọi API. */
+  /** Có quyền `fulfillment.read` — không có thì không hiển thị gì. */
   enabled: boolean;
   /** Có quyền `fulfillment.create` — quyết định hiện nút Fulfill. */
   canFulfill: boolean;
+  /** Trạng thái của đơn, do bảng tải theo lô cho cả trang (`useFulfillmentStates`). */
+  state: FulfillmentState | undefined;
+  stateLoading: boolean;
+  /** Dòng đơn: tên sản phẩm cho lỗi không kèm ngữ cảnh. */
+  items: PodOrderItem[];
 }
 
 const STATUS_VARIANT: Record<FulfillmentStatus, 'default' | 'muted' | 'destructive' | 'success'> = {
@@ -55,34 +62,30 @@ const STATUS_VARIANT: Record<FulfillmentStatus, 'default' | 'muted' | 'destructi
  * "hy vọng mặc định đúng" là cách tạo ra những đơn in sai. Toàn bộ nghiệp vụ vẫn nằm ở
  * service/hook cũ, drawer chỉ là nơi hiển thị và thu thập lựa chọn.
  *
- * 🔴 **Lý do chặn phải HIỆN RA, không giấu trong tooltip.** Bản trước bọc nút bị `disabled`
- * trong `<Tooltip>`: nút disabled không phát sự kiện chuột, nên tooltip mang lý do KHÔNG BAO
- * GIỜ hiện — người dùng chỉ thấy một nút xám chết, không biết thiếu gì. Đó chính là triệu
- * chứng "bấm Fulfill không có tác dụng" được báo. Nay danh sách thiếu sót in thẳng dưới nút
- * (§7), và phần hover được chuyển sang một `<span>` bao ngoài để tooltip vẫn hoạt động.
- *
- * 🔴 Mỗi dòng tự hỏi trạng thái fulfillment của mình (`GET /fulfillment/:orderId/state`) —
- * hệ thống không có endpoint lấy hàng loạt. Đây đúng bằng số request mà màn hình cũ đã tạo
- * (mỗi thẻ đơn một bảng fulfillment riêng), nên không phải bước lùi về hiệu năng.
+ * 🔴 **Lý do chặn phải nhìn thấy được.** Dưới nút là số lỗi / cảnh báo, bấm vào xem đầy đủ. Nút bọc trong `<span>` vì nút
+ * disabled không phát sự kiện chuột, tooltip gắn thẳng vào nó sẽ không hiện.
  */
-export function FulfillmentCell({ podOrderId, enabled, canFulfill }: FulfillmentCellProps) {
+export function FulfillmentCell({
+  podOrderId,
+  enabled,
+  canFulfill,
+  state,
+  stateLoading,
+  items,
+}: FulfillmentCellProps) {
   const { t } = useTranslation(['pod', 'fulfillment']);
   const { formatCurrency } = useLocaleFormat();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [baseCostOpen, setBaseCostOpen] = useState(false);
   const { hasPermission } = useAuth();
-  const translateApiError = useApiError();
   // 🔴 Quyền RIÊNG cho thao tác tài chính — backend chặn bằng đúng quyền này.
   const canEditBaseCost = hasPermission('fulfillment.basecost.update');
-
-  const state = useFulfillmentState(podOrderId, enabled);
-  const actions = useFulfillmentActions(podOrderId);
 
   if (!enabled) {
     return <span className="text-xs text-muted-foreground">{EMPTY}</span>;
   }
 
-  if (state.isLoading) {
+  if (stateLoading) {
     return (
       <div className="space-y-1">
         <Skeleton className="h-4 w-20" />
@@ -91,7 +94,7 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
     );
   }
 
-  const data = state.data;
+  const data = state;
   const fulfillment = data?.fulfillment ?? null;
 
   // 🔴 Chỉ MOUNT khi mở: drawer mang hàng chục hook (query, mutation, effect). Mount sẵn cho mọi
@@ -103,7 +106,6 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
 
   // ----------------------------------------------------------------- Chưa gửi
   if (!fulfillment) {
-    const issues = data?.issues ?? [];
     const blocked = !data?.canFulfill;
 
     return (
@@ -146,24 +148,7 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
               </span>
             </Tooltip>
 
-            {/* §7 — nói CHÍNH XÁC thiếu gì: thiếu Product Mapping / thiếu Design / thiếu nhà
-                cung cấp / thiếu ánh xạ biến thể. Backend đã trả từng câu cụ thể, việc ở đây
-                chỉ là ĐỪNG giấu chúng đi. */}
-            {issues.length > 0 && (
-              <ul className="space-y-0.5">
-                {issues.map((issue) => (
-                  <li
-                    key={issue.code}
-                    className="flex gap-1 text-[10px] leading-tight text-destructive"
-                  >
-                    <AlertTriangle className="mt-px size-2.5 shrink-0" />
-                    <span className="line-clamp-2" title={issue.message}>
-                      {issue.message}
-                    </span>
-                  </li>
-                ))}
-              </ul>
-            )}
+            <FulfillmentIssueButton issues={data?.issues ?? []} warnings={data?.warnings ?? []} lines={items} />
           </>
         )}
       </div>
@@ -271,33 +256,13 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
         mono
       />
       {baseCostMissing && (
-        <div className="flex gap-1 pt-0.5">
-          <Button
-            variant="outline"
-            size="sm"
-            className="h-6 flex-1 px-2 text-[11px]"
-            disabled={actions.sync.isPending}
-            title={t('pod:orders.fulfillment.retryBaseCostHint')}
-            onClick={(event) => {
-              event.stopPropagation();
-              void actions.sync
-                .mutateAsync()
-                .then((record) =>
-                  record.productCostConfirmed
-                    ? toast.success(t('pod:orders.fulfillment.retryBaseCostDone'))
-                    : toast.info(t('pod:orders.fulfillment.retryBaseCostStillPending')),
-                )
-                .catch((error: unknown) => toast.error(translateApiError(error)));
-            }}
-          >
-            {actions.sync.isPending ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
-            {t('pod:orders.fulfillment.retryBaseCost')}
-          </Button>
+        <div className="flex flex-wrap gap-1 pt-0.5">
+          <RetryBaseCostButton podOrderId={podOrderId} />
           {canEditBaseCost && (
             <Button
               variant="outline"
               size="sm"
-              className="h-6 flex-1 px-2 text-[11px]"
+              className="h-6 flex-1 whitespace-nowrap px-2 text-[11px]"
               onClick={(event) => {
                 event.stopPropagation();
                 setBaseCostOpen(true);
@@ -360,6 +325,36 @@ export function FulfillmentCell({ podOrderId, enabled, canFulfill }: Fulfillment
         </Tooltip>
       )}
     </div>
+  );
+}
+
+/** Tách riêng để chỉ những đơn đang thiếu giá vốn mới phải giữ các mutation fulfillment. */
+function RetryBaseCostButton({ podOrderId }: { podOrderId: string }) {
+  const { t } = useTranslation(['pod']);
+  const translateApiError = useApiError();
+  const { sync } = useFulfillmentActions(podOrderId);
+  return (
+    <Button
+      variant="outline"
+      size="sm"
+      className="h-6 flex-1 whitespace-nowrap px-2 text-[11px]"
+      disabled={sync.isPending}
+      title={t('pod:orders.fulfillment.retryBaseCostHint')}
+      onClick={(event) => {
+        event.stopPropagation();
+        void sync
+          .mutateAsync()
+          .then((record) =>
+            record.productCostConfirmed
+              ? toast.success(t('pod:orders.fulfillment.retryBaseCostDone'))
+              : toast.info(t('pod:orders.fulfillment.retryBaseCostStillPending')),
+          )
+          .catch((error: unknown) => toast.error(translateApiError(error)));
+      }}
+    >
+      {sync.isPending ? <Loader2 className="size-3 animate-spin" /> : <RefreshCw className="size-3" />}
+      {t('pod:orders.fulfillment.retryBaseCost')}
+    </Button>
   );
 }
 

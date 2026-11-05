@@ -56,6 +56,14 @@ export const fulfillmentService = {
    * cấp đó (ánh xạ khai cho nhà cung cấp khác sẽ bị chặn), nên màn hình và luồng gửi không
    * bao giờ đánh giá hai nhà cung cấp khác nhau.
    */
+  /** Trạng thái của một trang đơn trong MỘT request. Đơn ngoài phạm vi không có trong kết quả. */
+  async getStates(podOrderIds: string[]): Promise<Record<string, FulfillmentState>> {
+    const res = await apiClient.post<ApiResponse<Record<string, FulfillmentState>>>(`${BASE_PATH}/orders/states`, {
+      podOrderIds,
+    });
+    return res.data.data;
+  },
+
   async getState(podOrderId: string, providerId?: string): Promise<FulfillmentState> {
     const res = await apiClient.get<ApiResponse<FulfillmentState>>(
       `${BASE_PATH}/orders/${podOrderId}`,

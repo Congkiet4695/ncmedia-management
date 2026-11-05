@@ -898,6 +898,24 @@ export class FulfillmentRepository {
     ]);
   }
 
+  /** Mọi bản ghi còn sống của nhiều đơn trong MỘT truy vấn, gom theo đơn, mới nhất trước (như `findCurrentByPodOrder`). */
+  async listRecordsByPodOrders(
+    organizationId: string,
+    podOrderIds: string[],
+  ): Promise<Map<string, FulfillmentOrderWithRelations[]>> {
+    const grouped = new Map<string, FulfillmentOrderWithRelations[]>();
+    if (podOrderIds.length === 0) return grouped;
+    const records = await this.prisma.fulfillmentOrder.findMany({
+      where: { organizationId, podOrderId: { in: podOrderIds }, deletedAt: null },
+      include: FULFILLMENT_ORDER_INCLUDE,
+      orderBy: { updatedAt: 'desc' },
+    });
+    for (const record of records) {
+      grouped.set(record.podOrderId, [...(grouped.get(record.podOrderId) ?? []), record]);
+    }
+    return grouped;
+  }
+
   /**
    * Bản ghi HIỆN HÀNH của nhiều đơn trong MỘT truy vấn — cùng luật chọn với `findCurrentByPodOrder`
    * (ưu tiên bản ghi đang giữ đơn, rồi bản mới nhất). Dùng cho Import Base Cost (không truy vấn từng dòng).

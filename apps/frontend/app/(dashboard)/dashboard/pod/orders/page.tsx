@@ -426,7 +426,7 @@ function PodOrdersView() {
           </div>
         </CardHeader>
         {/* scroll-mt-20: chừa chỗ cho header sticky (h-16) khi cuộn tới đầu bảng. */}
-        <CardContent ref={tableScroll.ref} className="scroll-mt-20 space-y-4">
+        <CardContent ref={tableScroll.ref} className="scroll-mt-20 space-y-4 px-3">
           {ordersQuery.isError ? (
             <p className="py-10 text-center text-sm text-destructive">
               {translateApiError(ordersQuery.error)}

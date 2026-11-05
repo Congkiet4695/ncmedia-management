@@ -1,6 +1,5 @@
 'use client';
 
-import { Truck } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Tooltip } from '@/components/ui/tooltip';
 import { EMPTY } from '../../order-view-model';
@@ -31,7 +30,6 @@ export function TrackingCell({ numbers }: { numbers: string[] }) {
     <ul className="space-y-1">
       {visible.map((number) => (
         <li key={number} className="flex items-center gap-1">
-          <Truck className="size-3 shrink-0 text-muted-foreground" />
           <Tooltip content={number}>
             <span className="font-mono text-[11px] tabular-nums">{shorten(number)}</span>
           </Tooltip>
@@ -50,7 +48,7 @@ export function TrackingCell({ numbers }: { numbers: string[] }) {
   );
 }
 
-/** `920019203924123456` → `9200192…3456`. Giữ đủ đầu và đuôi để phân biệt bằng mắt. */
+/** `920019203924123456` → `920019…3456`. Giữ đủ đầu và đuôi để phân biệt bằng mắt. */
 function shorten(value: string): string {
-  return value.length <= 16 ? value : `${value.slice(0, 8)}…${value.slice(-4)}`;
+  return value.length <= 11 ? value : `${value.slice(0, 6)}…${value.slice(-4)}`;
 }

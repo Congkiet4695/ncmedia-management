@@ -1699,6 +1699,9 @@
       }
     },
     "fulfillment": {
+      "issueCount": "{{count}} issue(s)",
+      "issuesTitle": "Fulfillment issues",
+      "warningCount": "{{count}} warning(s)",
       "notFulfilled": "Not Fulfilled",
       "fulfill": "Fulfill",
       "fulfillHint": "Send this order to the print facility.",
@@ -1861,6 +1864,9 @@
     "designNoMappingHint": "This SKU has no Product Mapping yet, so there is nowhere to store the design. Create the mapping on the Product Mapping screen first.",
     "designMissingFront": "Missing Front",
     "promotionGift": "Promotion Gift",
+    "promotionGiftNotSent": "Not sent to the fulfillment provider. The gift still belongs to the TikTok order: make sure it reaches the buyer.",
+    "promotionGiftOpen": "View {{count}} promotion gift(s)",
+    "promotionGiftTitle": "Promotion gifts ({{count}})",
     "promotionGiftHint": "TikTok promotion gift (is_gift). No design or Product Configuration required — it is not sent to the fulfillment provider.",
     "designMissingFrontHint": "No front design yet. Front is the minimum required to fulfil.",
     "designMissingBackHint": "Ready — front design uploaded. Back is optional and has not been uploaded.",
