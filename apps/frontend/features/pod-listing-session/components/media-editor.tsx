@@ -1,6 +1,6 @@
 'use client';
 
-import { useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
 import {
   DndContext,
   KeyboardSensor,
@@ -41,7 +41,14 @@ import { useApiError } from '@/hooks/use-api-error';
 import { cn } from '@/lib/utils';
 import { usePodAsset } from '@/features/pod-listing/hooks/use-pod-listing';
 import { podListingService } from '@/features/pod-listing/services/pod-listing.service';
-import { imageKeys, moveImage, normalizeImageUrl, parseImageUrls } from '../media-image-order';
+import {
+  classifyImageUrl,
+  imageKeys,
+  moveImage,
+  normalizeImageUrl,
+  parseImageUrls,
+  readdImage,
+} from '../media-image-order';
 import type { ManualVideo, SessionImageInput } from '../types';
 
 /**
@@ -117,15 +124,31 @@ export function MediaEditor({
   const translateApiError = useApiError();
   const [busy, setBusy] = useState<'IMAGES' | 'SIZE_CHART' | 'VIDEO' | null>(null);
   const [urlDraft, setUrlDraft] = useState('');
-  const [urlErrors, setUrlErrors] = useState<string[]>([]);
+  /** Dòng báo dưới ô URL. Không có `message` ⇒ URL trùng: trạng thái tính lại theo danh sách ảnh hiện tại khi render. */
+  const [urlIssues, setUrlIssues] = useState<Array<{ url: string; message?: string }>>([]);
   /**
    * 🔴 Danh sách ảnh MỚI NHẤT. Tải ảnh là bất đồng bộ; người dùng vẫn kéo thả / xoá trong lúc chờ. Nối kết quả
    * vào `images` của lúc BẮT ĐẦU tải là âm thầm hoàn tác thao tác vừa làm — luôn nối vào bản mới nhất.
    */
   const latestImages = useRef(images);
   latestImages.current = images;
-  /** URL gốc của ảnh đã thêm bằng URL trong lần mở form này — chống thêm trùng (ảnh lưu là URL Storage). */
-  const sourceUrls = useRef(new Map<string, string>());
+  /**
+   * URL (đã chuẩn hoá) → ảnh trong Storage, trong lần mở form này: URL gốc của ảnh thêm bằng URL và URL lưu trữ của ảnh đã
+   * xoá. Không xoá mục khi ảnh rời danh sách, để đưa lại được mà không tải về lần nữa. "Đang có hay không" luôn tính theo
+   * `images`, nên áp Image Template thay cả bộ ảnh không còn làm URL bị báo "đã có" sai.
+   */
+  const rememberedImages = useRef(new Map<string, SessionImageInput>());
+  /** Ảnh vừa được chỉ ra từ dòng "đã có trong danh sách". */
+  const [highlightedKey, setHighlightedKey] = useState<string | null>(null);
+  const imageList = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!highlightedKey) return;
+    imageList.current
+      ?.querySelector(`[data-image-key="${window.CSS.escape(highlightedKey)}"]`)
+      ?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+    const timer = setTimeout(() => setHighlightedKey(null), 2000);
+    return () => clearTimeout(timer);
+  }, [highlightedKey]);
   // Bảng size áp từ Category Template chỉ mang `fileId` (template không lưu URL) — tra Storage
   // để xem trước. State/payload không đổi: thứ gửi đi vẫn là `fileId`, backend upload theo file.
   const chartAsset = usePodAsset(sizeChart && !sizeChart.imageUrl ? sizeChart.fileId : undefined);
@@ -263,8 +286,26 @@ export function MediaEditor({
 
   const removeImage = (index: number) => {
     const removed = images[index];
-    if (removed?.fileId) sourceUrls.current.delete(removed.fileId);
+    if (removed?.imageUrl) rememberedImages.current.set(normalizeImageUrl(removed.imageUrl), removed);
     onImagesChange(images.filter((_, i) => i !== index));
+  };
+
+  /**
+   * Xử lý dòng URL đã biết, không gọi API. Ảnh đã gỡ ⇒ thêm lại vào cuối, dùng file đã lưu. Ảnh đang có ⇒ chỉ ra ảnh đó,
+   * không đổi thứ tự (ảnh đầu tiên là ảnh chính).
+   */
+  const resolveKnownUrl = (url: string) => {
+    const state = classifyImageUrl(url, latestImages.current, rememberedImages.current);
+    if (state.status === 'REMOVED') onImagesChange(readdImage(latestImages.current, state.image, IMAGE_MAX));
+    if (state.status === 'PRESENT') setHighlightedKey(imageKeys(latestImages.current)[state.index]);
+    const key = normalizeImageUrl(url);
+    setUrlIssues((prev) => prev.filter((issue) => normalizeImageUrl(issue.url) !== key));
+    setUrlDraft((prev) =>
+      parseImageUrls(prev)
+        .map((entry) => entry.url)
+        .filter((entry) => normalizeImageUrl(entry) !== key)
+        .join(' '),
+    );
   };
 
   /**
@@ -275,44 +316,52 @@ export function MediaEditor({
     if (busy !== null) return;
     const parsed = parseImageUrls(urlDraft);
     if (parsed.length === 0) return;
-    const problems: string[] = [];
+    const issues: Array<{ url: string; message?: string }> = [];
     const room = IMAGE_MAX - latestImages.current.length;
     if (room <= 0) {
       toast.error(t('listing.media.imageLimit', { max: IMAGE_MAX }));
       return;
     }
-    const known = new Set([
-      ...[...sourceUrls.current.values()].map(normalizeImageUrl),
-      ...latestImages.current.map((image) => normalizeImageUrl(image.imageUrl)),
-    ]);
+    const queued = new Set<string>();
     const queue: string[] = [];
     for (const { url, problem } of parsed) {
       const key = normalizeImageUrl(url);
-      if (problem) problems.push(`${url} — ${t(`listing.media.url.problem.${problem}`)}`);
-      else if (known.has(key)) problems.push(`${url} — ${t('listing.media.url.duplicate')}`);
-      else if (queue.length >= room)
-        problems.push(`${url} — ${t('listing.media.imageLimit', { max: IMAGE_MAX })}`);
+      if (problem) issues.push({ url, message: t(`listing.media.url.problem.${problem}`) });
+      else if (
+        queued.has(key) ||
+        classifyImageUrl(url, latestImages.current, rememberedImages.current).status !== 'NEW'
+      ) {
+        if (!issues.some((issue) => issue.url === url)) issues.push({ url });
+      } else if (queue.length >= room) issues.push({ url, message: t('listing.media.imageLimit', { max: IMAGE_MAX }) });
       else {
-        known.add(key);
+        queued.add(key);
         queue.push(url);
       }
     }
 
     setBusy('IMAGES');
     const added: SessionImageInput[] = [];
+    const addedUrls = new Set<string>();
     try {
       for (const url of queue) {
         try {
           const asset = await podListingService.importAssetFromUrl(url);
-          sourceUrls.current.set(asset.id, url);
-          added.push({
+          const image: SessionImageInput = {
             imageUrl: asset.publicUrl ?? '',
             fileId: asset.id,
             imageType: 'MAIN',
             fileName: asset.originalName,
-          });
+          };
+          rememberedImages.current.set(normalizeImageUrl(url), image);
+          // Mở lại nháp: form không còn nhớ URL nguồn, server trả về đúng file đang có trong danh sách ⇒ không thêm lần hai.
+          if ([...latestImages.current, ...added].some((entry) => entry.fileId === asset.id)) {
+            issues.push({ url });
+            continue;
+          }
+          added.push(image);
+          addedUrls.add(url);
         } catch (error) {
-          problems.push(`${url} — ${translateApiError(error)}`);
+          issues.push({ url, message: translateApiError(error) });
         }
       }
     } finally {
@@ -322,9 +371,8 @@ export function MediaEditor({
       onImagesChange([...latestImages.current, ...added].slice(0, IMAGE_MAX));
       toast.success(t('listing.media.uploaded', { count: added.length }));
     }
-    setUrlErrors(problems);
+    setUrlIssues(issues);
     // Giữ lại đúng những link lỗi trong ô để sửa; link đã thêm thì xoá khỏi ô.
-    const addedUrls = new Set(added.map((image) => sourceUrls.current.get(image.fileId ?? '')));
     setUrlDraft(
       parsed
         .map(({ url }) => url)
@@ -389,14 +437,17 @@ export function MediaEditor({
         ) : (
           <DndContext sensors={sensors} collisionDetection={closestCenter} onDragEnd={onDragEnd}>
             <SortableContext items={keys} strategy={rectSortingStrategy}>
-              <div className="flex flex-wrap gap-3">
+              <div ref={imageList} className="flex flex-wrap gap-3">
                 {images.map((image, index) => (
                   <SortableImage
                     key={keys[index]}
                     id={keys[index]}
                     label={t('listing.media.dragHandle', { index: index + 1 })}
                   >
-                    <div className="relative">
+                    <div
+                      data-image-key={keys[index]}
+                      className={cn('relative rounded-md', highlightedKey === keys[index] && 'ring-2 ring-primary ring-offset-2')}
+                    >
                       {image.imageUrl ? (
                         // eslint-disable-next-line @next/next/no-img-element
                         <img
@@ -496,13 +547,37 @@ export function MediaEditor({
                 {t('listing.media.url.add')}
               </Button>
             </div>
-            {urlErrors.length > 0 && (
-              <ul className="space-y-0.5 text-xs text-destructive">
-                {urlErrors.map((line) => (
-                  <li key={line} className="break-all">
-                    {line}
-                  </li>
-                ))}
+            {urlIssues.length > 0 && (
+              <ul className="space-y-1 text-xs">
+                {urlIssues.map(({ url, message }) => {
+                  if (message) {
+                    return (
+                      <li key={url} className="break-all text-destructive">
+                        {url} — {message}
+                      </li>
+                    );
+                  }
+                  const state = classifyImageUrl(url, images, rememberedImages.current);
+                  return (
+                    <li key={url} className="flex items-center justify-between gap-2 text-muted-foreground">
+                      <span className="min-w-0 break-all">
+                        {url} —{' '}
+                        {t(state.status === 'REMOVED' ? 'listing.media.url.removed' : 'listing.media.url.duplicate')}
+                      </span>
+                      {state.status !== 'NEW' && (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="h-7 shrink-0"
+                          disabled={busy !== null || (state.status === 'REMOVED' && images.length >= IMAGE_MAX)}
+                          onClick={() => resolveKnownUrl(url)}
+                        >
+                          {t(state.status === 'REMOVED' ? 'listing.media.url.addAgain' : 'listing.media.url.showImage')}
+                        </Button>
+                      )}
+                    </li>
+                  );
+                })}
               </ul>
             )}
             <p className="text-xs text-muted-foreground">{t('listing.media.url.hint')}</p>

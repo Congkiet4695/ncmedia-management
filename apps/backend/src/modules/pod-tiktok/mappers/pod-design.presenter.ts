@@ -18,6 +18,7 @@ export interface DesignPresentable {
   storageFile: {
     id: string;
     publicUrl: string | null;
+    thumbnailUrl: string | null;
     originalName: string;
     mimeType: string;
     fileSize: number;
@@ -48,6 +49,7 @@ export function toPodDesignDto(
       placement: design.placement,
       source: 'URL',
       fileUrl: url,
+      thumbnailUrl: null,
       fileName: fileNameOfUrl(url),
       // Không tải file về nên KHÔNG biết mime/dung lượng — để null thay vì bịa số.
       mimeType: null,
@@ -63,6 +65,7 @@ export function toPodDesignDto(
     source: 'UPLOAD',
     // Bucket private ⇒ không có URL công khai ⇒ dùng đường tải qua API (có kiểm quyền).
     fileUrl: file.publicUrl ?? buildDownloadUrl(file.id),
+    thumbnailUrl: file.thumbnailUrl,
     fileName: file.originalName,
     mimeType: file.mimeType,
     fileSize: file.fileSize,

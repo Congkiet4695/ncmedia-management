@@ -3,10 +3,12 @@
  */
 
 import {
+  classifyImageUrl,
   imageKeys,
   moveImage,
   normalizeImageUrl,
   parseImageUrls,
+  readdImage,
 } from '../features/pod-listing-session/media-image-order.ts';
 
 let failed = 0;
@@ -62,6 +64,47 @@ check('URL quá dài', parseImageUrls(`https://a.com/${'x'.repeat(2100)}`)[0].pr
 check('ô trống ⇒ không URL nào', parseImageUrls('   \n '), []);
 check('trùng URL: bỏ #fragment, host chữ thường', normalizeImageUrl('https://CDN.example.com/a.jpg#zoom'), 'https://cdn.example.com/a.jpg');
 check('query giữ nguyên (có thể là ảnh khác)', normalizeImageUrl('https://cdn/a.jpg?v=2') === normalizeImageUrl('https://cdn/a.jpg?v=1'), false);
+
+// --- URL đã có / đã xoá ---
+const stored = (id: string) => ({ imageUrl: `https://store/${id}.jpg`, fileId: id });
+const [imgA, imgB, imgC] = [stored('a'), stored('b'), stored('c')];
+const SOURCE = 'https://shop.example/a.jpg';
+const memory = new Map([[SOURCE, imgA]]);
+
+check('URL mới ⇒ NEW', classifyImageUrl('https://new.example/x.jpg', [imgA], memory), { status: 'NEW' });
+check('URL nguồn của ảnh đang có ⇒ PRESENT', classifyImageUrl(SOURCE, [imgB, imgA], memory), {
+  status: 'PRESENT',
+  index: 1,
+});
+check('URL lưu trữ của ảnh đang có ⇒ PRESENT', classifyImageUrl('https://store/b.jpg', [imgA, imgB], new Map()), {
+  status: 'PRESENT',
+  index: 1,
+});
+check('đã xoá (hoặc template thay bộ ảnh) ⇒ REMOVED, giữ lại file đã tải', classifyImageUrl(SOURCE, [imgB], memory), {
+  status: 'REMOVED',
+  image: imgA,
+});
+check('khác #fragment vẫn là một URL', classifyImageUrl(`${SOURCE}#zoom`, [imgA], memory).status, 'PRESENT');
+check('khác query là URL khác', classifyImageUrl(`${SOURCE}?x=1`, [imgA], memory).status, 'NEW');
+check(
+  'ảnh không có URL không khớp nhầm',
+  classifyImageUrl('https://n.example/1.jpg', [{ imageUrl: '', fileId: 'z' }], new Map()).status,
+  'NEW',
+);
+
+const ids = (list: Array<{ fileId?: string }>) => list.map((image) => image.fileId);
+check('đưa lại ảnh đã xoá ⇒ vào cuối', ids(readdImage([imgB, imgC], imgA, 9)), ['b', 'c', 'a']);
+check('🔴 ảnh chính đang có ⇒ giữ nguyên, không đổi ảnh chính', ids(readdImage([imgA, imgB, imgC], imgA, 9)), ['a', 'b', 'c']);
+check('ảnh giữa đang có ⇒ giữ nguyên, không nhân đôi', ids(readdImage([imgA, imgB, imgC], imgB, 9)), ['a', 'b', 'c']);
+check('đưa lại ảnh đã xoá ⇒ ảnh chính không đổi', readdImage([imgB, imgC], imgA, 9)[0].fileId, 'b');
+check('danh sách rỗng ⇒ ảnh đưa lại thành ảnh chính', ids(readdImage([], imgA, 9)), ['a']);
+check('bấm nhiều lần vẫn một bản', ids(readdImage(readdImage([imgB, imgC], imgA, 9), imgA, 9)), ['b', 'c', 'a']);
+check('hết chỗ ⇒ không thêm', ids(readdImage([imgB, imgC], imgA, 2)), ['b', 'c']);
+check('ảnh đang có khi đã hết chỗ ⇒ giữ nguyên', ids(readdImage([imgA, imgB], imgA, 2)), ['a', 'b']);
+check('không sửa mảng gốc', ids([imgB, imgC]), ['b', 'c']);
+const readded = readdImage([imgB, imgC], imgA, 9);
+check('xoá sau khi đưa lại', ids(readded.filter((image) => image.fileId !== 'a')), ['b', 'c']);
+check('sắp xếp sau khi đưa lại', ids(moveImage(readded, 2, 0)), ['a', 'b', 'c']);
 
 console.log(`verify-media-images: ${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

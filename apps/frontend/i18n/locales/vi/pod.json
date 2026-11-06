@@ -1402,6 +1402,9 @@
         "add": "Thêm từ URL",
         "hint": "Link công khai tới ảnh JPEG / PNG / WEBP, tối đa 5 MB mỗi ảnh. Hệ thống tải ảnh về và lưu lại (link cần đăng nhập, đã hết hạn hoặc chặn liên kết ngoài sẽ bị từ chối). Dán nhiều link cách nhau bởi khoảng trắng hoặc xuống dòng.",
         "duplicate": "đã có trong danh sách",
+        "removed": "đã thêm trước đó và đã bị gỡ khỏi danh sách",
+        "addAgain": "Thêm lại",
+        "showImage": "Xem ảnh",
         "problem": {
           "INVALID": "URL không hợp lệ",
           "NOT_HTTP": "chỉ nhận link http/https",

@@ -1,4 +1,5 @@
 import { ApiPropertyOptional } from '@nestjs/swagger';
+import { toBool } from '../../../common/utils/query-boolean.util';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayNotEmpty,
@@ -132,7 +133,7 @@ export class PodProductQueryDto {
     description: 'Lấy mọi bản ghi kể cả DRAFT/DELETED (bỏ qua khi có status)',
   })
   @IsOptional()
-  @Transform(({ value }: { value: unknown }) => value === true || value === 'true')
+  @Transform(toBool)
   @IsBoolean()
   includeInactive?: boolean;
 
@@ -207,7 +208,7 @@ export class TriggerProductSyncDto {
     default: false,
   })
   @IsOptional()
-  @Transform(({ value }: { value: unknown }) => value === true || value === 'true')
+  @Transform(toBool)
   @IsBoolean()
   full?: boolean;
 
@@ -219,12 +220,10 @@ export class PodProductFilterOptionsQueryDto {
    * `true` ⇒ danh sách shop chỉ gồm shop ĐĂNG ĐƯỢC (shop ACTIVE thuộc kết nối ACTIVE — xem
    * `ACTIVE_SHOP_WHERE`). Dành cho các màn hình Listing; bỏ trống giữ nguyên hành vi cũ (mọi shop
    * trong phạm vi) cho bộ lọc dữ liệu lịch sử.
-   *
-   * Đọc `obj[key]` thay vì `value`: `enableImplicitConversion` đã biến chuỗi "false" thành `true`.
    */
   @ApiPropertyOptional({ description: 'Chỉ trả shop đang hoạt động (dùng cho Listing).', type: Boolean })
   @IsOptional()
-  @Transform(({ obj, key }: { obj: Record<string, unknown>; key: string }) => obj[key] === true || obj[key] === 'true')
+  @Transform(toBool)
   @IsBoolean()
   activeShopsOnly?: boolean;
 }

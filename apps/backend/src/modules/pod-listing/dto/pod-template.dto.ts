@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { toBool } from '../../../common/utils/query-boolean.util';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -45,8 +46,6 @@ import {
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
-const toBool = ({ value }: { value: unknown }): unknown =>
-  value === true || value === 'true' ? true : value === false || value === 'false' ? false : value;
 /** Mã token luôn viết HOA — người dùng gõ `material` vẫn khớp `{{MATERIAL}}` trong HTML. */
 const upperTrim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim().toUpperCase() : value;

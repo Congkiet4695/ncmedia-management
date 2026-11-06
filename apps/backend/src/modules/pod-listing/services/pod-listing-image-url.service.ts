@@ -4,14 +4,17 @@ import {
   Logger,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { StorageModuleName, StorageReferenceType } from '@prisma/client';
+import { Prisma, StorageModuleName, StorageReferenceType } from '@prisma/client';
+import { createHash } from 'node:crypto';
 import {
+  assertFetchableUrl,
   fetchRemoteFile,
   RemoteFetchError,
   type RemoteFetchFailure,
   type RemoteFetchOptions,
   type RemoteFile,
 } from '../../../common/http/safe-remote-fetch';
+import { isGoogleDriveUrl, toDirectDownloadUrl } from '../../../common/utils/google-drive-url.util';
 import { detectImageMime, IMAGE_MIME_EXTENSION } from '../../../common/utils/image-signature.util';
 import { StorageFileDto } from '../../storage/dto/storage.dto';
 import { StorageMapper } from '../../storage/storage.mapper';
@@ -29,6 +32,16 @@ const URL_INVALID: readonly RemoteFetchFailure[] = [
   'PORT_NOT_ALLOWED',
   'NOT_PUBLIC',
 ];
+
+/**
+ * Khoá của một URL nguồn: bỏ `#…`, host chữ thường, query giữ nguyên (có thể là ảnh khác), cùng luật so khớp với form.
+ * Link Drive đổi về link tải nên các dạng link của cùng một file là một. Lưu sha256 chứ không lưu URL: URL hay mang token ký.
+ */
+export function sourceUrlHashOf(rawUrl: string): string {
+  const url = new URL(toDirectDownloadUrl(rawUrl));
+  url.hash = '';
+  return createHash('sha256').update(url.toString()).digest('hex');
+}
 
 /** Máy chủ ảnh hay khai chung chung cho ảnh thật — chấp nhận, rồi tin CHỮ KÝ file. */
 const GENERIC_CONTENT_TYPES = ['', 'application/octet-stream', 'binary/octet-stream'];
@@ -71,16 +84,58 @@ export class PodListingImageUrlService {
     private readonly mapper: StorageMapper,
   ) {}
 
-  async importImage(
+  /**
+   * Như `importImage`, nhưng URL đã tải thành công trước đây thì dùng lại file đã lưu: không gọi tới nguồn, nên URL đã hết
+   * hạn vẫn dùng được, và mở lại nháp rồi nhập lại URL không sinh file mới. URL chưa từng tải vẫn đi đủ đường kiểm tra.
+   */
+  async importOrReuse(
     organizationId: string,
     actorUserId: string,
     rawUrl: string,
     fetchOptions: Partial<RemoteFetchOptions> = {},
   ): Promise<StorageFileDto> {
+    try {
+      assertFetchableUrl(rawUrl, fetchOptions.testNetwork?.ports);
+    } catch (error) {
+      if (!(error instanceof RemoteFetchError)) throw error;
+      throw new PodListingImageUrlInvalidException(error.reason, error.message);
+    }
+    const sourceUrlHash = sourceUrlHashOf(rawUrl);
+    const existing = await this.storage.findBySourceUrlHash(organizationId, sourceUrlHash);
+    if (existing) {
+      this.logger.log({
+        module: 'pod-listing',
+        operation: 'image-url.reuse',
+        organizationId,
+        host: hostOf(rawUrl),
+        fileId: existing.id,
+        msg: 'Dùng lại ảnh đã tải từ URL',
+      });
+      return this.mapper.toDto(existing);
+    }
+    try {
+      return await this.importImage(organizationId, actorUserId, rawUrl, fetchOptions, sourceUrlHash);
+    } catch (error) {
+      // Hai yêu cầu cùng URL chạy song song: bên về sau bị UNIQUE chặn (object của nó đã được dọn) ⇒ dùng file của bên trước.
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        const winner = await this.storage.findBySourceUrlHash(organizationId, sourceUrlHash);
+        if (winner) return this.mapper.toDto(winner);
+      }
+      throw error;
+    }
+  }
+
+  async importImage(
+    organizationId: string,
+    actorUserId: string,
+    rawUrl: string,
+    fetchOptions: Partial<RemoteFetchOptions> = {},
+    sourceUrlHash?: string,
+  ): Promise<StorageFileDto> {
     const host = hostOf(rawUrl);
     let remote: RemoteFile;
     try {
-      remote = await fetchRemoteFile(rawUrl, {
+      remote = await fetchRemoteFile(toDirectDownloadUrl(rawUrl), {
         maxBytes: POD_LISTING_IMAGE_URL_MAX_BYTES,
         timeoutMs: POD_LISTING_IMAGE_URL_TIMEOUT_MS,
         maxRedirects: POD_LISTING_IMAGE_URL_MAX_REDIRECTS,
@@ -106,8 +161,11 @@ export class PodListingImageUrlService {
     if (remote.contentType === 'text/html' || remote.contentType === 'application/xhtml+xml') {
       throw new PodListingImageUrlFetchFailedException(
         'NOT_IMAGE',
-        'URL trả về một TRANG WEB, không phải file ảnh — thường là trang đăng nhập hoặc trang chặn liên kết ' +
-          'ngoài. Hãy dùng link trực tiếp tới file ảnh công khai.',
+        isGoogleDriveUrl(rawUrl)
+          ? 'Google Drive không trả về file ảnh — file chưa được chia sẻ công khai, đã bị xoá, hoặc link không trỏ tới ' +
+              'một file. Hãy bật chia sẻ "Bất kỳ ai có đường liên kết" và dùng link của file.'
+          : 'URL trả về một TRANG WEB, không phải file ảnh — thường là trang đăng nhập hoặc trang chặn liên kết ' +
+              'ngoài. Hãy dùng link trực tiếp tới file ảnh công khai.',
       );
     }
     const mimeType = detectImageMime(remote.buffer);
@@ -137,6 +195,7 @@ export class PodListingImageUrlService {
         module: StorageModuleName.POD_TIKTOK,
         referenceType: StorageReferenceType.POD_LISTING_ASSET,
         referenceId: null,
+        sourceUrlHash,
         folderSegments: this.storage.defaultFolderSegments(
           organizationId,
           StorageModuleName.POD_TIKTOK,

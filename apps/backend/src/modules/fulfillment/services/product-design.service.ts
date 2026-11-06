@@ -35,7 +35,7 @@ import {
 import { PodDesignDto } from '../../pod-tiktok/dto/pod-design.dto';
 import { ProductDesignMapper } from '../mappers/product-design.mapper';
 import { normalizeProductKey, productKeyFilter, type ProductKey } from '../shared/mapping-match';
-import { toDirectDownloadUrl } from '../shared/design-url';
+import { toDirectDownloadUrl } from '../../../common/utils/google-drive-url.util';
 import { assertPublicDownloadUrl } from '../shared/public-url';
 
 /** Design kèm metadata file — hình dạng dùng chung cho mọi hàm ở đây. */
@@ -332,6 +332,8 @@ export class ProductDesignService {
       // giá trị nào để nhét. Đường tra ngược từ file về sản phẩm nằm ở `folderSegments`
       // ngay dưới: object key chứa đủ cả hai nửa khoá.
       referenceId: null,
+      // Danh sách đơn chỉ cần ảnh nhỏ: tạo một lần ở đây, lúc file đã có sẵn trong bộ nhớ.
+      withThumbnail: true,
       folderSegments: [
         'fulfillment',
         'designs',

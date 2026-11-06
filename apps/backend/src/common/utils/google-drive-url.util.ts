@@ -15,7 +15,7 @@ export function toDirectDownloadUrl(raw: string): string {
   } catch {
     return raw;
   }
-  if (url.hostname.toLowerCase() !== 'drive.google.com') return raw;
+  if (!isGoogleDriveHost(url.hostname)) return raw;
 
   const fromPath = /^\/file\/d\/([A-Za-z0-9_-]{10,})(?:\/|$)/.exec(url.pathname)?.[1];
   const fromQuery =
@@ -23,4 +23,18 @@ export function toDirectDownloadUrl(raw: string): string {
   const id = fromPath ?? (fromQuery && /^[A-Za-z0-9_-]{10,}$/.test(fromQuery) ? fromQuery : null);
   if (!id) return raw;
   return `https://drive.google.com/uc?export=download&id=${id}`;
+}
+
+function isGoogleDriveHost(hostname: string): boolean {
+  const host = hostname.toLowerCase();
+  return host === 'drive.google.com' || host === 'docs.google.com';
+}
+
+/** URL có thuộc Google Drive không — để câu lỗi chỉ đúng cách sửa (bật chia sẻ công khai). */
+export function isGoogleDriveUrl(raw: string): boolean {
+  try {
+    return isGoogleDriveHost(new URL(raw).hostname);
+  } catch {
+    return false;
+  }
 }

@@ -5,6 +5,7 @@ import { ChevronDown, ImageIcon, ImageUp, Package, Palette } from 'lucide-react'
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import { DesignImage } from '@/features/fulfillment/components/design-image';
 import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { cn } from '@/lib/utils';
 import { POD_ACTIVE_PLACEMENTS, type PodOrderItem } from '../order-types';
@@ -124,10 +125,11 @@ export function OrderProductList({
                     title={t('product.designZoom', { placement })}
                     className="relative size-11 cursor-zoom-in overflow-hidden rounded border"
                   >
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
+                    <DesignImage
                       src={design.fileUrl}
+                      thumbnailUrl={design.thumbnailUrl}
                       alt={t('product.designAlt', { placement })}
+                      size={44}
                       className="size-full object-cover"
                       loading="lazy"
                     />

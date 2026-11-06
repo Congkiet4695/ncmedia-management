@@ -13,17 +13,12 @@ import {
   MaxLength,
   Min,
 } from 'class-validator';
+import { toBool } from '../../../common/utils/query-boolean.util';
 import { TIKTOK_ORDER_STATUSES } from '../constants/tiktok.constants';
 import { POD_DATE_PRESETS, type PodDatePreset } from '../utils/date-range.util';
 
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
-
-const toBool = ({ value }: { value: unknown }): unknown => {
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  return value;
-};
 
 /** Trường sắp xếp cho danh sách đơn (whitelist — chống inject qua orderBy). */
 export const POD_ORDER_SORT_FIELDS = [

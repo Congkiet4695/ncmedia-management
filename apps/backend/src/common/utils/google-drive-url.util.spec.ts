@@ -1,4 +1,4 @@
-import { toDirectDownloadUrl } from './design-url';
+import { isGoogleDriveUrl, toDirectDownloadUrl } from './google-drive-url.util';
 
 describe('toDirectDownloadUrl — link chia sẻ Google Drive', () => {
   const ID = '1AbCdEfGhIjKlMnOpQrStUvWxYz012345';
@@ -10,6 +10,8 @@ describe('toDirectDownloadUrl — link chia sẻ Google Drive', () => {
     `https://drive.google.com/file/d/${ID}`,
     `https://drive.google.com/open?id=${ID}`,
     `https://drive.google.com/uc?id=${ID}`,
+    `https://docs.google.com/uc?id=${ID}`,
+    `https://docs.google.com/file/d/${ID}/edit`,
   ])('%s ⇒ link tải của CÙNG file', (url) => {
     expect(toDirectDownloadUrl(url)).toBe(DOWNLOAD);
   });
@@ -20,5 +22,14 @@ describe('toDirectDownloadUrl — link chia sẻ Google Drive', () => {
       'https://drive.google.com/drive/folders/abc',
     );
     expect(toDirectDownloadUrl('khong-phai-url')).toBe('khong-phai-url');
+  });
+});
+
+describe('isGoogleDriveUrl', () => {
+  it('chỉ nhận host của Drive', () => {
+    expect(isGoogleDriveUrl('https://drive.google.com/file/d/abc/view')).toBe(true);
+    expect(isGoogleDriveUrl('https://drive.google.com.evil.test/file/d/abc/view')).toBe(false);
+    expect(isGoogleDriveUrl('https://cdn.example.com/a.png')).toBe(false);
+    expect(isGoogleDriveUrl('khong-phai-url')).toBe(false);
   });
 });

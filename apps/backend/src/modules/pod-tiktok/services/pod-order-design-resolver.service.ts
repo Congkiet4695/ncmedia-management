@@ -153,6 +153,7 @@ export class PodOrderDesignResolver {
             select: {
               id: true,
               publicUrl: true,
+              thumbnailUrl: true,
               originalName: true,
               mimeType: true,
               fileSize: true,

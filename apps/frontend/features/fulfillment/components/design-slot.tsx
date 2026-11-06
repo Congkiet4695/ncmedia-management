@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react';
 import { Check, Copy, ImageUp, Link2, Loader2, Trash2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
+import { DesignImage } from './design-image';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -208,8 +209,13 @@ export function DesignSlot({ productKey, placement, design, onPreview }: DesignS
             className="size-full cursor-zoom-in"
             aria-label={t('pod:design.viewLarge')}
           >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src={current.fileUrl} alt={placementLabel} className="size-full object-contain" />
+            <DesignImage
+              src={current.fileUrl}
+              thumbnailUrl={current.thumbnailUrl}
+              alt={placementLabel}
+              size={256}
+              className="size-full object-contain"
+            />
           </button>
         ) : (
           <div className="flex flex-col items-center gap-1 text-muted-foreground">

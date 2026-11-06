@@ -106,6 +106,8 @@ export interface PodDesign {
   /** UPLOAD: file upload lên kho lưu trữ · URL: URL công khai nhập trực tiếp (không upload lại). */
   source: 'UPLOAD' | 'URL';
   fileUrl: string;
+  /** Bản thu nhỏ để hiển thị trong danh sách. NULL khi chưa có. */
+  thumbnailUrl: string | null;
   fileName: string;
   /** NULL với nguồn URL (hệ thống không tải file về). */
   mimeType: string | null;

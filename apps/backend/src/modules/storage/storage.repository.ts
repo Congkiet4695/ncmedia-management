@@ -23,6 +23,9 @@ export interface StorageFileWriteData {
   provider: StorageProviderName;
   bucket: string | null;
   checksum: string;
+  thumbnailObjectKey: string | null;
+  thumbnailUrl: string | null;
+  sourceUrlHash: string | null;
 }
 
 export interface StorageFileQueryParams {
@@ -139,6 +142,17 @@ export class StorageRepository {
    * người dùng xoá file ở màn hình Storage sẽ nhận lỗi ràng buộc thô của Postgres thay vì
    * thông điệp "file đang được sử dụng" — hoặc tệ hơn, ảnh của template khác bị vỡ.
    */
+  findBySourceUrlHash(organizationId: string, sourceUrlHash: string): Promise<StorageFileWithUploader | null> {
+    return this.prisma.storageFile.findFirst({
+      where: { organizationId, sourceUrlHash, deletedAt: null },
+      include: STORAGE_FILE_INCLUDE,
+    });
+  }
+
+  async setThumbnail(id: string, thumbnailObjectKey: string, thumbnailUrl: string | null): Promise<void> {
+    await this.prisma.storageFile.update({ where: { id }, data: { thumbnailObjectKey, thumbnailUrl } });
+  }
+
   async countReferences(id: string): Promise<number> {
     const [productDesigns, legacyItemDesigns, imageTemplateItems, skuTemplateItems] =
       await Promise.all([

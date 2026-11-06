@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { toBool } from '../../../common/utils/query-boolean.util';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -17,8 +18,6 @@ import {
   type PodTemplateKind,
 } from '../constants/pod-listing.constants';
 
-const toBool = ({ value }: { value: unknown }): unknown =>
-  value === true || value === 'true' ? true : value === false || value === 'false' ? false : value;
 
 /** Số template tối đa trong một gói Import — chặn file khổng lồ khoá transaction. */
 export const POD_TEMPLATE_BUNDLE_MAX_ITEMS = 200;

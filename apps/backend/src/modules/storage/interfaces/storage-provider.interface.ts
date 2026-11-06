@@ -8,6 +8,8 @@ export interface PutObjectParams {
   mimeType: string;
   /** Tên file gốc — đặt vào Content-Disposition để tải về đúng tên. */
   originalName: string;
+  /** Header `Cache-Control` của object. Bỏ trống ⇒ theo mặc định của nhà cung cấp. */
+  cacheControl?: string;
 }
 
 /** Kết quả ghi object. */

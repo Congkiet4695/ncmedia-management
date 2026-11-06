@@ -35,6 +35,12 @@ import {
   STORAGE_ALLOWED_TYPES,
   STORAGE_BLOCKED_EXTENSIONS,
 } from './storage.constants';
+import {
+  createThumbnail,
+  STORAGE_THUMBNAIL_CACHE_CONTROL,
+  STORAGE_THUMBNAIL_MIME,
+  thumbnailObjectKey,
+} from './storage-thumbnail.util';
 import { StorageFileWithUploader, StorageRepository } from './storage.repository';
 
 /** Ngữ cảnh nghiệp vụ của một lần upload. */
@@ -52,6 +58,10 @@ export interface UploadContext {
   folderSegments: string[];
   /** Ghi trong transaction của caller (để upload + ghi nghiệp vụ là nguyên tử). */
   tx?: Prisma.TransactionClient;
+  /** Tạo kèm bản thu nhỏ (file ảnh dùng để xem trước, như design). Lỗi tạo không làm hỏng upload. */
+  withThumbnail?: boolean;
+  /** sha256 của URL nguồn, cho file tải về từ URL — xem `storage_files.source_url_hash`. */
+  sourceUrlHash?: string;
 }
 
 /**
@@ -134,6 +144,7 @@ export class StorageService {
       mimeType: file.mimetype,
       originalName: file.originalname,
     });
+    const thumbnail = ctx.withThumbnail ? await this.putThumbnail(stored.objectKey, file.buffer) : null;
 
     try {
       const write = () =>
@@ -156,6 +167,9 @@ export class StorageService {
             provider: this.provider.name,
             bucket: stored.bucket,
             checksum,
+            thumbnailObjectKey: thumbnail?.objectKey ?? null,
+            thumbnailUrl: thumbnail?.publicUrl ?? null,
+            sourceUrlHash: ctx.sourceUrlHash ?? null,
           },
         );
 
@@ -177,6 +191,7 @@ export class StorageService {
     } catch (error) {
       // Ghi metadata thất bại ⇒ object trên storage thành rác, phải dọn.
       await this.provider.delete(stored.objectKey).catch(() => undefined);
+      if (thumbnail) await this.provider.delete(thumbnail.objectKey).catch(() => undefined);
       this.logger.error({
         module: 'storage',
         operation: 'upload',
@@ -217,6 +232,22 @@ export class StorageService {
   // ---------------------------------------------------------------------------
   // Đọc / xoá
   // ---------------------------------------------------------------------------
+
+  /** File đã tải về từ đúng URL nguồn này (còn hiệu lực). */
+  findBySourceUrlHash(organizationId: string, sourceUrlHash: string): Promise<StorageFileWithUploader | null> {
+    return this.repo.findBySourceUrlHash(organizationId, sourceUrlHash);
+  }
+
+  /**
+   * Tạo bản thu nhỏ cho file ĐÃ có trên kho (bổ sung cho dữ liệu cũ). `source` là nội dung file, nơi gọi tự đọc vì file cũ
+   * có thể nằm ở bucket khác bucket đang cấu hình. Trả về false nếu không tạo được; file gốc không bị đụng tới.
+   */
+  async attachThumbnail(file: Pick<StorageFile, 'id' | 'objectKey'>, source: Buffer): Promise<boolean> {
+    const thumbnail = await this.putThumbnail(file.objectKey, source);
+    if (!thumbnail) return false;
+    await this.repo.setThumbnail(file.id, thumbnail.objectKey, thumbnail.publicUrl);
+    return true;
+  }
 
   async findById(organizationId: string, id: string): Promise<StorageFileWithUploader> {
     const file = await this.repo.findById(organizationId, id);
@@ -304,6 +335,18 @@ export class StorageService {
     if (tx) await run(tx);
     else await this.prisma.$transaction((client) => run(client));
 
+    if (file.thumbnailObjectKey) {
+      // Chỉ là bản phụ: còn sót không ảnh hưởng gì nên không chặn việc xoá file gốc.
+      await this.provider.delete(file.thumbnailObjectKey).catch((error: Error) =>
+        this.logger.warn({
+          module: 'storage',
+          operation: 'delete-thumbnail',
+          objectKey: file.thumbnailObjectKey,
+          msg: `Không xoá được bản thu nhỏ: ${error.message}`,
+        }),
+      );
+    }
+
     try {
       await this.provider.delete(file.objectKey);
     } catch (error) {
@@ -324,6 +367,31 @@ export class StorageService {
       objectKey: file.objectKey,
       msg: 'Đã xoá file khỏi kho lưu trữ',
     });
+  }
+
+  /** Best-effort: lỗi chỉ ghi log. File gốc vẫn dùng được, màn hình rơi về đường hiển thị cũ. */
+  private async putThumbnail(
+    objectKey: string,
+    source: Buffer,
+  ): Promise<{ objectKey: string; publicUrl: string | null } | null> {
+    try {
+      const stored = await this.provider.put({
+        objectKey: thumbnailObjectKey(objectKey),
+        body: await createThumbnail(source),
+        mimeType: STORAGE_THUMBNAIL_MIME,
+        originalName: 'thumbnail.webp',
+        cacheControl: STORAGE_THUMBNAIL_CACHE_CONTROL,
+      });
+      return { objectKey: stored.objectKey, publicUrl: stored.publicUrl };
+    } catch (error) {
+      this.logger.warn({
+        module: 'storage',
+        operation: 'thumbnail',
+        objectKey,
+        msg: `Không tạo được bản thu nhỏ: ${(error as Error).message}`,
+      });
+      return null;
+    }
   }
 
   private async putObject(params: {

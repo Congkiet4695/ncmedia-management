@@ -1919,6 +1919,13 @@ model StorageFile {
   /// Checksum nội dung (sha256 hex) — phát hiện trùng file và kiểm tra toàn vẹn.
   checksum String?             @db.Char(64)
 
+  /// Bản thu nhỏ để hiển thị trong danh sách (design). NULL khi chưa có / không tạo được: màn hình dùng file gốc.
+  /// Không có dòng `storage_files` riêng: nó sống và chết cùng file này, không ai tham chiếu độc lập.
+  thumbnailObjectKey String? @map("thumbnail_object_key") @db.VarChar(1024)
+  thumbnailUrl       String? @map("thumbnail_url") @db.VarChar(2048)
+  /// sha256 của URL nguồn với file tải về từ URL (không lưu URL: hay mang token ký). Nhập lại URL đó ⇒ dùng lại file này.
+  sourceUrlHash      String? @map("source_url_hash") @db.Char(64)
+
   uploadedBy String   @map("uploaded_by") @db.Uuid
   uploadedAt DateTime @map("uploaded_at") @db.Timestamptz(6)
 

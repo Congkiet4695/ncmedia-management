@@ -50,7 +50,8 @@ export class PodListingAssetController {
     description:
       'Server tải ảnh qua hàng rào SSRF (chỉ http/https cổng 80/443, chặn localhost / IP nội bộ / metadata, ' +
       'kiểm lại mỗi bước chuyển hướng, giới hạn thời gian & dung lượng), kiểm CHỮ KÝ file (JPEG/PNG/WEBP, ≤ 5 MB) ' +
-      'rồi lưu như ảnh tải từ máy. Trả về file Storage — form dùng `id` làm `fileId` như ảnh upload.',
+      'rồi lưu như ảnh tải từ máy. Trả về file Storage — form dùng `id` làm `fileId` như ảnh upload. URL đã tải thành công ' +
+      'trước đây trả về CHÍNH file đó, không gọi lại nguồn. Link chia sẻ Google Drive được đổi sang link tải của cùng file.',
   })
   @ApiCreatedResponse({ type: StorageFileDto })
   @ApiBadRequestResponse({ description: 'POD_LISTING_IMAGE_URL_INVALID (URL sai dạng / trỏ vào địa chỉ nội bộ)' })
@@ -61,6 +62,6 @@ export class PodListingAssetController {
     @CurrentUser() user: AuthenticatedUser,
     @Body() dto: ImportListingImageUrlDto,
   ): Promise<StorageFileDto> {
-    return this.imageUrls.importImage(user.organizationId, user.userId, dto.url);
+    return this.imageUrls.importOrReuse(user.organizationId, user.userId, dto.url);
   }
 }

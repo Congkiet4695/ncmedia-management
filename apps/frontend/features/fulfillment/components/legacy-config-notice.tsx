@@ -3,6 +3,7 @@
 import { Copy, History, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
+import { DesignImage } from './design-image';
 import { Button } from '@/components/ui/button';
 import { useApiError } from '@/hooks/use-api-error';
 import { useFulfillmentActions } from '../hooks/use-fulfillment';
@@ -67,10 +68,11 @@ export function LegacyConfigNotice({
               onClick={() => onPreviewDesign(design.fileUrl)}
               className="w-16 space-y-0.5 text-center"
             >
-              {/* eslint-disable-next-line @next/next/no-img-element */}
-              <img
+              <DesignImage
                 src={design.fileUrl}
+                thumbnailUrl={design.thumbnailUrl}
                 alt={design.placement}
+                size={64}
                 className="size-16 rounded border object-cover"
                 loading="lazy"
               />

@@ -18,6 +18,12 @@ export class PodDesignDto {
   })
   source!: 'UPLOAD' | 'URL';
   @ApiProperty({ description: 'URL công khai để preview/tải về' }) fileUrl!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description: 'Bản thu nhỏ để hiển thị trong danh sách. NULL khi chưa có: dùng `fileUrl`. File in vẫn là `fileUrl`.',
+  })
+  thumbnailUrl!: string | null;
   @ApiProperty({ description: 'Tên file gốc (UPLOAD) hoặc đoạn cuối của URL (URL)' })
   fileName!: string;
   @ApiProperty({ nullable: true, type: String, description: 'NULL với nguồn URL (không tải file về)' })

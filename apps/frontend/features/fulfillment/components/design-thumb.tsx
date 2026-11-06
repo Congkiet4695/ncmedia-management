@@ -3,6 +3,7 @@
 import { useTranslation } from 'react-i18next';
 import { Tooltip } from '@/components/ui/tooltip';
 import type { PodDesign, PodDesignPlacement } from '@/features/pod-tiktok/order-types';
+import { DesignImage } from './design-image';
 
 interface DesignThumbProps {
   design: PodDesign;
@@ -32,8 +33,14 @@ export function DesignThumb({ design, placement, onClick }: DesignThumbProps) {
 
   const image = (
     <>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img src={design.fileUrl} alt={label} className="size-full object-cover" loading="lazy" />
+      <DesignImage
+        src={design.fileUrl}
+        thumbnailUrl={design.thumbnailUrl}
+        alt={label}
+        size={36}
+        className="size-full object-cover"
+        loading="lazy"
+      />
       <span className="absolute inset-x-0 bottom-0 bg-foreground/75 text-center text-[8px] font-bold leading-[10px] text-background">
         {label.charAt(0).toUpperCase()}
       </span>
@@ -48,10 +55,11 @@ export function DesignThumb({ design, placement, onClick }: DesignThumbProps) {
       className="max-w-none bg-background p-1 text-foreground ring-1 ring-border"
       content={
         <span className="block">
-          {/* eslint-disable-next-line @next/next/no-img-element */}
-          <img
+          <DesignImage
             src={design.fileUrl}
+            thumbnailUrl={design.thumbnailUrl}
             alt={label}
+            size={256}
             className="max-h-64 max-w-64 rounded object-contain"
           />
           <span className="mt-1 block text-center text-[10px] text-muted-foreground">

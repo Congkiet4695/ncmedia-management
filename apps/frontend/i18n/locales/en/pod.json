@@ -1402,6 +1402,9 @@
         "add": "Add from URL",
         "hint": "Public JPEG / PNG / WEBP links, max 5 MB each. The server downloads and stores the image (links that need login, have expired or block hotlinking are rejected). Paste several links separated by spaces or new lines.",
         "duplicate": "already added",
+        "removed": "added earlier and removed from the list",
+        "addAgain": "Add again",
+        "showImage": "Show image",
         "problem": {
           "INVALID": "not a valid URL",
           "NOT_HTTP": "only http/https links are allowed",

@@ -36,6 +36,46 @@ export function moveImage<T>(list: readonly T[], from: number, to: number): T[] 
   return next;
 }
 
+/**
+ * URL vừa nhập so với danh sách ảnh HIỆN TẠI:
+ * - `PRESENT`: ảnh đang nằm trong danh sách (khớp URL lưu trữ, hoặc khớp file đã tải về từ URL này).
+ * - `REMOVED`: đã tải về trong lần mở form này nhưng không còn trong danh sách (người dùng xoá, hoặc áp Image Template
+ *   thay cả bộ ảnh). File vẫn còn trong Storage ⇒ đưa lại được mà không tải lại.
+ * - `NEW`: chưa từng biết ⇒ đi đường tải về và kiểm tra của server như bình thường.
+ */
+export type ImageUrlState<T> =
+  | { status: 'PRESENT'; index: number }
+  | { status: 'REMOVED'; image: T }
+  | { status: 'NEW' };
+
+export function classifyImageUrl<T extends OrderedImage>(
+  url: string,
+  images: readonly T[],
+  remembered: ReadonlyMap<string, T>,
+): ImageUrlState<T> {
+  const key = normalizeImageUrl(url);
+  const known = remembered.get(key);
+  const index = images.findIndex(
+    (image) => normalizeImageUrl(image.imageUrl) === key || (known !== undefined && isSameImage(image, known)),
+  );
+  if (index >= 0) return { status: 'PRESENT', index };
+  return known ? { status: 'REMOVED', image: known } : { status: 'NEW' };
+}
+
+function isSameImage(a: OrderedImage, b: OrderedImage): boolean {
+  if (a.fileId || b.fileId) return a.fileId === b.fileId;
+  return a.imageUrl !== '' && normalizeImageUrl(a.imageUrl) === normalizeImageUrl(b.imageUrl);
+}
+
+/**
+ * Đưa ảnh đã gỡ trở lại CUỐI danh sách. Ảnh đang có thì giữ nguyên danh sách: ảnh đầu tiên là ảnh chính, nên đổi thứ tự ở
+ * đây là âm thầm đổi ảnh chính. Hết chỗ thì giữ nguyên. Không có khái niệm "vị trí cũ" nên không đoán vị trí.
+ */
+export function readdImage<T extends OrderedImage>(images: readonly T[], image: T, max: number): T[] {
+  if (images.some((entry) => isSameImage(entry, image)) || images.length >= max) return [...images];
+  return [...images, image];
+}
+
 /** Tối đa ký tự một URL — khớp `POD_LISTING_IMAGE_URL_MAX_LENGTH` của backend. */
 export const IMAGE_URL_MAX_LENGTH = 2048;
 

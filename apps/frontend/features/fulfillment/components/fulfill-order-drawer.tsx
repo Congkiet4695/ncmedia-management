@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
+import { DesignImage } from './design-image';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
@@ -1060,10 +1061,11 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                                 title={design.fileName}
                                 className="block size-16 overflow-hidden rounded border"
                               >
-                                {/* eslint-disable-next-line @next/next/no-img-element */}
-                                <img
+                                <DesignImage
                                   src={design.fileUrl}
+                                  thumbnailUrl={design.thumbnailUrl}
                                   alt={placement}
+                                  size={64}
                                   className="size-full object-cover"
                                   loading="lazy"
                                 />

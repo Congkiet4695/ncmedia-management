@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { toBool } from '../../../common/utils/query-boolean.util';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -44,12 +45,6 @@ import {
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
 
-const toBool = ({ value }: { value: unknown }): unknown => {
-  if (typeof value === 'boolean') return value;
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  return value;
-};
 
 // ---------------------------------------------------------------------------
 // Tài khoản nhà cung cấp
@@ -1589,9 +1584,7 @@ export class BaseCostImportQueryDto {
     description: '`true` = chỉ kiểm tra file và trả bản xem trước, KHÔNG ghi gì. `false` = kiểm lại toàn bộ rồi ghi.',
   })
   @IsOptional()
-  // 🔴 Đọc giá trị GỐC (`obj`): `enableImplicitConversion` đã đổi chuỗi "false" thành `true` (Boolean("false"))
-  // trước khi `value` tới đây — dùng `value` thì `?dryRun=false` vẫn chỉ xem trước.
-  @Transform(({ obj }: { obj: Record<string, unknown> }) => toBool({ value: obj.dryRun }))
+  @Transform(toBool)
   @IsBoolean()
   dryRun?: boolean;
 }

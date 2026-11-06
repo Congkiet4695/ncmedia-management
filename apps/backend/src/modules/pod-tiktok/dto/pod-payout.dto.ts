@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { toBool } from '../../../common/utils/query-boolean.util';
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
@@ -23,12 +24,6 @@ import {
 const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
 
-const toBool = ({ value }: { value: unknown }): unknown => {
-  if (typeof value === 'boolean') return value;
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  return value;
-};
 
 /**
  * Bộ lọc dùng chung cho cả 3 API báo cáo payout.

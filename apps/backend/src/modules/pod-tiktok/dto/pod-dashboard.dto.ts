@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { toBool } from '../../../common/utils/query-boolean.util';
 import { Transform, Type } from 'class-transformer';
 import {
   IsBoolean,
@@ -55,7 +56,7 @@ export class PodDashboardRangeDto extends PodDashboardFilterDto {
     default: false,
   })
   @IsOptional()
-  @Transform(({ value }) => value === true || value === 'true')
+  @Transform(toBool)
   @IsBoolean()
   allTime?: boolean = false;
 
@@ -97,7 +98,7 @@ export class PodDashboardShopListQueryDto extends PodDashboardPageQueryDto {
 export class PodDashboardSellerQueryDto extends PodDashboardRangeDto {
   @ApiPropertyOptional({ description: 'Chỉ nhân viên đang hoạt động (employee + user ACTIVE).', default: false })
   @IsOptional()
-  @Transform(({ value }) => value === true || value === 'true')
+  @Transform(toBool)
   @IsBoolean()
   activeOnly?: boolean = false;
 

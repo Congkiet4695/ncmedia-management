@@ -129,6 +129,8 @@ services:
         NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-NCMedia Management Platform}
         # CÙNG biến với backend (env_file) ⇒ UI hiển thị và backend lọc ngày theo đúng MỘT múi giờ.
         NEXT_PUBLIC_BUSINESS_TIMEZONE: ${APP_BUSINESS_TIMEZONE:-America/Los_Angeles}
+        # Bản thu nhỏ ảnh design chỉ nhận các host Storage này. Có file ở host cũ thì khai STORAGE_PUBLIC_URLS (dấu phẩy).
+        NEXT_PUBLIC_STORAGE_PUBLIC_URLS: ${STORAGE_PUBLIC_URLS:-${R2_PUBLIC_URL:-}}
     image: ncmedia-frontend:latest
     container_name: ncmedia-frontend
     restart: unless-stopped

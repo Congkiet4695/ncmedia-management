@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { toBool } from '../../../common/utils/query-boolean.util';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -39,11 +40,6 @@ const trim = ({ value }: { value: unknown }): unknown =>
   typeof value === 'string' ? value.trim() : value;
 
 /** Query string gửi `"true"`/`"false"` dạng chuỗi — đổi về boolean trước khi validate. */
-const toBoolean = ({ value }: { value: unknown }): unknown => {
-  if (value === 'true') return true;
-  if (value === 'false') return false;
-  return value;
-};
 
 /**
  * Bộ template của một lượt đăng.
@@ -428,7 +424,7 @@ export class ManualAttributeDto {
   @IsString()
   @MaxLength(40)
   type?: string;
-  @ApiPropertyOptional() @IsOptional() @Transform(toBoolean) @IsBoolean() isRequired?: boolean;
+  @ApiPropertyOptional() @IsOptional() @Transform(toBool) @IsBoolean() isRequired?: boolean;
 
   @ApiPropertyOptional({ type: ManualAttributeValueDto, isArray: true })
   @IsOptional()

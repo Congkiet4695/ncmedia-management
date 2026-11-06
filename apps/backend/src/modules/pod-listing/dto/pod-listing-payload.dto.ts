@@ -1,4 +1,5 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
+import { toBool } from '../../../common/utils/query-boolean.util';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -163,7 +164,7 @@ export class PodListingPayloadQueryDto {
     description: 'true ⇒ chỉ Draft ĐỦ ĐIỀU KIỆN publish (chưa publish, không lỗi validate).',
   })
   @IsOptional()
-  @Transform(({ value }) => value === true || value === 'true')
+  @Transform(toBool)
   @IsBoolean()
   publishable?: boolean;
 

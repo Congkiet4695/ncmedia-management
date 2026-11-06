@@ -81,6 +81,7 @@ export class CloudflareR2Provider extends StorageProvider {
           Body: params.body,
           ContentType: params.mimeType,
           ContentLength: params.body.length,
+          ...(params.cacheControl ? { CacheControl: params.cacheControl } : {}),
           // Giữ tên gốc để khi tải về trình duyệt đặt đúng tên (tên trên bucket là UUID).
           ContentDisposition: `inline; filename="${this.sanitizeHeaderValue(params.originalName)}"`,
         }),
