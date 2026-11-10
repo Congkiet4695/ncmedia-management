@@ -43,6 +43,7 @@ const strip = (value: unknown) => JSON.parse(JSON.stringify(value));
 // Sellerwix giả lập — giá THEO API KEY
 // ---------------------------------------------------------------------------
 const costByKey = new Map<string, number>();
+const failVariantsForKey = new Set<string>();
 const variants = ['Black', 'White'].flatMap((color) =>
   ['S', 'M'].map((size) => ({ sku: `${RUN}-TEE-${color}-${size}`, title: `${color} / ${size}`, color, size })),
 );
@@ -55,6 +56,8 @@ function json(status: number, body: unknown): Response {
   if (path === '/v1/category') return json(200, [{ id: CAT_ID, title: `${RUN} T-Shirts` }]);
   if (path === `/v1/category/${CAT_ID}/product`) return json(200, [{ sku: `${RUN}-TEE`, title: `${RUN} Unisex Tee`, img_src: 'https://img/tee.png' }]);
   if (path === `/v1/product/${RUN}-TEE`) {
+    // Lượt đọc biến thể hỏng ⇒ đồng bộ đọc THIẾU (partial) — bảng cũ không archive.
+    if (failVariantsForKey.has(key)) return json(500, { code: 500, message: 'Internal Server Error' });
     return json(200, {
       data: variants.map((v) => ({
         sku: v.sku, title: v.title, color: { name: v.color }, size: { name: v.size }, cost: costByKey.get(key),
@@ -80,8 +83,11 @@ async function main(): Promise<void> {
   const B = await mkAccount(orgB.id, 'SELLERWIX', 'Sellerwix B', `${RUN}-key-B`);
   const C = await mkAccount(orgA.id, 'SELLERWIX', 'Sellerwix C (chưa chiếu)', `${RUN}-key-C`);
   const M = await mkAccount(orgA.id, 'MANGO', 'Mango', `${RUN}-key-M`);
+  // Tài khoản DÙNG CHUNG (is_global) của tổ chức A — tổ chức B được dùng (ý nghĩa is_global giữ nguyên).
+  const SH = await mkAccount(orgA.id, 'SELLERWIX', 'Sellerwix Shared', `${RUN}-key-S`);
   costByKey.set(`${RUN}-key-A`, 5.0);
   costByKey.set(`${RUN}-key-B`, 5.8);
+  costByKey.set(`${RUN}-key-S`, 7.0);
 
   let readOn = false;
   const config = {
@@ -310,6 +316,15 @@ async function main(): Promise<void> {
     const caught = await price.lookup(orgA.id, A.id, { externalVariantId: sku, sku });
     check('T11c. Chiếu lại ⇒ lớp mới theo kịp, đọc lớp mới (6.10)', caught.ok && caught.price.price === 6.1);
 
+    // Design của tổ chức A — Global Catalog không được chạm (kiểm ở T17).
+    const design = await prisma.fulfillmentProductDesign.create({
+      data: {
+        organizationId: orgA.id, tiktokProductId: `${RUN}-tt`, tiktokSkuId: `${RUN}-sku`, sellerSku: `${RUN}-seller`,
+        placement: 'FRONT', sourceUrl: 'https://example.com/design.png',
+      } as never,
+    });
+    const designBefore = JSON.stringify(design);
+
     // ------------------------------------------------ Test 12 — đồng bộ lặp lại
     const c1 = await counts();
     await sync.syncAccount(orgA.id, A.id, 'MANUAL' as never);
@@ -319,14 +334,96 @@ async function main(): Promise<void> {
     const c2 = await counts();
     check('T12. Đồng bộ / chiếu lặp lại: KHÔNG sinh trùng sản phẩm, biến thể global, dòng theo tài khoản',
       JSON.stringify(c1) === JSON.stringify(c2), JSON.stringify(c2));
+
+    // ------------------------------------------------ Test 13 — tài khoản dùng chung (is_global) qua lớp mới
+    await prisma.fulfillmentAccount.update({ where: { id: SH.id }, data: { isGlobal: true } });
+    await sync.syncAccount(orgA.id, SH.id, 'MANUAL' as never);
+    const productSH = (await prisma.fulfillmentProduct.findFirst({ where: { accountId: SH.id } }))!;
+    const sharedView = async (on: boolean) => {
+      readOn = on;
+      return strip({
+        products: (await query.listProducts(orgB.id, SH.id, { page: 1, limit: 50 })).items,
+        variants: await query.listVariations(orgB.id, productSH.id),
+        price: await price.lookup(orgB.id, SH.id, { externalVariantId: sku, sku }),
+      });
+    };
+    const sharedOff = await sharedView(false);
+    const sharedOn = await sharedView(true);
+    check('T13. Tài khoản DÙNG CHUNG: tổ chức B đọc sản phẩm + biến thể + giá (7.00) qua lớp mới = bảng cũ',
+      JSON.stringify(sharedOn) === JSON.stringify(sharedOff) && sharedOn.price.ok && sharedOn.price.price.price === 7,
+      sharedOn.price.ok ? String(sharedOn.price.price.price) : sharedOn.price.reason);
+    check('T13b. Tài khoản dùng chung có GIÁ RIÊNG (7.00 ≠ A 6.10 ≠ B 5.80) — một biến thể global, ba giá',
+      (await prisma.fulfillmentAccountVariant.count({ where: { globalVariantId: gBS[0].id } })) === 3);
+    await prisma.fulfillmentAccount.update({ where: { id: SH.id }, data: { isGlobal: false } });
+    const denied = async (on: boolean) => {
+      readOn = on;
+      const p = await price.lookup(orgB.id, SH.id, { externalVariantId: sku, sku });
+      let variantsDenied = false;
+      try { await query.listVariations(orgB.id, productSH.id); } catch { variantsDenied = true; }
+      return !p.ok && variantsDenied;
+    };
+    check('T13c. Thôi dùng chung ⇒ tổ chức B KHÔNG đọc được giá / biến thể (cả cờ BẬT lẫn TẮT)', (await denied(true)) && (await denied(false)));
+    readOn = true;
+
+    // ------------------------------------------------ Test 14 — đồng bộ ĐỒNG THỜI hai tài khoản cùng nhà cung cấp
+    costByKey.set(`${RUN}-key-A`, 6.5);
+    costByKey.set(`${RUN}-key-B`, 5.9);
+    const c3 = await counts();
+    const [rA2, rB2] = await Promise.all([
+      sync.syncAccount(orgA.id, A.id, 'MANUAL' as never),
+      sync.syncAccount(orgB.id, B.id, 'MANUAL' as never),
+    ]);
+    const pA65 = await price.lookup(orgA.id, A.id, { externalVariantId: sku, sku });
+    const pB59 = await price.lookup(orgB.id, B.id, { externalVariantId: sku, sku });
+    check('T14. Đồng bộ đồng thời A + B: cả hai PROJECTED, giá đúng từng tài khoản (6.50 / 5.90), không trùng bản ghi',
+      rA2.globalCatalog?.status === 'PROJECTED' && rB2.globalCatalog?.status === 'PROJECTED' &&
+      pA65.ok && pA65.price.price === 6.5 && pB59.ok && pB59.price.price === 5.9 &&
+      JSON.stringify(await counts()) === JSON.stringify(c3));
+
+    // ------------------------------------------------ Test 15 — đồng bộ đọc THIẾU (partial)
+    failVariantsForKey.add(`${RUN}-key-A`);
+    costByKey.set(`${RUN}-key-A`, 9.0);
+    const rPartial = await sync.syncAccount(orgA.id, A.id, 'MANUAL' as never);
+    failVariantsForKey.delete(`${RUN}-key-A`);
+    const activeA = await prisma.fulfillmentAccountVariant.count({ where: { accountId: A.id, status: 'ACTIVE' } });
+    const pPartial = await price.lookup(orgA.id, A.id, { externalVariantId: sku, sku });
+    check('T15. Đồng bộ đọc thiếu: lượt PARTIAL, không archive; lớp mới giữ 4 biến thể ACTIVE và giá cũ 6.50 (không bịa 9.00)',
+      rPartial.complete === false && activeA === 4 && pPartial.ok && pPartial.price.price === 6.5,
+      `complete=${rPartial.complete} · active=${activeA} · price=${pPartial.ok ? pPartial.price.price : pPartial.reason}`);
+
+    // ------------------------------------------------ Test 16 — số liệu màn hình cấu hình
+    const statusOf = async (on: boolean) => {
+      readOn = on;
+      const s = await query.status(orgA.id, A.id);
+      return JSON.stringify({ c: s.catalogues, p: s.products, v: s.variants, col: s.colors, siz: s.sizes, last: s.lastSyncedAt });
+    };
+    const statusOff = await statusOf(false);
+    const statusOn = await statusOf(true);
+    check('T16. Số liệu danh mục (countActive / lastSyncedAt): cờ BẬT = cờ TẮT', statusOn === statusOff, statusOn);
+    readOn = true;
+
+    // ------------------------------------------------ Test 17 — Design không bị chạm
+    const designAfter = JSON.stringify(await prisma.fulfillmentProductDesign.findUnique({ where: { id: design.id } }));
+    check('T17. Product Design của tổ chức không đổi sau mọi lượt đồng bộ / chiếu', designAfter === designBefore);
+
+    // ------------------------------------------------ Test 18 — BASE COST INTEGRITY (tổng hợp)
+    const avA = await prisma.fulfillmentAccountVariant.findFirst({ where: { accountId: A.id, globalVariantId: gBS[0].id } });
+    const mapFinal = await prisma.fulfillmentProductMapping.findUnique({ where: { id: mapping.id } });
+    const itemFinal = await prisma.fulfillmentOrderItem.findUnique({ where: { id: itemId } });
+    check('T18. BASE COST INTEGRITY: giá catalog A 5 → 6 → 6.10 → 6.50 ⇒ account variant = 6.50, mapping.base_cost = 5, order_item.base_cost = 5',
+      avA?.price === '6.5' && Number(mapFinal?.baseCost) === 5 && Number(itemFinal?.baseCost) === 5,
+      `account=${avA?.price} · mapping=${mapFinal?.baseCost} · order=${itemFinal?.baseCost}`);
+    check('T18b. Reader không fallback ngoài dự kiến trong suốt test (không có DIVERGENCE / ERROR)',
+      reader.readStats().DIVERGENCE === 0 && reader.readStats().ERROR === 0, JSON.stringify(reader.readStats()));
   } finally {
     await prisma.$executeRaw`DELETE FROM fulfillment_order_items WHERE fulfillment_order_id IN
       (SELECT id FROM fulfillment_orders WHERE external_order_id = ${`${RUN}-order`})`;
     await prisma.$executeRaw`DELETE FROM fulfillment_orders WHERE external_order_id = ${`${RUN}-order`}`;
-    await prisma.fulfillmentProductMapping.deleteMany({ where: { accountId: { in: [A.id, B.id, C.id, M.id] } } });
-    await prisma.fulfillmentSyncLog.deleteMany({ where: { accountId: { in: [A.id, B.id, C.id, M.id] } } });
+    await prisma.fulfillmentProductDesign.deleteMany({ where: { organizationId: { in: [orgA.id, orgB.id] } } });
+    await prisma.fulfillmentProductMapping.deleteMany({ where: { accountId: { in: [A.id, B.id, C.id, M.id, SH.id] } } });
+    await prisma.fulfillmentSyncLog.deleteMany({ where: { accountId: { in: [A.id, B.id, C.id, M.id, SH.id] } } });
     // Lớp theo tài khoản + bảng cũ đi theo tài khoản (ON DELETE CASCADE); lớp global là dữ liệu dùng chung ⇒ dọn tay.
-    await prisma.fulfillmentAccount.deleteMany({ where: { id: { in: [A.id, B.id, C.id, M.id] } } });
+    await prisma.fulfillmentAccount.deleteMany({ where: { id: { in: [A.id, B.id, C.id, M.id, SH.id] } } });
     await prisma.providerCatalogVariant.deleteMany({ where: { externalVariantId: { startsWith: RUN } } });
     await prisma.providerCatalogProduct.deleteMany({ where: { externalProductId: { startsWith: RUN } } });
     await prisma.providerCatalogCatalogue.deleteMany({ where: { name: { startsWith: RUN } } });

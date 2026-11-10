@@ -1,9 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { FulfillmentTrigger } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import type { CatalogSyncStartedDto, FulfillmentAccountDto, PlatformProviderDto } from '../dto/fulfillment.dto';
 import { FulfillmentAccountNotFoundException } from '../exceptions/fulfillment.exceptions';
-import { FulfillmentCatalogRepository } from '../repositories/fulfillment-catalog.repository';
+import { FulfillmentCatalogReader, type CatalogReadPort } from './fulfillment-catalog-reader.service';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import {
   CATALOG_SYNC_STALE_MS,
@@ -30,7 +30,8 @@ export class PlatformFulfillmentService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly repo: FulfillmentRepository,
-    private readonly catalogRepo: FulfillmentCatalogRepository,
+    /** Số liệu danh mục: Global Catalog (cờ) hoặc bảng cũ — xem `FulfillmentCatalogReader`. */
+    @Inject(FulfillmentCatalogReader) private readonly catalogRepo: CatalogReadPort,
     private readonly catalogSync: FulfillmentCatalogSyncService,
     private readonly fulfillment: FulfillmentService,
   ) {}

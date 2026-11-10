@@ -192,10 +192,86 @@ describe('FulfillmentCatalogReader — chọn nguồn đọc danh mục', () => 
     expect(legacy.findProductById).toHaveBeenCalledWith('org', 'prod-1');
   });
 
-  it('trạng thái đồng bộ luôn đọc bảng cũ', async () => {
+  it('nhật ký đồng bộ luôn đọc bảng của nó (không phải dữ liệu danh mục)', async () => {
     const { reader, legacy, global } = build({ flag: true });
-    await reader.lastSyncedAt('acc');
-    expect(legacy.lastSyncedAt).toHaveBeenCalledWith('acc');
+    await reader.latestCatalogSync('acc');
+    expect(legacy.latestCatalogSync).toHaveBeenCalledWith('acc');
     expect(global.isAccountProjected).not.toHaveBeenCalled();
+  });
+
+  it('số liệu danh mục (lastSyncedAt) — cờ bật + đã chiếu ⇒ lớp mới', async () => {
+    const { reader, legacy, global } = build({ flag: true, projected: true });
+    const later = new Date('2026-11-11T00:00:00Z');
+    (global as unknown as { lastSyncedAt: jest.Mock }).lastSyncedAt = jest
+      .fn()
+      .mockResolvedValue(later);
+    await expect(reader.lastSyncedAt('acc')).resolves.toBe(later);
+    expect(legacy.lastSyncedAt).not.toHaveBeenCalled();
+  });
+
+  describe('fallback KHÔNG âm thầm', () => {
+    it('chưa chiếu ⇒ đếm NOT_PROJECTED và WARN MỘT lần cho nhiều lượt đọc (gộp)', async () => {
+      const { reader } = build({ flag: true, projected: false });
+      const warn = jest
+        .spyOn(
+          (reader as unknown as { logger: { warn: (message: unknown) => void } }).logger,
+          'warn',
+        )
+        .mockImplementation();
+      for (let i = 0; i < 5; i += 1)
+        await reader.findVariantsForPrice('org', 'acc-A', { sku: 'SKU' });
+      expect(reader.readStats().NOT_PROJECTED).toBe(5);
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn.mock.calls[0][0]).toMatchObject({
+        fallbackReason: 'NOT_PROJECTED',
+        accountId: 'acc-A',
+      });
+    });
+
+    it('🔴 đã chiếu mà lớp mới THIẾU dòng bảng cũ có ⇒ WARN GLOBAL_LEGACY_DIVERGENCE mỗi lần', async () => {
+      const { reader, global } = build({ flag: true, projected: true });
+      global.findVariantsForPrice.mockResolvedValue([]);
+      const warn = jest
+        .spyOn(
+          (reader as unknown as { logger: { warn: (message: unknown) => void } }).logger,
+          'warn',
+        )
+        .mockImplementation();
+      await reader.findVariantsForPrice('org', 'acc-A', { sku: 'SKU' });
+      await reader.findVariantsForPrice('org', 'acc-A', { sku: 'SKU' });
+      expect(reader.readStats().DIVERGENCE).toBe(2);
+      expect(warn).toHaveBeenCalledTimes(2);
+      expect(warn.mock.calls[0][0]).toMatchObject({ fallbackReason: 'GLOBAL_LEGACY_DIVERGENCE' });
+    });
+
+    it('không có ở CẢ HAI nơi (tra giá SKU không tồn tại) ⇒ chỉ đếm, không WARN', async () => {
+      const { reader, legacy, global } = build({ flag: true, projected: true });
+      global.findVariantsForPrice.mockResolvedValue([]);
+      legacy.findVariantsForPrice.mockResolvedValue([]);
+      const warn = jest
+        .spyOn(
+          (reader as unknown as { logger: { warn: (message: unknown) => void } }).logger,
+          'warn',
+        )
+        .mockImplementation();
+      await reader.findVariantsForPrice('org', 'acc-A', { sku: 'NOPE' });
+      expect(reader.readStats().NOT_FOUND_BOTH).toBe(1);
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    it('lớp mới lỗi ⇒ ERROR + đếm, vẫn trả dữ liệu bảng cũ', async () => {
+      const { reader } = build({ flag: true, projected: new Error('boom') });
+      const error = jest
+        .spyOn(
+          (reader as unknown as { logger: { error: (message: unknown) => void } }).logger,
+          'error',
+        )
+        .mockImplementation();
+      await expect(
+        reader.findVariantsForPrice('org', 'acc-A', { sku: 'SKU' }),
+      ).resolves.toHaveLength(1);
+      expect(reader.readStats().ERROR).toBe(1);
+      expect(error).toHaveBeenCalledTimes(1);
+    });
   });
 });

@@ -523,6 +523,47 @@ export class FulfillmentGlobalCatalogRepository {
     return !row.legacy || row.projected.getTime() >= row.legacy.getTime();
   }
 
+  /** Thời điểm đồng bộ gần nhất của tài khoản ở lớp mới (cùng ý nghĩa `FulfillmentCatalogRepository.lastSyncedAt`). */
+  async lastSyncedAt(accountId: string): Promise<Date | null> {
+    const row = await this.prisma.fulfillmentAccountProduct.findFirst({
+      where: { accountId, deletedAt: null },
+      select: { syncedAt: true },
+      orderBy: { syncedAt: 'desc' },
+    });
+    return row?.syncedAt ?? null;
+  }
+
+  /** Số bản ghi đang hoạt động của tài khoản (cùng hình dạng `FulfillmentCatalogRepository.countActive`). */
+  async countActive(accountId: string) {
+    const [row] = await this.prisma.$queryRaw<
+      Array<{
+        catalogues: bigint;
+        products: bigint;
+        variants: bigint;
+        colors: bigint;
+        sizes: bigint;
+      }>
+    >`
+      SELECT
+        (SELECT COUNT(*) FROM fulfillment_account_catalogues
+          WHERE account_id = ${accountId}::uuid AND deleted_at IS NULL AND status = 'ACTIVE') AS catalogues,
+        (SELECT COUNT(*) FROM fulfillment_account_products
+          WHERE account_id = ${accountId}::uuid AND deleted_at IS NULL AND status = 'ACTIVE') AS products,
+        COUNT(*) AS variants,
+        COUNT(DISTINCT g.color) AS colors,
+        COUNT(DISTINCT g.size) AS sizes
+      FROM fulfillment_account_variants av
+      JOIN provider_catalog_variants g ON g.id = av.global_variant_id
+      WHERE av.account_id = ${accountId}::uuid AND av.deleted_at IS NULL AND av.status = 'ACTIVE'`;
+    return {
+      catalogues: Number(row?.catalogues ?? 0),
+      products: Number(row?.products ?? 0),
+      variants: Number(row?.variants ?? 0),
+      colors: Number(row?.colors ?? 0),
+      sizes: Number(row?.sizes ?? 0),
+    };
+  }
+
   /** Tài khoản của một sản phẩm theo tài khoản (id = id sản phẩm cũ). */
   async accountOfProduct(productId: string): Promise<string | null> {
     const row = await this.prisma.fulfillmentAccountProduct.findUnique({

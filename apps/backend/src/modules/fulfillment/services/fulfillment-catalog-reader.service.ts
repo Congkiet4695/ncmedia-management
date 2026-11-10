@@ -39,8 +39,25 @@ export type CatalogReadPort = { [K in ReadKeys]: Async<FulfillmentCatalogReposit
 /** Cờ đọc Global Catalog (configuration.ts → `fulfillment.globalCatalog.readEnabled`). */
 export const GLOBAL_CATALOG_READ_FLAG = 'fulfillment.globalCatalog.readEnabled';
 
-/** Nguồn thực sự đã trả lời một lượt đọc — ghi vào log để thấy fallback. */
-type ReadSource = 'GLOBAL' | 'LEGACY';
+/** Vì sao một lượt đọc (cờ bật) phải dùng bảng cũ. */
+type FallbackReason = 'ACCOUNT_UNKNOWN' | 'NOT_PROJECTED' | 'NOT_FOUND_IN_GLOBAL';
+/** Kết quả của một lượt đọc khi cờ bật (đếm trong `readStats`). */
+type ReadOutcome = 'GLOBAL' | FallbackReason | 'ERROR' | 'DIVERGENCE' | 'NOT_FOUND_BOTH';
+
+/**
+ * Phân loại fallback (Phase 3 §17) — ghi kèm mỗi dòng log để biết vì sao còn đọc bảng cũ:
+ *  - A (migration): chỉ tồn tại trong lúc chuyển đổi — tài khoản chưa backfill / chưa có lượt đồng bộ sau deploy.
+ *  - B (resilience): giữ lâu dài — dual write lỗi sau một lượt đồng bộ, lớp mới lỗi DB, lớp mới thiếu dòng.
+ * Không có fallback loại C (nghiệp vụ): bảng cũ và lớp mới mang CÙNG dữ liệu, chỉ khác cách lưu.
+ */
+const FALLBACK_CLASS: Record<FallbackReason | 'ERROR', string> = {
+  NOT_PROJECTED: 'A+B: chưa chiếu (chưa backfill) hoặc lượt chiếu sau đồng bộ gần nhất lỗi',
+  ACCOUNT_UNKNOWN: 'A+B: sản phẩm thuộc tài khoản chưa chiếu',
+  NOT_FOUND_IN_GLOBAL: 'B: lớp mới thiếu dòng mà bảng cũ có — dấu hiệu lỗi chiếu',
+  ERROR: 'B: lớp mới lỗi (vd migration chưa chạy / DB)',
+};
+/** Khoảng tối thiểu giữa hai WARN cùng (thao tác, tài khoản, lý do). */
+const FALLBACK_LOG_INTERVAL_MS = 10 * 60_000;
 
 /**
  * FulfillmentCatalogReader — điểm ĐỌC duy nhất của danh mục nhà cung cấp cho giao diện, tra giá khi lưu
@@ -62,12 +79,26 @@ type ReadSource = 'GLOBAL' | 'LEGACY';
  * KHÔNG nằm trên luồng gửi đơn: `findVariantsForAccount` / `findCostCurrency` (Mango/Sellerwix adapter)
  * vẫn đọc thẳng bảng cũ — Global Catalog không phải điều kiện để tạo đơn.
  *
- * Các phương thức còn lại (`lastSyncedAt`, `countActive`, `latestCatalogSync`, `upsertCandidates`) chuyển
- * thẳng sang bảng cũ: chúng là trạng thái đồng bộ / kết quả ánh xạ, không phải dữ liệu danh mục.
+ * `latestCatalogSync` (nhật ký đồng bộ) và `upsertCandidates` (kết quả ánh xạ tự động) chuyển thẳng sang
+ * bảng của chúng: đó không phải dữ liệu danh mục.
+ *
+ * Fallback KHÔNG âm thầm (Phase 3): mỗi lượt cờ-bật-mà-đọc-bảng-cũ được đếm (`readStats`) và ghi WARN (gộp
+ * theo thao tác + tài khoản + lý do, tối đa 10 phút một dòng), kèm phân loại `FALLBACK_CLASS`; lớp mới thiếu
+ * dòng mà bảng cũ có ⇒ WARN `GLOBAL_LEGACY_DIVERGENCE` mỗi lần; lỗi ⇒ ERROR.
  */
 @Injectable()
 export class FulfillmentCatalogReader implements CatalogReadPort {
   private readonly logger = new Logger(FulfillmentCatalogReader.name);
+  private readonly throttle = new Map<string, { at: number; suppressed: number }>();
+  private readonly stats: Record<ReadOutcome, number> = {
+    GLOBAL: 0,
+    ACCOUNT_UNKNOWN: 0,
+    NOT_PROJECTED: 0,
+    NOT_FOUND_IN_GLOBAL: 0,
+    ERROR: 0,
+    DIVERGENCE: 0,
+    NOT_FOUND_BOTH: 0,
+  };
 
   constructor(
     private readonly legacy: FulfillmentCatalogRepository,
@@ -267,17 +298,29 @@ export class FulfillmentCatalogReader implements CatalogReadPort {
     );
   }
 
-  // ---------------------------------------------------------------------------
-  // Chuyển thẳng sang bảng cũ (trạng thái đồng bộ / kết quả ánh xạ — không phải dữ liệu danh mục)
-  // ---------------------------------------------------------------------------
-
-  lastSyncedAt(accountId: string) {
-    return this.legacy.lastSyncedAt(accountId);
+  /** Thời điểm đồng bộ gần nhất — màn hình nói "dữ liệu lúc nào". */
+  async lastSyncedAt(accountId: string): Promise<Date | null> {
+    return this.read(
+      'lastSyncedAt',
+      accountId,
+      () => this.global.lastSyncedAt(accountId),
+      () => this.legacy.lastSyncedAt(accountId),
+    );
   }
 
-  countActive(accountId: string) {
-    return this.legacy.countActive(accountId);
+  /** Số danh mục / sản phẩm / biến thể / màu / size đang hoạt động của tài khoản (màn hình cấu hình). */
+  async countActive(accountId: string): Promise<Awaited<ReturnType<LegacyRepo['countActive']>>> {
+    return this.read(
+      'countActive',
+      accountId,
+      () => this.global.countActive(accountId),
+      () => this.legacy.countActive(accountId),
+    );
   }
+
+  // ---------------------------------------------------------------------------
+  // Chuyển thẳng sang bảng cũ (nhật ký đồng bộ / kết quả ánh xạ — không phải dữ liệu danh mục)
+  // ---------------------------------------------------------------------------
 
   latestCatalogSync(accountId: string) {
     return this.legacy.latestCatalogSync(accountId);
@@ -305,55 +348,112 @@ export class FulfillmentCatalogReader implements CatalogReadPort {
     isMissing?: (result: T) => boolean,
   ): Promise<T> {
     if (!this.globalReadEnabled) return fromLegacy();
-    if (!accountId) return this.fallback(operation, accountId, 'ACCOUNT_UNKNOWN', fromLegacy);
+    if (!accountId)
+      return this.fallback(operation, accountId, 'ACCOUNT_UNKNOWN', fromLegacy, isMissing);
 
+    let result: T;
     try {
       if (!(await this.global.isAccountProjected(accountId))) {
-        return this.fallback(operation, accountId, 'NOT_PROJECTED', fromLegacy);
+        return this.fallback(operation, accountId, 'NOT_PROJECTED', fromLegacy, isMissing);
       }
-      const result = await fromGlobal();
-      if (isMissing?.(result))
-        return this.fallback(operation, accountId, 'NOT_FOUND_IN_GLOBAL', fromLegacy);
-      this.log(operation, accountId, 'GLOBAL', null);
-      return result;
+      result = await fromGlobal();
     } catch (error) {
       // Lớp mới hỏng (vd migration chưa chạy) không được làm hỏng màn hình đang chạy bằng bảng cũ.
+      this.count('ERROR');
       this.logger.error({
         module: 'fulfillment',
         operation: `catalog.read.${operation}`,
         accountId,
-        source: 'GLOBAL',
+        source: 'LEGACY',
         fallbackUsed: true,
+        fallbackReason: 'ERROR',
+        fallbackClass: FALLBACK_CLASS.ERROR,
         msg: `Đọc Global Catalog lỗi — dùng bảng cũ: ${(error as Error).message}`,
       });
       return fromLegacy();
     }
-  }
-
-  private async fallback<T>(
-    operation: string,
-    accountId: string | null,
-    reason: string,
-    fromLegacy: () => Promise<T>,
-  ): Promise<T> {
-    this.log(operation, accountId, 'LEGACY', reason);
-    return fromLegacy();
-  }
-
-  private log(
-    operation: string,
-    accountId: string | null,
-    source: ReadSource,
-    fallbackReason: string | null,
-  ) {
+    if (isMissing?.(result)) {
+      return this.fallback(operation, accountId, 'NOT_FOUND_IN_GLOBAL', fromLegacy, isMissing);
+    }
+    this.count('GLOBAL');
     this.logger.debug({
       module: 'fulfillment',
       operation: `catalog.read.${operation}`,
       accountId,
-      source,
-      fallbackUsed: source === 'LEGACY',
-      fallbackReason,
+      source: 'GLOBAL',
     });
+    return result;
+  }
+
+  /**
+   * Đọc bảng cũ thay cho lớp mới — và nói ra điều đó (không fallback âm thầm).
+   *
+   * `NOT_FOUND_IN_GLOBAL` mà bảng cũ LẠI có dữ liệu ⇒ hai lớp lệch nhau trên một tài khoản đã chiếu xong:
+   * dấu hiệu lỗi chiếu, ghi WARN `GLOBAL_LEGACY_DIVERGENCE` mỗi lần (không gộp). Không thấy ở cả hai nơi
+   * (vd tra giá một SKU không tồn tại) là kết quả bình thường — chỉ đếm.
+   */
+  private async fallback<T>(
+    operation: string,
+    accountId: string | null,
+    reason: FallbackReason,
+    fromLegacy: () => Promise<T>,
+    isMissing?: (result: T) => boolean,
+  ): Promise<T> {
+    const result = await fromLegacy();
+    const legacyFound = !isMissing?.(result);
+    if (reason === 'NOT_FOUND_IN_GLOBAL') {
+      if (legacyFound) {
+        this.count('DIVERGENCE');
+        this.logger.warn({
+          module: 'fulfillment',
+          operation: `catalog.read.${operation}`,
+          accountId,
+          source: 'LEGACY',
+          fallbackUsed: true,
+          fallbackReason: 'GLOBAL_LEGACY_DIVERGENCE',
+          fallbackClass: FALLBACK_CLASS.NOT_FOUND_IN_GLOBAL,
+          msg: 'Lớp mới KHÔNG có dữ liệu mà bảng cũ có (tài khoản đã chiếu xong) — kiểm tra lượt chiếu',
+        });
+      } else {
+        this.count('NOT_FOUND_BOTH');
+      }
+      return result;
+    }
+    this.count(reason);
+    this.warnThrottled(operation, accountId, reason);
+    return result;
+  }
+
+  /** WARN tối đa một lần / `FALLBACK_LOG_INTERVAL_MS` cho mỗi (thao tác, tài khoản, lý do), kèm số lần đã gộp. */
+  private warnThrottled(operation: string, accountId: string | null, reason: FallbackReason) {
+    const key = `${operation}|${accountId ?? '-'}|${reason}`;
+    const now = Date.now();
+    const entry = this.throttle.get(key);
+    if (entry && now - entry.at < FALLBACK_LOG_INTERVAL_MS) {
+      entry.suppressed += 1;
+      return;
+    }
+    this.throttle.set(key, { at: now, suppressed: 0 });
+    this.logger.warn({
+      module: 'fulfillment',
+      operation: `catalog.read.${operation}`,
+      accountId,
+      source: 'LEGACY',
+      fallbackUsed: true,
+      fallbackReason: reason,
+      fallbackClass: FALLBACK_CLASS[reason],
+      suppressedSinceLastLog: entry?.suppressed ?? 0,
+      msg: 'Cờ Global Catalog BẬT nhưng đọc bảng cũ',
+    });
+  }
+
+  private count(key: ReadOutcome) {
+    this.stats[key] += 1;
+  }
+
+  /** Số lượt đọc theo kết quả kể từ khi tiến trình chạy — cho kiểm thử / chẩn đoán. */
+  readStats(): Readonly<Record<ReadOutcome, number>> {
+    return { ...this.stats };
   }
 
   /** Tài khoản của sản phẩm ở lớp mới; lỗi (vd bảng chưa có) ⇒ null ⇒ bảng cũ. */
