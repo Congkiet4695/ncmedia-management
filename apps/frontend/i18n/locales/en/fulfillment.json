@@ -10,6 +10,16 @@
     "syncStatus": "Sync status",
     "syncSuccess": "Status synced successfully"
   },
+  "providerOrderGone": {
+    "title": "The order no longer exists at the provider",
+    "hint": "{{provider}} order {{reference}} was deleted or does not exist. You can fulfill again — a new provider order (new order ID) is created; mapping and design are kept.",
+    "short": "Provider order no longer exists — can fulfill again"
+  },
+  "sync": {
+    "action": "Sync fulfillment",
+    "done": "Fulfillment synced from the provider",
+    "hint": "Read the real status, tracking and costs from the provider. Never creates a new provider order."
+  },
   "cancelDialog": {
     "title": "Cancel order at the print facility",
     "order": "TikTok order",

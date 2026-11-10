@@ -63,6 +63,8 @@ import type { MappingWithDesigns, PlacementResolver } from './fulfillment-readin
  */
 /** Thời hạn khoá của một lần huỷ (hỏi trạng thái + huỷ + đọc lại ở nhà cung cấp). */
 const CANCEL_LOCK_MS = 60_000;
+/** Thời hạn khoá của một lần Sync Fulfillment thủ công (một lời gọi tra đơn + ghi). */
+const SYNC_LOCK_MS = 60_000;
 
 @Injectable()
 export class FulfillmentProviderGateway {
@@ -182,11 +184,13 @@ export class FulfillmentProviderGateway {
     podOrderId: string,
   ): Promise<FulfillmentOrderWithRelations> {
     const current = await this.requireProviderRecord(organizationId, podOrderId, 'Đồng bộ');
-    return this.adapterFor(current.provider).syncByPodOrder(
-      organizationId,
-      actorUserId,
-      podOrderId,
+    // 🔴 Sync thủ công có thể RESET bản ghi (nhà cung cấp không còn đơn ⇒ mở lại Fulfill) ⇒ chạy trong CÙNG
+    // khoá với Fulfill / Huỷ: không reset chồng lên một lượt gửi hay huỷ đang chạy của cùng đơn.
+    const record = await this.lock.withLock(fulfillmentOrderLockKey(podOrderId), SYNC_LOCK_MS, () =>
+      this.adapterFor(current.provider).syncByPodOrder(organizationId, actorUserId, podOrderId),
     );
+    if (!record) throw new FulfillmentOperationInProgressException();
+    return record;
   }
 
   async cancel(

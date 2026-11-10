@@ -408,6 +408,20 @@ describe('FulfillmentProviderGateway — bản ghi nhập tay (Import Excel)', (
     await gateway.syncByPodOrder('org', 'user', 'pod-1');
     expect(mango.syncByPodOrder).toHaveBeenCalledWith('org', 'user', 'pod-1');
   });
+
+  it('🔴 Sync thủ công chạy trong CÙNG khoá với Fulfill / Huỷ: đang có lượt khác ⇒ 409, không gọi nhà cung cấp', async () => {
+    const { gateway, mango, lock } = build({ current: { ...MANUAL, source: FulfillmentSource.PROVIDER } });
+    // Giữ khoá như một lượt Fulfill đang chạy cho cùng đơn.
+    let release: () => void = () => undefined;
+    const running = lock.withLock('fulfillment:fulfill:pod-1', 60_000, () => new Promise<void>((resolve) => (release = resolve)));
+
+    await expect(gateway.syncByPodOrder('org', 'user', 'pod-1')).rejects.toBeInstanceOf(
+      FulfillmentOperationInProgressException,
+    );
+    expect(mango.syncByPodOrder).not.toHaveBeenCalled();
+    release();
+    await running;
+  });
 });
 
 /**

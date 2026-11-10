@@ -1511,3 +1511,164 @@ describe('SellerwixFulfillmentService.applyProviderState — payload thiếu `fu
     expect(h.record.status).toBe(FulfillmentStatus.SUBMITTED);
   });
 });
+
+/**
+ * Sync Fulfillment khi đơn ở Sellerwix KHÔNG còn tồn tại (người dùng xoá thẳng trên trang Sellerwix —
+ * Public API không có endpoint xoá). Tài liệu Get order details: `404 {"code": 404, "message": "order not found"}`.
+ */
+describe('SellerwixFulfillmentService — Sync Fulfillment: đơn ở Sellerwix không còn tồn tại', () => {
+  const notFound = () =>
+    new FulfillmentClientError(FulfillmentErrorClass.NOT_FOUND, 'order not found', 404, '404');
+
+  interface MarkInput {
+    allowedStatuses: readonly FulfillmentStatus[];
+    code: string;
+    providerStatus: string;
+    message: string;
+    payload: unknown;
+  }
+
+  function submittedWith(error?: Error, status: FulfillmentStatus = FulfillmentStatus.SUBMITTED) {
+    const h = build({ existingStatus: status });
+    h.record.providerOrderId = 'swx-order-1';
+    if (error) h.getOrder.mockRejectedValue(error);
+    // `markProviderOrderNotFound` giống repository thật: điều kiện trạng thái + ghi nhật ký.
+    const mark = jest.fn((_record: unknown, input: MarkInput) => {
+      if (!input.allowedStatuses.includes(h.record.status)) return Promise.resolve(false);
+      h.histories.push({
+        eventType: 'STATUS_CHANGED',
+        fromStatus: h.record.status,
+        toStatus: FulfillmentStatus.CANCELLED,
+        payload: input.payload,
+      });
+      Object.assign(h.record, {
+        status: FulfillmentStatus.CANCELLED,
+        providerStatus: input.providerStatus,
+        lastErrorCode: input.code,
+        lastErrorMessage: input.message,
+        cancelledAt: new Date(),
+      });
+      return Promise.resolve(true);
+    });
+    const writes = { createMapping: jest.fn(), updateMapping: jest.fn(), softDeleteMapping: jest.fn() };
+    Object.assign(h.repo, { markProviderOrderNotFound: mark, ...writes });
+    return { h, mark, writes };
+  }
+
+  it('CASE 1 — đơn còn ⇒ cập nhật trạng thái + tracking theo đúng id Sellerwix, KHÔNG tạo đơn mới', async () => {
+    const { h, mark } = submittedWith();
+    h.getOrder.mockResolvedValue({
+      data: detail({
+        fulfillments: [
+          {
+            status: 'shipped',
+            trackings: [{ tracking_number: 'AG1', tracking_url: 'https://t/AG1', carrier_code: 'DHLGM', tracking_date: '2026-11-10T00:00:00Z' }],
+          },
+        ],
+      }),
+      requestId: 'req-detail',
+      durationMs: 8,
+      httpStatus: 200,
+    });
+
+    await h.service.syncByPodOrder(ORG, USER, POD_ORDER);
+
+    expect(h.getOrder).toHaveBeenCalledWith(expect.anything(), 'swx-order-1');
+    expect(h.record.status).toBe(FulfillmentStatus.SHIPPED);
+    expect(h.record.trackingNumber).toBe('AG1');
+    expect(h.createOrder).not.toHaveBeenCalled();
+    expect(mark).not.toHaveBeenCalled();
+  });
+
+  it('🔴 CASE 2 — Sellerwix 404 "order not found" khi người dùng bấm Sync ⇒ CANCELLED + PROVIDER_ORDER_NOT_FOUND, không tạo đơn', async () => {
+    const { h, mark, writes } = submittedWith(notFound(), FulfillmentStatus.ON_HOLD);
+
+    await h.service.syncByPodOrder(ORG, USER, POD_ORDER);
+
+    expect(mark).toHaveBeenCalledTimes(1);
+    expect(h.record).toMatchObject({
+      status: FulfillmentStatus.CANCELLED,
+      lastErrorCode: 'PROVIDER_ORDER_NOT_FOUND',
+      providerOrderId: 'swx-order-1',
+      externalOrderId: TIKTOK_ORDER,
+    });
+    expect(h.histories).toContainEqual(
+      expect.objectContaining({ eventType: 'STATUS_CHANGED', fromStatus: FulfillmentStatus.ON_HOLD }),
+    );
+    expect(h.createOrder).not.toHaveBeenCalled();
+    for (const write of Object.values(writes)) expect(write).not.toHaveBeenCalled();
+  });
+
+  it('🔴 CASE 3 + 8 — Sync báo không còn đơn ⇒ Fulfill lại: reference_id MỚI {mã TikTok}-R2, đúng SKU biến thể cũ, ánh xạ không bị ghi', async () => {
+    const { h, writes } = submittedWith(notFound());
+
+    await h.service.syncByPodOrder(ORG, USER, POD_ORDER);
+    expect(h.record.status).toBe(FulfillmentStatus.CANCELLED);
+
+    h.repoMocks.countAttempts.mockResolvedValue(1);
+    h.createOrder.mockResolvedValue({
+      data: { id: 'swx-order-2', reference_id: `${TIKTOK_ORDER}-R2` },
+      requestId: 'req-create-2',
+      durationMs: 30,
+      httpStatus: 200,
+    });
+    await h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND);
+
+    expect(h.repoMocks.supersedeCancelled).toHaveBeenCalledTimes(1);
+    expect(h.repoMocks.createDraft).toHaveBeenCalledWith(
+      expect.objectContaining({ externalOrderId: `${TIKTOK_ORDER}-R2` }),
+    );
+    expect(h.createOrder).toHaveBeenCalledTimes(1);
+    const request = h.createOrder.mock.calls[0][1];
+    expect(request.reference_id).toBe(`${TIKTOK_ORDER}-R2`);
+    expect(request.line_items.map((line) => line.sku)).toEqual([SKU_BLACK_XL]);
+    expect(h.record.providerOrderId).toBe('swx-order-2');
+    for (const write of Object.values(writes)) expect(write).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['CASE 4 — timeout', new FulfillmentClientError(FulfillmentErrorClass.NETWORK, 'Sellerwix không phản hồi sau 30000ms')],
+    ['CASE 5 — 429', new FulfillmentClientError(FulfillmentErrorClass.RATE_LIMIT, 'Too many requests', 429, '429')],
+    ['CASE 6 — 500', new FulfillmentClientError(FulfillmentErrorClass.SERVER, 'Internal Server Error', 500, '500')],
+    ['400 bad request', new FulfillmentClientError(FulfillmentErrorClass.VALIDATION, 'bad request', 400, '400')],
+  ])('🔴 %s ⇒ KHÔNG reset, giữ SUBMITTED, không tạo đơn', async (_name, error) => {
+    const { h, mark } = submittedWith(error);
+
+    const result = await h.service.syncOne(h.record as never, ACCOUNT as never, FulfillmentTrigger.MANUAL, USER);
+
+    expect(mark).not.toHaveBeenCalled();
+    expect(h.record.status).toBe(FulfillmentStatus.SUBMITTED);
+    expect(result.changed).toBe(false);
+    expect(result.rateLimited).toBe(error.errorClass === FulfillmentErrorClass.RATE_LIMIT);
+    expect(h.createOrder).not.toHaveBeenCalled();
+  });
+
+  it('CASE 7 — Sync 3 lần khi đơn đã không còn ⇒ reset ĐÚNG MỘT lần, không nhân đôi nhật ký', async () => {
+    const { h, mark } = submittedWith(notFound());
+
+    for (let i = 0; i < 3; i += 1) await h.service.syncByPodOrder(ORG, USER, POD_ORDER);
+
+    expect(mark).toHaveBeenCalledTimes(1);
+    expect(h.histories.filter((entry) => entry.eventType === 'STATUS_CHANGED')).toHaveLength(1);
+    expect(h.histories.some((entry) => entry.eventType === 'SYNC')).toBe(false);
+    expect(h.createOrder).not.toHaveBeenCalled();
+  });
+
+  it('🔴 cron gặp 404 ⇒ KHÔNG reset (chỉ khi người dùng bấm Sync)', async () => {
+    const { h, mark } = submittedWith(notFound());
+
+    await h.service.syncOne(h.record as never, ACCOUNT as never, FulfillmentTrigger.CRON);
+
+    expect(mark).not.toHaveBeenCalled();
+    expect(h.record.status).toBe(FulfillmentStatus.SUBMITTED);
+  });
+
+  it('🔴 đơn đã SHIPPED mà Sellerwix 404 ⇒ KHÔNG mở lại Fulfill (tránh sản xuất / giao hai lần)', async () => {
+    const { h, mark } = submittedWith(notFound(), FulfillmentStatus.SHIPPED);
+
+    await h.service.syncByPodOrder(ORG, USER, POD_ORDER);
+
+    expect(mark).not.toHaveBeenCalled();
+    expect(h.record.status).toBe(FulfillmentStatus.SHIPPED);
+  });
+});

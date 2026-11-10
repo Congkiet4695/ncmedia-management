@@ -690,6 +690,67 @@ export class FulfillmentRepository {
   }
 
   /**
+   * Nhà cung cấp xác nhận KHÔNG còn đơn ⇒ đưa bản ghi về CANCELLED + `PROVIDER_ORDER_NOT_FOUND` (Fulfill
+   * lại được, lần thử mới mã mới) và ghi nhật ký — trong MỘT giao dịch.
+   *
+   * 🔴 Điều kiện trạng thái nằm TRONG câu UPDATE: bản ghi vừa đổi trạng thái (vd đồng bộ khác đưa vào sản
+   * xuất) giữa lúc hỏi và lúc ghi ⇒ 0 dòng ⇒ `false`, không ghi gì. Gọi lại khi đã reset ⇒ cũng `false`
+   * (idempotent — không nhân đôi nhật ký). KHÔNG đụng tới mã đơn cũ, dòng hàng, ánh xạ hay design.
+   */
+  async markProviderOrderNotFound(
+    record: FulfillmentOrder,
+    input: {
+      allowedStatuses: readonly FulfillmentStatus[];
+      code: string;
+      providerStatus: string;
+      message: string;
+      trigger: FulfillmentTrigger;
+      performedBy?: string;
+      payload: Prisma.InputJsonValue;
+      requestId?: string;
+    },
+  ): Promise<boolean> {
+    return this.prisma.$transaction(async (tx) => {
+      const now = new Date();
+      const updated = await tx.fulfillmentOrder.updateMany({
+        where: {
+          id: record.id,
+          organizationId: record.organizationId,
+          deletedAt: null,
+          status: { in: [...input.allowedStatuses] },
+        },
+        data: {
+          status: FulfillmentStatus.CANCELLED,
+          providerStatus: input.providerStatus,
+          lastErrorCode: input.code,
+          lastErrorMessage: input.message,
+          cancelledAt: now,
+          lastSyncedAt: now,
+          ...(input.performedBy ? { updatedBy: input.performedBy } : {}),
+        },
+      });
+      if (updated.count === 0) return false;
+      await tx.fulfillmentHistory.create({
+        data: {
+          organizationId: record.organizationId,
+          fulfillmentOrderId: record.id,
+          eventType: FulfillmentEventType.STATUS_CHANGED,
+          trigger: input.trigger,
+          fromStatus: record.status,
+          toStatus: FulfillmentStatus.CANCELLED,
+          providerStatus: input.providerStatus,
+          success: true,
+          message: input.message,
+          payload: input.payload,
+          requestId: input.requestId ?? null,
+          performedBy: input.performedBy ?? null,
+        },
+      });
+      return true;
+    });
+  }
+
+  /**
    * Sự kiện huỷ GẦN NHẤT (CANCEL_REQUEST / CANCEL_SUCCESS / CANCEL_FAILED) của NHIỀU bản ghi trong MỘT
    * truy vấn — nguồn của "đang chờ huỷ" (`isCancelPending`). Lọc theo tổ chức.
    */

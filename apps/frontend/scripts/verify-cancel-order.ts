@@ -21,6 +21,7 @@ import {
   isCancelOrderPending,
 } from '../features/fulfillment/cancel-order.ts';
 import { SUBMITTABLE_STATUSES, submitBlockers } from '../features/fulfillment/product-config.ts';
+import { isProviderOrderGone } from '../features/fulfillment/provider-order.ts';
 import type { FulfillmentState, FulfillmentStatus } from '../features/fulfillment/types.ts';
 
 let passed = 0;
@@ -131,6 +132,25 @@ check('API huỷ có thời gian chờ riêng (không dùng 15 s mặc định)'
 check('Timeout ⇒ mutation tự đọc lại trạng thái nhiều lần', /isNoResponseError\(error\)[\s\S]*CANCEL_RECONCILE_DELAYS_MS/.test(hooksSrc), true);
 check('Order Action hiện trạng thái đang chờ huỷ', /isCancelOrderPending\(/.test(menu) && /cancelDialog\.pendingBadge/.test(menu), true);
 check('Fulfill Drawer hiện trạng thái đang chờ huỷ', /isCancelOrderPending\(/.test(drawer) && /cancelDialog\.pendingBadge/.test(drawer), true);
+
+// ---------------------------------------------------------------------------
+console.log('\n— 7. Sync Fulfillment: đơn ở nhà cung cấp không còn tồn tại');
+check('CANCELLED + PROVIDER_ORDER_NOT_FOUND ⇒ "không còn đơn"', isProviderOrderGone({ status: 'CANCELLED', lastErrorCode: 'PROVIDER_ORDER_NOT_FOUND' }), true);
+check('CANCELLED có xác nhận (không mã lỗi) ⇒ KHÔNG phải "không còn đơn"', isProviderOrderGone({ status: 'CANCELLED', lastErrorCode: null }), false);
+check('SUBMITTED ⇒ không', isProviderOrderGone({ status: 'SUBMITTED', lastErrorCode: 'PROVIDER_ORDER_NOT_FOUND' }), false);
+check('null ⇒ không', isProviderOrderGone(null), false);
+const goneState = stateOf({ canCancel: false, canFulfill: true });
+check(
+  'Case 2/3: bản ghi không còn đơn (CANCELLED) + canFulfill ⇒ nút Fulfill BẬT (không blocker)',
+  submitBlockers({ state: goneState, status: 'CANCELLED', submitting: false, tiktokLabelRequired: false }),
+  [],
+);
+check('Drawer có nút Sync gọi actions.sync', /actions\.sync\.mutateAsync\(\)/.test(drawer) && /fulfillment:sync\.action/.test(drawer), true);
+check('Drawer: Sync xong bỏ kết quả gửi cũ (đọc state thật)', /const synced = await actions\.sync\.mutateAsync\(\);\s*\/\/[^\n]*\n\s*setResult\(null\);/.test(drawer), true);
+check('Drawer hiện thông điệp "không còn đơn"', /isProviderOrderGone\(record\)/.test(drawer) && /providerOrderGone\.hint/.test(drawer), true);
+check('Order Action: Sync báo riêng khi không còn đơn', /isProviderOrderGone\(record\)/.test(menu), true);
+const cell = read('features/pod-tiktok/components/orders/fulfillment-cell.tsx');
+check('Ô Fulfillment trong danh sách hiện "không còn đơn" thay cho "huỷ bởi"', /isProviderOrderGone\(fulfillment\)/.test(cell), true);
 
 console.log(`\n${passed} passed, ${failed} failed`);
 if (failed > 0) process.exit(1);

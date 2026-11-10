@@ -925,3 +925,165 @@ describe('MangoFulfillmentService — Cancel / Fulfill lại: lỗi, trạng th�
     expect(harness.createOrder).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Sync Fulfillment khi đơn ở MangoTee KHÔNG còn tồn tại (vd bị xoá thẳng trên trang Mango).
+ * Mango báo "không tìm thấy" bằng mã chung `NOT_FOUND` (Overview) — client phân loại thành NOT_FOUND.
+ */
+describe('MangoFulfillmentService — Sync Fulfillment: đơn ở Mango không còn tồn tại', () => {
+  const notFound = () =>
+    new FulfillmentClientError(FulfillmentErrorClass.NOT_FOUND, 'Resource not found', 404, 'NOT_FOUND');
+
+  interface MarkInput {
+    allowedStatuses: readonly FulfillmentStatus[];
+    code: string;
+    providerStatus: string;
+    message: string;
+    payload: unknown;
+  }
+
+  /** `markProviderOrderNotFound` giống repository thật: điều kiện trạng thái + ghi nhật ký. */
+  function withNotFoundRepo(harness: ReturnType<typeof buildService>) {
+    const mark = jest.fn((_record: unknown, input: MarkInput) => {
+      if (!input.allowedStatuses.includes(harness.record.status)) return Promise.resolve(false);
+      harness.histories.push({
+        eventType: 'STATUS_CHANGED',
+        fromStatus: harness.record.status,
+        toStatus: FulfillmentStatus.CANCELLED,
+        payload: input.payload,
+      });
+      Object.assign(harness.record, {
+        status: FulfillmentStatus.CANCELLED,
+        providerStatus: input.providerStatus,
+        lastErrorCode: input.code,
+        lastErrorMessage: input.message,
+        cancelledAt: new Date(),
+      });
+      return Promise.resolve(true);
+    });
+    const writes = { createMapping: jest.fn(), updateMapping: jest.fn(), softDeleteMapping: jest.fn() };
+    Object.assign(harness.repo, { markProviderOrderNotFound: mark, ...writes });
+    harness.record.providerOrderId = 'MG-1001';
+    return { mark, writes };
+  }
+
+  it('CASE 1 — đơn còn ⇒ cập nhật trạng thái + tracking, KHÔNG tạo đơn mới', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.SUBMITTED },
+      getData: orderResponse([], {
+        status: 'shipped',
+        tracking_number: '1Z999',
+        carrier: 'UPS',
+        tracking_url: 'https://track/1Z999',
+      }),
+    });
+    const { mark } = withNotFoundRepo(harness);
+
+    await harness.service.syncByPodOrder(ORG, USER, POD_ORDER);
+
+    expect(harness.record.status).toBe(FulfillmentStatus.SHIPPED);
+    expect(harness.record.trackingNumber).toBe('1Z999');
+    expect(harness.createOrder).not.toHaveBeenCalled();
+    expect(mark).not.toHaveBeenCalled();
+  });
+
+  it('🔴 CASE 2 — Mango NOT_FOUND khi người dùng bấm Sync ⇒ CANCELLED + PROVIDER_ORDER_NOT_FOUND, giữ mã đơn cũ, không tạo đơn', async () => {
+    const harness = buildService({ existing: { status: FulfillmentStatus.SUBMITTED }, getError: notFound() });
+    const { mark, writes } = withNotFoundRepo(harness);
+
+    await harness.service.syncByPodOrder(ORG, USER, POD_ORDER);
+
+    expect(harness.getOrder).toHaveBeenCalledWith(expect.anything(), 'NC-TT-1');
+    expect(mark).toHaveBeenCalledTimes(1);
+    expect(harness.record).toMatchObject({
+      status: FulfillmentStatus.CANCELLED,
+      lastErrorCode: 'PROVIDER_ORDER_NOT_FOUND',
+      // Lịch sử: lần thử #1 vẫn mang mã Mango cũ — không xoá.
+      providerOrderId: 'MG-1001',
+      externalOrderId: 'NC-TT-1',
+    });
+    expect(harness.createOrder).not.toHaveBeenCalled();
+    for (const write of Object.values(writes)) expect(write).not.toHaveBeenCalled();
+  });
+
+  it('🔴 CASE 3 + 8 — Sync báo không còn đơn ⇒ Fulfill lại: lần thử mới NC-TT-1-R2, đúng SKU ánh xạ cũ, ánh xạ không bị ghi', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.SUBMITTED },
+      getError: notFound(),
+      createData: orderResponse([{ item_id: 'fi-1', sku: 'SKU-A', base_cost: 8 }], {
+        id: 'MG-2002',
+        order_id: 'NC-TT-1-R2',
+      }),
+    });
+    const { writes } = withNotFoundRepo(harness);
+
+    await harness.service.syncByPodOrder(ORG, USER, POD_ORDER);
+    harness.repoMocks.countAttempts.mockResolvedValue(1);
+    await harness.service.fulfill(ORG, USER, POD_ORDER);
+
+    // Bản ghi cũ được LƯU TRỮ (lịch sử), không xoá; đơn mới mang mã MỚI — không dùng lại NC-TT-1.
+    expect(harness.repoMocks.supersedeCancelled).toHaveBeenCalledTimes(1);
+    expect(harness.createOrder).toHaveBeenCalledTimes(1);
+    const request = harness.createOrder.mock.calls[0][1];
+    expect(request.order_id).toBe('NC-TT-1-R2');
+    expect(request.items.map((item) => item.sku)).toEqual(['SKU-A']);
+    expect(harness.record.providerOrderId).toBe('MG-2002');
+    expect(harness.repoMocks.listMappingsForOrganization).toHaveBeenCalledWith(ORG);
+    for (const write of Object.values(writes)) expect(write).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    ['CASE 4 — timeout', new FulfillmentClientError(FulfillmentErrorClass.NETWORK, 'Mango không phản hồi sau 30000ms')],
+    ['CASE 5 — 429', new FulfillmentClientError(FulfillmentErrorClass.RATE_LIMIT, 'Too many requests', 429, 'RATE_LIMIT_EXCEEDED')],
+    ['CASE 6 — 500', new FulfillmentClientError(FulfillmentErrorClass.SERVER, 'Internal error', 500, 'INTERNAL_ERROR')],
+    ['401 sai API key', new FulfillmentClientError(FulfillmentErrorClass.AUTH, 'Invalid API key', 401, 'UNAUTHORIZED')],
+  ])('🔴 %s ⇒ KHÔNG reset, giữ SUBMITTED, không tạo đơn', async (_name, error) => {
+    const harness = buildService({ existing: { status: FulfillmentStatus.SUBMITTED }, getError: error });
+    const { mark } = withNotFoundRepo(harness);
+
+    const result = await harness.service.syncOne(
+      harness.record as never,
+      ACCOUNT as never,
+      FulfillmentTrigger.MANUAL,
+      USER,
+    );
+
+    expect(mark).not.toHaveBeenCalled();
+    expect(harness.record.status).toBe(FulfillmentStatus.SUBMITTED);
+    expect(result.changed).toBe(false);
+    expect(harness.createOrder).not.toHaveBeenCalled();
+    expect(result.rateLimited).toBe(error.errorClass === FulfillmentErrorClass.RATE_LIMIT);
+  });
+
+  it('CASE 7 — Sync 3 lần khi đơn đã không còn ⇒ reset ĐÚNG MỘT lần, không nhân đôi nhật ký', async () => {
+    const harness = buildService({ existing: { status: FulfillmentStatus.SUBMITTED }, getError: notFound() });
+    const { mark } = withNotFoundRepo(harness);
+
+    for (let i = 0; i < 3; i += 1) await harness.service.syncByPodOrder(ORG, USER, POD_ORDER);
+
+    expect(mark).toHaveBeenCalledTimes(1);
+    expect(harness.histories.filter((entry) => entry.eventType === 'STATUS_CHANGED')).toHaveLength(1);
+    expect(harness.histories.some((entry) => entry.eventType === 'SYNC')).toBe(false);
+    expect(harness.createOrder).not.toHaveBeenCalled();
+  });
+
+  it('🔴 cron (không phải người dùng bấm) gặp NOT_FOUND ⇒ KHÔNG reset (Mango trả NOT_FOUND cả khi đổi API key)', async () => {
+    const harness = buildService({ existing: { status: FulfillmentStatus.SUBMITTED }, getError: notFound() });
+    const { mark } = withNotFoundRepo(harness);
+
+    await harness.service.syncOne(harness.record as never, ACCOUNT as never, FulfillmentTrigger.CRON);
+
+    expect(mark).not.toHaveBeenCalled();
+    expect(harness.record.status).toBe(FulfillmentStatus.SUBMITTED);
+  });
+
+  it('🔴 đơn đã IN_PRODUCTION mà Mango NOT_FOUND ⇒ KHÔNG mở lại Fulfill (tránh sản xuất hai lần)', async () => {
+    const harness = buildService({ existing: { status: FulfillmentStatus.IN_PRODUCTION }, getError: notFound() });
+    const { mark } = withNotFoundRepo(harness);
+
+    await harness.service.syncByPodOrder(ORG, USER, POD_ORDER);
+
+    expect(mark).not.toHaveBeenCalled();
+    expect(harness.record.status).toBe(FulfillmentStatus.IN_PRODUCTION);
+  });
+});

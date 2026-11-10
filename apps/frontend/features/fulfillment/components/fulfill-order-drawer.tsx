@@ -12,6 +12,7 @@ import {
   Factory,
   Loader2,
   Package,
+  RefreshCw,
   RotateCw,
   Send,
   XCircle,
@@ -58,6 +59,7 @@ import {
 } from '../issue-summary';
 import { CANCEL_ORDER_PERMISSION, canShowCancelOrder, isCancelOrderPending } from '../cancel-order';
 import { isNoResponseError, providerErrorText } from '../provider-error';
+import { isProviderOrderGone } from '../provider-order';
 import {
   shippingServiceLabel,
   tiktokLabelErrorView,
@@ -319,6 +321,31 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
   /** Đã gửi yêu cầu huỷ, chờ nhà cung cấp xác nhận ⇒ hiện trạng thái thay cho nút (không gửi lần hai). */
   const cancelPending = isCancelOrderPending({ allowed: canCancelPermission, state });
   /**
+   * Sync Fulfillment — đọc lại trạng thái THẬT ở nhà cung cấp (không bao giờ tạo đơn). Chỉ khi đã có bản ghi
+   * gửi qua nhà cung cấp (bản ghi nhập tay không có ở nhà cung cấp nào).
+   */
+  const canSync =
+    hasPermission('fulfillment.read') && Boolean(record?.provider) && record?.source !== 'MANUAL_IMPORT';
+  /** Đơn ở nhà cung cấp không còn (bị xoá) ⇒ bản ghi đã được backend mở lại để Fulfill lần mới. */
+  const providerOrderGone = isProviderOrderGone(record);
+  const syncFulfillment = async () => {
+    try {
+      const synced = await actions.sync.mutateAsync();
+      // Bỏ kết quả lần gửi trước ⇒ drawer đọc trạng thái vừa đồng bộ (mutation đã làm mới state).
+      setResult(null);
+      if (isProviderOrderGone(synced)) {
+        toast.warning(t('fulfillment:providerOrderGone.title'), {
+          description: t('fulfillment:providerOrderGone.short'),
+        });
+      } else {
+        toast.success(t('fulfillment:sync.done'));
+      }
+    } catch (error) {
+      // Lỗi tạm thời (429 / 5xx / timeout) ⇒ backend GIỮ NGUYÊN trạng thái — chỉ báo lỗi, thử lại được.
+      toast.error(translateApiError(error));
+    }
+  };
+  /**
    * 🔴 MỘT nguồn cho cả ba: trạng thái `disabled` của nút, dòng giải thích ngay cạnh nút, và
    * chốt chặn trong `submit()`. Điều kiện thật nằm ở backend (`canFulfill` + `issues`); đây
    * chỉ là cách đọc lại — không có phép kiểm nào của riêng giao diện.
@@ -558,9 +585,18 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
         footer={
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0 space-y-0.5">
-              <p className="text-[11px] text-muted-foreground">
-                {result ? t('fulfill.resultHint') : t('fulfill.defaultsHint')}
-              </p>
+              {providerOrderGone && record ? (
+                <p className="text-[11px] font-medium text-warning">
+                  {t('fulfillment:providerOrderGone.hint', {
+                    provider: state?.provider?.name ?? record.provider ?? '—',
+                    reference: record.providerOrderId ?? record.externalOrderId,
+                  })}
+                </p>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">
+                  {result ? t('fulfill.resultHint') : t('fulfill.defaultsHint')}
+                </p>
+              )}
               {/* Nút tắt ⇒ nói thẳng vì sao, ngay tại chỗ người dùng đang nhìn. */}
               {!result && blockers.length > 0 && (
                 <ul className="max-h-16 space-y-0.5 overflow-y-auto text-[11px] text-destructive">
@@ -596,6 +632,22 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
             </div>
             <div className="flex shrink-0 gap-2">
               {/* Huỷ đơn Ở XƯỞNG IN — thao tác nghiệp vụ, luôn qua dialog xác nhận. */}
+              {canSync && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  title={t('fulfillment:sync.hint')}
+                  onClick={() => void syncFulfillment()}
+                  disabled={actions.sync.isPending || submitting}
+                >
+                  {actions.sync.isPending ? (
+                    <Loader2 className="size-4 animate-spin" />
+                  ) : (
+                    <RefreshCw className="size-4" />
+                  )}
+                  {t('fulfillment:sync.action')}
+                </Button>
+              )}
               {cancelPending && (
                 <span className="inline-flex items-center gap-1 self-center text-[11px] text-warning">
                   <Clock className="size-3.5" />

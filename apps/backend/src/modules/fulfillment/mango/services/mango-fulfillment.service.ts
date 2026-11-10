@@ -32,7 +32,7 @@ import {
   FulfillmentSubmittedToOtherProviderException,
   FulfillmentValidationException,
 } from '../../exceptions/fulfillment.exceptions';
-import { providerLabelOf } from '../../constants/fulfillment-provider.constants';
+import { FULFILLMENT_PROVIDER_LABELS, providerLabelOf } from '../../constants/fulfillment-provider.constants';
 import type {
   FulfillOptionsInput,
   FulfillmentProviderAdapter,
@@ -62,6 +62,7 @@ import {
   isQuietReconcileFailure,
   isRateLimited,
 } from '../../shared/fulfillment-reconcile';
+import { reconcileProviderOrderNotFound } from '../../shared/fulfillment-provider-not-found';
 import { MangoCredentialService } from './mango-credential.service';
 import { FulfillmentOptionsService } from '../../services/fulfillment-options.service';
 import { SHIPPING_LABEL_SOURCE } from '../../services/fulfillment-shipping-label.service';
@@ -554,6 +555,13 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
         );
         return { changed: true, apiCalls: 1 };
       }
+      // Nhà cung cấp KHÔNG còn đơn (vd đã bị xoá thẳng trên trang của họ) ⇒ reset để Fulfill lại được —
+      // CHỈ khi người dùng bấm Sync và đơn chưa vào sản xuất (`reconcileProviderOrderNotFound`).
+      const notFound = await reconcileProviderOrderNotFound(
+        { repo: this.repo, logger: this.logger },
+        { record, trigger, actorUserId, error, providerLabel: FULFILLMENT_PROVIDER_LABELS.MANGO },
+      );
+      if (notFound) return notFound;
       // Đối soát một bản ghi FAILED mà vẫn không hỏi được ⇒ chỉ log (không phủ timeline mỗi 5 phút).
       if (isQuietReconcileFailure(record)) {
         this.logger.warn({

@@ -14,6 +14,7 @@ import {
 import { Tooltip } from '@/components/ui/tooltip';
 import { useApiError } from '@/hooks/use-api-error';
 import { canShowCancelOrder, isCancelOrderPending } from '@/features/fulfillment/cancel-order';
+import { isProviderOrderGone } from '@/features/fulfillment/provider-order';
 import { CancelOrderDialog } from '@/features/fulfillment/components/cancel-order-dialog';
 import {
   useFulfillmentActions,
@@ -135,7 +136,14 @@ export function OrderActionMenu({
           onSelect={() =>
             void actions.sync
               .mutateAsync()
-              .then(() => toast.success(t('pod:orders.actions.syncDone')))
+              .then((record) =>
+                // Nhà cung cấp không còn đơn (bị xoá) ⇒ backend đã mở lại Fulfill — nói rõ, không báo "đã đồng bộ" chung chung.
+                isProviderOrderGone(record)
+                  ? toast.warning(t('fulfillment:providerOrderGone.title'), {
+                      description: t('fulfillment:providerOrderGone.short'),
+                    })
+                  : toast.success(t('pod:orders.actions.syncDone')),
+              )
               .catch((error: unknown) => toast.error(translateApiError(error)))
           }
         >

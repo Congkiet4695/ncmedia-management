@@ -10,6 +10,16 @@
     "syncStatus": "Đồng bộ trạng thái",
     "syncSuccess": "Đồng bộ trạng thái thành công"
   },
+  "providerOrderGone": {
+    "title": "Đơn không còn tồn tại ở nhà cung cấp",
+    "hint": "Đơn {{reference}} ở {{provider}} đã bị xoá hoặc không tồn tại. Có thể Fulfill lại — hệ thống tạo đơn mới (mã đơn mới) ở nhà cung cấp; ánh xạ và design giữ nguyên.",
+    "short": "Đơn ở nhà cung cấp không còn — có thể Fulfill lại"
+  },
+  "sync": {
+    "action": "Đồng bộ fulfillment",
+    "done": "Đã đồng bộ fulfillment từ nhà cung cấp",
+    "hint": "Đọc trạng thái, vận đơn và chi phí thật từ nhà cung cấp. Không bao giờ tạo đơn mới ở nhà cung cấp."
+  },
   "cancelDialog": {
     "title": "Huỷ đơn tại xưởng in",
     "order": "Đơn TikTok",

@@ -62,6 +62,7 @@ import {
   isQuietReconcileFailure,
   isRateLimited,
 } from '../../shared/fulfillment-reconcile';
+import { reconcileProviderOrderNotFound } from '../../shared/fulfillment-provider-not-found';
 import {
   SELLERWIX_COST_CURRENCY_CONFIG_KEY,
   SELLERWIX_SHIPPING_METHOD_CACHE_MS,
@@ -537,6 +538,13 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
         );
         return { changed: true, apiCalls: 1 };
       }
+      // Nhà cung cấp KHÔNG còn đơn (vd đã bị xoá thẳng trên trang của họ) ⇒ reset để Fulfill lại được —
+      // CHỈ khi người dùng bấm Sync và đơn chưa vào sản xuất (`reconcileProviderOrderNotFound`).
+      const notFound = await reconcileProviderOrderNotFound(
+        { repo: this.repo, logger: this.logger },
+        { record, trigger, actorUserId, error, providerLabel: LABEL },
+      );
+      if (notFound) return notFound;
       // Đối soát một bản ghi FAILED mà vẫn không hỏi được ⇒ chỉ log (không phủ timeline mỗi 5 phút).
       if (isQuietReconcileFailure(record)) {
         this.logger.warn({

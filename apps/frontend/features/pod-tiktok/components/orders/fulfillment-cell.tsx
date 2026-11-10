@@ -16,6 +16,7 @@ import { FulfillOrderDrawer } from '@/features/fulfillment/components/fulfill-or
 import { useFulfillmentActions } from '@/features/fulfillment/hooks/use-fulfillment';
 import type { FulfillmentCancellation, FulfillmentState, FulfillmentStatus } from '@/features/fulfillment/types';
 import { SUBMITTABLE_STATUSES } from '@/features/fulfillment/product-config';
+import { isProviderOrderGone } from '@/features/fulfillment/provider-order';
 import { EMPTY, formatOrderDateTime, orderCurrency } from '../../order-view-model';
 import type { PodOrderItem } from '../../order-types';
 import { FulfillmentIssueButton } from './fulfillment-issue-button';
@@ -296,8 +297,12 @@ export function FulfillmentCell({
         <p className="text-[10px] text-warning">{t('pod:orders.fulfillment.reconciling')}</p>
       )}
 
-      {fulfillment.status === 'CANCELLED' && data?.cancellation && (
-        <CancellationLine cancellation={data.cancellation} />
+      {/* Đơn ở nhà cung cấp không còn (bị xoá) ≠ huỷ có xác nhận: nói đúng chuyện đã xảy ra. */}
+      {isProviderOrderGone(fulfillment) ? (
+        <p className="line-clamp-2 text-[10px] text-warning">{t('fulfillment:providerOrderGone.short')}</p>
+      ) : (
+        fulfillment.status === 'CANCELLED' &&
+        data?.cancellation && <CancellationLine cancellation={data.cancellation} />
       )}
 
       {resubmittable && (
