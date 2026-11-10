@@ -2387,6 +2387,11 @@ model FulfillmentAccount {
   catalogueProducts FulfillmentProduct[]
   mappingCandidates FulfillmentMappingCandidate[]
 
+  /// Global Catalog — lớp THEO TÀI KHOẢN (giá, trạng thái, tier). Xem `FulfillmentAccountVariant`.
+  accountCatalogues FulfillmentAccountCatalogue[]
+  accountProducts   FulfillmentAccountProduct[]
+  accountVariants   FulfillmentAccountVariant[]
+
   @@index([organizationId, provider])
   @@index([isActive])
   @@map("fulfillment_accounts")
@@ -2639,6 +2644,202 @@ model FulfillmentVariant {
   /// 🔴 Chỉ mục CHÍNH của ánh xạ tự động: tra Seller SKU của TikTok trên SKU biến thể.
   @@index([accountId, sku])
   @@map("fulfillment_variants")
+}
+
+// ===========================================================================
+// GLOBAL CATALOG (migration `20261110090000_global_fulfillment_catalog`)
+//
+// Tách danh mục nhà cung cấp thành HAI lớp, KHÔNG thay thế ba bảng `fulfillment_catalogues /
+// products / variants` ở trên (bảng cũ vẫn được ghi và vẫn là nguồn của luồng gửi đơn):
+//
+//   provider_catalog_*      — GLOBAL: danh tính + metadata chuẩn của nhà cung cấp. Khoá
+//                             `(provider, external_*_id)`. KHÔNG `organization_id`, KHÔNG `account_id`,
+//                             KHÔNG giá (dữ liệu dùng chung như Platform — CLAUDE.md §5).
+//   fulfillment_account_*   — THEO TÀI KHOẢN: giá / đơn vị tiền / trạng thái / tier / raw đầy đủ.
+//                             Khoá `(account_id, global_*_id)`.
+//
+// 🔴 Vì sao giá KHÔNG ở lớp global: dữ liệu thật cho thấy giá Mango gắn với `attributes.tier` của API
+// key (tài liệu Mango ví dụ cùng biến thể giá khác nhau theo tier), và cả hai nhà cung cấp đều không nói
+// giá giống nhau giữa các tài khoản. Base Cost của ánh xạ phải đến từ giá của ĐÚNG tài khoản.
+//
+// 🔴 `id` của các dòng THEO TÀI KHOẢN = `id` của dòng cũ tương ứng (`fulfillment_catalogues /
+// products / variants`). Đây là chủ đích: id nội bộ là "tay cầm" mà giao diện dùng (chọn sản phẩm →
+// tải biến thể → tra giá) và được lưu trong `fulfillment_mapping_candidates.candidates`. Giữ nguyên
+// id thì bật/tắt `GLOBAL_FULFILLMENT_CATALOG_ENABLED` không đổi bất kỳ id nào giao diện thấy. Không có
+// khoá ngoại sang bảng cũ để sau này bỏ được bảng cũ mà không đụng tới lớp mới.
+//
+// Danh tính nhà cung cấp (đã kiểm trên dữ liệu thật, docs/fulfillment/README.md §Global Catalog):
+//   MANGO     — sản phẩm = UUID `id`, biến thể = UUID `id` của variation. SKU KHÔNG duy nhất (nhiều
+//               variation khác production line chung một SKU) ⇒ không bao giờ dùng SKU làm danh tính.
+//   SELLERWIX — sản phẩm = SKU sản phẩm, biến thể = SKU biến thể ("A unique value identifying this variant").
+// ===========================================================================
+
+/// GLOBAL — danh mục (nhóm sản phẩm) của nhà cung cấp.
+model ProviderCatalogCatalogue {
+  id                  String              @id @default(uuid()) @db.Uuid
+  provider            FulfillmentProvider
+  externalCatalogueId String              @map("external_catalogue_id") @db.VarChar(128)
+  name                String              @db.VarChar(500)
+  /// Payload chuẩn hoá (đã bỏ trường theo tài khoản). NULL khi danh mục được suy ra từ sản phẩm (Mango).
+  rawData             Json?               @map("raw_data")
+  /// Tài khoản có dữ liệu được dùng làm bản chuẩn — chỉ để đối soát xung đột.
+  sourceAccountId     String?             @map("source_account_id") @db.Uuid
+  /// `synced_at` của nguồn. Ghi đè chỉ khi nguồn mới hơn hoặc bằng (tất định, không phụ thuộc thứ tự chạy).
+  sourceSyncedAt      DateTime            @map("source_synced_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  products          ProviderCatalogProduct[]
+  accountCatalogues FulfillmentAccountCatalogue[]
+
+  @@unique([provider, externalCatalogueId])
+  @@map("provider_catalog_catalogues")
+}
+
+/// GLOBAL — sản phẩm của nhà cung cấp. Không giá, không trạng thái (trạng thái là của từng tài khoản).
+model ProviderCatalogProduct {
+  id                String              @id @default(uuid()) @db.Uuid
+  provider          FulfillmentProvider
+  catalogueId       String?             @map("catalogue_id") @db.Uuid
+  externalProductId String              @map("external_product_id") @db.VarChar(128)
+  name              String              @db.VarChar(1000)
+  sku               String?             @db.VarChar(255)
+  image             String?             @db.VarChar(2048)
+  rawData           Json?               @map("raw_data")
+  sourceAccountId   String?             @map("source_account_id") @db.Uuid
+  sourceSyncedAt    DateTime            @map("source_synced_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  catalogue       ProviderCatalogCatalogue?   @relation(fields: [catalogueId], references: [id], onDelete: SetNull, onUpdate: Cascade)
+  variants        ProviderCatalogVariant[]
+  accountProducts FulfillmentAccountProduct[]
+
+  @@unique([provider, externalProductId])
+  @@index([catalogueId])
+  @@map("provider_catalog_products")
+}
+
+/// GLOBAL — biến thể. `raw_data` giữ `print_areas` (Sellerwix) / `production_line` (Mango): cả hai giống
+/// hệt nhau giữa mọi tài khoản trên dữ liệu thật ⇒ là metadata chuẩn.
+model ProviderCatalogVariant {
+  id                String              @id @default(uuid()) @db.Uuid
+  provider          FulfillmentProvider
+  productId         String              @map("product_id") @db.Uuid
+  externalVariantId String              @map("external_variant_id") @db.VarChar(128)
+  /// SKU biến thể của nhà cung cấp — để hiển thị / tra cứu, KHÔNG phải danh tính (xem Mango ở trên).
+  sku               String              @db.VarChar(255)
+  name              String              @db.VarChar(500)
+  color             String?             @db.VarChar(100)
+  size              String?             @db.VarChar(100)
+  rawData           Json?               @map("raw_data")
+  sourceAccountId   String?             @map("source_account_id") @db.Uuid
+  sourceSyncedAt    DateTime            @map("source_synced_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  product         ProviderCatalogProduct      @relation(fields: [productId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  accountVariants FulfillmentAccountVariant[]
+
+  @@unique([provider, externalVariantId])
+  @@index([productId])
+  @@index([provider, sku])
+  @@map("provider_catalog_variants")
+}
+
+/// THEO TÀI KHOẢN — danh mục mà tài khoản này thấy. `id` = `fulfillment_catalogues.id` tương ứng.
+model FulfillmentAccountCatalogue {
+  id                String                       @id @db.Uuid
+  organizationId    String                       @map("organization_id") @db.Uuid
+  accountId         String                       @map("account_id") @db.Uuid
+  provider          FulfillmentProvider
+  globalCatalogueId String                       @map("global_catalogue_id") @db.Uuid
+  status            FulfillmentCatalogItemStatus @default(ACTIVE)
+  syncedAt          DateTime                     @map("synced_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account         FulfillmentAccount       @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  globalCatalogue ProviderCatalogCatalogue @relation(fields: [globalCatalogueId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([accountId, globalCatalogueId])
+  @@index([accountId, status])
+  @@map("fulfillment_account_catalogues")
+}
+
+/// THEO TÀI KHOẢN — sản phẩm: giá gốc, đơn vị tiền, trạng thái, raw đầy đủ. `id` = `fulfillment_products.id`.
+model FulfillmentAccountProduct {
+  id              String                       @id @db.Uuid
+  organizationId  String                       @map("organization_id") @db.Uuid
+  accountId       String                       @map("account_id") @db.Uuid
+  provider        FulfillmentProvider
+  globalProductId String                       @map("global_product_id") @db.Uuid
+  /// `id` của `FulfillmentAccountCatalogue` (= `fulfillment_products.catalogue_id`). Không khoá ngoại: chỉ là
+  /// tay cầm lọc của giao diện, và danh mục có thể chưa được chiếu sang lớp mới.
+  catalogueId     String?                      @map("catalogue_id") @db.Uuid
+  basePrice       String?                      @map("base_price") @db.VarChar(64)
+  currency        String?                      @db.VarChar(10)
+  variationsCount Int?                         @map("variations_count")
+  status          FulfillmentCatalogItemStatus @default(ACTIVE)
+  /// Payload NGUYÊN VĂN của tài khoản này (gồm cả trường giá) — không mất dữ liệu khi bản global chọn nguồn khác.
+  rawData         Json?                        @map("raw_data")
+  syncedAt        DateTime                     @map("synced_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account       FulfillmentAccount          @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  globalProduct ProviderCatalogProduct      @relation(fields: [globalProductId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+  variants      FulfillmentAccountVariant[]
+
+  @@unique([accountId, globalProductId])
+  @@index([accountId, status])
+  @@index([catalogueId])
+  @@map("fulfillment_account_products")
+}
+
+/// THEO TÀI KHOẢN — biến thể: 🔴 GIÁ VỐN CATALOG của đúng tài khoản. `id` = `fulfillment_variants.id`.
+///
+/// Đây là nguồn của `fulfillment_product_mappings.base_cost` khi bật Global Catalog — KHÔNG phải
+/// `provider_catalog_variants` (lớp global không có giá).
+model FulfillmentAccountVariant {
+  id               String                       @id @db.Uuid
+  organizationId   String                       @map("organization_id") @db.Uuid
+  accountId        String                       @map("account_id") @db.Uuid
+  provider         FulfillmentProvider
+  accountProductId String                       @map("account_product_id") @db.Uuid
+  globalVariantId  String                       @map("global_variant_id") @db.Uuid
+  /// Chuỗi ĐÚNG như nhà cung cấp trả (giống `fulfillment_variants.price`).
+  price            String?                      @db.VarChar(64)
+  /// Đơn vị tiền của giá — chép từ sản phẩm của tài khoản (biến thể không mang đơn vị tiền riêng).
+  currency         String?                      @db.VarChar(10)
+  /// Mango `attributes.tier` (vd GOLD) — bậc giá của API key. NULL với nhà cung cấp không có khái niệm này.
+  tier             String?                      @db.VarChar(64)
+  status           FulfillmentCatalogItemStatus @default(ACTIVE)
+  rawData          Json?                        @map("raw_data")
+  syncedAt         DateTime                     @map("synced_at") @db.Timestamptz(6)
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
+  deletedAt DateTime? @map("deleted_at") @db.Timestamptz(6)
+
+  account        FulfillmentAccount        @relation(fields: [accountId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  accountProduct FulfillmentAccountProduct @relation(fields: [accountProductId], references: [id], onDelete: Cascade, onUpdate: Cascade)
+  globalVariant  ProviderCatalogVariant    @relation(fields: [globalVariantId], references: [id], onDelete: Restrict, onUpdate: Cascade)
+
+  @@unique([accountId, globalVariantId])
+  @@index([accountProductId, status])
+  @@index([accountId, status])
+  @@map("fulfillment_account_variants")
 }
 
 // ---------------------------------------------------------------------------

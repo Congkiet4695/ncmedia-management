@@ -271,6 +271,24 @@ export default () => ({
       cron: process.env.FULFILLMENT_CATALOG_SYNC_CRON ?? '0 */6 * * *',
     },
 
+    /**
+     * Global Catalog — lớp global `provider_catalog_*` + lớp theo tài khoản `fulfillment_account_*`
+     * (xem schema.prisma). Bảng cũ `fulfillment_catalogues/products/variants` luôn được ghi và luôn là
+     * nguồn của luồng gửi đơn.
+     */
+    globalCatalog: {
+      /**
+       * Đọc danh mục (ô chọn Product/Variant, tra giá khi lưu ánh xạ, ánh xạ tự động) từ lớp mới,
+       * rơi về bảng cũ khi tài khoản chưa được chiếu xong. Mặc định TẮT. Rollback = đặt lại false.
+       */
+      readEnabled: (process.env.GLOBAL_FULFILLMENT_CATALOG_ENABLED ?? 'false') === 'true',
+      /**
+       * Sau mỗi lượt đồng bộ danh mục, chiếu dữ liệu vừa ghi sang lớp mới. Lỗi ở bước này chỉ ghi log,
+       * KHÔNG làm lượt đồng bộ (và luồng fulfillment) thất bại.
+       */
+      dualWriteEnabled: (process.env.GLOBAL_FULFILLMENT_CATALOG_DUAL_WRITE_ENABLED ?? 'true') === 'true',
+    },
+
     webhook: {
       /** Số lần thử xử lý một webhook trước khi chuyển sang dead letter. */
       maxAttempts: parseInt(process.env.FULFILLMENT_WEBHOOK_MAX_ATTEMPTS ?? '5', 10),

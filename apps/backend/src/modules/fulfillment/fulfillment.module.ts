@@ -15,6 +15,8 @@ import { MangoWebhookController } from './mango/webhook/mango-webhook.controller
 import { MangoWebhookService } from './mango/webhook/mango-webhook.service';
 import { ProductDesignMapper } from './mappers/product-design.mapper';
 import { FulfillmentCatalogRepository } from './repositories/fulfillment-catalog.repository';
+import { FulfillmentGlobalCatalogRepository } from './repositories/fulfillment-global-catalog.repository';
+import { FulfillmentCatalogReader } from './services/fulfillment-catalog-reader.service';
 import { FulfillmentRepository } from './repositories/fulfillment.repository';
 import { FulfillmentCatalogSyncJob } from './scheduler/fulfillment-catalog-sync.job';
 import { FulfillmentSyncJob } from './scheduler/fulfillment-sync.job';
@@ -89,6 +91,9 @@ import { SellerwixWebhookService } from './sellerwix/webhook/sellerwix-webhook.s
     FulfillmentRepository,
     // Bản sao danh mục nhà cung cấp: Mango API → Sync Job → Database → UI
     FulfillmentCatalogRepository,
+    // Global Catalog: lớp global + lớp theo tài khoản; đọc qua Reader (cờ GLOBAL_FULFILLMENT_CATALOG_ENABLED)
+    FulfillmentGlobalCatalogRepository,
+    FulfillmentCatalogReader,
     FulfillmentCatalogSyncService,
     FulfillmentCatalogQueryService,
     FulfillmentOptionsService,

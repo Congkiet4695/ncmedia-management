@@ -1,10 +1,8 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { FulfillmentCatalogItemStatus } from '@prisma/client';
 import { FulfillmentVariantPriceUnavailableException } from '../exceptions/fulfillment.exceptions';
-import {
-  FulfillmentCatalogRepository,
-  type VariantPriceKey,
-} from '../repositories/fulfillment-catalog.repository';
+import { type VariantPriceKey } from '../repositories/fulfillment-catalog.repository';
+import { FulfillmentCatalogReader, type CatalogReadPort } from './fulfillment-catalog-reader.service';
 
 /** Nguồn của giá — hiện chỉ có danh mục đã đồng bộ từ API chính thức của nhà cung cấp. */
 export const VARIANT_PRICE_SOURCE = 'PROVIDER_CATALOG' as const;
@@ -71,7 +69,11 @@ export function parseProviderPrice(raw: string | null | undefined): number | nul
  */
 @Injectable()
 export class FulfillmentVariantPriceService {
-  constructor(private readonly catalogRepo: FulfillmentCatalogRepository) {}
+  /**
+   * Đọc qua `FulfillmentCatalogReader`: cờ Global Catalog bật ⇒ giá ở `fulfillment_account_variants` của ĐÚNG
+   * `accountId` (lớp global không có giá); tắt / chưa chiếu ⇒ `fulfillment_variants` như trước.
+   */
+  constructor(@Inject(FulfillmentCatalogReader) private readonly catalogRepo: CatalogReadPort) {}
 
   /** Tra giá — không ném lỗi khi không có giá (nơi gọi tự quyết). */
   async lookup(

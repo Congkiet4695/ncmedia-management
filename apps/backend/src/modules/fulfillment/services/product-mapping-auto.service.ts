@@ -1,8 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { FulfillmentAutoMapStatus, FulfillmentProvider, Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { AUTO_MAP } from '../constants/auto-map.constants';
 import { FulfillmentCatalogRepository } from '../repositories/fulfillment-catalog.repository';
+import { FulfillmentCatalogReader, type CatalogReadPort } from './fulfillment-catalog-reader.service';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import {
   findAutoMapCandidates,
@@ -78,7 +79,8 @@ export class ProductMappingAutoService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly repo: FulfillmentRepository,
-    private readonly catalogRepo: FulfillmentCatalogRepository,
+    /** Global Catalog (cờ) hoặc bảng cũ — luôn theo `(account_id, …)`, không bao giờ chỉ theo SKU. */
+    @Inject(FulfillmentCatalogReader) private readonly catalogRepo: CatalogReadPort,
   ) {}
 
   /**

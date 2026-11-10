@@ -1,8 +1,8 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { FulfillmentProvider } from '@prisma/client';
 import { sellerwixPrintAreasOf } from '../sellerwix/mappers/sellerwix-order.mapper';
 import { mangoVariantProductionLine } from '../mango/mappers/mango-order.mapper';
-import { FulfillmentCatalogRepository } from '../repositories/fulfillment-catalog.repository';
+import { FulfillmentCatalogReader, type CatalogReadPort } from './fulfillment-catalog-reader.service';
 import {
   businessProductSku,
   CATALOG_SYNC_STALE_MS,
@@ -43,7 +43,8 @@ export class CatalogProductNotFoundException extends NotFoundException {
 export class FulfillmentCatalogQueryService {
   constructor(
     private readonly repo: FulfillmentRepository,
-    private readonly catalogRepo: FulfillmentCatalogRepository,
+    /** Global Catalog (cờ) hoặc bảng cũ — CÙNG hình dạng, CÙNG id. Xem `FulfillmentCatalogReader`. */
+    @Inject(FulfillmentCatalogReader) private readonly catalogRepo: CatalogReadPort,
     /** Kiểm khoá Redis để biết lượt RUNNING còn sống không (thiếu ⇒ chỉ dùng mốc thời gian). */
     private readonly catalogSync?: FulfillmentCatalogSyncService,
   ) {}

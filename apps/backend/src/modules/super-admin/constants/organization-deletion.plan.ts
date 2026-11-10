@@ -68,6 +68,11 @@ export const ORGANIZATION_DELETION_ORDER: readonly Prisma.ModelName[] = [
   'FulfillmentVariant',
   'FulfillmentProduct',
   'FulfillmentCatalogue',
+  // Global Catalog — lớp THEO TÀI KHOẢN (giá/trạng thái của tài khoản của tổ chức). Lớp global
+  // `ProviderCatalog*` là dữ liệu dùng chung, KHÔNG xoá theo tổ chức (xem ORGANIZATION_DELETION_GLOBAL_MODELS).
+  'FulfillmentAccountVariant',
+  'FulfillmentAccountProduct',
+  'FulfillmentAccountCatalogue',
 
   // --- Return / Refund ---
   'PodReturnRequestItem',
@@ -147,6 +152,10 @@ export const ORGANIZATION_DELETION_GLOBAL_MODELS: readonly Prisma.ModelName[] = 
   'PodProductBrand',
   'PodMasterDataSync',
   'PodMasterDataSyncLog',
+  // Global Catalog — danh tính + metadata chuẩn của nhà cung cấp, không thuộc tổ chức nào.
+  'ProviderCatalogCatalogue',
+  'ProviderCatalogProduct',
+  'ProviderCatalogVariant',
 ];
 
 export const ORGANIZATION_DELETION_CASCADE_CHILD_MODELS: readonly Prisma.ModelName[] = [

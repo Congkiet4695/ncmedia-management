@@ -1,4 +1,5 @@
-import { ConflictException, Injectable, Logger } from '@nestjs/common';
+import { ConflictException, Injectable, Logger, Optional } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import {
   FulfillmentAccount,
   FulfillmentCatalogItemStatus,
@@ -28,6 +29,19 @@ import {
   type VariantUpsertInput,
 } from '../repositories/fulfillment-catalog.repository';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
+import {
+  FulfillmentGlobalCatalogRepository,
+  type GlobalCatalogProjectionReport,
+} from '../repositories/fulfillment-global-catalog.repository';
+
+/** Cờ dual write Global Catalog (configuration.ts → `fulfillment.globalCatalog.dualWriteEnabled`). */
+export const GLOBAL_CATALOG_DUAL_WRITE_FLAG = 'fulfillment.globalCatalog.dualWriteEnabled';
+
+/** Kết quả bước chiếu sang Global Catalog — KHÔNG ảnh hưởng `complete` / trạng thái của lượt đồng bộ. */
+export type GlobalCatalogWriteOutcome =
+  | { status: 'PROJECTED'; report: GlobalCatalogProjectionReport }
+  | { status: 'FAILED'; error: string }
+  | { status: 'DISABLED' };
 
 /** Kết quả một lượt đồng bộ danh mục — trả ra API và ghi vào nhật ký. */
 export interface CatalogSyncResult {
@@ -45,6 +59,8 @@ export interface CatalogSyncResult {
   complete: boolean;
   /** Mô tả chính xác chỗ nào thiếu, để không phải mò trong log. */
   warnings: string[];
+  /** Dual write sang Global Catalog (chạy SAU khi bảng cũ đã ghi xong). */
+  globalCatalog?: GlobalCatalogWriteOutcome;
 }
 
 /**
@@ -159,7 +175,67 @@ export class FulfillmentCatalogSyncService {
     private readonly mangoCatalog: MangoCatalogService,
     private readonly sellerwixCatalog: SellerwixCatalogService,
     private readonly locks: DistributedLockService,
+    /** Thiếu (kiểm thử dựng tay) ⇒ không dual write. */
+    @Optional() private readonly globalCatalog?: FulfillmentGlobalCatalogRepository,
+    @Optional() private readonly config?: ConfigService,
   ) {}
+
+  /**
+   * DUAL WRITE — chiếu danh mục VỪA ghi của tài khoản sang Global Catalog.
+   *
+   * 🔴 Chạy SAU khi bảng cũ đã ghi + archive xong, ngoài mọi lời gọi API nhà cung cấp (một transaction DB
+   * riêng). Bảng cũ là thứ luồng gửi đơn và (khi cờ đọc tắt) mọi màn hình đang dùng, nên:
+   *   - bảng cũ lỗi ⇒ hàm này KHÔNG chạy (lượt đồng bộ thất bại y như trước);
+   *   - hàm này lỗi ⇒ chỉ ghi log + trả `FAILED`; lượt đồng bộ vẫn SUCCESS/PARTIAL theo bảng cũ. Bên đọc
+   *     thấy lớp mới chưa theo kịp (`isAccountProjected`) và tự đọc bảng cũ; lượt đồng bộ sau chiếu lại
+   *     toàn bộ tài khoản (idempotent) hoặc chạy `scripts/backfill-global-catalog.ts --apply`.
+   */
+  private async projectGlobalCatalog(scope: CatalogScope): Promise<GlobalCatalogWriteOutcome> {
+    if (!this.globalCatalog || this.config?.get<boolean>(GLOBAL_CATALOG_DUAL_WRITE_FLAG) !== true) {
+      return { status: 'DISABLED' };
+    }
+    try {
+      const report = await this.globalCatalog.projectAccount(scope.accountId, scope.provider);
+      this.logger.log({
+        module: 'fulfillment',
+        operation: 'catalog.globalProjection',
+        organizationId: scope.organizationId,
+        accountId: scope.accountId,
+        provider: scope.provider,
+        status: 'PROJECTED',
+        products: report.products,
+        variants: report.variants,
+        accountProducts: report.accountProducts,
+        accountVariants: report.accountVariants,
+        durationMs: report.durationMs,
+        msg: 'Đã chiếu danh mục sang Global Catalog',
+      });
+      if (report.catalogues.conflicts + report.products.conflicts + report.variants.conflicts > 0) {
+        this.logger.warn({
+          module: 'fulfillment',
+          operation: 'catalog.globalProjection.conflict',
+          accountId: scope.accountId,
+          provider: scope.provider,
+          catalogues: report.catalogues,
+          products: report.products,
+          variants: report.variants,
+          msg: 'Metadata chuẩn khác giữa các tài khoản — đã giữ bản có nguồn đồng bộ mới hơn',
+        });
+      }
+      return { status: 'PROJECTED', report };
+    } catch (error) {
+      this.logger.error({
+        module: 'fulfillment',
+        operation: 'catalog.globalProjection',
+        organizationId: scope.organizationId,
+        accountId: scope.accountId,
+        provider: scope.provider,
+        status: 'FAILED',
+        msg: `Chiếu Global Catalog thất bại (bảng cũ đã ghi xong, đồng bộ KHÔNG bị ảnh hưởng): ${(error as Error).message}`,
+      });
+      return { status: 'FAILED', error: (error as Error).message };
+    }
+  }
 
   /**
    * Đồng bộ danh mục của MỘT tài khoản nhà cung cấp.
@@ -370,6 +446,7 @@ export class FulfillmentCatalogSyncService {
     const archived = complete
       ? await this.catalogRepo.archiveStale(scope, syncedAt)
       : { catalogues: 0, products: 0, variants: 0 };
+    const globalCatalog = await this.projectGlobalCatalog(scope);
 
     return {
       accountId: scope.accountId,
@@ -384,6 +461,7 @@ export class FulfillmentCatalogSyncService {
       durationMs: Date.now() - startedAt.getTime(),
       complete,
       warnings: snapshot.warnings,
+      globalCatalog,
     };
   }
 
@@ -464,6 +542,8 @@ export class FulfillmentCatalogSyncService {
       });
     }
 
+    const globalCatalog = await this.projectGlobalCatalog(scope);
+
     const result: CatalogSyncResult = {
       accountId: scope.accountId,
       provider: scope.provider,
@@ -477,6 +557,7 @@ export class FulfillmentCatalogSyncService {
       durationMs: Date.now() - startedAt.getTime(),
       complete,
       warnings,
+      globalCatalog,
     };
 
     this.logger.log({
