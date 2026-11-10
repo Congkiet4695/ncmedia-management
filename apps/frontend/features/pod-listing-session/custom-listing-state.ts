@@ -487,7 +487,12 @@ function splitList(value: string, separator: string): string[] {
 
 /**
  * Bỏ trục trống và giá trị rỗng — lưới SKU đã dựng từ bộ này nên không đổi tổ hợp nào.
- * Ảnh chỉ đi theo giá trị còn tồn tại và chỉ ở trục ĐẦU (payload không mang ảnh của trục sau).
+ * Ảnh chỉ đi theo giá trị còn tồn tại.
+ *
+ * 🔴 Ảnh được GIỮ trên trục của nó kể cả khi trục đó không còn đứng đầu (người dùng kéo `Size`
+ * lên trên `Color`). Trước đây ảnh của trục sau bị bỏ khi lưu ⇒ kéo thả rồi Lưu là mất vĩnh viễn
+ * cấu hình ảnh của `Color`. Payload KHÔNG vì thế mà mang ảnh lạ: backend (`buildManualVariants`)
+ * và lưới SKU (`deriveVariantImages`) chỉ dùng ảnh của trục ĐẦU — luật `sku_img` của TikTok.
  */
 function normalizeVariations(variations: ManualVariation[]): ManualVariation[] {
   return variations
@@ -496,6 +501,5 @@ function normalizeVariations(variations: ManualVariation[]): ManualVariation[] {
       const images = pruneVariationImages(variation.images, values);
       return { name: variation.name.trim(), values, ...(images ? { images } : {}) };
     })
-    .filter((variation) => variation.name !== '' && variation.values.length > 0)
-    .map((variation, index) => (index === 0 ? variation : { name: variation.name, values: variation.values }));
+    .filter((variation) => variation.name !== '' && variation.values.length > 0);
 }

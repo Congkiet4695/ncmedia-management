@@ -256,9 +256,18 @@ export function reconcileSkus(
     normalized.push(sameOrder ? sku : { ...sku, optionValues: sorted });
   }
 
+  // 6b. Kéo thả ĐỔI THỨ TỰ TRỤC (cùng bộ trục, khác thứ tự) ⇒ sắp lại DÒNG theo thứ tự trục mới
+  //     (`Size` lên đầu ⇒ S/Black · S/White · M/Black …). Chỉ đổi VỊ TRÍ dòng: mỗi dòng vẫn là
+  //     chính object của nó (Seller SKU / giá / tồn / barcode đi cùng), danh tính tổ hợp là
+  //     `combinationKey` — không phụ thuộc thứ tự — nên không có dữ liệu nào nhảy sang dòng khác.
+  const sorted = isAxisReorder(prevAxes, nextAxes) ? sortRowsByAxes(normalized, nextAxes) : normalized;
+  if (sorted !== normalized) changed = true;
+
   // 7. Ảnh dòng theo ảnh giá trị của trục đầu HIỆN TẠI — trục đầu đổi thì ảnh cũ không theo.
-  const withImages = deriveVariantImages(normalized, nextAxes);
-  if (withImages !== normalized) changed = true;
+  //    (Ảnh của trục bị kéo xuống vẫn nằm nguyên ở `variations[i].images`; kéo trục đó lên đầu
+  //    lại là ảnh quay về — TikTok chỉ nhận `sku_img` ở sales attribute đầu.)
+  const withImages = deriveVariantImages(sorted, nextAxes);
+  if (withImages !== sorted) changed = true;
 
   return changed ? withImages : skus;
 }
@@ -343,9 +352,52 @@ export function countCombinations(variations: ManualVariation[]): number {
   return axes.reduce((total, axis) => total * axis.values.length, 1);
 }
 
+/**
+ * Đưa trục ở vị trí `from` tới vị trí `to` (kéo thả). Không đổi nội dung trục nào — tên, giá trị,
+ * ảnh đi nguyên khối. Vị trí ngoài phạm vi / không đổi ⇒ trả về CHÍNH mảng cũ.
+ */
+export function moveVariation(variations: ManualVariation[], from: number, to: number): ManualVariation[] {
+  if (from === to || from < 0 || to < 0 || from >= variations.length || to >= variations.length) {
+    return variations;
+  }
+  const next = [...variations];
+  const [moved] = next.splice(from, 1);
+  next.splice(to, 0, moved);
+  return next;
+}
+
 // ---------------------------------------------------------------------------
 // Private
 // ---------------------------------------------------------------------------
+
+/** Cùng bộ trục (theo tên) nhưng khác thứ tự ⇒ người dùng vừa kéo thả đổi thứ tự trục. */
+function isAxisReorder(prevAxes: ManualVariation[], nextAxes: ManualVariation[]): boolean {
+  if (prevAxes.length !== nextAxes.length || prevAxes.length < 2) return false;
+  const nextNames = new Set(nextAxes.map((axis) => axis.name));
+  if (!prevAxes.every((axis) => nextNames.has(axis.name))) return false;
+  return prevAxes.some((axis, index) => axis.name !== nextAxes[index].name);
+}
+
+/**
+ * Sắp dòng theo thứ tự tích Descartes của bộ trục: so lần lượt vị trí giá trị trên trục 1, rồi
+ * trục 2… Sắp ỔN ĐỊNH và chỉ hoán vị tham chiếu — không tạo, không bỏ, không sửa dòng nào.
+ * Đã đúng thứ tự ⇒ trả về CHÍNH mảng cũ.
+ */
+function sortRowsByAxes(rows: ManualSku[], axes: ManualVariation[]): ManualSku[] {
+  const rank = (sku: ManualSku): number[] =>
+    axes.map((axis) => {
+      const option = sku.optionValues.find((entry) => entry.name.trim() === axis.name);
+      return option ? axis.values.indexOf(option.value.trim()) : -1;
+    });
+  const ranked = rows.map((sku, position) => ({ sku, position, key: rank(sku) }));
+  ranked.sort((a, b) => {
+    for (let i = 0; i < axes.length; i += 1) {
+      if (a.key[i] !== b.key[i]) return a.key[i] - b.key[i];
+    }
+    return a.position - b.position;
+  });
+  return ranked.every((entry, index) => entry.position === index) ? rows : ranked.map((entry) => entry.sku);
+}
 
 function cartesian(axes: ManualVariation[]): ManualSku['optionValues'][] {
   let combos: ManualSku['optionValues'][] = [[]];

@@ -20,7 +20,11 @@ import type { PodOrderWithRelations } from '../../../pod-tiktok/types/pod-order-
 import { DistributedLockService } from '../../../pod-tiktok/infra/distributed-lock.service';
 import { MangoApiClient } from '../clients/mango-api.client';
 import { MangoOrderMapper } from '../mappers/mango-order.mapper';
-import type { MangoCreateOrderRequest, MangoOrderResponse } from '../types/mango-api.types';
+import type {
+  MangoCancelOrderData,
+  MangoCreateOrderRequest,
+  MangoOrderResponse,
+} from '../types/mango-api.types';
 import { MangoCredentialService } from './mango-credential.service';
 import { MangoFulfillmentService } from './mango-fulfillment.service';
 
@@ -91,7 +95,7 @@ interface Harness {
   /** Lỗi của Get Order Detail (đối soát trước khi gửi lại / hỏi trạng thái trước khi huỷ). */
   getError?: Error;
   /** `data` của Cancel Order. */
-  cancelData?: { status?: string };
+  cancelData?: MangoCancelOrderData;
   /** `data` của Create Order. */
   createData?: MangoOrderResponse | Error;
   /** `data` của Get Order Detail (chỉ dùng khi create thiếu giá vốn). */
@@ -814,5 +818,110 @@ describe('MangoFulfillmentService — nhà cung cấp ĐÃ nhận đơn ≠ requ
     expect(await harness.service.syncOne(record as never, ACCOUNT as never, FulfillmentTrigger.CRON)).toMatchObject({
       rateLimited: true,
     });
+  });
+});
+
+/**
+ * Cancel ⇒ Fulfill lại — các nhánh còn thiếu (tài liệu Mango Cancel Order `cancel-order-20519163e0`:
+ * "Only cancel orders with status NEW_ORDER or ON_HOLD"; Create Order: `order_id` "Mango will raise an
+ * error if you have any orders with the same order_id").
+ */
+describe('MangoFulfillmentService — Cancel / Fulfill lại: lỗi, trạng thái, ánh xạ', () => {
+  it('🔴 bản ghi đã ở IN_PRODUCTION ⇒ từ chối ngay, KHÔNG gọi Mango (cả tra lẫn huỷ)', async () => {
+    const harness = buildService({ existing: { status: FulfillmentStatus.IN_PRODUCTION } });
+
+    await expect(harness.service.cancel(ORG, USER, POD_ORDER)).rejects.toBeInstanceOf(
+      FulfillmentCannotCancelException,
+    );
+    expect(harness.getOrder).not.toHaveBeenCalled();
+    expect(harness.cancelOrder).not.toHaveBeenCalled();
+  });
+
+  it('🔴 bản ghi đã CANCELLED ⇒ không gửi yêu cầu huỷ thứ hai', async () => {
+    const harness = buildService({ existing: { status: FulfillmentStatus.CANCELLED } });
+
+    await expect(harness.service.cancel(ORG, USER, POD_ORDER)).rejects.toBeInstanceOf(
+      FulfillmentCannotCancelException,
+    );
+    expect(harness.cancelOrder).not.toHaveBeenCalled();
+  });
+
+  it('🔴 Cancel API lỗi (5xx) ⇒ ném lỗi, bản ghi GIỮ trạng thái cũ, ghi CANCEL_FAILED', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.SUBMITTED },
+      getData: orderResponse([], { status: 'new_order' }),
+    });
+    harness.cancelOrder.mockRejectedValue(
+      new FulfillmentClientError(FulfillmentErrorClass.SERVER, 'Nhà cung cấp trả về HTTP 502', 502),
+    );
+
+    await expect(harness.service.cancel(ORG, USER, POD_ORDER)).rejects.toBeDefined();
+
+    expect(harness.record.status).toBe(FulfillmentStatus.SUBMITTED);
+    expect(harness.record.cancelledAt).toBeNull();
+    // Lỗi huỷ KHÔNG được hạ đơn đang ở xưởng xuống FAILED (FAILED = gửi lại được ⇒ sản xuất hai lần).
+    expect(harness.updates.some((u) => u.status === FulfillmentStatus.CANCELLED)).toBe(false);
+    expect(harness.updates.some((u) => u.status === FulfillmentStatus.FAILED)).toBe(false);
+    expect(harness.histories).toContainEqual(expect.objectContaining({ eventType: 'CANCEL_FAILED' }));
+  });
+
+  it('Cancel thành công ⇒ status CANCELLED + cancelledAt + provider status nguyên văn', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.ON_HOLD },
+      getData: orderResponse([], { status: 'on_hold' }),
+      cancelData: { order_id: 'NC-TT-1', status: 'cancelled', refund_status: 'pending' },
+    });
+
+    await harness.service.cancel(ORG, USER, POD_ORDER);
+
+    expect(harness.record.status).toBe(FulfillmentStatus.CANCELLED);
+    expect(harness.record.cancelledAt).toBeInstanceOf(Date);
+    expect(harness.record.providerStatus).toBe('cancelled');
+  });
+
+  it('🔴 Cancel ⇒ Fulfill lại: dùng LẠI ánh xạ/design hiện có, không ghi ánh xạ nào, SKU nhà cung cấp giữ nguyên', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.SUBMITTED },
+      getData: orderResponse([], { status: 'new_order' }),
+      cancelData: { status: 'cancelled' },
+      createData: orderResponse([{ item_id: 'fi-1', sku: 'SKU-A', base_cost: 8 }], {
+        order_id: 'NC-TT-1-R2',
+      }),
+    });
+    // Mọi đường GHI ánh xạ của repository — fulfill lại không được chạm tới.
+    const writes = {
+      createMapping: jest.fn(),
+      updateMapping: jest.fn(),
+      softDeleteMapping: jest.fn(),
+    };
+    Object.assign(harness.repo, writes);
+
+    await harness.service.cancel(ORG, USER, POD_ORDER);
+    expect(harness.record.status).toBe(FulfillmentStatus.CANCELLED);
+
+    harness.repoMocks.countAttempts.mockResolvedValue(1);
+    await harness.service.fulfill(ORG, USER, POD_ORDER);
+
+    expect(harness.repoMocks.supersedeCancelled).toHaveBeenCalledTimes(1);
+    expect(harness.createOrder).toHaveBeenCalledTimes(1);
+    const request = harness.createOrder.mock.calls[0][1];
+    expect(request.order_id).toBe('NC-TT-1-R2');
+    // SKU đi ra đúng là SKU của ánh xạ cũ (readiness đọc ánh xạ đã có).
+    expect(request.items.map((item) => item.sku)).toEqual(['SKU-A']);
+    expect(harness.repoMocks.listMappingsForOrganization).toHaveBeenCalledWith(ORG);
+    for (const write of Object.values(writes)) expect(write).not.toHaveBeenCalled();
+  });
+
+  it('🔴 Fulfill lại bấm đúp (khoá đang giữ) ⇒ 409, KHÔNG lưu trữ bản ghi huỷ, KHÔNG tạo đơn', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.CANCELLED },
+      lockBusy: true,
+    });
+
+    await expect(harness.service.fulfill(ORG, USER, POD_ORDER)).rejects.toBeInstanceOf(
+      FulfillmentAlreadySubmittedException,
+    );
+    expect(harness.repoMocks.supersedeCancelled).not.toHaveBeenCalled();
+    expect(harness.createOrder).not.toHaveBeenCalled();
   });
 });

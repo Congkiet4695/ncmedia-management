@@ -487,6 +487,7 @@
     "SUBMITTING": "Submitting",
     "UNKNOWN": "Unknown"
   },
+  "statusLabel": "Status",
   "submittedAt": "Submitted at",
   "syncedAt": "Synced at",
   "title": "Fulfillment",

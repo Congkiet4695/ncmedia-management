@@ -560,3 +560,90 @@ describe('applyManualOverride — Seller SKU trống (audit 2026-11-03)', () => 
     expect(second.variants.map((variant) => variant.sellerSku)).toEqual(first.variants.map((variant) => variant.sellerSku));
   });
 });
+
+/**
+ * Kéo thả đổi thứ tự trục biến thể (Custom Listing). Thứ tự trục đã lưu (`variations`) quyết định
+ * thứ tự `optionValues` ⇒ `sales_attributes` gửi TikTok, và trục nào mang `sku_img`.
+ */
+describe('applyManualOverride — thứ tự trục biến thể (kéo thả)', () => {
+  const skus = [
+    {
+      sellerSku: 'TEE-BLACK-S',
+      optionValues: [
+        { name: 'Color', value: 'Black' },
+        { name: 'Size', value: 'S' },
+      ],
+      salePrice: '10',
+      quantity: 5,
+    },
+    {
+      sellerSku: 'TEE-WHITE-M',
+      optionValues: [
+        { name: 'Color', value: 'White' },
+        { name: 'Size', value: 'M' },
+      ],
+      salePrice: '12',
+      quantity: 7,
+    },
+  ];
+  const colorImages = [
+    { value: 'Black', fileId: 'file-black' },
+    { value: 'White', fileId: 'file-white' },
+  ];
+
+  it('🔴 trục [Size, Color] ⇒ optionValues theo Size trước; SKU / giá / tồn giữ đúng biến thể', () => {
+    const result = applyManualOverride(
+      templateListing(),
+      {
+        variations: [
+          { name: 'Size', values: ['S', 'M'] },
+          { name: 'Color', values: ['Black', 'White'], images: colorImages },
+        ],
+        skus,
+      },
+      [],
+    );
+
+    expect(result.variants.map((variant) => variant.optionValues)).toEqual([
+      [
+        { name: 'Size', value: 'S' },
+        { name: 'Color', value: 'Black' },
+      ],
+      [
+        { name: 'Size', value: 'M' },
+        { name: 'Color', value: 'White' },
+      ],
+    ]);
+    expect(result.variants.map((variant) => [variant.sellerSku, variant.salePrice, variant.quantity])).toEqual([
+      ['TEE-BLACK-S', '10', 5],
+      ['TEE-WHITE-M', '12', 7],
+    ]);
+    expect(result.variants.map((variant) => variant.variantName)).toEqual(['S / Black', 'M / White']);
+    // Size đứng đầu và không có ảnh ⇒ không kế thừa ảnh của Color (TikTok: `sku_img` ở trục đầu).
+    expect(result.variants.map((variant) => variant.imageFileId)).toEqual([null, null]);
+  });
+
+  it('trục [Color, Size] (thứ tự gốc) ⇒ payload không đổi, ảnh Color kế thừa đúng giá trị', () => {
+    const result = applyManualOverride(
+      templateListing(),
+      {
+        variations: [
+          { name: 'Color', values: ['Black', 'White'], images: colorImages },
+          { name: 'Size', values: ['S', 'M'] },
+        ],
+        skus,
+      },
+      [],
+    );
+
+    expect(result.variants.map((variant) => variant.optionValues)).toEqual(skus.map((sku) => sku.optionValues));
+    expect(result.variants.map((variant) => variant.imageFileId)).toEqual(['file-black', 'file-white']);
+  });
+
+  it('nháp cũ không có `variations` ⇒ giữ nguyên thứ tự optionValues của SKU (tương thích ngược)', () => {
+    const reversed = skus.map((sku) => ({ ...sku, optionValues: [...sku.optionValues].reverse() }));
+    const result = applyManualOverride(templateListing(), { skus: reversed }, []);
+
+    expect(result.variants.map((variant) => variant.optionValues)).toEqual(reversed.map((sku) => sku.optionValues));
+  });
+});

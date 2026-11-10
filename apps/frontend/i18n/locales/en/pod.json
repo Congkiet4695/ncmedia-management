@@ -1270,6 +1270,8 @@
       "variationValues": "Variation values (comma separated)",
       "addVariation": "Add variation",
       "removeVariation": "Remove variation",
+      "dragVariation": "Drag to reorder variation \"{{name}}\"",
+      "axisImagesInactive": "\"{{name}}\" has {{count}} variant image(s) but is not the first variation — TikTok only accepts images on the FIRST variation, so these images are not sent for now. Drag \"{{name}}\" to the top to use them again (they are not deleted).",
       "generateSkus": "Generate SKUs",
       "willGenerate": "Will generate {{count}} combinations",
       "needVariation": "Add at least one variation with values (e.g. Color: Black, White).",

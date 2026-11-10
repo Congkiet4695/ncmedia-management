@@ -71,6 +71,7 @@ export function OrderActionMenu({
   const hasFulfillment = Boolean(state?.fulfillment);
   // Bản ghi nhập tay (Import Excel) không có ở nhà cung cấp ⇒ không có gì để đồng bộ (backend cũng chặn).
   const manualRecord = state?.fulfillment?.source === 'MANUAL_IMPORT';
+  const cancelTarget = state?.fulfillment ?? null;
   const [cancelOpen, setCancelOpen] = useState(false);
   const [reason, setReason] = useState('');
 
@@ -163,11 +164,39 @@ export function OrderActionMenu({
       {/* Huỷ là thao tác một chiều ⇒ luôn hỏi lại, và cho ghi lý do để đối soát với xưởng in. */}
       <Modal
         open={cancelOpen}
-        onClose={() => setCancelOpen(false)}
+        // Đang gửi yêu cầu huỷ ⇒ không cho đóng: đóng giữa chừng rồi mở lại là đường bấm Huỷ lần hai.
+        onClose={() => !actions.cancel.isPending && setCancelOpen(false)}
         title={t('pod:orders.actions.cancelFulfillment')}
         className="max-w-sm"
       >
         <div className="space-y-3" onClick={(event) => event.stopPropagation()}>
+          {/* Người dùng phải thấy ĐÚNG đơn nào ở xưởng nào sắp bị huỷ (bản ghi hiện hành, không phải
+              nhà cung cấp gán cho kết nối TikTok — hai thứ có thể khác nhau sau khi đổi xưởng). */}
+          {cancelTarget && (
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md border bg-muted/40 px-3 py-2 text-xs">
+              <dt className="text-muted-foreground">{t('fulfillment:provider.type')}</dt>
+              <dd className="font-medium">
+                {cancelTarget.provider
+                  ? t(`fulfillment:provider.typeValue.${cancelTarget.provider}`, {
+                      defaultValue: cancelTarget.provider,
+                    })
+                  : '—'}
+              </dd>
+              <dt className="text-muted-foreground">{t('fulfillment:externalOrderId')}</dt>
+              <dd className="break-all font-mono">{cancelTarget.externalOrderId}</dd>
+              {cancelTarget.providerOrderId && (
+                <>
+                  <dt className="text-muted-foreground">{t('fulfillment:providerOrderId')}</dt>
+                  <dd className="break-all font-mono">{cancelTarget.providerOrderId}</dd>
+                </>
+              )}
+              <dt className="text-muted-foreground">{t('fulfillment:statusLabel')}</dt>
+              <dd>
+                {t(`fulfillment:status.${cancelTarget.status}`, { defaultValue: cancelTarget.status })}
+                {cancelTarget.providerStatus ? ` · ${cancelTarget.providerStatus}` : ''}
+              </dd>
+            </dl>
+          )}
           <p className="text-sm text-muted-foreground">{t('pod:orders.actions.cancelConfirm')}</p>
           <textarea
             rows={3}

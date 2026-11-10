@@ -487,6 +487,7 @@
     "SUBMITTING": "Đang gửi",
     "UNKNOWN": "Chưa xác định"
   },
+  "statusLabel": "Trạng thái",
   "submittedAt": "Gửi lúc",
   "syncedAt": "Đồng bộ lúc",
   "title": "Xưởng in",

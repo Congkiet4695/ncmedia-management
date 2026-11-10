@@ -520,7 +520,10 @@ console.log('Biên — mặc định template, tổ hợp tắt, bản ghi cũ, 
   ];
   form.skus = applied.skus;
   const manual = buildManualData(form);
-  check('payload: ảnh trục đầu chỉ gồm giá trị CÒN TỒN TẠI (Ghost bị bỏ), trục sau không mang ảnh', [manual.variations?.[0].images?.map((i) => i.value), manual.variations?.[1].images], [['Black', 'White'], undefined]);
+  // Trục sau GIỮ ảnh của nó khi lưu (kéo thả đổi thứ tự trục rồi Lưu không được xoá cấu hình ảnh — xem
+  // `verify-variation-reorder.ts`). Ảnh đó KHÔNG vào dòng SKU / TikTok: dòng chỉ kế thừa ảnh trục đầu (check kế tiếp)
+  // và backend `buildManualVariants` chỉ đọc `variations[0].images`.
+  check('payload: ảnh chỉ gồm giá trị CÒN TỒN TẠI (Ghost bị bỏ), trục sau giữ ảnh của chính nó', [manual.variations?.[0].images?.map((i) => i.value), manual.variations?.[1].images], [['Black', 'White'], [{ value: 'S', fileId: 'file-size-s' }]]);
   check('payload: từng SKU mang imageFileId kế thừa', manual.skus?.map((item) => item.imageFileId), ['file-black', 'file-black', 'file-black', 'file-white', 'file-white', 'file-white']);
 
   const session = { id: 's-1', market: 'US', shops: [{ shopId: 'shop-a', shop: { id: 'shop-a', name: 'A', region: 'US' } }], templates: [] } as unknown as PodListingSessionDetail;

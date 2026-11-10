@@ -1270,6 +1270,8 @@
       "variationValues": "Giá trị biến thể (cách nhau bằng dấu phẩy)",
       "addVariation": "Thêm biến thể",
       "removeVariation": "Xoá biến thể",
+      "dragVariation": "Kéo để đổi thứ tự biến thể \"{{name}}\"",
+      "axisImagesInactive": "Trục \"{{name}}\" đang có {{count}} ảnh biến thể nhưng không đứng đầu — TikTok chỉ nhận ảnh ở biến thể ĐẦU TIÊN, nên ảnh này tạm không được gửi. Kéo \"{{name}}\" lên đầu để dùng lại (ảnh không bị xoá).",
       "generateSkus": "Tạo SKU",
       "willGenerate": "Sẽ tạo {{count}} tổ hợp",
       "needVariation": "Cần ít nhất một biến thể có giá trị (vd Color: Black, White).",

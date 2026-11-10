@@ -42,6 +42,7 @@
     "scripts/verify-custom-listing.ts",
     "scripts/verify-custom-listing-next.ts",
     "scripts/verify-sku-sync.ts",
+    "scripts/verify-variation-reorder.ts",
     "scripts/verify-dashboard.ts",
     "scripts/verify-login-info-design-amount.ts",
     "scripts/verify-group-template.ts",

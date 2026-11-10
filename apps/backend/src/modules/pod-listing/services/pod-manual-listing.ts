@@ -433,6 +433,27 @@ export function applyManualOverride(
  * quên điền giá phải ra **một** dòng "Chưa có giá bán — 600 SKU", không phải 600 dòng giống
  * hệt nhau đẩy mọi lỗi khác ra khỏi màn hình.
  */
+/**
+ * Sắp giá trị của MỘT SKU theo thứ tự trục đã lưu (`variations`).
+ *
+ * 🔴 Lưới bảo vệ: form đã sắp sẵn, nhưng payload TikTok phải theo thứ tự trục người bán chọn bất
+ * kể client nào gửi — SKU `Size=S, Color=Black` trên bộ trục `[Color, Size]` phải đi ra
+ * `Color, Size`. Chỉ đổi THỨ TỰ, không đổi cặp giá trị nào (Seller SKU / giá / ảnh không đụng tới).
+ * Không có `variations` (nháp cũ) ⇒ giữ nguyên thứ tự của SKU. Giá trị thuộc trục không khai đứng
+ * sau, giữ thứ tự gốc.
+ */
+function orderOptionValues(
+  optionValues: ManualSku['optionValues'],
+  axisOrder: Map<string, number>,
+): ManualSku['optionValues'] {
+  if (axisOrder.size === 0 || optionValues.length < 2) return optionValues;
+  const rank = (name: string) => axisOrder.get(name) ?? Number.MAX_SAFE_INTEGER;
+  return optionValues
+    .map((option, position) => ({ option, position }))
+    .sort((a, b) => rank(a.option.name) - rank(b.option.name) || a.position - b.position)
+    .map((entry) => entry.option);
+}
+
 function buildManualVariants(
   allSkus: ManualSku[],
   payload: ResolvedListing,
@@ -488,6 +509,8 @@ function buildManualVariants(
     return [];
   }
 
+  // Thứ tự trục người bán đã chọn (kéo thả) ⇒ thứ tự `sales_attributes` của MỌI SKU gửi TikTok.
+  const axisOrder = new Map(variations.map((variation, index) => [variation.name, index] as const));
   const currency = payload.pricing?.currency ?? null;
   const missingPrice: string[] = [];
   const duplicated: string[] = [];
@@ -502,11 +525,12 @@ function buildManualVariants(
     const salePrice = positiveDecimal(sku.salePrice);
     if (!salePrice) missingPrice.push(sku.sellerSku);
 
+    const optionValues = orderOptionValues(sku.optionValues, axisOrder);
     return {
-      variantName: sku.optionValues.map((option) => option.value).join(' / ') || sku.sellerSku,
+      variantName: optionValues.map((option) => option.value).join(' / ') || sku.sellerSku,
       sellerSku: sku.sellerSku,
       barcode: sku.barcode ?? null,
-      optionValues: sku.optionValues,
+      optionValues,
       salePrice,
       retailPrice: positiveDecimal(sku.retailPrice),
       currency,

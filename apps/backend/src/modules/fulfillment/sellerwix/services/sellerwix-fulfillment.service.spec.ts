@@ -1285,3 +1285,95 @@ describe('SellerwixFulfillmentService — nhà cung cấp ĐÃ nhận đơn ≠ 
     expect(h.record.status).toBe(FulfillmentStatus.SHIPPED);
   });
 });
+
+/**
+ * Cancel ⇒ Fulfill lại — các nhánh còn thiếu. Tài liệu Sellerwix (Postman "Cancel order",
+ * `POST /v1/order/:id/cancel`): body `{ reason }` không bắt buộc, response = object đơn như
+ * `/order/{id}`; KHÔNG nêu trạng thái nào huỷ được ⇒ quyết định nằm ở trạng thái thật trả về.
+ */
+describe('SellerwixFulfillmentService — Cancel / Fulfill lại: lỗi, trạng thái, ánh xạ', () => {
+  function submitted() {
+    const h = build({ existingStatus: FulfillmentStatus.SUBMITTED });
+    h.record.providerOrderId = 'swx-order-1';
+    return h;
+  }
+
+  it('🔴 bản ghi IN_PRODUCTION ⇒ từ chối ngay, KHÔNG gọi Sellerwix', async () => {
+    const h = build({ existingStatus: FulfillmentStatus.IN_PRODUCTION });
+    h.record.providerOrderId = 'swx-order-1';
+
+    await expect(h.service.cancel(ORG, USER, POD_ORDER)).rejects.toBeInstanceOf(
+      FulfillmentCannotCancelException,
+    );
+    expect(h.getOrder).not.toHaveBeenCalled();
+    expect(h.cancelOrder).not.toHaveBeenCalled();
+  });
+
+  it('🔴 Cancel API lỗi (400) ⇒ ném lỗi, bản ghi GIỮ trạng thái cũ, ghi CANCEL_FAILED', async () => {
+    const h = submitted();
+    h.cancelOrder.mockRejectedValue(
+      new FulfillmentClientError(FulfillmentErrorClass.VALIDATION, 'Bad Request', 400),
+    );
+
+    await expect(h.service.cancel(ORG, USER, POD_ORDER)).rejects.toBeDefined();
+
+    expect(h.record.status).toBe(FulfillmentStatus.SUBMITTED);
+    expect(h.record.cancelledAt).toBeNull();
+    expect(
+      h.updateOrder.mock.calls.some(
+        ([, data]) =>
+          data.status === FulfillmentStatus.CANCELLED || data.status === FulfillmentStatus.FAILED,
+      ),
+    ).toBe(false);
+    expect(h.histories).toContainEqual(expect.objectContaining({ eventType: 'CANCEL_FAILED' }));
+  });
+
+  it('Sellerwix nhận yêu cầu nhưng còn "cancel processing" ⇒ KHÔNG đánh CANCELLED (chưa mở Fulfill lại)', async () => {
+    const h = submitted();
+    h.cancelOrder.mockResolvedValue({
+      data: detail({ fulfillments: [{ status: 'cancel processing', trackings: [] }] }),
+      requestId: 'req-cancel',
+      durationMs: 6,
+      httpStatus: 200,
+    });
+
+    await h.service.cancel(ORG, USER, POD_ORDER);
+
+    expect(h.record.status).not.toBe(FulfillmentStatus.CANCELLED);
+    expect(h.record.providerStatus).toBe('cancel processing');
+  });
+
+  it('🔴 Cancel ⇒ Fulfill lại: dùng LẠI ánh xạ/design hiện có, SKU biến thể giữ nguyên, không ghi ánh xạ', async () => {
+    const h = submitted();
+    const writes = {
+      createMapping: jest.fn(),
+      updateMapping: jest.fn(),
+      softDeleteMapping: jest.fn(),
+    };
+    Object.assign(h.repo, writes);
+
+    await h.service.cancel(ORG, USER, POD_ORDER);
+    expect(h.record.status).toBe(FulfillmentStatus.CANCELLED);
+
+    h.repoMocks.countAttempts.mockResolvedValue(1);
+    await h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND);
+
+    expect(h.repoMocks.supersedeCancelled).toHaveBeenCalledTimes(1);
+    expect(h.createOrder).toHaveBeenCalledTimes(1);
+    const request = h.createOrder.mock.calls[0][1];
+    expect(request.reference_id).toBe(`${TIKTOK_ORDER}-R2`);
+    expect(request.line_items[0].sku).toBe(SKU_BLACK_XL);
+    expect(h.repoMocks.listMappingsForOrganization).toHaveBeenCalledWith(ORG);
+    for (const write of Object.values(writes)) expect(write).not.toHaveBeenCalled();
+  });
+
+  it('🔴 Fulfill lại bấm đúp (khoá đang giữ) ⇒ 409, KHÔNG lưu trữ bản ghi huỷ, KHÔNG tạo đơn', async () => {
+    const h = build({ existingStatus: FulfillmentStatus.CANCELLED, lockBusy: true });
+
+    await expect(
+      h.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.MANUAL, SEND),
+    ).rejects.toBeInstanceOf(FulfillmentAlreadySubmittedException);
+    expect(h.repoMocks.supersedeCancelled).not.toHaveBeenCalled();
+    expect(h.createOrder).not.toHaveBeenCalled();
+  });
+});
