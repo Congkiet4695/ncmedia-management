@@ -14,6 +14,7 @@ import {
   PodTiktokScopeMissingException,
   PodTiktokShopAlreadyLinkedException,
   TiktokClientError,
+  PodTiktokShopLimitReachedException,
 } from '../exceptions/pod-tiktok.exceptions';
 import { PodTiktokAccountMapper } from '../mappers/pod-tiktok-account.mapper';
 import {
@@ -78,6 +79,8 @@ interface AuditArg {
 describe('PodTiktokAccountService', () => {
   let service: PodTiktokAccountService;
   let prisma: { $transaction: jest.Mock };
+  /** Đếm Shop đang kết nối trong transaction (`countConnectedShops` → `tx.$queryRaw`): mặc định 0 trước/sau. */
+  let shopCount: jest.Mock;
   /** Cổng kích hoạt đồng bộ sản phẩm (`PRODUCT_SYNC_TRIGGER`). */
   let productSync: { syncShops: jest.Mock };
   /** "Tiền giao account" — chỉ kiểm nơi gọi; quy tắc chống trùng nằm ở AccountHandoverService (spec riêng). */
@@ -89,8 +92,9 @@ describe('PodTiktokAccountService', () => {
 
   beforeEach(() => {
     // $transaction chạy callback với `tx` giả — không chạm DB thật.
+    shopCount = jest.fn().mockResolvedValue([{ n: 0n }]);
     prisma = {
-      $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb({})),
+      $transaction: jest.fn((cb: (tx: unknown) => unknown) => cb({ $queryRaw: shopCount })),
     };
     productSync = { syncShops: jest.fn().mockResolvedValue([]) };
     accountHandover = {
@@ -99,6 +103,8 @@ describe('PodTiktokAccountService', () => {
     repo = {
       findByOpenIdIncludingDeleted: jest.fn().mockResolvedValue(null),
       findConflictingShops: jest.fn().mockResolvedValue([]),
+      // Mặc định: tổ chức không giới hạn Shop ⇒ không ảnh hưởng các test cũ.
+      lockOrganizationShopQuota: jest.fn().mockResolvedValue({ shopLimit: null }),
       createAccount: jest.fn().mockResolvedValue({ id: ACCOUNT_ID }),
       // Mặc định: người liên kết KHÔNG phải Seller (Admin) ⇒ không tự gán người phụ trách.
       findSellerEmployeeIdByUser: jest.fn().mockResolvedValue(null),
@@ -209,7 +215,7 @@ describe('PodTiktokAccountService', () => {
 
     it('💵 Employee tự link account MỚI ⇒ cộng Tiền giao account cho CHÍNH họ, trong transaction của việc link', async () => {
       (repo.findSellerEmployeeIdByUser as jest.Mock).mockResolvedValue('employee-1');
-      const tx = { marker: 'tx' };
+      const tx = { marker: 'tx', $queryRaw: shopCount };
       prisma.$transaction.mockImplementation((cb: (client: unknown) => unknown) => cb(tx));
 
       await service.completeAuthorization(ORG_ID, USER_ID, 'auth-code');
@@ -703,4 +709,49 @@ describe('PodTiktokAccountService', () => {
       expect(repo.softDeleteAccount).not.toHaveBeenCalled();
     });
   });
+  describe('giới hạn số Shop của tổ chức (chặn ở BACKEND, trong transaction ghi kết nối)', () => {
+    beforeEach(() => mockFindByIdResult());
+
+    /** Số shop đang kết nối: lần đếm thứ nhất (trước khi ghi) và thứ hai (sau khi ghi). */
+    const counts = (before: number, after: number) => {
+      shopCount.mockReset();
+      shopCount.mockResolvedValueOnce([{ n: BigInt(before) }]).mockResolvedValueOnce([{ n: BigInt(after) }]);
+    };
+
+    it('3 / 10 + 1 shop mới ⇒ kết nối thành công', async () => {
+      (repo.lockOrganizationShopQuota as jest.Mock).mockResolvedValue({ shopLimit: 10 });
+      counts(3, 4);
+      await expect(service.completeAuthorization(ORG_ID, USER_ID, 'auth-code')).resolves.toBeDefined();
+      expect(repo.insertTokenAudit).toHaveBeenCalled();
+    });
+
+    it('🔴 10 / 10 + 1 shop mới ⇒ POD_TIKTOK_SHOP_LIMIT_REACHED, transaction bị huỷ (không ghi audit)', async () => {
+      (repo.lockOrganizationShopQuota as jest.Mock).mockResolvedValue({ shopLimit: 10 });
+      counts(10, 11);
+      const error = await service.completeAuthorization(ORG_ID, USER_ID, 'auth-code').catch((e: unknown) => e);
+      expect(error).toBeInstanceOf(PodTiktokShopLimitReachedException);
+      expect((error as PodTiktokShopLimitReachedException).getResponse()).toMatchObject({
+        code: 'POD_TIKTOK_SHOP_LIMIT_REACHED',
+        message: 'Tổ chức đã đạt giới hạn số lượng Shop được phép kết nối. Vui lòng liên hệ quản trị viên.',
+      });
+      // Ném TRONG callback của $transaction ⇒ Prisma rollback mọi lệnh ghi trước đó; bước cuối không chạy.
+      expect(repo.insertTokenAudit).not.toHaveBeenCalled();
+    });
+
+    it('Uỷ quyền lại kết nối cũ khi tổ chức đang VƯỢT giới hạn (Super Admin vừa hạ 20 → 10) ⇒ vẫn được — không thêm shop', async () => {
+      (repo.lockOrganizationShopQuota as jest.Mock).mockResolvedValue({ shopLimit: 10 });
+      counts(15, 15);
+      await expect(service.completeAuthorization(ORG_ID, USER_ID, 'auth-code')).resolves.toBeDefined();
+    });
+
+    it('🔴 khoá dòng tổ chức là thao tác ĐẦU TIÊN trong transaction (trước mọi lệnh ghi)', async () => {
+      await service.completeAuthorization(ORG_ID, USER_ID, 'auth-code');
+      const lockOrder = (repo.lockOrganizationShopQuota as jest.Mock).mock.invocationCallOrder[0];
+      for (const write of [repo.createAccount, repo.upsertShop, repo.softDeleteShopsNotIn] as jest.Mock[]) {
+        for (const order of write.mock.invocationCallOrder) expect(order).toBeGreaterThan(lockOrder);
+      }
+      expect(repo.lockOrganizationShopQuota).toHaveBeenCalledWith(expect.anything(), ORG_ID);
+    });
+  });
 });
+

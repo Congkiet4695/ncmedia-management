@@ -10,6 +10,7 @@ import { Avatar } from '@/components/ui/avatar';
 import { Button } from '@/components/ui/button';
 import { LanguageSwitcher } from '@/components/language-switcher';
 import { UsClock } from '@/components/us-clock';
+import { PlanExpiryBadge, ShopUsageBadge } from '@/components/organization-plan-badges';
 import { ThemeToggle } from '@/components/theme-toggle';
 import { resolveNavigation } from '@/config/navigation';
 import { cn } from '@/lib/utils';
@@ -145,8 +146,20 @@ export default function DashboardLayout({ children }: { children: ReactNode }) {
           </Button>
 
           <div className="ml-auto flex items-center gap-1 sm:gap-2">
+            {/* Gói của tổ chức (Admin / Employee): số Shop bên TRÁI giờ US, ngày hết hạn bên PHẢI. Không hiện với Super
+                Admin — tổ chức hệ thống không có gói (`plan = null`). */}
+            {organization?.plan && (
+              <div className="hidden md:block">
+                <ShopUsageBadge plan={organization.plan} />
+              </div>
+            )}
             {/* Giờ US (Los Angeles) — bên trái nút đổi ngôn ngữ; cùng múi giờ với Orders / Payout / Dashboard. */}
             <UsClock />
+            {organization?.plan && (
+              <div className="hidden md:block">
+                <PlanExpiryBadge plan={organization.plan} />
+              </div>
+            )}
             <LanguageSwitcher />
             <ThemeToggle />
             <div className="mx-1 hidden h-8 w-px bg-border sm:block" aria-hidden />

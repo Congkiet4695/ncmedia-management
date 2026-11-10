@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import Link from 'next/link';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -10,15 +10,17 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { useApiError } from '@/hooks/use-api-error';
+import { useApiError, useTranslateErrorCode } from '@/hooks/use-api-error';
 import { getApiFieldErrors } from '@/utils/http';
 import { createLoginSchema, type LoginInput } from '../schemas/auth.schema';
 import { useLogin } from '../hooks/use-login';
+import { LOGIN_REASON_PARAM, ORGANIZATION_BLOCK_CODES } from '../session-block';
 
 export function LoginForm() {
   const { t } = useTranslation('auth');
   const { t: tv } = useTranslation('validation');
   const translateApiError = useApiError();
+  const translateErrorCode = useTranslateErrorCode();
   const [showPassword, setShowPassword] = useState(false);
   const mutation = useLogin();
 
@@ -51,6 +53,19 @@ export function LoginForm() {
       }
     }
   };
+
+  // Phiên vừa bị kết thúc vì TỔ CHỨC (hết hạn / vô hiệu hoá …) — `api-client` chuyển về đây kèm `?reason=<mã>`.
+  // Nói đúng lý do MỘT lần rồi bỏ tham số khỏi URL (tải lại trang không báo lại). Chỉ nhận mã trong danh sách
+  // đóng — không hiển thị chuỗi tuỳ ý lấy từ URL.
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const reason = params.get(LOGIN_REASON_PARAM);
+    if (!reason || !ORGANIZATION_BLOCK_CODES.has(reason)) return;
+    toast.error(t('login.failed'), { description: translateErrorCode(reason, reason), duration: 10_000 });
+    params.delete(LOGIN_REASON_PARAM);
+    const query = params.toString();
+    window.history.replaceState(null, '', `${window.location.pathname}${query ? `?${query}` : ''}`);
+  }, [t, translateErrorCode]);
 
   const isLoading = mutation.isPending;
 

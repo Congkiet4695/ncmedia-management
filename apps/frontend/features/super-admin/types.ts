@@ -17,8 +17,16 @@ export const ORGANIZATION_STATUSES = [
 ] as const;
 export type OrganizationStatus = (typeof ORGANIZATION_STATUSES)[number];
 
-/** Ba trạng thái xuất hiện trên bộ lọc chính (§6). */
-export const ORGANIZATION_FILTER_STATUSES: OrganizationStatus[] = ['PENDING', 'ACTIVE', 'REJECTED'];
+/** Trạng thái trên bộ lọc chính: chờ duyệt / đã duyệt / bị từ chối / bị vô hiệu hoá. */
+export const ORGANIZATION_FILTER_STATUSES: OrganizationStatus[] = ['PENDING', 'ACTIVE', 'REJECTED', 'SUSPENDED'];
+
+/** Trạng thái được Duyệt (PENDING) hoặc Duyệt lại (REJECTED) — khớp backend. */
+export const APPROVABLE_STATUSES: OrganizationStatus[] = ['PENDING', 'REJECTED'];
+/** Vô hiệu hoá được từ ACTIVE / TRIAL; kích hoạt lại từ SUSPENDED. */
+export const DEACTIVATABLE_STATUSES: OrganizationStatus[] = ['ACTIVE', 'TRIAL'];
+export const ACTIVATABLE_STATUSES: OrganizationStatus[] = ['SUSPENDED'];
+/** Đổi gói (giới hạn Shop / ngày hết hạn): tổ chức đã được duyệt. */
+export const PLAN_EDITABLE_STATUSES: OrganizationStatus[] = ['ACTIVE', 'TRIAL', 'SUSPENDED'];
 
 /** Chủ Organization — người đã bấm nút đăng ký. */
 export interface OrganizationOwner {
@@ -39,10 +47,25 @@ export interface OrganizationRow {
   /** Thời điểm đăng ký = thời điểm tạo Organization. */
   registeredAt: string;
   createdAt: string;
+  /** Số Shop tối đa. `null` = chưa có gói (hồ sơ chưa từng được duyệt). */
+  shopLimit: number | null;
+  /** Shop TikTok đang kết nối (đã liên kết, chưa gỡ). */
+  connectedShopCount: number;
+  /** ISO 8601. Mặc định khi duyệt lần đầu = ngày ĐĂNG KÝ + 30 ngày. `null` = chưa có gói. */
+  expiresAt: string | null;
+  /** now >= expiresAt. */
+  expired: boolean;
   owner: OrganizationOwner | null;
 }
 
-export const APPROVAL_ACTIONS = ['APPROVE', 'REJECT'] as const;
+export const APPROVAL_ACTIONS = [
+  'APPROVE',
+  'REJECT',
+  'ACTIVATE',
+  'DEACTIVATE',
+  'UPDATE_SHOP_LIMIT',
+  'UPDATE_EXPIRATION',
+] as const;
 export type ApprovalAction = (typeof APPROVAL_ACTIONS)[number];
 
 /** Một dòng nhật ký duyệt (§13). */

@@ -4,6 +4,7 @@ import {
   IsEnum,
   IsIn,
   IsInt,
+  IsISO8601,
   IsOptional,
   IsString,
   Max,
@@ -12,6 +13,7 @@ import {
   MinLength,
 } from 'class-validator';
 import { OrganizationStatus } from '@prisma/client';
+import { ORGANIZATION_MAX_SHOP_LIMIT } from '../../../common/organization/organization-plan';
 import {
   SUPER_ADMIN_ORG_SORT_FIELDS,
   type SuperAdminOrgSortField,
@@ -80,6 +82,26 @@ export class RejectOrganizationDto {
   @MinLength(10, { message: 'reason phải có ít nhất 10 ký tự' })
   @MaxLength(1000)
   reason!: string;
+}
+
+/** Đổi số Shop tối đa của Organization — số nguyên dương (không 0, không âm, không null, không NaN). */
+export class UpdateOrganizationShopLimitDto {
+  @ApiProperty({ example: 20, minimum: 1, maximum: ORGANIZATION_MAX_SHOP_LIMIT })
+  @Type(() => Number)
+  @IsInt({ message: 'shopLimit phải là số nguyên' })
+  @Min(1, { message: 'shopLimit phải lớn hơn 0' })
+  @Max(ORGANIZATION_MAX_SHOP_LIMIT)
+  shopLimit!: number;
+}
+
+/**
+ * Đổi ngày hết hạn — thời điểm ISO 8601 đầy đủ (vd `2026-12-31T16:59:59.000Z`). Không đổi ngày đăng ký, giới hạn
+ * Shop hay trạng thái. Đặt ở quá khứ ⇒ tổ chức hết hạn ngay (hợp lệ); không được trước ngày đăng ký.
+ */
+export class UpdateOrganizationExpirationDto {
+  @ApiProperty({ example: '2026-12-31T16:59:59.000Z' })
+  @IsISO8601({ strict: true }, { message: 'expiresAt phải là thời điểm ISO 8601 hợp lệ' })
+  expiresAt!: string;
 }
 
 /**

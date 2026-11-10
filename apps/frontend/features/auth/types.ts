@@ -54,6 +54,20 @@ export interface MeOrganization {
   id: string;
   name: string;
   slug: string;
+  /** Gói sử dụng — hiển thị ở header Admin / Employee. `null` với tổ chức hệ thống (Super Admin). */
+  plan: MeOrganizationPlan | null;
+}
+
+/** Giới hạn Shop + thời hạn của tổ chức (GET /auth/me). */
+export interface MeOrganizationPlan {
+  status: string;
+  /** Shop TikTok đang kết nối (đã liên kết, chưa gỡ) — cùng phép đếm với chặn kết nối ở backend. */
+  connectedShopCount: number;
+  /** `null` = không giới hạn. */
+  shopLimit: number | null;
+  /** ISO 8601. `null` = không hết hạn. */
+  expiresAt: string | null;
+  expired: boolean;
 }
 
 /** Phần "user" trong hồ sơ /me (avatar/dateOfBirth là Employee field — null ở Sprint 1). */

@@ -2,6 +2,15 @@
   "usClock": {
     "label": "Giờ US"
   },
+  "orgPlan": {
+    "shops": "Shops",
+    "shopsTitle": "Shop đang kết nối / giới hạn của tổ chức",
+    "unlimited": "Không giới hạn",
+    "expires": "Hết hạn",
+    "expiresTitle": "Ngày hết hạn gói của tổ chức",
+    "expired": "Đã hết hạn",
+    "expiringSoon": "Gói sắp hết hạn — liên hệ quản trị viên để gia hạn"
+  },
   "action": {
     "apply": "Áp dụng",
     "assign": "Phân công",

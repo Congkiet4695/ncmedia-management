@@ -6,12 +6,16 @@
     "ACTIVE": "Approved",
     "REJECTED": "Rejected",
     "TRIAL": "Trial",
-    "SUSPENDED": "Suspended",
+    "SUSPENDED": "Deactivated",
     "DELETED": "Deleted"
   },
   "action": {
     "APPROVE": "Approved",
-    "REJECT": "Rejected"
+    "REJECT": "Rejected",
+    "ACTIVATE": "Activated",
+    "DEACTIVATE": "Deactivated",
+    "UPDATE_SHOP_LIMIT": "Shop limit changed",
+    "UPDATE_EXPIRATION": "Expiration changed"
   },
   "dashboard": {
     "pending": "Pending Organizations",
@@ -31,7 +35,12 @@
     "email": "Email",
     "registeredAt": "Register time",
     "status": "Status",
-    "detail": "View detail"
+    "detail": "View detail",
+    "shops": "Shops",
+    "expiresAt": "Expires",
+    "expired": "Expired",
+    "unlimited": "Unlimited",
+    "noPlan": "No plan yet"
   },
   "detail": {
     "organizationInfo": "Organization information",
@@ -47,7 +56,11 @@
     "approvedAt": "Approved at",
     "rejectedAt": "Rejected at",
     "auditLog": "Audit log",
-    "auditEmpty": "No decision has been recorded yet."
+    "auditEmpty": "No decision has been recorded yet.",
+    "planInfo": "Plan",
+    "connectedShops": "Connected shops",
+    "shopLimit": "Shop limit",
+    "expiresAt": "Expiration date"
   },
   "approve": {
     "title": "Approve organization",
@@ -74,5 +87,40 @@
     "confirm": "Delete permanently",
     "done": "Organization \"{{name}}\" deleted",
     "doneDetail": "{{rows}} record(s) removed · {{files}} file record(s)"
-  }
+  },
+  "plan": {
+    "edit": "Edit plan",
+    "title": "Plan of \"{{name}}\"",
+    "shopLimit": "Maximum shops",
+    "shopLimitHint": "{{count}} shops connected. Setting a lower limit is allowed: existing shops stay connected, only new connections are blocked.",
+    "expiresAt": "Expiration date",
+    "expiresAtHint": "In your local time. Extending an expired organization re-enables it immediately; a deactivated organization stays locked until activated.",
+    "invalidLimit": "Maximum shops must be a whole number greater than 0.",
+    "invalidDate": "Invalid expiration date.",
+    "noChange": "Nothing changed.",
+    "save": "Save",
+    "done": "Updated the plan of \"{{name}}\""
+  },
+  "reapprove": {
+    "submit": "Re-approve",
+    "title": "Re-approve organization",
+    "confirm": "Re-approve the rejected registration of \"{{name}}\"?",
+    "hint": "The organization becomes Approved and the owner receives the \"Organization Approved\" email again. An existing plan is kept; otherwise defaults apply (10 shops, expiring 30 days after registration).",
+    "done": "Re-approved \"{{name}}\""
+  },
+  "deactivate": {
+    "submit": "Deactivate",
+    "title": "Deactivate organization",
+    "confirm": "Deactivate \"{{name}}\"?",
+    "hint": "Admins and employees are blocked from signing in and lose access immediately (including open sessions). Data (shops, orders, products, designs, fulfillment) is kept — you can activate it again at any time.",
+    "done": "Deactivated \"{{name}}\""
+  },
+  "activate": {
+    "submit": "Activate",
+    "title": "Activate organization",
+    "confirm": "Activate \"{{name}}\" again?",
+    "hint": "Admins and employees can sign in again — if the plan has not expired. The plan is not changed.",
+    "done": "Activated \"{{name}}\""
+  },
+  "approveExpired": "The expiration date is counted from the registration date and has already passed — the organization is EXPIRED. Extend it via \"Edit plan\"."
 }

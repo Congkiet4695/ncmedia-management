@@ -301,6 +301,14 @@ model Organization {
   /// Lý do từ chối — BẮT BUỘC khi Reject, và là nội dung email gửi cho người đăng ký.
   rejectedReason String?   @map("rejected_reason") @db.VarChar(1000)
 
+  // --- Gói sử dụng (docs/organization-lifecycle.md) ---
+  /// Số Shop TikTok tối đa được kết nối đồng thời (> 0, CHECK ở migration). NULL = chưa áp gói: tổ chức
+  /// hệ thống, hoặc hồ sơ chưa từng được duyệt — lần duyệt đầu tiên đặt mặc định 10.
+  shopLimit Int?      @map("shop_limit")
+  /// Hết hạn khi `now() >= expires_at`. Mặc định khi duyệt lần đầu = ngày ĐĂNG KÝ (`created_at`) + 30 ngày
+  /// — KHÔNG phải ngày duyệt. NULL = không hết hạn (tổ chức hệ thống / chưa từng được duyệt).
+  expiresAt DateTime? @map("expires_at") @db.Timestamptz(6)
+
   // Audit (ADR-015)
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(6)
@@ -365,12 +373,47 @@ model OrganizationApprovalLog {
   @@map("organization_approval_logs")
 }
 
-/// Hành động của Super Admin trên một Organization đang chờ duyệt.
+/// Hành động của Super Admin trên một Organization (duyệt + vòng đời gói).
 enum OrganizationApprovalAction {
+  /// Duyệt — kể cả duyệt LẠI hồ sơ đã bị từ chối (`old_status = REJECTED`).
   APPROVE
   REJECT
+  /// SUSPENDED → ACTIVE.
+  ACTIVATE
+  /// ACTIVE/TRIAL → SUSPENDED (vô hiệu hoá — đảo ngược được, không xoá dữ liệu).
+  DEACTIVATE
+  /// Đổi số Shop tối đa — giá trị cũ/mới ghi ở `reason`.
+  UPDATE_SHOP_LIMIT
+  /// Đổi ngày hết hạn — giá trị cũ/mới ghi ở `reason`.
+  UPDATE_EXPIRATION
 
   @@map("organization_approval_action")
+}
+
+// ---------------------------------------------------------------------------
+// OrganizationDeletionLog — nhật ký XOÁ CỨNG Organization.
+//
+// 🔴 Phạm vi NỀN TẢNG và CỐ Ý không có khoá ngoại / không có cột `organization_id`: tổ chức đã bị xoá
+// (cùng `organization_approval_logs` của nó), bản ghi này là dấu vết DUY NHẤT còn lại. Ghi trong CÙNG
+// transaction với lệnh xoá ⇒ rollback thì không có nhật ký, xoá xong thì chắc chắn có.
+// Không chứa dữ liệu nghiệp vụ / bí mật: chỉ định danh, người xoá, thời điểm, số dòng theo bảng.
+// ---------------------------------------------------------------------------
+model OrganizationDeletionLog {
+  id                    String   @id @default(uuid()) @db.Uuid
+  /// Id của Organization ĐÃ bị xoá (không còn tồn tại — không khoá ngoại).
+  deletedOrganizationId String   @map("deleted_organization_id") @db.Uuid
+  organizationName      String   @map("organization_name") @db.VarChar(255)
+  organizationSlug      String   @map("organization_slug") @db.VarChar(120)
+  deletedBy             String   @map("deleted_by") @db.Uuid
+  deletedByEmail        String   @map("deleted_by_email") @db.VarChar(255)
+  deletedAt             DateTime @default(now()) @map("deleted_at") @db.Timestamptz(6)
+  deletedRows           Int      @map("deleted_rows")
+  /// `[{ table, deleted }]` — chỉ bảng có dòng bị xoá.
+  tables                Json
+
+  @@index([deletedAt])
+  @@index([deletedOrganizationId])
+  @@map("organization_deletion_logs")
 }
 
 // ---------------------------------------------------------------------------

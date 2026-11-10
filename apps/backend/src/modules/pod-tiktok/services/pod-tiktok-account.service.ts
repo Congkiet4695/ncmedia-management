@@ -39,8 +39,10 @@ import {
   PodTiktokFulfillmentProviderInvalidException,
   PodTiktokSellerInvalidException,
   PodTiktokShopAlreadyLinkedException,
+  PodTiktokShopLimitReachedException,
   TiktokClientError,
 } from '../exceptions/pod-tiktok.exceptions';
+import { countConnectedShops, exceedsShopLimit } from '../../../common/organization/organization-plan';
 import {
   PRODUCT_SYNC_TRIGGER,
   type ProductSyncTrigger,
@@ -546,6 +548,11 @@ export class PodTiktokAccountService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        // 🔴 Giới hạn Shop của tổ chức: khoá dòng tổ chức TRƯỚC mọi thao tác ghi (chống hai lượt kết nối đồng
+        // thời cùng vượt giới hạn), đếm số shop đang kết nối trước và sau khi ghi — xem `exceedsShopLimit`.
+        const { shopLimit } = await this.repo.lockOrganizationShopQuota(tx, organizationId);
+        const connectedBefore = await countConnectedShops(tx, organizationId);
+
         // Kết nối cũ của cùng seller (kể cả đã xoá mềm) → uỷ quyền lại, không tạo bản ghi mới.
         const existing = await this.repo.findByOpenIdIncludingDeleted(
           tx,
@@ -624,6 +631,25 @@ export class PodTiktokAccountService {
           shops.map((shop) => shop.id),
           actorUserId,
         );
+
+        // Vượt giới hạn ⇒ ném lỗi ⇒ ROLLBACK toàn bộ lượt liên kết (không có kết nối "nửa vời").
+        const connectedAfter = await countConnectedShops(tx, organizationId);
+        if (exceedsShopLimit({ before: connectedBefore, after: connectedAfter, limit: shopLimit })) {
+          this.logger.warn({
+            module: 'pod-tiktok',
+            operation: 'account.link.shop-limit',
+            organizationId,
+            shopLimit,
+            connectedBefore,
+            connectedAfter,
+            msg: 'Từ chối liên kết: vượt giới hạn số Shop của tổ chức',
+          });
+          throw new PodTiktokShopLimitReachedException({
+            limit: shopLimit as number,
+            connected: connectedBefore,
+            requested: connectedAfter - connectedBefore,
+          });
+        }
 
         await this.repo.insertTokenAudit(tx, {
           organizationId,

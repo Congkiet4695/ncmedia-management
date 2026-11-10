@@ -2,7 +2,18 @@
 
 import { useState } from 'react';
 import Link from 'next/link';
-import { Building2, CheckCircle2, Clock, Eye, Loader2, Trash2, XCircle } from 'lucide-react';
+import {
+  Building2,
+  CheckCircle2,
+  Clock,
+  Eye,
+  Loader2,
+  PauseCircle,
+  PlayCircle,
+  SlidersHorizontal,
+  Trash2,
+  XCircle,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -27,6 +38,12 @@ import { useLocaleFormat } from '@/hooks/use-locale-format';
 import { DeleteOrganizationDialog } from '@/features/super-admin/components/delete-organization-dialog';
 import { OrganizationStatusBadge } from '@/features/super-admin/components/organization-status-badge';
 import {
+  ExpiryCell,
+  OrganizationActiveDialog,
+  OrganizationPlanDialog,
+  ShopUsageCell,
+} from '@/features/super-admin/components/organization-plan';
+import {
   ApproveDialog,
   RejectDialog,
 } from '@/features/super-admin/components/review-dialogs';
@@ -34,9 +51,16 @@ import {
   useApproveOrganization,
   useOrganizations,
   useRejectOrganization,
+  useSetOrganizationActive,
   useSuperAdminDashboard,
 } from '@/features/super-admin/hooks';
-import { ORGANIZATION_FILTER_STATUSES } from '@/features/super-admin/types';
+import {
+  ACTIVATABLE_STATUSES,
+  APPROVABLE_STATUSES,
+  DEACTIVATABLE_STATUSES,
+  ORGANIZATION_FILTER_STATUSES,
+  PLAN_EDITABLE_STATUSES,
+} from '@/features/super-admin/types';
 import type { OrganizationRow, OrganizationStatus } from '@/features/super-admin/types';
 
 export default function SuperAdminOrganizationsPage() {
@@ -74,8 +98,13 @@ function OrganizationsView() {
   const [approving, setApproving] = useState<OrganizationRow | null>(null);
   const [rejecting, setRejecting] = useState<OrganizationRow | null>(null);
   const [deleting, setDeleting] = useState<OrganizationRow | null>(null);
-  // Nút xoá chỉ là lớp hiển thị — backend vẫn đòi Super Admin + quyền `platform.organization.delete`.
-  const canDelete = useAuth().hasPermission('platform.organization.delete');
+  const [planning, setPlanning] = useState<OrganizationRow | null>(null);
+  const [toggling, setToggling] = useState<{ organization: OrganizationRow; activate: boolean } | null>(null);
+  // Các nút chỉ là lớp hiển thị — backend vẫn đòi Super Admin + đúng quyền `platform.organization.*`.
+  const { hasPermission } = useAuth();
+  const canDelete = hasPermission('platform.organization.delete');
+  const canManage = hasPermission('platform.organization.manage');
+  const setActive = useSetOrganizationActive();
 
   const dashboard = useSuperAdminDashboard();
   const query = useOrganizations({
@@ -205,6 +234,8 @@ function OrganizationsView() {
                     <TableHead>{t('organizations.owner')}</TableHead>
                     <TableHead>{t('organizations.email')}</TableHead>
                     <TableHead>{t('organizations.registeredAt')}</TableHead>
+                    <TableHead>{t('organizations.shops')}</TableHead>
+                    <TableHead>{t('organizations.expiresAt')}</TableHead>
                     <TableHead>{t('organizations.status')}</TableHead>
                     <TableHead className="text-right" />
                   </TableRow>
@@ -234,6 +265,12 @@ function OrganizationsView() {
                         {formatDateTime(organization.registeredAt)}
                       </TableCell>
                       <TableCell>
+                        <ShopUsageCell organization={organization} />
+                      </TableCell>
+                      <TableCell>
+                        <ExpiryCell organization={organization} />
+                      </TableCell>
+                      <TableCell>
                         <OrganizationStatusBadge status={organization.status} />
                       </TableCell>
                       <TableCell>
@@ -243,24 +280,53 @@ function OrganizationsView() {
                               <Eye className="size-4" />
                             </Link>
                           </Button>
+                          {APPROVABLE_STATUSES.includes(organization.status) && (
+                            <Button variant="outline" size="sm" onClick={() => setApproving(organization)}>
+                              {organization.status === 'REJECTED' ? t('reapprove.submit') : t('approve.submit')}
+                            </Button>
+                          )}
                           {organization.status === 'PENDING' && (
-                            <>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setApproving(organization)}
-                              >
-                                {t('approve.submit')}
-                              </Button>
-                              <Button
-                                variant="outline"
-                                size="sm"
-                                className="text-destructive"
-                                onClick={() => setRejecting(organization)}
-                              >
-                                {t('reject.submit')}
-                              </Button>
-                            </>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              className="text-destructive"
+                              onClick={() => setRejecting(organization)}
+                            >
+                              {t('reject.submit')}
+                            </Button>
+                          )}
+                          {canManage && PLAN_EDITABLE_STATUSES.includes(organization.status) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title={t('plan.edit')}
+                              aria-label={t('plan.edit')}
+                              onClick={() => setPlanning(organization)}
+                            >
+                              <SlidersHorizontal className="size-4" />
+                            </Button>
+                          )}
+                          {canManage && DEACTIVATABLE_STATUSES.includes(organization.status) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title={t('deactivate.submit')}
+                              aria-label={t('deactivate.submit')}
+                              onClick={() => setToggling({ organization, activate: false })}
+                            >
+                              <PauseCircle className="size-4 text-destructive" />
+                            </Button>
+                          )}
+                          {canManage && ACTIVATABLE_STATUSES.includes(organization.status) && (
+                            <Button
+                              variant="ghost"
+                              size="sm"
+                              title={t('activate.submit')}
+                              aria-label={t('activate.submit')}
+                              onClick={() => setToggling({ organization, activate: true })}
+                            >
+                              <PlayCircle className="size-4 text-success" />
+                            </Button>
                           )}
                           {canDelete && (
                             <Button
@@ -302,7 +368,12 @@ function OrganizationsView() {
           void approve
             .mutateAsync(approving.id)
             .then((result) => {
-              notify(t('approve.done', { name: approving.name }), result.emailSent);
+              notify(
+                t(approving.status === 'REJECTED' ? 'reapprove.done' : 'approve.done', { name: approving.name }),
+                result.emailSent,
+              );
+              // Hạn tính từ ngày ĐĂNG KÝ: hồ sơ cũ hơn 30 ngày duyệt xong là hết hạn — nhắc gia hạn ngay.
+              if (result.expired) toast.warning(t('approveExpired'));
               setApproving(null);
             })
             .catch((error: unknown) => toast.error(translateApiError(error)));
@@ -310,6 +381,26 @@ function OrganizationsView() {
       />
 
       <DeleteOrganizationDialog organization={deleting} onClose={() => setDeleting(null)} />
+
+      <OrganizationPlanDialog organization={planning} onClose={() => setPlanning(null)} />
+
+      <OrganizationActiveDialog
+        organization={toggling?.organization ?? null}
+        activate={toggling?.activate ?? false}
+        pending={setActive.isPending}
+        onClose={() => setToggling(null)}
+        onConfirm={() => {
+          if (!toggling) return;
+          const { organization, activate } = toggling;
+          void setActive
+            .mutateAsync({ id: organization.id, active: activate })
+            .then(() => {
+              toast.success(t(activate ? 'activate.done' : 'deactivate.done', { name: organization.name }));
+              setToggling(null);
+            })
+            .catch((error: unknown) => toast.error(translateApiError(error)));
+        }}
+      />
 
       <RejectDialog
         organization={rejecting}

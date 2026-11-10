@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { OrganizationStatus, UserStatus } from '@prisma/client';
+import { UserStatus } from '@prisma/client';
 import * as bcrypt from 'bcrypt';
 import { PrismaService } from '../../../database/prisma.service';
 import { maskEmail } from '../../../common/utils/mask-email.util';
@@ -9,9 +9,12 @@ import { LoginResponseDto } from '../dto/login-response.dto';
 import { AccountDisabledException } from '../exceptions/account-disabled.exception';
 import { AccountLockedException } from '../exceptions/account-locked.exception';
 import { InvalidCredentialsException } from '../exceptions/invalid-credentials.exception';
-import { OrganizationInactiveException } from '../exceptions/organization-inactive.exception';
 import { OrganizationPendingApprovalException } from '../exceptions/organization-pending-approval.exception';
-import { OrganizationRejectedException } from '../exceptions/organization-rejected.exception';
+import {
+  organizationAccessDenial,
+  organizationAccessException,
+  type OrganizationAccessState,
+} from '../shared/organization-access';
 import { RateLimitedException } from '../exceptions/rate-limited.exception';
 import { AuthEventLogger } from './auth-event.logger';
 import { RateLimitService } from './rate-limit.service';
@@ -108,7 +111,7 @@ export class LoginService {
     //
     // Đặt SAU bcrypt.compare, không phải trước: trả lời "tổ chức đang chờ duyệt" cho một
     // người nhập sai mật khẩu là tiết lộ rằng email đó có tồn tại trong hệ thống.
-    this.assertOrganizationAllowsLogin(user.organization.status, email);
+    this.assertOrganizationAllowsLogin(user.organization, email);
 
     // (8) Check user status
     this.assertStatusAllowsLogin(user.status);
@@ -214,16 +217,15 @@ export class LoginService {
    * Mỗi trạng thái có một thông điệp riêng vì người nhận cần làm ba việc khác nhau: chờ,
    * đọc email lý do, hay liên hệ quản trị viên.
    */
-  private assertOrganizationAllowsLogin(status: OrganizationStatus, email: string): void {
-    if (status === OrganizationStatus.ACTIVE || status === OrganizationStatus.TRIAL) return;
+  private assertOrganizationAllowsLogin(organization: OrganizationAccessState, email: string): void {
+    // Luật chung với `/me`, refresh và JwtAuthGuard: trạng thái (chờ duyệt / từ chối / vô hiệu hoá) + HẾT HẠN.
+    const denial = organizationAccessDenial(organization);
+    if (!denial) return;
 
     this.logger.warn(
-      `Login blocked - organization status=${status} email=${maskEmail(email)}`,
+      `Login blocked - organization status=${organization.status} reason=${denial} email=${maskEmail(email)}`,
     );
-
-    if (status === OrganizationStatus.PENDING) throw new OrganizationPendingApprovalException();
-    if (status === OrganizationStatus.REJECTED) throw new OrganizationRejectedException();
-    throw new OrganizationInactiveException(); // SUSPENDED, DELETED
+    throw organizationAccessException(denial);
   }
 
   private toSubject(user: UserWithRole): TokenSubject {

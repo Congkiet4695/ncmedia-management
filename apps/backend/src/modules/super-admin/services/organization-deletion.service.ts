@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import type { ApiErrorItem } from '../../../common/interfaces/api-response.interface';
 import { PrismaService } from '../../../database/prisma.service';
 import { RefreshTokenService } from '../../auth/services/refresh-token.service';
+import { invalidateOrganizationAccess } from '../../auth/shared/organization-access-cache';
 import type { AuthenticatedUser } from '../../auth/types/authenticated-user.interface';
 import { DistributedLockService } from '../../pod-tiktok/infra/distributed-lock.service';
 import {
@@ -113,10 +114,10 @@ export class OrganizationDeletionService {
     if (!lock) throw new OrganizationDeleteBusyException();
 
     const startedAt = Date.now();
-    let outcome: { tables: OrganizationDeletionTableDto[]; userIds: string[] };
+    let outcome: { tables: OrganizationDeletionTableDto[]; userIds: string[]; deletedAt: Date };
     try {
       outcome = await this.prisma.$transaction(
-        (tx) => this.deleteInTransaction(tx, id),
+        (tx) => this.deleteInTransaction(tx, id, operator, organization),
         ORGANIZATION_DELETE_TX_OPTIONS,
       );
     } catch (error) {
@@ -133,6 +134,7 @@ export class OrganizationDeletionService {
       await this.locks.release(lock);
     }
 
+    invalidateOrganizationAccess(id);
     for (const userId of outcome.userIds) await this.refreshTokens.dropCachedSessions(userId);
 
     const tables = outcome.tables.filter((row) => row.deleted > 0);
@@ -151,8 +153,10 @@ export class OrganizationDeletionService {
       module: 'super-admin',
       operation: 'organization.delete',
       organizationId: result.organizationId,
+      organizationName: result.name,
       organizationSlug: result.slug,
-      operatorId: operator.userId,
+      deletedBy: operator.userId,
+      deletedAt: outcome.deletedAt.toISOString(),
       deletedRows: result.deletedRows,
       tables: result.tables,
       storageFilesDeleted: result.storageFilesDeleted,
@@ -169,7 +173,9 @@ export class OrganizationDeletionService {
   private async deleteInTransaction(
     tx: Prisma.TransactionClient,
     id: string,
-  ): Promise<{ tables: OrganizationDeletionTableDto[]; userIds: string[] }> {
+    operator: AuthenticatedUser,
+    organization: { name: string; slug: string },
+  ): Promise<{ tables: OrganizationDeletionTableDto[]; userIds: string[]; deletedAt: Date }> {
     await tx.$queryRaw(
       Prisma.sql`SELECT set_config('lock_timeout', ${ORGANIZATION_DELETE_LOCK_TIMEOUT}, true)`,
     );
@@ -203,7 +209,25 @@ export class OrganizationDeletionService {
     await tx.$executeRaw(
       Prisma.sql`DELETE FROM organizations WHERE id = ${id}::uuid AND is_platform = false`,
     );
-    return { tables, userIds: users.map((user) => user.id) };
+
+    // Dấu vết DUY NHẤT còn lại sau khi tổ chức (và nhật ký duyệt của nó) đã bị xoá — CÙNG transaction: lệnh xoá
+    // rollback thì không có nhật ký, xoá xong thì chắc chắn có. Không dữ liệu nghiệp vụ, không bí mật.
+    const actor = await tx.user.findUnique({ where: { id: operator.userId }, select: { email: true } });
+    const deletedAt = new Date();
+    const deletedTables = tables.filter((row) => row.deleted > 0);
+    await tx.organizationDeletionLog.create({
+      data: {
+        deletedOrganizationId: id,
+        organizationName: organization.name,
+        organizationSlug: organization.slug,
+        deletedBy: operator.userId,
+        deletedByEmail: actor?.email ?? 'unknown',
+        deletedAt,
+        deletedRows: deletedTables.reduce((sum, row) => sum + row.deleted, 0),
+        tables: deletedTables as unknown as Prisma.InputJsonValue,
+      },
+    });
+    return { tables, userIds: users.map((user) => user.id), deletedAt };
   }
 
   /** Mọi bảng THẬT trong database có cột `organization_id` (không chỉ những bảng Prisma biết). */

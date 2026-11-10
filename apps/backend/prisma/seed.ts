@@ -205,6 +205,7 @@ const PERMISSIONS: Array<{
   // ---------------------------------------------------------------------------
   { code: 'platform.organization.read',    module: 'PLATFORM', resource: 'platform.organization', action: 'read',    description: 'Super Admin: xem danh sách + chi tiết Organization đã đăng ký' },
   { code: 'platform.organization.approve', module: 'PLATFORM', resource: 'platform.organization', action: 'approve', description: 'Super Admin: duyệt / từ chối Organization đăng ký mới' },
+  { code: 'platform.organization.manage',  module: 'PLATFORM', resource: 'platform.organization', action: 'manage',  description: 'Super Admin: kích hoạt / vô hiệu hoá Organization, đổi giới hạn Shop và ngày hết hạn' },
   { code: 'platform.organization.delete',  module: 'PLATFORM', resource: 'platform.organization', action: 'delete',  description: 'Super Admin: XOÁ CỨNG Organization cùng toàn bộ dữ liệu của tổ chức (không hoàn tác)' },
   // TikTok Master Data TOÀN CỤC — Categories / Brands / Category Attributes.
   // 🔴 Đồng bộ là hành động GHI vào dữ liệu dùng chung của mọi Organization, nên nó thuộc

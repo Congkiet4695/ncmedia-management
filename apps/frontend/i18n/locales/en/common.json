@@ -2,6 +2,15 @@
   "usClock": {
     "label": "US Time"
   },
+  "orgPlan": {
+    "shops": "Shops",
+    "shopsTitle": "Connected shops / your organization's limit",
+    "unlimited": "Unlimited",
+    "expires": "Expires",
+    "expiresTitle": "Your organization's plan expiration date",
+    "expired": "Expired",
+    "expiringSoon": "Plan expires soon — contact your administrator to renew"
+  },
   "action": {
     "apply": "Apply",
     "assign": "Assign",

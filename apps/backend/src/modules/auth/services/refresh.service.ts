@@ -1,7 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
-import { OrganizationStatus, UserStatus } from '@prisma/client';
+import { UserStatus } from '@prisma/client';
+import { organizationAccessDenial } from '../shared/organization-access';
 import { PrismaService } from '../../../database/prisma.service';
 import { AUTH_EVENT, AUTH_REFRESH_FAILURE, type AuthRefreshFailure } from '../constants/auth-events';
 import { RefreshTokenInvalidException } from '../exceptions/refresh-token-invalid.exception';
@@ -241,8 +242,8 @@ export class RefreshService {
       throw this.reject(AUTH_REFRESH_FAILURE.USER_DISABLED, payload, meta, sessionId);
     }
 
-    const orgStatus = user.organization.status;
-    if (orgStatus !== OrganizationStatus.ACTIVE && orgStatus !== OrganizationStatus.TRIAL) {
+    // Cùng luật với login / `/me` / JwtAuthGuard: chờ duyệt, từ chối, VÔ HIỆU HOÁ hay HẾT HẠN ⇒ không gia hạn phiên.
+    if (organizationAccessDenial(user.organization)) {
       throw this.reject(AUTH_REFRESH_FAILURE.ORGANIZATION_BLOCKED, payload, meta, sessionId);
     }
 

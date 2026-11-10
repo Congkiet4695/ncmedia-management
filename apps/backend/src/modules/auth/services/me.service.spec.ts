@@ -8,7 +8,9 @@ import { MeService } from './me.service';
 /** Unit test — MeService (GET /auth/me). */
 describe('MeService', () => {
   let service: MeService;
-  const prisma = { user: { findFirst: jest.fn() } };
+  // `$queryRaw`: đếm Shop đang kết nối cho phần gói (`plan`) của header.
+  const prisma = { user: { findFirst: jest.fn() }, $queryRaw: jest.fn().mockResolvedValue([{ n: 3n }]) };
+  const EXPIRES = new Date('2027-01-01T00:00:00.000Z');
 
   const current: AuthenticatedUser = {
     userId: 'user-1',
@@ -26,7 +28,15 @@ describe('MeService', () => {
     lockedUntil: new Date(),
     deletedAt: null,
     // `status` cần cho cổng duyệt đăng ký (§14) — /me chặn Organization rời khỏi ACTIVE.
-    organization: { id: 'org-1', name: 'NCMedia Co.', slug: 'ncmedia-co', status: 'ACTIVE' },
+    organization: {
+      id: 'org-1',
+      name: 'NCMedia Co.',
+      slug: 'ncmedia-co',
+      status: 'ACTIVE',
+      isPlatform: false,
+      shopLimit: 10,
+      expiresAt: EXPIRES,
+    },
     role: {
       id: 'role-1',
       code: 'ADMIN',
@@ -61,7 +71,18 @@ describe('MeService', () => {
       fullName: 'Nguyen Van A',
       avatar: null,
       dateOfBirth: null,
-      organization: { id: 'org-1', name: 'NCMedia Co.', slug: 'ncmedia-co' },
+      organization: {
+        id: 'org-1',
+        name: 'NCMedia Co.',
+        slug: 'ncmedia-co',
+        plan: {
+          status: 'ACTIVE',
+          connectedShopCount: 3,
+          shopLimit: 10,
+          expiresAt: EXPIRES.toISOString(),
+          expired: false,
+        },
+      },
       role: { id: 'role-1', code: 'ADMIN', name: 'Administrator' },
       permissions: ['account.read', 'employee.read'],
     });
@@ -84,6 +105,24 @@ describe('MeService', () => {
         include: expect.objectContaining({ organization: true }),
       }),
     );
+  });
+
+  it('tổ chức hệ thống (Super Admin) ⇒ plan = null, không đếm Shop', async () => {
+    prisma.user.findFirst.mockResolvedValue({
+      ...dbUser,
+      organization: { ...dbUser.organization, isPlatform: true, shopLimit: null, expiresAt: null },
+    });
+    const res = await service.getMe(current);
+    expect(res.organization.plan).toBeNull();
+    expect(prisma.$queryRaw).not.toHaveBeenCalled();
+  });
+
+  it('gói HẾT HẠN sau khi token đã phát ⇒ /me chặn (AUTH_ORGANIZATION_EXPIRED)', async () => {
+    prisma.user.findFirst.mockResolvedValue({
+      ...dbUser,
+      organization: { ...dbUser.organization, expiresAt: new Date(Date.now() - 1000) },
+    });
+    await expect(service.getMe(current)).rejects.toMatchObject({ response: { code: 'AUTH_ORGANIZATION_EXPIRED' } });
   });
 
   it('không tìm thấy user (đã xóa / khác tenant) → ném AUTH_TOKEN_INVALID', async () => {

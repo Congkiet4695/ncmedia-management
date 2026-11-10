@@ -14,13 +14,36 @@ export const SUPER_ADMIN_ORG_SORT_FIELDS = ['createdAt', 'name', 'status'] as co
 export type SuperAdminOrgSortField = (typeof SUPER_ADMIN_ORG_SORT_FIELDS)[number];
 
 /**
- * Trạng thái được phép DUYỆT hoặc TỪ CHỐI.
- *
- * 🔴 Chỉ `PENDING`. Duyệt lại một Organization đang ACTIVE là thao tác vô nghĩa; "duyệt lại"
- * một Organization đã REJECTED cũng vậy — người đăng ký đã nhận email từ chối rồi, đường
- * đúng là họ đăng ký lại chứ không phải Super Admin lặng lẽ bật nó lên.
+ * Trạng thái được phép DUYỆT: `PENDING` và `REJECTED` (DUYỆT LẠI — yêu cầu nghiệp vụ 2026-11-11, thay quyết định cũ
+ * "chỉ PENDING"). Duyệt lại gửi lại email "Organization Approved" nên người đăng ký biết hồ sơ đã được mở lại.
+ * Duyệt một tổ chức ACTIVE / SUSPENDED là vô nghĩa — dùng Kích hoạt / Vô hiệu hoá.
  */
-export const REVIEWABLE_STATUSES: readonly OrganizationStatus[] = [OrganizationStatus.PENDING];
+export const APPROVABLE_STATUSES: readonly OrganizationStatus[] = [
+  OrganizationStatus.PENDING,
+  OrganizationStatus.REJECTED,
+];
+
+/** Trạng thái được phép TỪ CHỐI — chỉ hồ sơ đang chờ duyệt. Tổ chức đã hoạt động thì Vô hiệu hoá, không "từ chối". */
+export const REJECTABLE_STATUSES: readonly OrganizationStatus[] = [OrganizationStatus.PENDING];
+
+/** VÔ HIỆU HOÁ được từ: ACTIVE / TRIAL (tổ chức đang hoạt động — kể cả đã hết hạn). */
+export const DEACTIVATABLE_STATUSES: readonly OrganizationStatus[] = [
+  OrganizationStatus.ACTIVE,
+  OrganizationStatus.TRIAL,
+];
+
+/** KÍCH HOẠT lại được từ: SUSPENDED (đã bị vô hiệu hoá). Hồ sơ PENDING / REJECTED đi qua Duyệt, không qua đây. */
+export const ACTIVATABLE_STATUSES: readonly OrganizationStatus[] = [OrganizationStatus.SUSPENDED];
+
+/**
+ * Trạng thái được đổi gói (giới hạn Shop / ngày hết hạn): mọi tổ chức đã từng được duyệt. Hồ sơ PENDING / REJECTED
+ * chưa có gói — gói được đặt ở lần duyệt.
+ */
+export const PLAN_EDITABLE_STATUSES: readonly OrganizationStatus[] = [
+  OrganizationStatus.ACTIVE,
+  OrganizationStatus.TRIAL,
+  OrganizationStatus.SUSPENDED,
+];
 
 /**
  * Ba nhóm thống kê của Dashboard (§10).

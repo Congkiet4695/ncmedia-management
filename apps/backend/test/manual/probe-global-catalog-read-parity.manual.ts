@@ -66,31 +66,67 @@ async function main() {
     orderBy: [{ provider: 'asc' }, { id: 'asc' }],
   });
 
+  // Tài khoản có danh mục bảng cũ CŨ (đồng bộ lần cuối > 2 ngày): lớp global mang metadata MỚI hơn của tài khoản khác
+  // ⇒ được phép khác ở các trường metadata chuẩn (đúng thiết kế "bản mới thắng"), KHÔNG ở giá / trạng thái / id.
+  const staleAccounts = new Set(
+    (
+      await prisma.$queryRaw<Array<{ id: string }>>`
+        SELECT account_id AS id FROM fulfillment_products WHERE deleted_at IS NULL
+        GROUP BY account_id HAVING MAX(synced_at) < now() - interval '2 days'`
+    ).map((r) => r.id),
+  );
+  const CANONICAL_FIELDS = new Set(['name', 'imageUrl', 'color', 'size', 'printAreas', 'productionLine', 'sku', 'catalogName']);
+
+  /**
+   * EQUAL — giống hệt · TIE_ORDER — cùng dòng + cùng giá trị + cùng thứ tự TÊN hiển thị, chỉ khác thứ tự trong nhóm TRÙNG
+   * tên (bảng cũ sắp theo tên ⇒ thứ tự nhóm hoà không xác định) · STALE_CANONICAL — tài khoản dữ liệu cũ, chỉ khác metadata
+   * chuẩn · DIFF — khác thật (FAIL).
+   */
+  type Verdict = 'EQUAL' | 'TIE_ORDER' | 'STALE_CANONICAL' | 'DIFF';
+  const classify = (a: any[], b: any[], stale: boolean): { verdict: Verdict; fields: string[] } => {
+    if (strip(a) === strip(b)) return { verdict: 'EQUAL', fields: [] };
+    const byIdA = [...a].sort((x, y) => String(x.id).localeCompare(String(y.id)));
+    const byIdB = [...b].sort((x, y) => String(x.id).localeCompare(String(y.id)));
+    const sameNames = strip(a.map((x) => x.name ?? null)) === strip(b.map((x) => x.name ?? null));
+    if (strip(byIdA) === strip(byIdB) && sameNames) return { verdict: 'TIE_ORDER', fields: [] };
+    if (byIdA.length !== byIdB.length || byIdA.some((x, i) => x.id !== byIdB[i].id)) return { verdict: 'DIFF', fields: ['<rows>'] };
+    const fields = new Set<string>();
+    byIdA.forEach((x, i) => {
+      for (const k of Object.keys({ ...x, ...byIdB[i] })) if (strip(x[k]) !== strip(byIdB[i][k])) fields.add(k);
+    });
+    const onlyCanonical = [...fields].every((k) => CANONICAL_FIELDS.has(k));
+    return { verdict: stale && onlyCanonical ? 'STALE_CANONICAL' : 'DIFF', fields: [...fields] };
+  };
+
   for (const account of accounts) {
     const org = account.organizationId;
     const acc = account.id;
-    const res: Record<string, { compared: number; diff: number; sample: string[] }> = {};
-    const note = (k: string, equal: boolean, id: string) => {
-      res[k] ??= { compared: 0, diff: 0, sample: [] };
-      res[k].compared += 1;
-      if (!equal) {
-        res[k].diff += 1;
-        if (res[k].sample.length < 3) res[k].sample.push(id);
-      }
+    const stale = staleAccounts.has(acc);
+    const res: Record<string, Record<Verdict, number> & { sample: string[] }> = {};
+    const note = (k: string, verdict: Verdict, id: string) => {
+      res[k] ??= { EQUAL: 0, TIE_ORDER: 0, STALE_CANONICAL: 0, DIFF: 0, sample: [] };
+      res[k][verdict] += 1;
+      if (verdict !== 'EQUAL' && res[k].sample.length < 3) res[k].sample.push(`${id}${verdict === 'DIFF' ? '' : `(${verdict})`}`);
+    };
+    const noteList = (k: string, a: any[], b: any[], id: string) => {
+      const c = classify(a, b, stale);
+      note(k, c.verdict, c.verdict === 'DIFF' ? `${id} [${c.fields.join(',')}]` : id);
     };
 
     const [cOff, cOn] = await both('listCatalogues', () => query.listCatalogues(org, acc));
-    note('catalogues', strip(cOff) === strip(cOn), 'list');
+    noteList('catalogues', cOff, cOn, 'list');
 
-    // Mọi trang sản phẩm.
+    // Mọi trang sản phẩm (danh sách + meta phân trang phải trùng khớp).
     for (let page = 1; ; page += 1) {
       const [pOff, pOn] = await both('listProducts', () => query.listProducts(org, acc, { page, limit: PAGE }));
-      note('productPages', strip(pOff) === strip(pOn), `page ${page}`);
+      if (strip(pOff.meta) !== strip(pOn.meta)) note('productPages', 'DIFF', `page ${page} [meta]`);
+      else noteList('productPages', pOff.items, pOn.items, `page ${page}`);
       if (page >= pOff.meta.totalPages) break;
     }
     for (const search of ['shirt', 'hoodie', 'black', 'poster']) {
       const [sOff, sOn] = await both('searchProducts', () => query.listProducts(org, acc, { search, page: 1, limit: 50 }));
-      note('searches', strip(sOff) === strip(sOn), search);
+      if (strip(sOff.meta) !== strip(sOn.meta)) note('searches', 'DIFF', `${search} [meta]`);
+      else noteList('searches', sOff.items, sOn.items, search);
     }
 
     // Biến thể: mọi sản phẩm có ánh xạ + mẫu tất định.
@@ -108,39 +144,46 @@ async function main() {
     const chosen = products.filter((p, i) => mappedExternal.has(p.externalProductId) || i % step === 0);
     for (const product of chosen) {
       const [vOff, vOn] = await both('listVariations', () => query.listVariations(org, product.id));
-      const equal = strip(vOff) === strip(vOn);
-      // Vùng in là metadata chuẩn: tài khoản có dữ liệu CŨ hơn nguồn global được phép khác ĐÚNG trường này.
-      const equalButPrintAreas =
-        strip(vOff.map((v) => ({ ...v, printAreas: null }))) === strip(vOn.map((v) => ({ ...v, printAreas: null })));
-      note('variations', equal || equalButPrintAreas, product.id);
-      if (!equal && equalButPrintAreas) note('variations.printAreasOnly', false, product.id);
+      noteList('variations', vOff, vOn, product.id);
     }
 
-    // Giá của MỌI ánh xạ — đúng khoá luồng lưu ánh xạ dùng.
+    // Giá của MỌI ánh xạ — đúng khoá luồng lưu ánh xạ dùng. Giá KHÔNG có ngoại lệ (không có STALE_CANONICAL).
     for (const m of mappings) {
       const [off, on] = await both('price', () =>
         price.lookup(org, acc, { externalVariantId: m.providerVariantId, sku: m.providerSku }),
       );
-      note('mappingPrice', strip(off) === strip(on), m.id);
+      note('mappingPrice', strip(off) === strip(on) ? 'EQUAL' : 'DIFF', m.id);
     }
 
     const [aOff, aOn] = await both('autoMapIndex', () => reader.loadMatchIndexRows(org, acc));
-    const norm = (rows: Array<{ id: string }>) => strip([...rows].sort((x, y) => x.id.localeCompare(y.id)));
-    note('autoMapIndex', norm(aOff) === norm(aOn), `${aOff.length}/${aOn.length} rows`);
+    // Không có thứ tự ở cả hai đường (luật ghép không phụ thuộc thứ tự) ⇒ so theo id.
+    const byId = (rows: any[]) => [...rows].sort((x, y) => String(x.id).localeCompare(String(y.id)));
+    noteList('autoMapIndex', byId(aOff), byId(aOn), `${aOff.length}/${aOn.length} rows`);
 
     const [sOff, sOn] = await both('status', async () => {
       const s = await query.status(org, acc);
       return { c: s.catalogues, p: s.products, v: s.variants, col: s.colors, siz: s.sizes, last: s.lastSyncedAt };
     });
-    note('statusCounts', strip(sOff) === strip(sOn), strip({ off: sOff, on: sOn }));
+    const statusCore = (x: typeof sOff) => strip({ c: x.c, p: x.p, v: x.v, last: x.last });
+    note(
+      'statusCounts',
+      strip(sOff) === strip(sOn) ? 'EQUAL' : stale && statusCore(sOff) === statusCore(sOn) ? 'STALE_CANONICAL' : 'DIFF',
+      strip({ off: sOff, on: sOn }),
+    );
 
-    const hard = Object.entries(res).filter(([k, r]) => k !== 'variations.printAreasOnly' && r.diff > 0);
+    const hard = Object.entries(res).filter(([, r]) => r.DIFF > 0);
     failures += hard.length;
+    const fmt = ([k, r]: [string, (typeof res)[string]]) => {
+      const total = r.EQUAL + r.TIE_ORDER + r.STALE_CANONICAL + r.DIFF;
+      const extra = [r.TIE_ORDER ? `tie-order ${r.TIE_ORDER}` : '', r.STALE_CANONICAL ? `stale-canonical ${r.STALE_CANONICAL}` : '']
+        .filter(Boolean)
+        .join(', ');
+      return `${k} ${total - r.DIFF}/${total}${extra ? ` (${extra})` : ''}`;
+    };
     lines.push(
-      `${hard.length === 0 ? 'PASS' : 'FAIL'}  ${account.provider} ${acc} — ` +
-        Object.entries(res).map(([k, r]) => `${k} ${r.compared - r.diff}/${r.compared}`).join(' · ') +
-        (hard.length ? `\n      lệch: ${hard.map(([k, r]) => `${k}: ${r.sample.join(', ')}`).join(' | ')}` : '') +
-        (res['variations.printAreasOnly']?.diff ? `\n      chỉ khác vùng in (tài khoản có dữ liệu cũ hơn nguồn global): ${res['variations.printAreasOnly'].diff} sản phẩm` : ''),
+      `${hard.length === 0 ? 'PASS' : 'FAIL'}  ${account.provider} ${acc}${stale ? ' [STALE]' : ''} — ` +
+        Object.entries(res).map(fmt).join(' · ') +
+        (hard.length ? `\n      DIFF: ${hard.map(([k, r]) => `${k}: ${r.sample.join(', ')}`).join(' | ')}` : ''),
     );
   }
 

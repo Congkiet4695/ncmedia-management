@@ -65,6 +65,34 @@ export const superAdminService = {
     return res.data.data;
   },
 
+  /** Vô hiệu hoá (ACTIVE/TRIAL → SUSPENDED) — không xoá dữ liệu. */
+  async deactivate(id: string): Promise<OrganizationDetail> {
+    const res = await apiClient.post<ApiResponse<OrganizationDetail>>(`${BASE}/organizations/${id}/deactivate`, {});
+    return res.data.data;
+  },
+
+  /** Kích hoạt lại (SUSPENDED → ACTIVE). */
+  async activate(id: string): Promise<OrganizationDetail> {
+    const res = await apiClient.post<ApiResponse<OrganizationDetail>>(`${BASE}/organizations/${id}/activate`, {});
+    return res.data.data;
+  },
+
+  /** Đổi số Shop tối đa (số nguyên > 0 — backend kiểm lại). */
+  async updateShopLimit(id: string, shopLimit: number): Promise<OrganizationDetail> {
+    const res = await apiClient.patch<ApiResponse<OrganizationDetail>>(`${BASE}/organizations/${id}/shop-limit`, {
+      shopLimit,
+    });
+    return res.data.data;
+  },
+
+  /** Đổi ngày hết hạn — thời điểm ISO 8601 (UTC). */
+  async updateExpiration(id: string, expiresAt: string): Promise<OrganizationDetail> {
+    const res = await apiClient.patch<ApiResponse<OrganizationDetail>>(`${BASE}/organizations/${id}/expiration`, {
+      expiresAt,
+    });
+    return res.data.data;
+  },
+
   /** §9 — Từ chối. `reason` bắt buộc; backend từ chối nếu dưới 10 ký tự. */
   async reject(id: string, reason: string): Promise<OrganizationDetail> {
     const res = await apiClient.post<ApiResponse<OrganizationDetail>>(

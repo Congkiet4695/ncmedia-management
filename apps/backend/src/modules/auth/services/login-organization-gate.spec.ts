@@ -5,6 +5,8 @@ import { PrismaService } from '../../../database/prisma.service';
 import { LoginRequestDto } from '../dto/login-request.dto';
 import { InvalidCredentialsException } from '../exceptions/invalid-credentials.exception';
 import { OrganizationInactiveException } from '../exceptions/organization-inactive.exception';
+import { OrganizationDeactivatedException } from '../exceptions/organization-deactivated.exception';
+import { OrganizationExpiredException } from '../exceptions/organization-expired.exception';
 import { OrganizationPendingApprovalException } from '../exceptions/organization-pending-approval.exception';
 import { OrganizationRejectedException } from '../exceptions/organization-rejected.exception';
 import { AuthEventLogger } from './auth-event.logger';
@@ -105,12 +107,74 @@ describe('LoginService — cổng trạng thái Organization', () => {
     expect(tokenService.createAccessToken).not.toHaveBeenCalled();
   });
 
-  it('Organization SUSPENDED / DELETED ⇒ thông điệp riêng, không nhầm với chờ duyệt', async () => {
+  it('Organization SUSPENDED ⇒ thông điệp VÔ HIỆU HOÁ riêng; DELETED ⇒ không hoạt động', async () => {
     userService.findByEmail.mockResolvedValue(userWithOrgStatus(OrganizationStatus.SUSPENDED));
-    await expect(service.login(dto)).rejects.toBeInstanceOf(OrganizationInactiveException);
+    await expect(service.login(dto)).rejects.toBeInstanceOf(OrganizationDeactivatedException);
 
     userService.findByEmail.mockResolvedValue(userWithOrgStatus(OrganizationStatus.DELETED));
     await expect(service.login(dto)).rejects.toBeInstanceOf(OrganizationInactiveException);
+  });
+
+  describe('gói hết hạn / vô hiệu hoá (Admin lẫn Employee)', () => {
+    const DAY = 24 * 60 * 60 * 1000;
+    const userIn = (
+      roleCode: string,
+      organization: { status: OrganizationStatus; expiresAt: Date | null; isPlatform?: boolean },
+    ) => ({
+      ...userWithOrgStatus(organization.status, UserStatus.ACTIVE),
+      role: { code: roleCode },
+      organization: { id: 'org-1', isPlatform: false, ...organization },
+    });
+
+    it.each(['ADMIN', 'SELLER'])('%s: expires_at đã qua ⇒ AUTH_ORGANIZATION_EXPIRED, KHÔNG phát token', async (role) => {
+      userService.findByEmail.mockResolvedValue(
+        userIn(role, { status: OrganizationStatus.ACTIVE, expiresAt: new Date(Date.now() - DAY) }),
+      );
+      await expect(service.login(dto)).rejects.toMatchObject({
+        response: { code: 'AUTH_ORGANIZATION_EXPIRED', message: 'Gói của tổ chức đã hết hạn, vui lòng liên hệ admin.' },
+      });
+      expect(tokenService.createAccessToken).not.toHaveBeenCalled();
+    });
+
+    it('expires_at ĐÚNG bằng bây giờ ⇒ đã hết hạn (now >= expires_at)', async () => {
+      userService.findByEmail.mockResolvedValue(
+        userIn('ADMIN', { status: OrganizationStatus.ACTIVE, expiresAt: new Date(Date.now() - 1) }),
+      );
+      await expect(service.login(dto)).rejects.toBeInstanceOf(OrganizationExpiredException);
+    });
+
+    it.each(['ADMIN', 'SELLER'])('%s: SUSPENDED ⇒ AUTH_ORGANIZATION_DEACTIVATED', async (role) => {
+      userService.findByEmail.mockResolvedValue(
+        userIn(role, { status: OrganizationStatus.SUSPENDED, expiresAt: new Date(Date.now() + DAY) }),
+      );
+      await expect(service.login(dto)).rejects.toMatchObject({ response: { code: 'AUTH_ORGANIZATION_DEACTIVATED' } });
+    });
+
+    it('🔴 SUSPENDED + đã gia hạn (expires_at tương lai) ⇒ VẪN bị chặn — gia hạn không tự kích hoạt', async () => {
+      userService.findByEmail.mockResolvedValue(
+        userIn('ADMIN', { status: OrganizationStatus.SUSPENDED, expiresAt: new Date(Date.now() + 30 * DAY) }),
+      );
+      await expect(service.login(dto)).rejects.toBeInstanceOf(OrganizationDeactivatedException);
+    });
+
+    it.each(['ADMIN', 'SELLER'])('%s: ACTIVE + còn hạn ⇒ login thành công', async (role) => {
+      userService.findByEmail.mockResolvedValue(
+        userIn(role, { status: OrganizationStatus.ACTIVE, expiresAt: new Date(Date.now() + DAY) }),
+      );
+      await expect(service.login(dto)).resolves.toBeDefined();
+      expect(tokenService.createAccessToken).toHaveBeenCalled();
+    });
+
+    it('Super Admin (tổ chức hệ thống) không bị giới hạn bởi hạn', async () => {
+      userService.findByEmail.mockResolvedValue(
+        userIn('SUPER_ADMIN', {
+          status: OrganizationStatus.ACTIVE,
+          expiresAt: new Date(Date.now() - DAY),
+          isPlatform: true,
+        }),
+      );
+      await expect(service.login(dto)).resolves.toBeDefined();
+    });
   });
 
   it('🔴 Organization ACTIVE ⇒ login bình thường (không ảnh hưởng tổ chức đang hoạt động)', async () => {

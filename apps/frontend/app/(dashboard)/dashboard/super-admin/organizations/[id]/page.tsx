@@ -3,7 +3,7 @@
 import { use, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { ArrowLeft, Loader2, Trash2 } from 'lucide-react';
+import { ArrowLeft, Loader2, PauseCircle, PlayCircle, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
@@ -16,11 +16,24 @@ import { DeleteOrganizationDialog } from '@/features/super-admin/components/dele
 import { OrganizationStatusBadge } from '@/features/super-admin/components/organization-status-badge';
 import { ApproveDialog, RejectDialog } from '@/features/super-admin/components/review-dialogs';
 import {
+  ExpiryCell,
+  OrganizationActiveDialog,
+  OrganizationPlanDialog,
+  ShopUsageCell,
+} from '@/features/super-admin/components/organization-plan';
+import {
   useApproveOrganization,
   useOrganization,
   useRejectOrganization,
+  useSetOrganizationActive,
 } from '@/features/super-admin/hooks';
-import type { OrganizationDetail } from '@/features/super-admin/types';
+import {
+  ACTIVATABLE_STATUSES,
+  APPROVABLE_STATUSES,
+  DEACTIVATABLE_STATUSES,
+  PLAN_EDITABLE_STATUSES,
+  type OrganizationDetail,
+} from '@/features/super-admin/types';
 
 export default function OrganizationDetailPage({
   params,
@@ -50,9 +63,14 @@ function DetailView({ id }: { id: string }) {
   const [approveOpen, setApproveOpen] = useState(false);
   const [rejectOpen, setRejectOpen] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
+  const [planOpen, setPlanOpen] = useState(false);
+  const [toggleOpen, setToggleOpen] = useState(false);
   const router = useRouter();
-  // Nút xoá chỉ là lớp hiển thị — backend vẫn đòi Super Admin + quyền `platform.organization.delete`.
-  const canDelete = useAuth().hasPermission('platform.organization.delete');
+  // Các nút chỉ là lớp hiển thị — backend vẫn đòi Super Admin + đúng quyền `platform.organization.*`.
+  const { hasPermission } = useAuth();
+  const canDelete = hasPermission('platform.organization.delete');
+  const canManage = hasPermission('platform.organization.manage');
+  const setActive = useSetOrganizationActive();
 
   const query = useOrganization(id);
   const approve = useApproveOrganization();
@@ -75,6 +93,10 @@ function DetailView({ id }: { id: string }) {
 
   const org: OrganizationDetail = query.data;
   const isPending = org.status === 'PENDING';
+  const isApprovable = APPROVABLE_STATUSES.includes(org.status);
+  const canActivate = canManage && ACTIVATABLE_STATUSES.includes(org.status);
+  const canDeactivate = canManage && DEACTIVATABLE_STATUSES.includes(org.status);
+  const canEditPlan = canManage && PLAN_EDITABLE_STATUSES.includes(org.status);
 
   const notify = (message: string, emailSent?: boolean): void => {
     toast.success(message, {
@@ -101,14 +123,34 @@ function DetailView({ id }: { id: string }) {
         </div>
 
         <div className="flex gap-2">
-          {/* Duyệt / từ chối: chỉ hồ sơ PENDING — khớp đúng ràng buộc của backend. */}
+          {/* Từ chối: chỉ PENDING. Duyệt: PENDING + REJECTED (duyệt lại) — khớp đúng ràng buộc của backend. */}
           {isPending && (
-            <>
-              <Button variant="outline" className="text-destructive" onClick={() => setRejectOpen(true)}>
-                {t('reject.submit')}
-              </Button>
-              <Button variant="success" onClick={() => setApproveOpen(true)}>{t('approve.submit')}</Button>
-            </>
+            <Button variant="outline" className="text-destructive" onClick={() => setRejectOpen(true)}>
+              {t('reject.submit')}
+            </Button>
+          )}
+          {isApprovable && (
+            <Button variant="success" onClick={() => setApproveOpen(true)}>
+              {org.status === 'REJECTED' ? t('reapprove.submit') : t('approve.submit')}
+            </Button>
+          )}
+          {canEditPlan && (
+            <Button variant="outline" onClick={() => setPlanOpen(true)}>
+              <SlidersHorizontal className="size-4" />
+              {t('plan.edit')}
+            </Button>
+          )}
+          {canDeactivate && (
+            <Button variant="outline" className="text-destructive" onClick={() => setToggleOpen(true)}>
+              <PauseCircle className="size-4" />
+              {t('deactivate.submit')}
+            </Button>
+          )}
+          {canActivate && (
+            <Button variant="success" onClick={() => setToggleOpen(true)}>
+              <PlayCircle className="size-4" />
+              {t('activate.submit')}
+            </Button>
           )}
           {canDelete && (
             <Button variant="destructive" onClick={() => setDeleteOpen(true)}>
@@ -148,6 +190,21 @@ function DetailView({ id }: { id: string }) {
           </CardContent>
         </Card>
       </div>
+
+      {/* --- Gói sử dụng: giới hạn Shop + ngày hết hạn --- */}
+      <Card>
+        <CardContent className="space-y-3 pt-6">
+          <h2 className="font-semibold">{t('detail.planInfo')}</h2>
+          <div className="flex gap-2 text-sm">
+            <span className="w-40 shrink-0 text-muted-foreground">{t('detail.connectedShops')}</span>
+            <ShopUsageCell organization={org} />
+          </div>
+          <div className="flex gap-2 text-sm">
+            <span className="w-40 shrink-0 text-muted-foreground">{t('detail.expiresAt')}</span>
+            <ExpiryCell organization={org} />
+          </div>
+        </CardContent>
+      </Card>
 
       {/* --- Kết quả duyệt gần nhất --- */}
       {(org.approvedAt || org.rejectedAt) && (
@@ -208,8 +265,27 @@ function DetailView({ id }: { id: string }) {
           void approve
             .mutateAsync(org.id)
             .then((result) => {
-              notify(t('approve.done', { name: org.name }), result.emailSent);
+              notify(t(org.status === 'REJECTED' ? 'reapprove.done' : 'approve.done', { name: org.name }), result.emailSent);
+              if (result.expired) toast.warning(t('approveExpired'));
               setApproveOpen(false);
+            })
+            .catch((error: unknown) => toast.error(translateApiError(error)))
+        }
+      />
+
+      <OrganizationPlanDialog organization={planOpen ? org : null} onClose={() => setPlanOpen(false)} />
+
+      <OrganizationActiveDialog
+        organization={toggleOpen ? org : null}
+        activate={canActivate}
+        pending={setActive.isPending}
+        onClose={() => setToggleOpen(false)}
+        onConfirm={() =>
+          void setActive
+            .mutateAsync({ id: org.id, active: canActivate })
+            .then(() => {
+              toast.success(t(canActivate ? 'activate.done' : 'deactivate.done', { name: org.name }));
+              setToggleOpen(false);
             })
             .catch((error: unknown) => toast.error(translateApiError(error)))
         }

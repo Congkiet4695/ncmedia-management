@@ -156,6 +156,8 @@ export const ORGANIZATION_DELETION_GLOBAL_MODELS: readonly Prisma.ModelName[] = 
   'ProviderCatalogCatalogue',
   'ProviderCatalogProduct',
   'ProviderCatalogVariant',
+  // Nhật ký XOÁ CỨNG tổ chức — phạm vi nền tảng, phải SỐNG SÓT sau khi tổ chức bị xoá (không organization_id).
+  'OrganizationDeletionLog',
 ];
 
 export const ORGANIZATION_DELETION_CASCADE_CHILD_MODELS: readonly Prisma.ModelName[] = [

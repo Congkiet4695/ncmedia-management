@@ -1,11 +1,9 @@
 import { Injectable } from '@nestjs/common';
-import { OrganizationStatus } from '@prisma/client';
+import { countConnectedShops, isOrganizationExpiredAt } from '../../../common/organization/organization-plan';
 import { PrismaService } from '../../../database/prisma.service';
-import { MeResponseDto } from '../dto/me-response.dto';
-import { OrganizationInactiveException } from '../exceptions/organization-inactive.exception';
-import { OrganizationPendingApprovalException } from '../exceptions/organization-pending-approval.exception';
-import { OrganizationRejectedException } from '../exceptions/organization-rejected.exception';
+import { MeOrganizationPlanDto, MeResponseDto } from '../dto/me-response.dto';
 import { TokenInvalidException } from '../exceptions/token-invalid.exception';
+import { assertOrganizationAccess } from '../shared/organization-access';
 import { AuthenticatedUser } from '../types/authenticated-user.interface';
 
 /**
@@ -46,8 +44,8 @@ export class MeService {
     // Token hợp lệ nhưng subject không còn (bị xóa / khác tenant) → 401.
     if (!user) throw new TokenInvalidException();
 
-    // Organization rời khỏi ACTIVE sau khi token đã phát → cắt phiên ngay.
-    this.assertOrganizationActive(user.organization.status);
+    // Organization rời khỏi ACTIVE / HẾT HẠN sau khi token đã phát → cắt phiên ngay (cùng luật với login).
+    assertOrganizationAccess(user.organization);
 
     // Permissions của Role → Frontend render sidebar/UI theo quyền (không hardcode role).
     const permissions = user.role.rolePermissions.map((rp) => rp.permission.code).sort();
@@ -63,6 +61,7 @@ export class MeService {
         id: user.organization.id,
         name: user.organization.name,
         slug: user.organization.slug,
+        plan: user.organization.isPlatform ? null : await this.planOf(user.organization),
       },
       role: {
         id: user.role.id,
@@ -73,11 +72,22 @@ export class MeService {
     };
   }
 
-  /** Cùng bộ luật với `LoginService` — một nơi đổi thì nơi kia phải đổi theo. */
-  private assertOrganizationActive(status: OrganizationStatus): void {
-    if (status === OrganizationStatus.ACTIVE || status === OrganizationStatus.TRIAL) return;
-    if (status === OrganizationStatus.PENDING) throw new OrganizationPendingApprovalException();
-    if (status === OrganizationStatus.REJECTED) throw new OrganizationRejectedException();
-    throw new OrganizationInactiveException();
+  /**
+   * Gói của tổ chức cho header Admin / Employee — gộp vào `/me` (request đầu tiên của mỗi lần tải trang) thay
+   * vì thêm endpoint: không thêm lượt gọi nào, và cùng phép đếm với chặn kết nối Shop (`organization-plan.ts`).
+   */
+  private async planOf(organization: {
+    id: string;
+    status: string;
+    shopLimit: number | null;
+    expiresAt: Date | null;
+  }): Promise<MeOrganizationPlanDto> {
+    return {
+      status: organization.status,
+      connectedShopCount: await countConnectedShops(this.prisma, organization.id),
+      shopLimit: organization.shopLimit,
+      expiresAt: organization.expiresAt?.toISOString() ?? null,
+      expired: isOrganizationExpiredAt(organization.expiresAt),
+    };
   }
 }

@@ -63,7 +63,11 @@ function build(
         q.includes('"storage_files"') ? 4 : q.includes('"pod_orders"') ? 10 : 0,
       );
     }),
-    user: { findMany: jest.fn().mockResolvedValue([{ id: 'u-1' }, { id: 'u-2' }]) },
+    user: {
+      findMany: jest.fn().mockResolvedValue([{ id: 'u-1' }, { id: 'u-2' }]),
+      findUnique: jest.fn().mockResolvedValue({ email: 'super@ncmedia.local' }),
+    },
+    organizationDeletionLog: { create: jest.fn().mockResolvedValue({}) },
   };
   const prisma = {
     organization: {
@@ -139,6 +143,36 @@ describe('OrganizationDeletionService', () => {
     expect(refreshTokens.dropCachedSessions).toHaveBeenCalledWith('u-1');
     expect(refreshTokens.dropCachedSessions).toHaveBeenCalledWith('u-2');
     expect(locks.release).toHaveBeenCalledTimes(1);
+  });
+
+  it('🔴 nhật ký xoá cứng: ghi TRONG transaction, SAU khi xoá organizations — định danh + người xoá + số dòng, không bí mật', async () => {
+    const { service, tx, executed } = build();
+    await service.delete(operator, ORG.id, { confirmSlug: ORG.slug });
+
+    expect(tx.organizationDeletionLog.create).toHaveBeenCalledTimes(1);
+    const data = (tx.organizationDeletionLog.create.mock.calls[0] as [{ data: Record<string, unknown> }])[0].data;
+    expect(data).toMatchObject({
+      deletedOrganizationId: ORG.id,
+      organizationName: ORG.name,
+      organizationSlug: ORG.slug,
+      deletedBy: operator.userId,
+      deletedByEmail: 'super@ncmedia.local',
+      deletedRows: 14,
+      tables: [
+        { table: 'pod_orders', deleted: 10 },
+        { table: 'storage_files', deleted: 4 },
+      ],
+    });
+    expect(data.deletedAt).toBeInstanceOf(Date);
+    expect(JSON.stringify(data)).not.toMatch(/password|token|secret|api_?key/i);
+    // Ghi sau lệnh xoá cuối (organizations) — không bao giờ có nhật ký cho một lượt xoá chưa xong.
+    expect(executed.at(-1)).toContain('DELETE FROM organizations');
+  });
+
+  it('xoá lỗi giữa chừng ⇒ KHÔNG có nhật ký xoá (rollback cùng transaction)', async () => {
+    const { service, tx } = build({ deleteError: new Error('lock timeout') });
+    await expect(service.delete(operator, ORG.id, { confirmSlug: ORG.slug })).rejects.toBeDefined();
+    expect(tx.organizationDeletionLog.create).not.toHaveBeenCalled();
   });
 
   it('🔴 không tìm thấy / tổ chức hệ thống ⇒ 404, không transaction nào', async () => {

@@ -7,6 +7,8 @@ import { env } from '@/lib/env';
 import { getAccessToken, getRefreshToken } from '@/lib/auth-cookies';
 import { useAuthStore } from '@/stores/auth.store';
 import { refreshAccessToken } from './token-refresh';
+import { LOGIN_REASON_PARAM, ORGANIZATION_BLOCK_CODES } from '@/features/auth/session-block';
+import { getApiErrorCode } from '@/utils/http';
 
 /**
  * HTTP client dùng chung (Axios).
@@ -54,6 +56,20 @@ apiClient.interceptors.response.use(
     const config = error.config as RetriableConfig | undefined;
     const url = config?.url ?? '';
 
+    // 🔴 Tổ chức HẾT HẠN / bị VÔ HIỆU HOÁ (… ) khi phiên đang mở: backend chặn MỌI API (JwtAuthGuard) bằng 403 kèm mã
+    // của tổ chức. Refresh cũng bị chặn theo cùng luật ⇒ không có gì để thử lại: kết thúc phiên và nói rõ lý do ở
+    // màn đăng nhập, thay vì để từng màn hình báo lỗi rời rạc.
+    const blockCode = status === 403 ? getApiErrorCode(error) : null;
+    if (
+      blockCode &&
+      ORGANIZATION_BLOCK_CODES.has(blockCode) &&
+      typeof window !== 'undefined' &&
+      !PUBLIC_AUTH_PATHS.some((path) => url.includes(path))
+    ) {
+      endSession(blockCode);
+      return Promise.reject(error);
+    }
+
     const shouldTryRefresh =
       status === 401 &&
       typeof window !== 'undefined' &&
@@ -89,10 +105,10 @@ apiClient.interceptors.response.use(
  * Chỉ được gọi khi refresh đã thất bại — tức refresh token hết hạn / bị thu hồi, tài khoản
  * bị vô hiệu hoá, hoặc Organization không còn hoạt động.
  */
-function endSession(): void {
+function endSession(reason?: string): void {
   useAuthStore.getState().clearSession();
   if (window.location.pathname !== '/login') {
-    window.location.assign('/login');
+    window.location.assign(reason ? `/login?${LOGIN_REASON_PARAM}=${encodeURIComponent(reason)}` : '/login');
   }
 }
 

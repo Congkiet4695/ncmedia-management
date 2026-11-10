@@ -31,17 +31,19 @@ export function ApproveDialog({
 }) {
   const { t } = useTranslation(['superAdmin', 'common']);
   if (!organization) return null;
+  // Hồ sơ REJECTED ⇒ "Duyệt lại": cùng API, khác lời nhắc (gói đã có được giữ, email gửi lại).
+  const key = organization.status === 'REJECTED' ? 'reapprove' : 'approve';
 
   return (
-    <Modal open onClose={onClose} title={t('approve.title')} className="max-w-md">
+    <Modal open onClose={onClose} title={t(`${key}.title`)} className="max-w-md">
       <div className="space-y-4">
         <div className="flex gap-3">
           <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-success/10 text-success">
             <CheckCircle2 className="size-5" />
           </div>
           <div className="space-y-1">
-            <p className="text-sm">{t('approve.confirm', { name: organization.name })}</p>
-            <p className="text-xs text-muted-foreground">{t('approve.hint')}</p>
+            <p className="text-sm">{t(`${key}.confirm`, { name: organization.name })}</p>
+            <p className="text-xs text-muted-foreground">{t(`${key}.hint`)}</p>
           </div>
         </div>
 
@@ -51,7 +53,7 @@ export function ApproveDialog({
           </Button>
           <Button variant="success" onClick={onConfirm} disabled={pending}>
             {pending && <Loader2 className="size-4 animate-spin" />}
-            {t('approve.submit')}
+            {t(`${key}.submit`)}
           </Button>
         </div>
       </div>

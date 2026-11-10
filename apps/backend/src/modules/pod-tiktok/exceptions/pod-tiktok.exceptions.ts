@@ -134,6 +134,20 @@ export class PodTiktokShopAlreadyLinkedException extends ConflictException {
   }
 }
 
+/**
+ * Tổ chức đã đạt giới hạn số Shop được kết nối (`organizations.shop_limit`) — chặn ở BACKEND, trong transaction
+ * ghi kết nối (khoá dòng tổ chức), không chỉ ở giao diện. Super Admin nâng giới hạn là kết nối được tiếp.
+ */
+export class PodTiktokShopLimitReachedException extends ConflictException {
+  constructor(details: { limit: number; connected: number; requested: number }) {
+    super({
+      code: 'POD_TIKTOK_SHOP_LIMIT_REACHED',
+      message: 'Tổ chức đã đạt giới hạn số lượng Shop được phép kết nối. Vui lòng liên hệ quản trị viên.',
+      details,
+    });
+  }
+}
+
 /** Seller (open_id) đã được link trong Organization này. */
 export class PodTiktokAccountAlreadyLinkedException extends ConflictException {
   constructor() {

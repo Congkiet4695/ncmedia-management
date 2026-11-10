@@ -5,6 +5,23 @@ export class MeOrganizationDto {
   @ApiProperty({ example: 'b1c2d3e4-0000-4a00-8000-000000000001' }) id!: string;
   @ApiProperty({ example: 'NCMedia Co.' }) name!: string;
   @ApiProperty({ example: 'ncmedia-co' }) slug!: string;
+  /**
+   * Gói sử dụng — hiển thị ở header của Admin / Employee. `null` với tổ chức hệ thống (Super Admin): không
+   * giới hạn Shop, không hết hạn.
+   */
+  @ApiProperty({ type: () => MeOrganizationPlanDto, nullable: true }) plan!: MeOrganizationPlanDto | null;
+}
+
+/** Giới hạn Shop + thời hạn của tổ chức (docs/organization-lifecycle.md). */
+export class MeOrganizationPlanDto {
+  @ApiProperty({ example: 'ACTIVE' }) status!: string;
+  @ApiProperty({ example: 3, description: 'Shop TikTok đang kết nối (đã liên kết, chưa gỡ)' })
+  connectedShopCount!: number;
+  @ApiProperty({ nullable: true, type: Number, example: 10, description: 'NULL = không giới hạn' })
+  shopLimit!: number | null;
+  @ApiProperty({ nullable: true, type: String, example: '2026-12-01T00:00:00.000Z', description: 'NULL = không hết hạn' })
+  expiresAt!: string | null;
+  @ApiProperty({ example: false, description: 'now() >= expiresAt' }) expired!: boolean;
 }
 
 /** Role đơn của người dùng (Decision-007). `name` = display name của Role. */

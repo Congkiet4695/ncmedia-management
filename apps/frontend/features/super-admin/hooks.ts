@@ -55,6 +55,31 @@ export function useRejectOrganization() {
   });
 }
 
+/** Kích hoạt / vô hiệu hoá — làm mới toàn bộ cache module (danh sách, chi tiết, dashboard). */
+export function useSetOrganizationActive() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: ({ id, active }: { id: string; active: boolean }) =>
+      active ? superAdminService.activate(id) : superAdminService.deactivate(id),
+    onSuccess: () => queryClient.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
+/**
+ * Đổi gói: chỉ gửi phần ĐÃ đổi (giới hạn Shop và/hoặc ngày hết hạn) — mỗi phần một API riêng ở backend để nhật ký
+ * ghi đúng từng thay đổi.
+ */
+export function useUpdateOrganizationPlan() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: async ({ id, shopLimit, expiresAt }: { id: string; shopLimit?: number; expiresAt?: string }) => {
+      if (shopLimit !== undefined) await superAdminService.updateShopLimit(id, shopLimit);
+      if (expiresAt !== undefined) await superAdminService.updateExpiration(id, expiresAt);
+    },
+    onSettled: () => queryClient.invalidateQueries({ queryKey: [KEY] }),
+  });
+}
+
 /** XOÁ CỨNG Organization — xoá xong thì bỏ cache chi tiết và làm mới danh sách / dashboard. */
 export function useDeleteOrganization() {
   const queryClient = useQueryClient();

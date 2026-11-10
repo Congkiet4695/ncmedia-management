@@ -159,6 +159,22 @@ export class PodTiktokAccountRepository {
   }
 
   /**
+   * KHOÁ dòng Organization (`SELECT … FOR UPDATE`) và trả giới hạn Shop của nó.
+   *
+   * 🔴 Chống chạy đua: hai lượt kết nối đồng thời của CÙNG tổ chức xếp hàng tại đây — lượt sau chỉ đọc số shop
+   * sau khi lượt trước đã commit, nên không thể cùng thấy "9 / 10" rồi cùng ghi thành 11 / 10. Tổ chức khác
+   * không bị ảnh hưởng (khoá theo dòng). Phải gọi ĐẦU TIÊN trong transaction ghi kết nối.
+   */
+  async lockOrganizationShopQuota(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+  ): Promise<{ shopLimit: number | null }> {
+    const rows = await tx.$queryRaw<Array<{ shop_limit: number | null }>>`
+      SELECT shop_limit FROM organizations WHERE id = ${organizationId}::uuid FOR UPDATE`;
+    return { shopLimit: rows[0]?.shop_limit ?? null };
+  }
+
+  /**
    * Các shop (trong Organization) đã được link bởi một kết nối KHÁC.
    * Dùng để chặn "link trùng Shop" trước khi ghi — bổ sung cho UNIQUE ở DB.
    */

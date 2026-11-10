@@ -6,12 +6,16 @@
     "ACTIVE": "Đã duyệt",
     "REJECTED": "Bị từ chối",
     "TRIAL": "Dùng thử",
-    "SUSPENDED": "Tạm ngưng",
+    "SUSPENDED": "Bị vô hiệu hoá",
     "DELETED": "Đã xoá"
   },
   "action": {
     "APPROVE": "Đã duyệt",
-    "REJECT": "Đã từ chối"
+    "REJECT": "Đã từ chối",
+    "ACTIVATE": "Đã kích hoạt",
+    "DEACTIVATE": "Đã vô hiệu hoá",
+    "UPDATE_SHOP_LIMIT": "Đổi giới hạn Shop",
+    "UPDATE_EXPIRATION": "Đổi ngày hết hạn"
   },
   "dashboard": {
     "pending": "Organization chờ duyệt",
@@ -31,7 +35,12 @@
     "email": "Email",
     "registeredAt": "Thời điểm đăng ký",
     "status": "Trạng thái",
-    "detail": "Xem chi tiết"
+    "detail": "Xem chi tiết",
+    "shops": "Số lượng Shop",
+    "expiresAt": "Ngày hết hạn",
+    "expired": "Đã hết hạn",
+    "unlimited": "Không giới hạn",
+    "noPlan": "Chưa có gói"
   },
   "detail": {
     "organizationInfo": "Thông tin Organization",
@@ -47,7 +56,11 @@
     "approvedAt": "Duyệt lúc",
     "rejectedAt": "Từ chối lúc",
     "auditLog": "Nhật ký xét duyệt",
-    "auditEmpty": "Chưa có quyết định nào được ghi nhận."
+    "auditEmpty": "Chưa có quyết định nào được ghi nhận.",
+    "planInfo": "Gói sử dụng",
+    "connectedShops": "Shop đang kết nối",
+    "shopLimit": "Giới hạn Shop",
+    "expiresAt": "Ngày hết hạn"
   },
   "approve": {
     "title": "Duyệt Organization",
@@ -74,5 +87,40 @@
     "confirm": "Xoá vĩnh viễn",
     "done": "Đã xoá tổ chức \"{{name}}\"",
     "doneDetail": "Đã xoá {{rows}} bản ghi · {{files}} bản ghi file"
-  }
+  },
+  "plan": {
+    "edit": "Sửa gói",
+    "title": "Gói sử dụng của \"{{name}}\"",
+    "shopLimit": "Số Shop tối đa",
+    "shopLimitHint": "Đang kết nối {{count}} Shop. Hạ thấp hơn số này là hợp lệ: Shop hiện có giữ nguyên, chỉ không kết nối thêm được.",
+    "expiresAt": "Ngày hết hạn",
+    "expiresAtHint": "Theo giờ máy của bạn. Gia hạn tổ chức đã hết hạn là dùng lại được ngay; tổ chức đang bị vô hiệu hoá vẫn bị khoá cho tới khi được kích hoạt.",
+    "invalidLimit": "Số Shop tối đa phải là số nguyên lớn hơn 0.",
+    "invalidDate": "Ngày hết hạn không hợp lệ.",
+    "noChange": "Chưa có thay đổi nào.",
+    "save": "Lưu",
+    "done": "Đã cập nhật gói của \"{{name}}\""
+  },
+  "reapprove": {
+    "submit": "Duyệt lại",
+    "title": "Duyệt lại Organization",
+    "confirm": "Duyệt lại hồ sơ đã bị từ chối của \"{{name}}\"?",
+    "hint": "Tổ chức chuyển sang Đã duyệt, chủ tổ chức nhận lại email \"Organization Approved\". Gói đã có được giữ nguyên; chưa có thì áp mặc định (10 Shop, hết hạn sau 30 ngày kể từ ngày đăng ký).",
+    "done": "Đã duyệt lại \"{{name}}\""
+  },
+  "deactivate": {
+    "submit": "Vô hiệu hoá",
+    "title": "Vô hiệu hoá Organization",
+    "confirm": "Vô hiệu hoá \"{{name}}\"?",
+    "hint": "Admin và nhân viên của tổ chức bị chặn đăng nhập và mất quyền truy cập ngay (kể cả phiên đang mở). Dữ liệu (Shop, đơn hàng, sản phẩm, design, fulfillment) được giữ nguyên — có thể kích hoạt lại bất cứ lúc nào.",
+    "done": "Đã vô hiệu hoá \"{{name}}\""
+  },
+  "activate": {
+    "submit": "Kích hoạt",
+    "title": "Kích hoạt lại Organization",
+    "confirm": "Kích hoạt lại \"{{name}}\"?",
+    "hint": "Admin và nhân viên đăng nhập lại được — nếu gói chưa hết hạn. Gói không thay đổi.",
+    "done": "Đã kích hoạt \"{{name}}\""
+  },
+  "approveExpired": "Ngày hết hạn được tính từ ngày đăng ký và đã qua — tổ chức đang HẾT HẠN. Hãy gia hạn ở \"Sửa gói\"."
 }

@@ -7,6 +7,7 @@ import {
   HttpStatus,
   Param,
   ParseUUIDPipe,
+  Patch,
   Post,
   Query,
   UseGuards,
@@ -32,6 +33,8 @@ import {
   DeleteOrganizationDto,
   OrganizationDeletionResultDto,
   RejectOrganizationDto,
+  UpdateOrganizationExpirationDto,
+  UpdateOrganizationShopLimitDto,
   SuperAdminOrganizationQueryDto,
 } from './dto/super-admin-organization.dto';
 import { OrganizationDeletionService } from './services/organization-deletion.service';
@@ -95,12 +98,13 @@ export class SuperAdminController {
   @HttpCode(HttpStatus.OK)
   @RequirePermissions('platform.organization.approve')
   @ApiOperation({
-    summary: 'Duyệt Organization',
+    summary: 'Duyệt / duyệt lại Organization',
     description:
       'Organization → ACTIVE, mở khoá tài khoản chủ Organization, ghi nhật ký và gửi email ' +
-      '"Organization Approved". Chỉ áp dụng cho hồ sơ đang PENDING.',
+      '"Organization Approved". Áp dụng cho hồ sơ PENDING và REJECTED (duyệt lại). Gói CHƯA có thì đặt mặc ' +
+      'định: 10 Shop, hết hạn = ngày ĐĂNG KÝ + 30 ngày; gói đã có thì giữ nguyên.',
   })
-  @ApiBadRequestResponse({ description: 'PLATFORM_ORGANIZATION_NOT_PENDING' })
+  @ApiBadRequestResponse({ description: 'PLATFORM_ORGANIZATION_NOT_APPROVABLE' })
   approve(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
     return this.review.approve(user, id);
   }
@@ -121,6 +125,66 @@ export class SuperAdminController {
     @Body() dto: RejectOrganizationDto,
   ) {
     return this.review.reject(user, id, dto);
+  }
+
+  @Post('organizations/:id/deactivate')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('platform.organization.manage')
+  @ApiOperation({
+    summary: 'Vô hiệu hoá Organization (ACTIVE/TRIAL → SUSPENDED)',
+    description:
+      'Admin / Employee của tổ chức bị chặn ở đăng nhập và ở mọi API (kể cả token còn hạn — hiệu lực trong ≤ 30 giây). ' +
+      'KHÔNG xoá dữ liệu; Kích hoạt lại là dùng tiếp.',
+  })
+  @ApiBadRequestResponse({ description: 'PLATFORM_ORGANIZATION_NOT_ACTIVE' })
+  deactivate(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.review.deactivate(user, id);
+  }
+
+  @Post('organizations/:id/activate')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('platform.organization.manage')
+  @ApiOperation({
+    summary: 'Kích hoạt lại Organization (SUSPENDED → ACTIVE)',
+    description: 'Không đổi gói: nếu đã quá ngày hết hạn thì tổ chức vẫn HẾT HẠN cho tới khi được gia hạn.',
+  })
+  @ApiBadRequestResponse({ description: 'PLATFORM_ORGANIZATION_NOT_SUSPENDED' })
+  activate(@CurrentUser() user: AuthenticatedUser, @Param('id', ParseUUIDPipe) id: string) {
+    return this.review.activate(user, id);
+  }
+
+  @Patch('organizations/:id/shop-limit')
+  @RequirePermissions('platform.organization.manage')
+  @ApiOperation({
+    summary: 'Đổi số Shop tối đa của Organization',
+    description: 'Số nguyên > 0. Hạ thấp hơn số Shop đang kết nối là hợp lệ — chỉ chặn kết nối thêm.',
+  })
+  @ApiBadRequestResponse({ description: 'VALIDATION_ERROR / PLATFORM_ORGANIZATION_PLAN_NOT_EDITABLE' })
+  updateShopLimit(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateOrganizationShopLimitDto,
+  ) {
+    return this.review.updateShopLimit(user, id, dto);
+  }
+
+  @Patch('organizations/:id/expiration')
+  @RequirePermissions('platform.organization.manage')
+  @ApiOperation({
+    summary: 'Đổi ngày hết hạn của Organization',
+    description:
+      'Thời điểm ISO 8601. Gia hạn tổ chức đã hết hạn là dùng lại được ngay; tổ chức đang SUSPENDED vẫn bị vô hiệu ' +
+      'hoá. Không được trước ngày đăng ký.',
+  })
+  @ApiBadRequestResponse({
+    description: 'VALIDATION_ERROR / PLATFORM_ORGANIZATION_PLAN_NOT_EDITABLE / PLATFORM_ORGANIZATION_EXPIRATION_INVALID',
+  })
+  updateExpiration(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body() dto: UpdateOrganizationExpirationDto,
+  ) {
+    return this.review.updateExpiration(user, id, dto);
   }
 
   @Delete('organizations/:id')

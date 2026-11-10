@@ -43,6 +43,8 @@ export const PLATFORM_PERMISSION_PREFIX = 'platform.';
 export const SUPER_ADMIN_PERMISSIONS = [
   'platform.organization.read',
   'platform.organization.approve',
+  // Vòng đời gói: kích hoạt / vô hiệu hoá, giới hạn Shop, ngày hết hạn.
+  'platform.organization.manage',
   // 🔴 Xoá CỨNG một Organization cùng toàn bộ dữ liệu của nó — thao tác không hoàn tác được.
   'platform.organization.delete',
   'platform.masterdata.read',
