@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertTriangle,
   CheckCircle2,
+  Clock,
   Download,
   ChevronDown,
   ExternalLink,
@@ -13,6 +14,7 @@ import {
   Package,
   RotateCw,
   Send,
+  XCircle,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
@@ -25,6 +27,7 @@ import { Drawer, DrawerSection } from '@/components/ui/drawer';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useApiError } from '@/hooks/use-api-error';
+import { useAuth } from '@/hooks/use-auth';
 import { useBusinessLocaleFormat, useLocaleFormat } from '@/hooks/use-locale-format';
 import { ImageLightbox } from '@/features/pod-tiktok/components/image-lightbox';
 import { usePodOrder } from '@/features/pod-tiktok/hooks/use-pod-orders';
@@ -53,6 +56,7 @@ import {
   issuesOfLines,
   type FulfillmentIssueGroup,
 } from '../issue-summary';
+import { CANCEL_ORDER_PERMISSION, canShowCancelOrder, isCancelOrderPending } from '../cancel-order';
 import { isNoResponseError, providerErrorText } from '../provider-error';
 import {
   shippingServiceLabel,
@@ -70,6 +74,7 @@ import {
   type FulfillmentOrder,
   type FulfillmentStatus,
 } from '../types';
+import { CancelOrderDialog } from './cancel-order-dialog';
 import { FulfillmentIssueGroups } from './fulfillment-issue-groups';
 import { LegacyConfigNotice } from './legacy-config-notice';
 import { ProductConfigPanel } from './product-config-panel';
@@ -126,7 +131,8 @@ function isHttpUrl(value: string): boolean {
  *     ├─ Thiết lập Fulfill    (đơn vị · shipping · speed · facility · carrier · scan · nhãn · ghi chú)
  *     ├─ Cấu hình sản phẩm    (ánh xạ → provider SKU · production config · khai nhanh nếu thiếu)
  *     ├─ Cấu hình Design      (từng vị trí in: có file hay chưa, xem được file)
- *     └─ footer ghim          [Huỷ] [Đẩy sang Fulfill]
+ *     └─ footer ghim          [Cancel Order]* [Close] [Đẩy sang Fulfill]
+ *                             * chỉ khi có quyền `fulfillment.cancel` VÀ `state.canCancel` (dialog dùng chung)
  *          ↓ submit
  *   POST /fulfillment/orders/{id}/fulfill → adapter của nhà cung cấp đang chọn (Mango / Sellerwix)
  *          ↓
@@ -154,6 +160,9 @@ function isHttpUrl(value: string): boolean {
 export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDrawerProps) {
   const { t } = useTranslation(['fulfillment', 'pod', 'common']);
   const translateApiError = useApiError();
+  const { hasPermission } = useAuth();
+  /** Dialog Cancel Order (dùng chung với menu Action của dòng đơn). */
+  const [cancelOpen, setCancelOpen] = useState(false);
   // Giờ Los Angeles (múi giờ nghiệp vụ US) — cùng múi giờ với bộ lọc ngày, không theo giờ máy người xem.
   const { formatCurrency, formatDateTime } = useBusinessLocaleFormat();
 
@@ -237,6 +246,7 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
     setLabelError(null);
     setResult(null);
     setOpenIssueGroups(new Set());
+    setCancelOpen(false);
   }, [open]);
 
   /**
@@ -300,6 +310,14 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
   const mutation = isRetry ? actions.retry : actions.fulfill;
   const submitting = mutation.isPending;
   const locked = BUSY_STATUS.has(status);
+  /**
+   * Cancel Order — CÙNG luật với menu Action của dòng đơn: quyền `fulfillment.cancel` + `canCancel`
+   * do backend tính theo bản ghi hiện hành (SUBMITTED "Accepted" / ON_HOLD). Không tự xét trạng thái.
+   */
+  const canCancelPermission = hasPermission(CANCEL_ORDER_PERMISSION);
+  const showCancel = canShowCancelOrder({ allowed: canCancelPermission, state });
+  /** Đã gửi yêu cầu huỷ, chờ nhà cung cấp xác nhận ⇒ hiện trạng thái thay cho nút (không gửi lần hai). */
+  const cancelPending = isCancelOrderPending({ allowed: canCancelPermission, state });
   /**
    * 🔴 MỘT nguồn cho cả ba: trạng thái `disabled` của nút, dòng giải thích ngay cạnh nút, và
    * chốt chặn trong `submit()`. Điều kiện thật nằm ở backend (`canFulfill` + `issues`); đây
@@ -509,7 +527,8 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
     <>
       <Drawer
         open={open}
-        onClose={submitting ? () => undefined : onClose}
+        // Đang gửi / đang mở dialog huỷ ⇒ không đóng drawer (Escape của dialog không được đóng luôn drawer).
+        onClose={submitting || cancelOpen ? () => undefined : onClose}
         // Chỉ drawer Fulfill rộng hơn (Drawer dùng chung giữ 560px): cấu hình 2 cột + bảng ánh xạ/design cần chỗ.
         // Mobile vẫn tràn hết bề ngang; desktop tối đa 960px và không bao giờ vượt 92% màn hình.
         className="sm:w-[min(960px,92vw)]"
@@ -576,8 +595,27 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
               )}
             </div>
             <div className="flex shrink-0 gap-2">
+              {/* Huỷ đơn Ở XƯỞNG IN — thao tác nghiệp vụ, luôn qua dialog xác nhận. */}
+              {cancelPending && (
+                <span className="inline-flex items-center gap-1 self-center text-[11px] text-warning">
+                  <Clock className="size-3.5" />
+                  {t('fulfillment:cancelDialog.pendingBadge')}
+                </span>
+              )}
+              {showCancel && (
+                <Button
+                  variant="destructive"
+                  size="sm"
+                  onClick={() => setCancelOpen(true)}
+                  disabled={submitting}
+                >
+                  <XCircle className="size-4" />
+                  {t('fulfillment:action.cancelOrder')}
+                </Button>
+              )}
+              {/* 🔴 "Close", KHÔNG phải "Cancel": nút này chỉ đóng drawer, không huỷ đơn. */}
               <Button variant="outline" size="sm" onClick={onClose} disabled={submitting}>
-                {result ? t('common:action.close') : t('common:action.cancel')}
+                {t('common:action.close')}
               </Button>
               {/* Đã gửi thành công ⇒ KHÔNG còn nút gửi (chống sản xuất trùng ngay ở giao diện). */}
               {(!result || isRetry) && SUBMITTABLE.has(status) && (
@@ -1161,6 +1199,17 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
 
       {/* Xem phóng to file design đang gắn cho một vị trí in. */}
       <ImageLightbox open={Boolean(preview)} src={preview} onClose={() => setPreview(null)} />
+      {/* Sibling của Drawer (không lồng trong panel) để lớp phủ của dialog nằm trên drawer. */}
+      <CancelOrderDialog
+        open={cancelOpen}
+        onClose={() => setCancelOpen(false)}
+        podOrderId={podOrderId}
+        target={record}
+        tiktokOrderId={order?.tiktokOrderId ?? null}
+        // Bỏ kết quả lần gửi vừa rồi ⇒ drawer đọc lại trạng thái thật (mutation đã làm mới state):
+        // CANCELLED ⇒ nút Cancel Order ẩn, nút Fulfill hiện lại; cấu hình người dùng đã chọn được giữ.
+        onCancelled={() => setResult(null)}
+      />
     </>
   );
 }

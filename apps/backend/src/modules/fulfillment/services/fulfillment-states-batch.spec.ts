@@ -122,6 +122,7 @@ function build(orders: Array<ReturnType<typeof order>>, records: Array<ReturnTyp
       { tiktokProductId: 'P', tiktokSkuId: 'V1', sellerSku: 'S-V1', legacySharedKey: false, placement: 'FRONT', sourceUrl: 'https://cdn/a.png', storageFile: null, id: 'd', version: 1, updatedAt: new Date(0) },
     ]),
     findLatestCancelRequest: jest.fn().mockResolvedValue(null),
+    findLatestCancelEvents: jest.fn().mockResolvedValue(new Map()),
   };
   const podOrderRepo = {
     findById: jest.fn((_org: string, id: string) => Promise.resolve(orders.find((entry) => entry.id === id) ?? null)),
@@ -205,5 +206,35 @@ describe('FulfillmentService.getStates — trạng thái theo lô cho danh sách
     const { service, repo } = build([], []);
     await expect(service.getStates(ORG, [], ADMIN)).resolves.toEqual({});
     expect(repo.listAccounts).not.toHaveBeenCalled();
+  });
+});
+
+describe('FulfillmentService state — đang chờ nhà cung cấp xác nhận huỷ', () => {
+  const PENDING_ORDERS = [order('pending', [line('lp', 'V1')]), order('plain', [line('lq', 'V1')])];
+  const PENDING_RECORDS = [
+    { ...record('pending', FulfillmentStatus.ON_HOLD), providerStatus: 'error' },
+    record('plain', FulfillmentStatus.SUBMITTED),
+  ];
+
+  it('🔴 CANCEL_SUCCESS gần đây ⇒ cancelPending = true, canCancel = false (getState và getStates giống nhau)', async () => {
+    const { service, repo } = build(PENDING_ORDERS, PENDING_RECORDS);
+    repo.findLatestCancelEvents.mockImplementation((_org: string, ids: string[]) =>
+      Promise.resolve(
+        new Map(
+          ids
+            .filter((id) => id === 'rec-pending-acc-a')
+            .map((id) => [id, { eventType: 'CANCEL_SUCCESS', createdAt: new Date(Date.now() - 60_000) }]),
+        ),
+      ),
+    );
+
+    const batch = await service.getStates(ORG, ['pending', 'plain'], ADMIN);
+    expect(batch.pending).toMatchObject({ cancelPending: true, canCancel: false });
+    expect(batch.plain).toMatchObject({ cancelPending: false, canCancel: true });
+    expect(await service.getState(ORG, 'pending', ADMIN)).toMatchObject({ cancelPending: true, canCancel: false });
+    // Cả trang: MỘT truy vấn nhật ký huỷ (không theo từng đơn).
+    repo.findLatestCancelEvents.mockClear();
+    await service.getStates(ORG, ['pending', 'plain'], ADMIN);
+    expect(repo.findLatestCancelEvents).toHaveBeenCalledTimes(1);
   });
 });

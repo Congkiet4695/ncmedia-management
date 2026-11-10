@@ -2,11 +2,10 @@
 
 import { useState } from 'react';
 import { useRouter } from 'next/navigation';
-import { Eye, ImageUp, Loader2, MoreHorizontal, RefreshCw, XCircle } from 'lucide-react';
+import { Clock, Eye, ImageUp, Loader2, MoreHorizontal, RefreshCw, XCircle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
-import { Modal } from '@/components/ui/modal';
 import {
   DropdownMenu,
   DropdownMenuItem,
@@ -14,6 +13,8 @@ import {
 } from '@/components/ui/dropdown-menu';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useApiError } from '@/hooks/use-api-error';
+import { canShowCancelOrder, isCancelOrderPending } from '@/features/fulfillment/cancel-order';
+import { CancelOrderDialog } from '@/features/fulfillment/components/cancel-order-dialog';
 import {
   useFulfillmentActions,
 } from '@/features/fulfillment/hooks/use-fulfillment';
@@ -71,9 +72,11 @@ export function OrderActionMenu({
   const hasFulfillment = Boolean(state?.fulfillment);
   // Bản ghi nhập tay (Import Excel) không có ở nhà cung cấp ⇒ không có gì để đồng bộ (backend cũng chặn).
   const manualRecord = state?.fulfillment?.source === 'MANUAL_IMPORT';
-  const cancelTarget = state?.fulfillment ?? null;
+  // Cùng luật với drawer Fulfill Order (`canShowCancelOrder`): quyền + `canCancel` do backend tính.
+  const showCancel = canShowCancelOrder({ allowed: canCancel, state });
+  // Đã gửi yêu cầu huỷ, chờ nhà cung cấp xác nhận ⇒ nói rõ thay cho nút (không cho gửi lần hai).
+  const cancelPending = isCancelOrderPending({ allowed: canCancel, state });
   const [cancelOpen, setCancelOpen] = useState(false);
-  const [reason, setReason] = useState('');
 
   // Ưu tiên sản phẩm còn thiếu mặt trước; không có thì mở sản phẩm đầu đã khai ánh xạ để
   // người dùng vẫn xem/thay được design đang dùng.
@@ -146,106 +149,27 @@ export function OrderActionMenu({
 
         {/* Chỉ hiện khi CÓ quyền và bản ghi đang ở trạng thái huỷ được (backend tính `canCancel`):
             đơn chưa gửi / đã vào sản xuất / đã huỷ thì không có thao tác này. */}
-        {canCancel && state?.canCancel && (
-          <DropdownMenuItem
-            destructive
-            disabled={actions.cancel.isPending}
-            onSelect={() => {
-              setReason('');
-              setCancelOpen(true);
-            }}
-          >
+        {cancelPending && (
+          <DropdownMenuItem disabled>
+            <Clock className="size-4" />
+            {t('fulfillment:cancelDialog.pendingBadge')}
+          </DropdownMenuItem>
+        )}
+        {showCancel && (
+          <DropdownMenuItem destructive onSelect={() => setCancelOpen(true)}>
             <XCircle className="size-4" />
-            {t('pod:orders.actions.cancelFulfillment')}
+            {t('fulfillment:action.cancelOrder')}
           </DropdownMenuItem>
         )}
       </DropdownMenu>
 
-      {/* Huỷ là thao tác một chiều ⇒ luôn hỏi lại, và cho ghi lý do để đối soát với xưởng in. */}
-      <Modal
+      {/* Dialog DÙNG CHUNG với drawer Fulfill Order — cùng xác nhận, cùng mutation, cùng thông báo. */}
+      <CancelOrderDialog
         open={cancelOpen}
-        // Đang gửi yêu cầu huỷ ⇒ không cho đóng: đóng giữa chừng rồi mở lại là đường bấm Huỷ lần hai.
-        onClose={() => !actions.cancel.isPending && setCancelOpen(false)}
-        title={t('pod:orders.actions.cancelFulfillment')}
-        className="max-w-sm"
-      >
-        <div className="space-y-3" onClick={(event) => event.stopPropagation()}>
-          {/* Người dùng phải thấy ĐÚNG đơn nào ở xưởng nào sắp bị huỷ (bản ghi hiện hành, không phải
-              nhà cung cấp gán cho kết nối TikTok — hai thứ có thể khác nhau sau khi đổi xưởng). */}
-          {cancelTarget && (
-            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 rounded-md border bg-muted/40 px-3 py-2 text-xs">
-              <dt className="text-muted-foreground">{t('fulfillment:provider.type')}</dt>
-              <dd className="font-medium">
-                {cancelTarget.provider
-                  ? t(`fulfillment:provider.typeValue.${cancelTarget.provider}`, {
-                      defaultValue: cancelTarget.provider,
-                    })
-                  : '—'}
-              </dd>
-              <dt className="text-muted-foreground">{t('fulfillment:externalOrderId')}</dt>
-              <dd className="break-all font-mono">{cancelTarget.externalOrderId}</dd>
-              {cancelTarget.providerOrderId && (
-                <>
-                  <dt className="text-muted-foreground">{t('fulfillment:providerOrderId')}</dt>
-                  <dd className="break-all font-mono">{cancelTarget.providerOrderId}</dd>
-                </>
-              )}
-              <dt className="text-muted-foreground">{t('fulfillment:statusLabel')}</dt>
-              <dd>
-                {t(`fulfillment:status.${cancelTarget.status}`, { defaultValue: cancelTarget.status })}
-                {cancelTarget.providerStatus ? ` · ${cancelTarget.providerStatus}` : ''}
-              </dd>
-            </dl>
-          )}
-          <p className="text-sm text-muted-foreground">{t('pod:orders.actions.cancelConfirm')}</p>
-          <textarea
-            rows={3}
-            value={reason}
-            onChange={(event) => setReason(event.target.value)}
-            placeholder={t('pod:orders.actions.cancelReasonPlaceholder')}
-            className="w-full rounded-md border bg-background px-3 py-2 text-sm outline-none focus-visible:ring-2 focus-visible:ring-ring"
-          />
-          <div className="flex justify-end gap-2 border-t pt-3">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => setCancelOpen(false)}
-              disabled={actions.cancel.isPending}
-            >
-              {t('common:action.cancel')}
-            </Button>
-            <Button
-              variant="destructive"
-              size="sm"
-              disabled={actions.cancel.isPending}
-              onClick={() =>
-                void actions.cancel
-                  .mutateAsync(reason.trim() || undefined)
-                  .then((record) => {
-                    // 🔴 Chỉ báo "đã huỷ" khi nhà cung cấp XÁC NHẬN (CANCELLED) — đó cũng là điều
-                    // kiện để Fulfill lại. Đã nhận yêu cầu nhưng chưa xác nhận ⇒ nói rõ là đang chờ.
-                    if (record.status === 'CANCELLED') {
-                      toast.success(t('fulfillment:action.cancelSuccess'), {
-                        description: t('pod:orders.actions.cancelRefulfillHint'),
-                      });
-                    } else {
-                      toast.info(t('pod:orders.actions.cancelRequested'), {
-                        description: t('pod:orders.actions.cancelPendingHint', {
-                          status: record.providerStatus ?? record.status,
-                        }),
-                      });
-                    }
-                    setCancelOpen(false);
-                  })
-                  .catch((error: unknown) => toast.error(translateApiError(error)))
-              }
-            >
-              {actions.cancel.isPending && <Loader2 className="size-4 animate-spin" />}
-              {t('pod:orders.actions.cancelFulfillment')}
-            </Button>
-          </div>
-        </div>
-      </Modal>
+        onClose={() => setCancelOpen(false)}
+        podOrderId={orderId}
+        target={state?.fulfillment ?? null}
+      />
     </div>
   );
 }

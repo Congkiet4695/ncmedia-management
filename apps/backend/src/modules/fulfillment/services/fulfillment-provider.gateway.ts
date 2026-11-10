@@ -14,6 +14,7 @@ import {
 import { providerLabelOf } from '../constants/fulfillment-provider.constants';
 import {
   FulfillmentAccountNotFoundException,
+  FulfillmentCancelPendingException,
   FulfillmentManualImportRecordException,
   FulfillmentOperationNotSupportedException,
   FulfillmentOperationInProgressException,
@@ -35,6 +36,7 @@ import {
   isManualImportRecord,
   type WithProvider,
 } from '../shared/fulfillment-lifecycle';
+import { isCancelPending } from '../shared/fulfillment-cancel-pending';
 import type {
   FulfillOptionsInput,
   FulfillmentProviderAdapter,
@@ -202,6 +204,12 @@ export class FulfillmentProviderGateway {
     // bên đến sau nhận 409 thay vì gọi nhà cung cấp lần hai trên dữ liệu đã cũ.
     const record = await this.lock.withLock(fulfillmentOrderLockKey(podOrderId), CANCEL_LOCK_MS, async () => {
       const current = await this.requireProviderRecord(organizationId, podOrderId, 'Huỷ');
+      // 🔴 Đã có yêu cầu huỷ đang chờ nhà cung cấp (Sellerwix huỷ bất đồng bộ) hoặc đang chạy ⇒ 409,
+      // KHÔNG gọi nhà cung cấp thêm lần nào — kể cả lời gọi GET tra trạng thái.
+      const latestCancel = (await this.repo.findLatestCancelEvents(organizationId, [current.id])).get(current.id);
+      if (isCancelPending(current, latestCancel)) {
+        throw new FulfillmentCancelPendingException(providerLabelOf(current.provider));
+      }
       return this.adapterFor(current.provider).cancel(
         organizationId,
         actorUserId,

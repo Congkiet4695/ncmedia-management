@@ -196,6 +196,29 @@ export class SellerwixOrderMapper {
    * - Còn lại: trạng thái KÉM tiến triển nhất trong các phần chưa huỷ (đơn chỉ "đã ship" khi mọi
    *   phần đã ship). Giá trị lạ ⇒ `UNKNOWN` + log, không đoán.
    */
+  /**
+   * Payload có MANG trạng thái không (có mảng `fulfillments`, kể cả rỗng).
+   *
+   * 🔴 Thiếu hẳn `fulfillments` ≠ "chưa tách xử lý" (`fulfillments: []`). Sellerwix trả những payload
+   * KHÔNG phải object đơn — vd Cancel order có thể chỉ trả `{"message": "...being processed"}`. Đưa
+   * payload đó vào `summarizeStatus` là ra SUBMITTED và xoá mất trạng thái thật (ON_HOLD / lỗi design).
+   */
+  hasFulfillmentState(order: SellerwixOrder | null | undefined): boolean {
+    return Array.isArray(order?.fulfillments);
+  }
+
+  /**
+   * Thông điệp xác nhận của Cancel order khi Sellerwix KHÔNG trả object đơn
+   * (`{"message": "Order cancellation request has been sent and is being processed"}`) — `null` nếu
+   * payload là object đơn hoặc không có thông điệp. Chỉ để ghi nhật ký, không suy ra trạng thái.
+   */
+  cancelAcknowledgement(payload: unknown): string | null {
+    if (!payload || typeof payload !== 'object' || Array.isArray(payload)) return null;
+    if (this.hasFulfillmentState(payload)) return null;
+    const message = (payload as { message?: unknown }).message;
+    return typeof message === 'string' && message.trim() ? message.trim().slice(0, 500) : null;
+  }
+
   summarizeStatus(order: SellerwixOrder | null | undefined): SellerwixStatusSummary {
     const parts = (order?.fulfillments ?? []).filter((part) => typeof part?.status === 'string');
     if (parts.length === 0) {

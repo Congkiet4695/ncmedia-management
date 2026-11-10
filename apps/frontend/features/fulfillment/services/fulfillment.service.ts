@@ -39,6 +39,9 @@ import type {
 /** Thời gian chờ của "Lấy nhãn từ TikTok" — xem `tiktokLabel`. */
 const TIKTOK_LABEL_TIMEOUT_MS = 240_000;
 
+/** Thời gian chờ của Huỷ đơn — bằng thời hạn khoá huỷ ở backend (`CANCEL_LOCK_MS` = 60 s). */
+const CANCEL_TIMEOUT_MS = 60_000;
+
 const BASE_PATH = '/fulfillment';
 /** Khu vực quản trị NỀN TẢNG — tách đường dẫn để không lẫn với API của tổ chức. */
 const PLATFORM_PATH = '/platform/fulfillment/providers';
@@ -151,10 +154,17 @@ export const fulfillmentService = {
     return res.data.data;
   },
 
+  /**
+   * Huỷ ở xưởng in. 🔴 Thời gian chờ RIÊNG (`CANCEL_TIMEOUT_MS`), không dùng 15 s mặc định: backend tra
+   * trạng thái thật (GET, có điều tiết 15 req/phút + thử lại khi 429) rồi mới gửi huỷ, nên một lượt huỷ
+   * hợp lệ có thể vượt 15 s. Vượt cả mốc này ⇒ nơi gọi coi là "chưa rõ kết quả" (`classifyCancelOrderError`),
+   * KHÔNG báo thất bại; backend chặn yêu cầu huỷ thứ hai bằng khoá + `cancelPending`.
+   */
   async cancel(podOrderId: string, reason?: string): Promise<FulfillmentOrder> {
     const res = await apiClient.post<ApiResponse<FulfillmentOrder>>(
       `${BASE_PATH}/orders/${podOrderId}/cancel`,
       reason ? { reason } : {},
+      { timeout: CANCEL_TIMEOUT_MS },
     );
     return res.data.data;
   },

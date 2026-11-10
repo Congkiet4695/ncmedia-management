@@ -1377,3 +1377,137 @@ describe('SellerwixFulfillmentService — Cancel / Fulfill lại: lỗi, trạng
     expect(h.createOrder).not.toHaveBeenCalled();
   });
 });
+
+/**
+ * Sellerwix huỷ BẤT ĐỒNG BỘ: `POST /v1/order/:id/cancel` có thể chỉ trả
+ * `{"message": "Order cancellation request has been sent and is being processed"}` (đơn 577669529961140559,
+ * 2026-11-10) — KHÔNG có `fulfillments[]`. Payload đó không được biến bản ghi thành SUBMITTED.
+ */
+describe('SellerwixFulfillmentService.cancel — response chỉ có `message` (huỷ bất đồng bộ)', () => {
+  const ACK = 'Order cancellation request has been sent and is being processed';
+  const DESIGN_ERROR =
+    '(Front) Design given 2250x3000 invalid for Premium Luster Photo Paper Poster (Recommended 3600x5400)';
+
+  function acceptedOnly(h: ReturnType<typeof build>) {
+    h.cancelOrder.mockResolvedValue({
+      data: { message: ACK } as unknown as SellerwixOrder,
+      requestId: 'req-cancel',
+      durationMs: 6,
+      httpStatus: 200,
+    });
+  }
+
+  it('🔴 CASE 1 — không áp payload: trạng thái giữ nguyên, không SUBMITTED giả, ghi nhận "đã nhận, chờ xác nhận"', async () => {
+    const h = build({ existingStatus: FulfillmentStatus.SUBMITTED });
+    h.record.providerOrderId = 'swx-order-1';
+    acceptedOnly(h);
+    const applySpy = jest.spyOn(h.service, 'applyProviderState');
+
+    const result = await h.service.cancel(ORG, USER, POD_ORDER, 'wrong design');
+
+    // applyProviderState chỉ được gọi cho lượt GET tra trạng thái — KHÔNG cho response huỷ.
+    expect(applySpy).toHaveBeenCalledTimes(1);
+    expect(Array.isArray(applySpy.mock.calls[0][1]?.fulfillments)).toBe(true);
+    expect(result.status).toBe(FulfillmentStatus.SUBMITTED);
+    expect(result.status).not.toBe(FulfillmentStatus.CANCELLED);
+    expect(result.cancelledAt).toBeNull();
+    expect(h.histories.find((entry) => entry.eventType === 'CANCEL_SUCCESS')?.payload).toEqual({
+      responseHasOrderState: false,
+      providerMessage: ACK,
+    });
+  });
+
+  it('CASE 2 — response là object đơn có fulfillments[].status = canceled ⇒ CANCELLED (luật cũ giữ nguyên)', async () => {
+    const h = build({ existingStatus: FulfillmentStatus.SUBMITTED });
+    h.record.providerOrderId = 'swx-order-1';
+
+    const result = await h.service.cancel(ORG, USER, POD_ORDER);
+
+    expect(result.status).toBe(FulfillmentStatus.CANCELLED);
+    expect(result.cancelledAt).toBeInstanceOf(Date);
+    expect(h.histories.find((entry) => entry.eventType === 'CANCEL_SUCCESS')?.payload).toEqual({
+      responseHasOrderState: true,
+    });
+  });
+
+  it('🔴 CASE 3 — đơn ON_HOLD vì lỗi design + response chỉ có message ⇒ GIỮ ON_HOLD, lỗi design và raw_response của đơn', async () => {
+    const h = build({ existingStatus: FulfillmentStatus.SUBMITTED });
+    h.record.providerOrderId = 'swx-order-1';
+    // Lượt GET tra trạng thái thật: Sellerwix báo `error` + lỗi design (đúng dữ liệu thực tế).
+    h.getOrder.mockResolvedValue({
+      data: detail({ fulfillments: [{ status: 'error', message: DESIGN_ERROR, trackings: [] }] }),
+      requestId: 'req-detail',
+      durationMs: 8,
+      httpStatus: 200,
+    });
+    acceptedOnly(h);
+
+    const result = await h.service.cancel(ORG, USER, POD_ORDER);
+
+    expect(result.status).toBe(FulfillmentStatus.ON_HOLD);
+    expect(result.providerStatus).toBe('error');
+    expect(result.lastErrorMessage).toBe(DESIGN_ERROR);
+    // raw_response vẫn là object ĐƠN (của lượt GET), không bị thay bằng thông điệp huỷ.
+    const raw = (h.record as unknown as { rawResponse: Record<string, unknown> }).rawResponse;
+    expect(raw).toEqual(expect.objectContaining({ id: 'swx-order-1' }));
+    expect(raw).not.toHaveProperty('message');
+    // Không có lượt "Trạng thái đổi: error → —" nào.
+    expect(
+      h.histories.some(
+        (entry) => entry.eventType === 'STATUS_CHANGED' && entry.toStatus === FulfillmentStatus.SUBMITTED,
+      ),
+    ).toBe(false);
+    expect(
+      h.updateOrder.mock.calls.some(([, data]) => 'rawResponse' in data && 'message' in (data.rawResponse as object)),
+    ).toBe(false);
+  });
+});
+
+describe('SellerwixFulfillmentService.applyProviderState — payload thiếu `fulfillments` không hạ trạng thái', () => {
+  const NO_STATE = { id: 'swx-order-1', reference_id: TIKTOK_ORDER } as SellerwixOrder;
+
+  it.each([
+    FulfillmentStatus.ON_HOLD,
+    FulfillmentStatus.IN_PRODUCTION,
+    FulfillmentStatus.SHIPPED,
+    FulfillmentStatus.CANCELLED,
+  ])('%s + payload không có fulfillments ⇒ giữ nguyên trạng thái, provider status, lỗi', async (status) => {
+    const h = build();
+    Object.assign(h.record, {
+      providerOrderId: 'swx-order-1',
+      status,
+      providerStatus: 'error',
+      lastErrorCode: 'SELLERWIX_STATUS_MESSAGE',
+      lastErrorMessage: 'Design invalid',
+      rawResponse: { id: 'swx-order-1', fulfillments: [{ status: 'error' }] },
+    });
+
+    const changed = await h.service.applyProviderState(h.record as never, NO_STATE, FulfillmentTrigger.CRON);
+
+    expect(changed).toBe(false);
+    expect(h.record).toMatchObject({
+      status,
+      providerStatus: 'error',
+      lastErrorMessage: 'Design invalid',
+      rawResponse: { id: 'swx-order-1', fulfillments: [{ status: 'error' }] },
+    });
+  });
+
+  it('`fulfillments: []` (đơn chưa tách xử lý) ⇒ luật cũ: SUBMITTED', async () => {
+    const h = build();
+    Object.assign(h.record, { providerOrderId: 'swx-order-1', status: FulfillmentStatus.ON_HOLD, providerStatus: 'error' });
+
+    await h.service.applyProviderState(h.record as never, detail({ fulfillments: [] }), FulfillmentTrigger.CRON);
+
+    expect(h.record.status).toBe(FulfillmentStatus.SUBMITTED);
+  });
+
+  it('bản ghi FAILED (đang đối soát) + Sellerwix trả được đơn dù thiếu fulfillments ⇒ vẫn khôi phục SUBMITTED', async () => {
+    const h = build();
+    Object.assign(h.record, { providerOrderId: 'swx-order-1', status: FulfillmentStatus.FAILED });
+
+    await h.service.applyProviderState(h.record as never, NO_STATE, FulfillmentTrigger.CRON);
+
+    expect(h.record.status).toBe(FulfillmentStatus.SUBMITTED);
+  });
+});

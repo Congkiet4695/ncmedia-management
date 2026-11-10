@@ -8,6 +8,7 @@ import {
   platformFulfillmentService,
   productMappingService,
 } from '../services/fulfillment.service';
+import { isNoResponseError } from '../provider-error';
 import type { PodDesignPlacement } from '@/features/pod-tiktok/order-types';
 import type {
   UpdateBaseCostPayload,
@@ -23,6 +24,9 @@ import type {
 } from '../types';
 
 const KEY = 'fulfillment';
+
+/** Các mốc đọc lại trạng thái sau khi yêu cầu huỷ không nhận được phản hồi (timeout). */
+const CANCEL_RECONCILE_DELAYS_MS = [5_000, 20_000, 60_000] as const;
 
 /**
  * Chỉ thử lại lỗi TẠM THỜI (mất kết nối / 5xx), tối đa 2 lần. Lỗi 4xx là câu trả lời cố định
@@ -229,6 +233,12 @@ export function useFulfillmentActions(podOrderId: string) {
       mutationFn: (reason?: string) => fulfillmentService.cancel(podOrderId, reason),
       // Huỷ bị từ chối vẫn có thể đã cập nhật trạng thái thật (đơn đã vào sản xuất / đã ship).
       onSettled: refresh,
+      // 🔴 Không có phản hồi (timeout) ⇒ backend có thể VẪN đang chạy lượt huỷ. Đọc lại thêm vài lần để
+      // màn hình bắt kịp kết quả thật (`cancelPending` / CANCELLED) mà người dùng không phải tải lại trang.
+      onError: (error) => {
+        if (!isNoResponseError(error)) return;
+        for (const delayMs of CANCEL_RECONCILE_DELAYS_MS) setTimeout(refresh, delayMs);
+      },
     }),
   };
 }

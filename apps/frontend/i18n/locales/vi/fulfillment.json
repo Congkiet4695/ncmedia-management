@@ -10,6 +10,22 @@
     "syncStatus": "Đồng bộ trạng thái",
     "syncSuccess": "Đồng bộ trạng thái thành công"
   },
+  "cancelDialog": {
+    "title": "Huỷ đơn tại xưởng in",
+    "order": "Đơn TikTok",
+    "warning": "Thao tác này huỷ đơn ở nhà cung cấp fulfillment. Nhà cung cấp phải xác nhận; sau khi đã huỷ, đơn có thể Fulfill lại (tạo đơn mới ở nhà cung cấp). Ánh xạ và design được giữ nguyên.",
+    "reasonPlaceholder": "Lý do (tuỳ chọn) — giúp đối soát với xưởng in về sau",
+    "keep": "Giữ đơn",
+    "failed": "Không huỷ được đơn",
+    "refulfillHint": "Nhà cung cấp đã xác nhận huỷ. Có thể Fulfill lại đơn này.",
+    "requested": "Đã gửi yêu cầu huỷ",
+    "pendingHint": "Nhà cung cấp chưa xác nhận huỷ (trạng thái: {{status}}). Đơn chỉ Fulfill lại được sau khi đã huỷ.",
+    "timeoutTitle": "Yêu cầu huỷ có thể vẫn đang được xử lý",
+    "timeoutHint": "Máy chủ chưa trả lời kịp nhưng yêu cầu có thể đã tới nhà cung cấp. Đang tải lại trạng thái đơn — đừng bấm huỷ lại.",
+    "alreadyPendingTitle": "Yêu cầu huỷ đang được xử lý",
+    "alreadyPendingHint": "Đơn này đã có yêu cầu huỷ đang chờ xử lý. Trạng thái sẽ tự cập nhật khi nhà cung cấp xác nhận.",
+    "pendingBadge": "Đã gửi yêu cầu huỷ — chờ nhà cung cấp xác nhận"
+  },
   "assign": {
     "cleared": "Đã bỏ gán nhà cung cấp",
     "failed": "Không đổi được nhà cung cấp",
@@ -483,7 +499,7 @@
     "REFUNDED": "Đã hoàn tiền",
     "REJECTED": "Bị từ chối",
     "SHIPPED": "Đã gửi hàng",
-    "SUBMITTED": "Đã tiếp nhận",
+    "SUBMITTED": "Đã gửi xưởng",
     "SUBMITTING": "Đang gửi",
     "UNKNOWN": "Chưa xác định"
   },

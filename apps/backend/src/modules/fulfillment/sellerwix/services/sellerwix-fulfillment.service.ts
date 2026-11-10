@@ -52,6 +52,8 @@ import {CANCELLABLE_FULFILLMENT_STATUSES,
   fulfillmentOrderLockKey,
   isNewAttemptOnSubmit,
 } from '../../shared/fulfillment-lifecycle';
+// Trạng thái "cancel processing" của Sellerwix — dùng chung với luật "đang chờ huỷ" (`isCancelPending`).
+import { CANCEL_PROCESSING_PROVIDER_STATUS } from '../../shared/fulfillment-cancel-pending';
 import { SellerwixApiClient } from '../clients/sellerwix-api.client';
 import {
   CREATE_AMBIGUOUS_ERROR_CLASSES,
@@ -83,12 +85,6 @@ import {
 
 const PROVIDER = FulfillmentProvider.SELLERWIX;
 const LABEL = FULFILLMENT_PROVIDER_LABELS.SELLERWIX;
-
-/**
- * Trạng thái phía Sellerwix nghĩa là "đã nhận yêu cầu huỷ, đang xử lý" (tài liệu: `cancel processing`,
- * ánh xạ ON_HOLD). Gửi thêm một yêu cầu huỷ lúc này là thừa — và không được coi là đã huỷ.
- */
-const CANCEL_PENDING_PROVIDER_STATUS = 'cancel processing';
 
 /** Dùng CHUNG khoá với Mango: hai nhà cung cấp không thể nhận cùng một đơn song song. */
 const FULFILL_LOCK_MS = 60_000;
@@ -607,7 +603,17 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
       return false;
     }
 
-    const summary = this.mapper.summarizeStatus(detail);
+    // Sellerwix TRẢ ĐƯỢC đơn này ⇒ đơn đang ở nhà cung cấp. Bản ghi FAILED / SUBMITTING (lỗi local,
+    // timeout, hoặc bị hạ sai) ⇒ khôi phục mốc gửi + xoá lỗi cũ.
+    const reconciled = RECONCILABLE_STATUSES.includes(record.status);
+    // 🔴 Payload KHÔNG mang trạng thái (thiếu hẳn `fulfillments`) ⇒ GIỮ NGUYÊN trạng thái, provider
+    // status, lỗi phía nhà cung cấp (vd lỗi design) và `raw_response` hiện có — không hạ ON_HOLD /
+    // IN_PRODUCTION / SHIPPED / CANCELLED về SUBMITTED. Ngoại lệ: bản ghi đang chờ đối soát (FAILED /
+    // SUBMITTING) — Sellerwix trả được đơn đã đủ chứng minh đơn tồn tại (luật cũ, giữ nguyên).
+    const hasState = this.mapper.hasFulfillmentState(detail) || reconciled;
+    const summary = hasState
+      ? this.mapper.summarizeStatus(detail)
+      : { status: record.status, providerStatus: record.providerStatus, message: null };
     const tracking = this.mapper.latestTracking(detail);
     const costs = this.mapper.orderCosts(detail);
     // Bản ghi gửi trước khi có cấu hình đơn vị tiền ⇒ điền khi đồng bộ (giá vốn Sellerwix luôn tính
@@ -617,9 +623,6 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     const statusChanged =
       summary.status !== record.status || summary.providerStatus !== record.providerStatus;
     const trackingChanged = (tracking?.trackingNumber ?? null) !== record.trackingNumber;
-    // Sellerwix TRẢ ĐƯỢC đơn này ⇒ đơn đang ở nhà cung cấp. Bản ghi FAILED / SUBMITTING (lỗi local,
-    // timeout, hoặc bị hạ sai) ⇒ khôi phục mốc gửi + xoá lỗi cũ.
-    const reconciled = RECONCILABLE_STATUSES.includes(record.status);
 
     await this.repo.updateOrder(record.id, {
       status: summary.status,
@@ -636,13 +639,15 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
       total: this.toDecimal(costs.total) ?? record.total,
       ...(missingCurrency ? { currency: missingCurrency } : {}),
       ...(reconciled ? { submittedAt: record.submittedAt ?? new Date() } : {}),
-      rawResponse: this.mapper.maskOrderForStorage(detail) as Prisma.InputJsonValue,
+      ...(hasState ? { rawResponse: this.mapper.maskOrderForStorage(detail) as Prisma.InputJsonValue } : {}),
       lastSyncedAt: new Date(),
-      ...(summary.message
-        ? { lastErrorCode: SELLERWIX_STATUS_MESSAGE_CODE, lastErrorMessage: summary.message }
-        : record.lastErrorCode === SELLERWIX_STATUS_MESSAGE_CODE || reconciled
-          ? { lastErrorCode: null, lastErrorMessage: null }
-          : {}),
+      ...(!hasState
+        ? {}
+        : summary.message
+          ? { lastErrorCode: SELLERWIX_STATUS_MESSAGE_CODE, lastErrorMessage: summary.message }
+          : record.lastErrorCode === SELLERWIX_STATUS_MESSAGE_CODE || reconciled
+            ? { lastErrorCode: null, lastErrorMessage: null }
+            : {}),
       ...(summary.status === FulfillmentStatus.CANCELLED && !record.cancelledAt
         ? { cancelledAt: new Date() }
         : {}),
@@ -749,7 +754,7 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
       );
       throw toProviderHttpException(LABEL, error);
     }
-    if (live.providerStatus?.toLowerCase().includes(CANCEL_PENDING_PROVIDER_STATUS)) {
+    if (live.providerStatus?.toLowerCase().includes(CANCEL_PROCESSING_PROVIDER_STATUS)) {
       throw new FulfillmentCancelPendingException(LABEL);
     }
     if (!CANCELLABLE_FULFILLMENT_STATUSES.includes(live.status)) {
@@ -772,25 +777,40 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
       const result = await this.client.cancelOrder(ctx, record.providerOrderId, {
         ...(reason ? { reason } : {}),
       });
+      // 🔴 Tài liệu: response = object đơn. Thực tế Sellerwix có thể chỉ trả
+      // `{"message": "Order cancellation request has been sent and is being processed"}` — NHẬN yêu cầu,
+      // huỷ BẤT ĐỒNG BỘ. Payload đó KHÔNG mang trạng thái ⇒ không áp vào bản ghi (giữ ON_HOLD / lỗi
+      // design / raw_response của đơn); thông điệp nằm ở nhật ký. Trạng thái thật (cancel processing /
+      // canceled) đến từ lượt đồng bộ hoặc webhook sau đó. Trong lúc chờ, `isCancelPending` chặn gửi
+      // yêu cầu huỷ lần hai.
+      const hasOrderState = this.mapper.hasFulfillmentState(result.data);
+      const acknowledgement = this.mapper.cancelAcknowledgement(result.data);
       await this.repo.addHistory({
         organizationId,
         fulfillmentOrderId: record.id,
         eventType: FulfillmentEventType.CANCEL_SUCCESS,
         trigger: FulfillmentTrigger.MANUAL,
         fromStatus: live.status,
-        // "Đã nhận yêu cầu" ≠ "đã huỷ": trạng thái thật (canceled / cancel processing) được áp ngay
-        // dưới đây; chỉ CANCELLED mới mở lại được nút Fulfill.
-        message: `${LABEL} đã nhận yêu cầu huỷ`,
+        // "Đã nhận yêu cầu" ≠ "đã huỷ": chỉ CANCELLED (nhà cung cấp xác nhận) mới mở lại nút Fulfill.
+        message: hasOrderState
+          ? `${LABEL} đã nhận yêu cầu huỷ`
+          : `${LABEL} đã nhận yêu cầu huỷ — đang xử lý, chờ xác nhận`,
+        payload: {
+          responseHasOrderState: hasOrderState,
+          ...(acknowledgement ? { providerMessage: acknowledgement } : {}),
+        },
         durationMs: result.durationMs,
         requestId: result.requestId,
         performedBy: actorUserId,
       });
-      // Response Cancel order = object đơn (tài liệu) ⇒ trạng thái thật (canceled / cancel processing).
-      await this.applyProviderState(live, result.data, FulfillmentTrigger.MANUAL, {
-        durationMs: result.durationMs,
-        requestId: result.requestId,
-        performedBy: actorUserId,
-      });
+      if (hasOrderState) {
+        // Response là object đơn (đúng tài liệu) ⇒ trạng thái thật (canceled / cancel processing).
+        await this.applyProviderState(live, result.data, FulfillmentTrigger.MANUAL, {
+          durationMs: result.durationMs,
+          requestId: result.requestId,
+          performedBy: actorUserId,
+        });
+      }
     } catch (error) {
       await this.recordFailure(
         organizationId,

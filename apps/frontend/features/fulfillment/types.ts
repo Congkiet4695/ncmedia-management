@@ -496,7 +496,13 @@ export interface FulfillmentState {
    */
   warnings: FulfillmentIssue[];
   canFulfill: boolean;
+  /** `false` khi đã có yêu cầu huỷ đang chờ (`cancelPending`). */
   canCancel: boolean;
+  /**
+   * Đã gửi yêu cầu huỷ, đang chờ nhà cung cấp xác nhận (Sellerwix huỷ bất đồng bộ) hoặc lượt huỷ đang
+   * chạy. Backend từ chối yêu cầu huỷ thứ hai (409 `FULFILLMENT_CANCEL_PENDING`).
+   */
+  cancelPending: boolean;
   /** Ai huỷ / khi nào / vì sao — chỉ có khi bản ghi hiện hành đã CANCELLED. */
   cancellation: FulfillmentCancellation | null;
   /** Nhà cung cấp gán cho kết nối TikTok của đơn. NULL = chưa cấu hình. */

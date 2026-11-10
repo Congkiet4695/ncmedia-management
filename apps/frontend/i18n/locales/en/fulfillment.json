@@ -10,6 +10,22 @@
     "syncStatus": "Sync status",
     "syncSuccess": "Status synced successfully"
   },
+  "cancelDialog": {
+    "title": "Cancel order at the print facility",
+    "order": "TikTok order",
+    "warning": "This cancels the order at the fulfillment provider. The provider must confirm; once cancelled you can fulfill the order again (a new provider order is created). Mapping and design are kept.",
+    "reasonPlaceholder": "Reason (optional) — helps reconcile with the facility later",
+    "keep": "Keep order",
+    "failed": "Could not cancel the order",
+    "refulfillHint": "The provider confirmed the cancellation. You can fulfill this order again.",
+    "requested": "Cancellation requested",
+    "pendingHint": "The provider has not confirmed the cancellation yet (status: {{status}}). The order can be fulfilled again once it is cancelled.",
+    "timeoutTitle": "Cancellation may still be processing",
+    "timeoutHint": "The server did not answer in time, but the request may have reached the provider. The order status is being refreshed — do not cancel again.",
+    "alreadyPendingTitle": "Cancellation already in progress",
+    "alreadyPendingHint": "A cancellation request for this order is already being processed. The status updates automatically once the provider confirms.",
+    "pendingBadge": "Cancellation requested — waiting for the provider to confirm"
+  },
   "assign": {
     "cleared": "Provider unassigned",
     "failed": "Could not change the provider",
@@ -483,7 +499,7 @@
     "REFUNDED": "Refunded",
     "REJECTED": "Rejected",
     "SHIPPED": "Shipped",
-    "SUBMITTED": "Accepted",
+    "SUBMITTED": "Submitted",
     "SUBMITTING": "Submitting",
     "UNKNOWN": "Unknown"
   },

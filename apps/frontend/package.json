@@ -39,7 +39,8 @@
     "test:media-images": "node --experimental-strip-types scripts/verify-media-images.ts",
     "test:item-image": "node --experimental-strip-types scripts/verify-item-image.ts",
     "test:design-image": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-design-image.ts",
-    "test:order-item-rows": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-order-item-rows.ts"
+    "test:order-item-rows": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-order-item-rows.ts",
+    "test:cancel-order": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-cancel-order.ts"
   },
   "dependencies": {
     "@dnd-kit/core": "6.3.1",

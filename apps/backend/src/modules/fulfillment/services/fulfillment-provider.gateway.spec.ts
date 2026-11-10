@@ -6,6 +6,7 @@ import {
   type PodAccessScope,
 } from '../../pod-tiktok/services/pod-access-scope.service';
 import {
+  FulfillmentCancelPendingException,
   FulfillmentManualImportRecordException,
   FulfillmentOperationNotSupportedException,
   FulfillmentOrderNotFoundException,
@@ -51,7 +52,15 @@ const OWN_SELLER: PodAccessScope = { allShops: false, accountIds: ['tt-acc-1'], 
 /** Seller của shop KHÁC. */
 const OTHER_SELLER: PodAccessScope = { allShops: false, accountIds: ['tt-acc-2'], shopIds: ['shop-2'] };
 
-function build(options: { accounts?: unknown[]; current?: unknown; orderMissing?: boolean } = {}) {
+function build(
+  options: {
+    accounts?: unknown[];
+    current?: unknown;
+    orderMissing?: boolean;
+    /** Sự kiện huỷ GẦN NHẤT của bản ghi hiện hành (nguồn của "đang chờ huỷ"). */
+    latestCancel?: { eventType: string; createdAt: Date } | null;
+  } = {},
+) {
   const accounts = (options.accounts ?? [MANGO, SELLERWIX]) as Array<{ id: string }>;
   const repo = {
     findAccountById: jest.fn((_org: string, id: string) =>
@@ -59,6 +68,11 @@ function build(options: { accounts?: unknown[]; current?: unknown; orderMissing?
     ),
     findCurrentByPodOrder: jest.fn().mockResolvedValue(options.current ?? null),
     listAccounts: jest.fn().mockResolvedValue(accounts),
+    findLatestCancelEvents: jest.fn((_org: string, ids: string[]) =>
+      Promise.resolve(
+        new Map(options.latestCancel ? ids.map((id) => [id, options.latestCancel]) : []),
+      ),
+    ),
   } as unknown as FulfillmentRepository;
   const podOrderRepo = {
     findById: jest.fn().mockResolvedValue(
@@ -393,5 +407,71 @@ describe('FulfillmentProviderGateway — bản ghi nhập tay (Import Excel)', (
     const { gateway, mango } = build({ current: { ...MANUAL, source: FulfillmentSource.PROVIDER } });
     await gateway.syncByPodOrder('org', 'user', 'pod-1');
     expect(mango.syncByPodOrder).toHaveBeenCalledWith('org', 'user', 'pod-1');
+  });
+});
+
+/**
+ * CASE 4 — đã có yêu cầu huỷ đang chờ (Sellerwix huỷ bất đồng bộ) ⇒ bấm Huỷ lần hai KHÔNG gọi nhà cung
+ * cấp (cả GET lẫn POST cancel), trả 409 FULFILLMENT_CANCEL_PENDING.
+ */
+describe('FulfillmentProviderGateway — chặn yêu cầu huỷ trùng', () => {
+  const SWX_SUBMITTED = {
+    id: 'fo-1',
+    accountId: 'acc-swx',
+    provider: FulfillmentProvider.SELLERWIX,
+    status: FulfillmentStatus.ON_HOLD,
+    providerStatus: 'error',
+  };
+  const ago = (ms: number) => new Date(Date.now() - ms);
+
+  it('🔴 Sellerwix đã NHẬN yêu cầu huỷ (CANCEL_SUCCESS, chưa xác nhận) ⇒ 409, không gọi Sellerwix lần 2', async () => {
+    const { gateway, sellerwix, notifications } = build({
+      current: SWX_SUBMITTED,
+      latestCancel: { eventType: 'CANCEL_SUCCESS', createdAt: ago(2 * 60_000) },
+    });
+    await expect(gateway.cancel('org', 'admin', 'pod-1', ALL, 'again')).rejects.toBeInstanceOf(
+      FulfillmentCancelPendingException,
+    );
+    expect(sellerwix.cancel).not.toHaveBeenCalled();
+    expect(notifications.cancelled).not.toHaveBeenCalled();
+  });
+
+  it('lượt huỷ trước còn ĐANG CHẠY (CANCEL_REQUEST chưa có kết quả) ⇒ 409, không gọi lần 2', async () => {
+    const { gateway, sellerwix } = build({
+      current: SWX_SUBMITTED,
+      latestCancel: { eventType: 'CANCEL_REQUEST', createdAt: ago(20_000) },
+    });
+    await expect(gateway.cancel('org', 'admin', 'pod-1', ALL)).rejects.toBeInstanceOf(
+      FulfillmentCancelPendingException,
+    );
+    expect(sellerwix.cancel).not.toHaveBeenCalled();
+  });
+
+  it('Sellerwix tự báo "cancel processing" ⇒ 409, không gọi lần 2', async () => {
+    const { gateway, sellerwix } = build({
+      current: { ...SWX_SUBMITTED, providerStatus: 'cancel processing' },
+    });
+    await expect(gateway.cancel('org', 'admin', 'pod-1', ALL)).rejects.toBeInstanceOf(
+      FulfillmentCancelPendingException,
+    );
+    expect(sellerwix.cancel).not.toHaveBeenCalled();
+  });
+
+  it('lần trước THẤT BẠI (CANCEL_FAILED) ⇒ thử lại được', async () => {
+    const { gateway, sellerwix } = build({
+      current: SWX_SUBMITTED,
+      latestCancel: { eventType: 'CANCEL_FAILED', createdAt: ago(60_000) },
+    });
+    await gateway.cancel('org', 'admin', 'pod-1', ALL);
+    expect(sellerwix.cancel).toHaveBeenCalledTimes(1);
+  });
+
+  it('yêu cầu đã nhận quá 24 giờ mà nhà cung cấp vẫn chưa huỷ ⇒ cho gửi lại (không khoá vĩnh viễn)', async () => {
+    const { gateway, sellerwix } = build({
+      current: SWX_SUBMITTED,
+      latestCancel: { eventType: 'CANCEL_SUCCESS', createdAt: ago(25 * 60 * 60_000) },
+    });
+    await gateway.cancel('org', 'admin', 'pod-1', ALL);
+    expect(sellerwix.cancel).toHaveBeenCalledTimes(1);
   });
 });

@@ -23,6 +23,7 @@ import {
   type WithProvider,
 } from '../shared/fulfillment-lifecycle';
 import { productKeyFilter, type ProductKey } from '../shared/mapping-match';
+import { CANCEL_TIMELINE_EVENTS, type CancelTimelineEvent } from '../shared/fulfillment-cancel-pending';
 
 /** Bản ghi design / mapping có khoá: Seller SKU, hoặc (Seller SKU trống) TikTok SKU ID. */
 const HAS_PRODUCT_KEY = {
@@ -686,6 +687,30 @@ export class FulfillmentRepository {
       orderBy: { createdAt: 'desc' },
       select: { performedBy: true, message: true, payload: true, createdAt: true },
     });
+  }
+
+  /**
+   * Sự kiện huỷ GẦN NHẤT (CANCEL_REQUEST / CANCEL_SUCCESS / CANCEL_FAILED) của NHIỀU bản ghi trong MỘT
+   * truy vấn — nguồn của "đang chờ huỷ" (`isCancelPending`). Lọc theo tổ chức.
+   */
+  async findLatestCancelEvents(
+    organizationId: string,
+    fulfillmentOrderIds: string[],
+  ): Promise<Map<string, CancelTimelineEvent>> {
+    if (fulfillmentOrderIds.length === 0) return new Map();
+    const rows = await this.prisma.fulfillmentHistory.findMany({
+      where: {
+        organizationId,
+        fulfillmentOrderId: { in: fulfillmentOrderIds },
+        eventType: { in: [...CANCEL_TIMELINE_EVENTS] },
+      },
+      orderBy: { createdAt: 'desc' },
+      distinct: ['fulfillmentOrderId'],
+      select: { fulfillmentOrderId: true, eventType: true, createdAt: true },
+    });
+    return new Map(
+      rows.map((row) => [row.fulfillmentOrderId, { eventType: row.eventType, createdAt: row.createdAt }]),
+    );
   }
 
   /**

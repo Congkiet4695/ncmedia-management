@@ -1425,7 +1425,16 @@ export class FulfillmentStateDto {
   })
   warnings!: FulfillmentIssueDto[];
   @ApiProperty({ description: 'Có thể bấm Fulfill lúc này không' }) canFulfill!: boolean;
-  @ApiProperty({ description: 'Có thể huỷ ở xưởng in không' }) canCancel!: boolean;
+  @ApiProperty({
+    description: 'Có thể huỷ ở xưởng in không. `false` khi đã có yêu cầu huỷ đang chờ (`cancelPending`).',
+  })
+  canCancel!: boolean;
+  @ApiProperty({
+    description:
+      'Đã gửi yêu cầu huỷ và đang chờ nhà cung cấp xác nhận (Sellerwix huỷ bất đồng bộ), hoặc lượt huỷ ' +
+      'đang chạy. Trong lúc này không gửi được yêu cầu huỷ thứ hai (409 FULFILLMENT_CANCEL_PENDING).',
+  })
+  cancelPending!: boolean;
   @ApiProperty({
     nullable: true,
     type: FulfillmentCancellationDto,

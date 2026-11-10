@@ -87,6 +87,7 @@ import {
   SUBMITTABLE_FULFILLMENT_STATUSES,
   holdsFulfilledOrder,
 } from '../shared/fulfillment-lifecycle';
+import { isCancelPending } from '../shared/fulfillment-cancel-pending';
 import {
   currencyFractionDigits,
   exceedsFractionDigits,
@@ -948,6 +949,7 @@ export class FulfillmentService {
       ? await this.repo.findByPodOrder(organizationId, podOrderId, account.provider)
       : current;
 
+    const cancelPending = await this.cancelPendingOf(organizationId, record);
     if (!account || !account.isActive) {
       return this.providerUnavailableState(
         order,
@@ -955,6 +957,7 @@ export class FulfillmentService {
         record,
         availableProviders,
         await this.cancellationOf(organizationId, record),
+        cancelPending,
       );
     }
 
@@ -987,6 +990,7 @@ export class FulfillmentService {
       blocking,
       availableProviders,
       cancellation: await this.cancellationOf(organizationId, record),
+      cancelPending,
     });
   }
 
@@ -1019,6 +1023,14 @@ export class FulfillmentService {
       this.repo.listProductDesignsForProducts(organizationId, productIds),
     ]);
     const designsByKey = this.groupDesignsByKey(designRows);
+    // "Đang chờ huỷ" của cả trang trong MỘT truy vấn — chỉ bản ghi đang ở trạng thái huỷ được.
+    const latestCancelEvents = await this.repo.findLatestCancelEvents(
+      organizationId,
+      [...recordsByOrder.values()]
+        .flat()
+        .filter((entry) => CANCELLABLE_FULFILLMENT_STATUSES.includes(entry.status))
+        .map((entry) => entry.id),
+    );
 
     // Mỗi tài khoản / bộ luật vị trí in chỉ tra MỘT lần cho cả trang.
     const accountLookups = new Map<string, ReturnType<FulfillmentRepository['findAccountById']>>();
@@ -1041,9 +1053,13 @@ export class FulfillmentService {
           ? (records.find((entry) => entry.provider === account.provider) ?? null)
           : current;
         const cancellation = await this.cancellationOf(organizationId, record);
+        const cancelPending = record ? isCancelPending(record, latestCancelEvents.get(record.id)) : false;
 
         if (!account || !account.isActive) {
-          return [order.id, this.providerUnavailableState(order, account, record, availableProviders, cancellation)];
+          return [
+            order.id,
+            this.providerUnavailableState(order, account, record, availableProviders, cancellation, cancelPending),
+          ];
         }
         const resolver = resolvers.get(account.id) ?? this.gateway.placementResolver(account, mappings);
         resolvers.set(account.id, resolver);
@@ -1064,6 +1080,7 @@ export class FulfillmentService {
               ) ?? null,
             availableProviders,
             cancellation,
+            cancelPending,
           }),
         ];
       }),
@@ -1119,6 +1136,7 @@ export class FulfillmentService {
     record: FulfillmentOrderWithRelations | null,
     availableProviders: FulfillmentStateDto['availableProviders'],
     cancellation: FulfillmentStateDto['cancellation'],
+    cancelPending: boolean,
   ): FulfillmentStateDto {
       return {
         fulfillment: record ? this.toOrderDto(record) : null,
@@ -1140,6 +1158,7 @@ export class FulfillmentService {
         warnings: [],
         canFulfill: false,
         canCancel: false,
+        cancelPending,
         cancellation,
         provider: account
           ? { id: account.id, name: account.name, type: account.provider, isActive: false }
@@ -1172,6 +1191,8 @@ export class FulfillmentService {
     blocking: { provider: FulfillmentProvider | null; status: FulfillmentStatus } | null;
     availableProviders: FulfillmentStateDto['availableProviders'];
     cancellation: FulfillmentStateDto['cancellation'];
+    /** Đã có yêu cầu huỷ đang chờ nhà cung cấp xác nhận (`isCancelPending`). */
+    cancelPending: boolean;
   }): FulfillmentStateDto {
     const { order, account, record, mappings, designsByKey, blocking, availableProviders } = input;
     // Luật vị trí in của ĐÚNG nhà cung cấp đang chọn (Sellerwix: `print_areas` của biến thể).
@@ -1205,7 +1226,9 @@ export class FulfillmentService {
       warnings: check.warnings.map(toIssueDto),
       // CANCELLED (nhà cung cấp đã xác nhận huỷ) ⇒ fulfill lại được, như một lần thử mới.
       canFulfill: check.ready && !blocking && SUBMITTABLE_FULFILLMENT_STATUSES.includes(status),
-      canCancel: Boolean(record) && CANCELLABLE_FULFILLMENT_STATUSES.includes(status),
+      // Đang chờ nhà cung cấp xác nhận một yêu cầu huỷ trước ⇒ KHÔNG cho gửi yêu cầu huỷ thứ hai.
+      canCancel: Boolean(record) && CANCELLABLE_FULFILLMENT_STATUSES.includes(status) && !input.cancelPending,
+      cancelPending: input.cancelPending,
       cancellation: input.cancellation,
       provider: { id: account.id, name: account.name, type: account.provider, isActive: true },
       // 🔴 Ghép bằng ĐÚNG chỉ mục mà `readiness.check()` vừa dùng ở trên: màn hình và luồng
@@ -1632,6 +1655,13 @@ export class FulfillmentService {
    * Thông tin huỷ của bản ghi ĐÃ HUỶ: thời điểm (`cancelled_at`), người bấm + lý do (nhật ký
    * CANCEL_REQUEST). Nhật ký cũ không có `payload.reason` ⇒ đọc từ câu "Yêu cầu huỷ: …".
    */
+  /** Bản ghi có yêu cầu huỷ đang chờ nhà cung cấp xác nhận không — xem `isCancelPending`. */
+  private async cancelPendingOf(organizationId: string, record: FulfillmentOrder | null): Promise<boolean> {
+    if (!record || !CANCELLABLE_FULFILLMENT_STATUSES.includes(record.status)) return false;
+    const latest = (await this.repo.findLatestCancelEvents(organizationId, [record.id])).get(record.id);
+    return isCancelPending(record, latest);
+  }
+
   private async cancellationOf(
     organizationId: string,
     record: FulfillmentOrder | null,
