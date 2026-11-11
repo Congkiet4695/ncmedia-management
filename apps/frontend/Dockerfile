@@ -18,7 +18,7 @@ COPY . .
 
 # NEXT_PUBLIC_* inline lúc build. Mặc định gọi API same-origin qua Nginx (/api/v1).
 ARG NEXT_PUBLIC_API_BASE_URL=/api/v1
-ARG NEXT_PUBLIC_APP_NAME="NCMedia Management Platform"
+ARG NEXT_PUBLIC_APP_NAME="STARTLY ECOM"
 # Múi giờ nghiệp vụ hiển thị trên UI — PHẢI trùng APP_BUSINESS_TIMEZONE của backend (compose truyền từ cùng biến).
 ARG NEXT_PUBLIC_BUSINESS_TIMEZONE=America/Los_Angeles
 # Các host Storage công khai (cách nhau bởi dấu phẩy) cho bản thu nhỏ ảnh design.

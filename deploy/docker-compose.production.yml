@@ -126,7 +126,7 @@ services:
       target: runtime
       args:
         NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_URL:-/api/v1}
-        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-NCMedia Management Platform}
+        NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-STARTLY ECOM}
         # CÙNG biến với backend (env_file) ⇒ UI hiển thị và backend lọc ngày theo đúng MỘT múi giờ.
         NEXT_PUBLIC_BUSINESS_TIMEZONE: ${APP_BUSINESS_TIMEZONE:-America/Los_Angeles}
         # Bản thu nhỏ ảnh design chỉ nhận các host Storage này. Có file ở host cũ thì khai STORAGE_PUBLIC_URLS (dấu phẩy).

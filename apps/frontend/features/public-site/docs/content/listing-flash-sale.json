@@ -1,0 +1,551 @@
+[
+  {
+    "slug": "template",
+    "title": "Template",
+    "summary": "Tạo và quản lý các mẫu dùng lại (danh mục, SKU, mô tả, hình ảnh, giá, listing, Group Template) để dựng listing nhanh và thống nhất.",
+    "overview": "Màn hình Template gom các loại mẫu vào một thanh tab theo đúng thứ tự dựng listing: Danh mục, SKU, Mô tả, Hình ảnh, Giá, Listing và Group Template. Mỗi mẫu nhỏ lưu một phần dữ liệu của listing; khi tạo lượt đăng ở Auto Listing hoặc Đăng Sản Phẩm, bạn chọn các mẫu này để điền sẵn dữ liệu cho mọi sản phẩm. Group Template gom sẵn Category + SKU + Description + Image để chọn một lần là điền đủ cả bốn phần.",
+    "whenToUse": [
+      "Chuẩn bị dữ liệu dùng chung trước khi chạy Auto Listing hoặc Đăng Sản Phẩm.",
+      "Chuẩn hoá danh mục, thuộc tính, biến thể, mô tả, ảnh mockup và cách tính giá cho một dòng sản phẩm (phôi).",
+      "Muốn chọn nhanh một bộ mẫu đầy đủ bằng Group Template."
+    ],
+    "prerequisites": [
+      "Có quyền xem Template (pod.template.read); tạo/sửa/xoá cần quyền ghi Template (pod.template.write).",
+      "Đã đồng bộ danh mục, thương hiệu và kho ở nhóm Syncs Master Data để danh sách chọn có dữ liệu.",
+      "Có ít nhất một shop TikTok đã kết nối để nạp thuộc tính danh mục."
+    ],
+    "steps": [
+      {
+        "title": "Mở màn hình Template",
+        "detail": "Vào menu Template; hệ thống mở tab Danh mục. Chuyển giữa các tab Danh mục, SKU, Mô tả, Hình ảnh, Giá, Listing, Group Template ở thanh tab phía trên."
+      },
+      {
+        "title": "Tạo Category Template",
+        "detail": "Ở tab Danh mục, bấm Tạo Category Template, nhập tên và chọn Danh mục TikTok; thuộc tính của danh mục được nạp tự động. Chọn Thương hiệu (hoặc Không có thương hiệu (No brand)), kích thước/khối lượng kiện, bảng size, video và Kho mặc định (không bắt buộc)."
+      },
+      {
+        "title": "Tạo SKU Template",
+        "detail": "Ở tab SKU, bấm Tạo SKU Template, thêm Trục biến thể (ví dụ Color, Size) cùng giá trị, rồi bấm Tạo SKU để sinh mọi tổ hợp. Có thể dùng Cập nhật hàng loạt, Nhập Excel / Xuất Excel và sửa từng dòng trước khi lưu."
+      },
+      {
+        "title": "Tạo Description Template",
+        "detail": "Ở tab Mô tả, bấm Tạo Description Template và soạn nội dung HTML. Bấm Thêm token để chèn token; token được thay bằng dữ liệu thật khi sinh draft, dùng Xem trước để kiểm tra."
+      },
+      {
+        "title": "Tạo bộ ảnh mẫu",
+        "detail": "Ở tab Hình ảnh, bấm Tạo bộ ảnh, lưu bộ ảnh rồi Tải ảnh lên theo loại (Mockup mặt trước, Mockup mặt sau, Ảnh đời thường, Bảng size…). Kéo thả thẻ ảnh để đổi thứ tự — đây là thứ tự ảnh trên listing."
+      },
+      {
+        "title": "Tạo chiến lược giá",
+        "detail": "Ở tab Giá, bấm Tạo chiến lược giá, nhập Giá vốn, Phí vận chuyển, Kiểu cộng lãi (Phần trăm, Cố định hoặc Công thức), Mức lãi, hệ số giá và mức làm tròn. Phần Xem trước hiển thị giá bán sinh ra."
+      },
+      {
+        "title": "Ghép Listing Template hoặc Group Template",
+        "detail": "Ở tab Listing, bấm Tạo Listing Template để ghép Category, SKU, Description, Image Template, Chiến lược giá và Kho hàng. Ở tab Group Template, bấm Tạo Group Template, nhập Group Template Name và chọn ít nhất một trong Category, SKU, Description, Image."
+      }
+    ],
+    "notes": [
+      "Group Template chỉ lưu tham chiếu tới các template con; muốn sửa nội dung thì sửa template con. Listing đã lưu không thay đổi theo group.",
+      "Category Template quyết định thị trường của Group Template; khi áp group, thị trường của lượt đăng có thể đổi theo.",
+      "Kho trong Category Template chỉ là gợi ý mặc định; kho thật được quyết lúc publish.",
+      "Khi áp một mẫu vào form đăng, hệ thống hỏi xác nhận nếu sẽ ghi đè dữ liệu đang có; sau khi áp bạn vẫn sửa được mọi trường.",
+      "Các tab Danh mục, Mô tả, Hình ảnh hỗ trợ Export CSV các dòng đã chọn và Import CSV; tab Giá và Listing có Xuất / Nhập.",
+      "Xoá một Group Template đang được lượt đăng ghi nhận không làm thay đổi dữ liệu của các lượt đăng đó; chúng chỉ hiện nhãn \"đã xoá\"."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Không nạp được thuộc tính của danh mục.",
+        "solution": "Kiểm tra kết nối TikTok của shop rồi thử lại, hoặc bấm Đồng bộ thuộc tính danh mục này."
+      },
+      {
+        "problem": "Bảng SKU báo \"cần tạo lại SKU\" sau khi sửa trục biến thể.",
+        "solution": "Bấm Tạo SKU để sinh lại bảng; nếu chưa bấm, dữ liệu cũ vẫn giữ nguyên."
+      },
+      {
+        "problem": "Không lưu được Group Template.",
+        "solution": "Nhập Group Template Name và chọn ít nhất một trong Category, SKU, Description, Image; template con đã bị xoá phải được chọn lại hoặc bỏ chọn."
+      },
+      {
+        "problem": "Chiến lược giá báo Công thức chưa hợp lệ.",
+        "solution": "Chỉ dùng các biến được gợi ý cùng phép + - * / và dấu ngoặc."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/templates/categories",
+    "permission": "pod.template.read"
+  },
+  {
+    "slug": "auto-listing",
+    "title": "Auto Listing",
+    "summary": "Tạo lượt đăng, import sản phẩm từ file Excel/CSV và đưa hàng loạt sản phẩm lên nhiều shop TikTok dưới dạng Draft.",
+    "overview": "Auto Listing là danh sách các lượt đăng. Mỗi lượt đăng giữ thị trường, shop, template và sản phẩm đã import của riêng nó. Khi bấm Start Listing, các sản phẩm đủ điều kiện được đưa lên TikTok dưới dạng DRAFT — không có gì được đăng bán; việc gửi duyệt thực hiện ở Draft Listing.",
+    "whenToUse": [
+      "Đăng nhiều sản phẩm cùng lúc từ file Excel/CSV lên một hoặc nhiều shop.",
+      "Áp cùng một bộ template cho cả một lô sản phẩm."
+    ],
+    "prerequisites": [
+      "Có quyền xem lượt đăng (pod.session.read); tạo/sửa cần pod.session.write, import file cần pod.session.import, chạy Start Listing cần pod.listing.run.",
+      "Có ít nhất một shop TikTok đang hoạt động.",
+      "Đã tạo các template cần dùng ở màn hình Template."
+    ],
+    "steps": [
+      {
+        "title": "Tạo lượt đăng",
+        "detail": "Vào Listing > Auto Listing, bấm Tạo lượt đăng. Nhập Tên lượt đăng, chọn Thị trường và một hoặc nhiều Shop."
+      },
+      {
+        "title": "Chọn template",
+        "detail": "Chọn Group Template để điền nhanh, hoặc chọn từng Category Template, SKU Template, Description Template, Image Template và Pricing Template. Bấm Tạo và tiếp tục."
+      },
+      {
+        "title": "Import sản phẩm",
+        "detail": "Trong màn hình lượt đăng, bấm Import Excel / CSV. File cần đúng 11 cột: title + URL1…URL10, mỗi dòng một sản phẩm; tải File mẫu nếu cần. Chọn Kiểu import: Thêm vào lượt đăng hoặc Re-import (thay toàn bộ)."
+      },
+      {
+        "title": "Rà soát sản phẩm",
+        "detail": "Kiểm tra danh sách sản phẩm trong lượt đăng; dùng Xem trước để xem đúng nội dung sẽ gửi, sửa hoặc xoá sản phẩm nếu cần. Có thể bấm Thêm sản phẩm nhập tay để thêm một sản phẩm thủ công."
+      },
+      {
+        "title": "Kiểm tra dữ liệu",
+        "detail": "Bấm Kiểm tra để xem bao nhiêu sản phẩm đủ điều kiện lên sàn và bao nhiêu còn thiếu dữ liệu."
+      },
+      {
+        "title": "Chạy Start Listing",
+        "detail": "Bấm Start Listing và xác nhận. Hệ thống xếp hàng các sản phẩm đủ điều kiện và hiển thị tiến độ lượt chạy ngay trên màn hình."
+      },
+      {
+        "title": "Chuyển sang publish",
+        "detail": "Theo dõi trạng thái lượt đăng (Đang đăng, Hoàn tất, Xong, có lỗi…). Sau khi Draft đã tạo trên TikTok, vào Draft Listing để Publish."
+      }
+    ],
+    "notes": [
+      "Start Listing chỉ tạo Draft trên TikTok, không đăng bán.",
+      "Trong lúc lượt đăng đang chạy, cấu hình và sản phẩm bị khoá; lượt đăng đang chạy không xoá được.",
+      "Xoá lượt đăng sẽ xoá Draft Product, ảnh, draft đã sinh, lịch sử chạy và nhật ký của lượt đó; template, file đã tải lên, shop và sản phẩm đã có trên TikTok không bị ảnh hưởng.",
+      "Sản phẩm đã lên sàn hoặc đang trong hàng đợi chỉ đọc.",
+      "Lượt đăng tạo từ Đăng Sản Phẩm hiển thị nguồn Custom Listing và được sửa ở form Sửa Custom Listing."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Không chọn được shop nào.",
+        "solution": "Shop bị ngưng, mất uỷ quyền hoặc cần uỷ quyền lại sẽ bị ẩn — kết nối lại ở trang TikTok Accounts."
+      },
+      {
+        "problem": "Import bỏ qua một số dòng.",
+        "solution": "Kiểm tra file đúng 11 cột title + URL1…URL10 và mỗi dòng có tiêu đề."
+      },
+      {
+        "problem": "Kiểm tra báo sản phẩm còn thiếu dữ liệu.",
+        "solution": "Bổ sung template, ảnh hoặc tiêu đề còn thiếu trong cấu hình lượt đăng hoặc từng sản phẩm, rồi bấm Kiểm tra lại."
+      },
+      {
+        "problem": "Lượt chạy Xong, có lỗi.",
+        "solution": "Xem chi tiết lỗi ở Lịch sử Publish và dùng Chạy lại phần lỗi."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/auto-listing",
+    "permission": "pod.session.read"
+  },
+  {
+    "slug": "custom-listing",
+    "title": "Đăng Sản Phẩm (Custom Listing)",
+    "summary": "Nhập tay một sản phẩm và đăng lên nhiều TikTok Shop cùng lúc, dưới dạng Draft hoặc Publish Live.",
+    "overview": "Đăng Sản Phẩm (Custom Listing) cho phép nhập đầy đủ một sản phẩm trên một form: thị trường và shop, thông tin sản phẩm, danh mục và thuộc tính, hình ảnh và video, đóng gói, SKU và giá. Bạn có thể lưu nháp, kiểm tra chất lượng, rồi đăng lên mọi shop đã chọn. Mỗi sản phẩm tạo một lượt đăng có nguồn Custom Listing trong danh sách Auto Listing.",
+    "whenToUse": [
+      "Đăng một sản phẩm riêng lẻ không có trong file import.",
+      "Đăng cùng một sản phẩm lên nhiều shop.",
+      "Cần đăng thẳng lên sàn mà không qua Draft (Publish Live TikTok)."
+    ],
+    "prerequisites": [
+      "Có quyền pod.session.write; nút Đăng sản phẩm cần thêm pod.listing.run, nút Publish Live TikTok cần thêm pod.listing.publish.",
+      "Được cấp quyền trên ít nhất một shop.",
+      "Nên chuẩn bị sẵn các template ở màn hình Template."
+    ],
+    "steps": [
+      {
+        "title": "Mở form",
+        "detail": "Vào Listing > Auto Listing và bấm Đăng Sản Phẩm."
+      },
+      {
+        "title": "Chọn thị trường và cửa hàng",
+        "detail": "Ở phần Thị trường & Cửa hàng, chọn thị trường và một hoặc nhiều shop. Có thể chọn Group Template để điền sẵn Category, SKU, Description, Image."
+      },
+      {
+        "title": "Nhập thông tin sản phẩm",
+        "detail": "Nhập tiêu đề, mô tả sản phẩm, Từ khoá tìm kiếm và Điểm nổi bật. Có thể chọn Mẫu Mô tả rồi bấm Áp dụng."
+      },
+      {
+        "title": "Chọn danh mục và đóng gói",
+        "detail": "Ở phần Danh mục & Thuộc tính, chọn danh mục hoặc áp Mẫu Category, rồi điền thuộc tính. Nhập khối lượng và kích thước kiện ở phần Đóng gói."
+      },
+      {
+        "title": "Thêm hình ảnh và video",
+        "detail": "Ở phần Hình ảnh & Video, tải ảnh lên hoặc Thêm từ URL; ảnh đầu tiên là ảnh chính. Có thể tải bảng size, video sản phẩm, hoặc áp Bộ ảnh mẫu."
+      },
+      {
+        "title": "Khai báo SKU và giá",
+        "detail": "Ở phần SKU & Giá bán, chọn Dùng mẫu có sẵn hoặc Nhập tay: thêm biến thể, bấm Tạo SKU, điền Seller SKU, giá và số lượng. Dùng Cập nhật ảnh biến thể để gắn ảnh cho biến thể đầu tiên."
+      },
+      {
+        "title": "Kiểm tra và lưu nháp",
+        "detail": "Bấm Kiểm tra chất lượng để xem các lỗi cần sửa. Bấm Lưu nháp nếu muốn mở lại để sửa và đăng sau."
+      },
+      {
+        "title": "Đăng sản phẩm",
+        "detail": "Bấm Đăng sản phẩm để tạo sản phẩm trên các shop đã chọn, hoặc Publish Live TikTok để đăng thẳng lên sàn (không tạo Draft, vào hàng chờ duyệt của TikTok). Bấm Xem kết quả từng shop để theo dõi."
+      }
+    ],
+    "notes": [
+      "Danh mục là bắt buộc; mỗi dòng SKU cần Seller SKU và giá bán lớn hơn 0.",
+      "Chọn nhiều shop thì mỗi shop dùng kho mặc định của chính nó (Tự chọn theo shop).",
+      "TikTok chỉ nhận ảnh cho biến thể đầu tiên; kéo trục có ảnh lên đầu nếu cần.",
+      "SKU có tồn kho 0 được đăng ở trạng thái hết hàng; TikTok có thể từ chối và lỗi sẽ hiện theo từng shop.",
+      "Sau khi đăng thành công, chọn Tạo listing cho sản phẩm mới để giữ Shop, Group Template, Danh mục & Thuộc tính, Mô tả, Đóng gói, SKU & Giá; tiêu đề, ảnh và Seller SKU được làm mới.",
+      "Khi lượt đăng đang chạy, form bị khoá cho tới khi chạy xong."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Báo Category là bắt buộc.",
+        "solution": "Chọn danh mục hoặc áp một Category Template."
+      },
+      {
+        "problem": "Báo mô tả chứa ảnh chưa được tải lên.",
+        "solution": "Chèn ảnh bằng nút tải ảnh của trình soạn thảo mô tả."
+      },
+      {
+        "problem": "Chỉ đăng thành công một phần số shop.",
+        "solution": "Bấm Xem kết quả từng shop để xem lỗi của từng shop, sửa dữ liệu rồi đăng lại."
+      },
+      {
+        "problem": "Thêm ảnh từ URL bị từ chối.",
+        "solution": "Dùng link công khai tới ảnh JPEG/PNG/WEBP, tối đa 5 MB; link cần đăng nhập, đã hết hạn hoặc chặn liên kết ngoài sẽ bị từ chối."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/auto-listing/custom",
+    "permission": "pod.session.read"
+  },
+  {
+    "slug": "clone-san-pham",
+    "title": "Nhân bản sản phẩm",
+    "summary": "Nhân bản sản phẩm từ một shop sang nhiều shop TikTok khác và theo dõi kết quả từng lượt.",
+    "overview": "Bạn bắt đầu nhân bản từ màn hình Sản phẩm, rồi theo dõi tại Listing > Nhân bản sản phẩm. Hệ thống sao chép tiêu đề, mô tả, từ khoá, danh mục, thương hiệu, thuộc tính, ảnh, bảng size, video, biến thể/SKU, giá, tồn kho và kiện hàng sang từng shop đích. Mỗi cặp sản phẩm × shop là một kết quả độc lập; cặp lỗi không ảnh hưởng cặp khác.",
+    "whenToUse": [
+      "Mở rộng sản phẩm đang bán sang các shop khác.",
+      "Kiểm tra tiến độ, lỗi và chạy lại các shop nhân bản thất bại."
+    ],
+    "prerequisites": [
+      "Có quyền nhân bản sản phẩm (pod.product.clone).",
+      "Sản phẩm nguồn đã có trong màn hình Sản phẩm."
+    ],
+    "steps": [
+      {
+        "title": "Chọn sản phẩm nguồn",
+        "detail": "Vào màn hình Sản phẩm, tick các sản phẩm cần nhân bản. Mọi sản phẩm phải thuộc cùng MỘT shop nguồn, tối đa 100 sản phẩm mỗi lượt."
+      },
+      {
+        "title": "Chọn shop đích",
+        "detail": "Bấm Nhân bản trên thanh chọn và chọn các Shop đích."
+      },
+      {
+        "title": "Xem lại và xác nhận",
+        "detail": "Bấm Xem lại để kiểm tra số thao tác nhân bản (sản phẩm × shop), rồi bấm Xác nhận nhân bản. Chưa có gì được gửi cho tới khi bạn xác nhận."
+      },
+      {
+        "title": "Theo dõi tiến độ",
+        "detail": "Vào Listing > Nhân bản sản phẩm để xem các lượt với Shop nguồn, Shop đích, Tiến độ và Trạng thái. Lọc theo trạng thái, shop nguồn, shop đích, người tạo và khoảng ngày."
+      },
+      {
+        "title": "Xem chi tiết và chạy lại",
+        "detail": "Bấm Xem chi tiết để xem kết quả từng shop đích (TikTok Product ID, lỗi). Dùng Chạy lại shop này hoặc nút chạy lại các shop thất bại."
+      }
+    ],
+    "notes": [
+      "Mỗi lượt tối đa 200 thao tác nhân bản (sản phẩm × shop); vượt mức cần chia thành nhiều lượt.",
+      "Cặp đã có trên shop đích (đã nhân bản trước, cùng sản phẩm gốc hoặc bản chép y hệt cùng tiêu đề và bộ Seller SKU) sẽ được bỏ qua.",
+      "Không sao chép TikTok Product ID / SKU ID của shop nguồn; kho và tiền tệ được quyết theo shop đích.",
+      "Sản phẩm được đăng lên từng shop đích và chờ TikTok duyệt; sản phẩm mới xuất hiện trong danh sách Sản phẩm của shop đích sau lượt đồng bộ được hẹn (khoảng 5 phút).",
+      "Chỉ shop THẤT BẠI được chạy lại; muốn nhân bản thêm shop, tạo lượt mới từ màn hình Sản phẩm."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Báo các sản phẩm đã chọn thuộc nhiều shop.",
+        "solution": "Chỉ chọn sản phẩm của một shop nguồn cho mỗi lượt nhân bản."
+      },
+      {
+        "problem": "Một số shop đích ở trạng thái Bỏ qua.",
+        "solution": "Sản phẩm đã tồn tại trên shop đó nên hệ thống không tạo trùng."
+      },
+      {
+        "problem": "Không thấy sản phẩm mới ở shop đích.",
+        "solution": "Chờ lượt đồng bộ khoảng 5 phút rồi kiểm tra lại màn hình Sản phẩm."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/clone-products",
+    "permission": "pod.product.clone"
+  },
+  {
+    "slug": "draft-listings",
+    "title": "Draft Listing",
+    "summary": "Xem các listing đã dựng xong và Publish chúng lên TikTok để chờ duyệt.",
+    "overview": "Draft Listing chứa các listing đã dựng xong từ Auto Listing. Đây là nơi bấm Publish: thao tác này gửi listing lên TikTok chờ duyệt và không tạo sản phẩm trùng. Màn hình hiển thị Trạng thái gửi và Trạng thái duyệt của từng draft.",
+    "whenToUse": [
+      "Gửi duyệt các draft sau khi chạy Start Listing.",
+      "Theo dõi kết quả duyệt của TikTok.",
+      "Dọn các draft không còn dùng."
+    ],
+    "prerequisites": [
+      "Có quyền xem draft (pod.draft.read); Publish cần pod.listing.publish; xoá draft cần pod.draft.generate.",
+      "Đã chạy Start Listing ở Auto Listing."
+    ],
+    "steps": [
+      {
+        "title": "Mở Draft Listing",
+        "detail": "Vào Listing > Draft Listing."
+      },
+      {
+        "title": "Lọc danh sách",
+        "detail": "Lọc theo thị trường, Trạng thái gửi và Trạng thái duyệt; tìm theo tên."
+      },
+      {
+        "title": "Xem trước draft",
+        "detail": "Bấm biểu tượng Xem trước để xem các tab Nội dung, Request đã gửi và Response TikTok."
+      },
+      {
+        "title": "Publish",
+        "detail": "Tick các draft rồi bấm Publish Selected, bấm Publish All để publish mọi draft đủ điều kiện theo bộ lọc hiện tại, hoặc bấm Publish trên từng dòng. Xác nhận để gửi lên TikTok chờ duyệt."
+      },
+      {
+        "title": "Theo dõi tiến độ",
+        "detail": "Thẻ tiến độ hiển thị số draft đã xong. Có thể đóng màn hình, lượt chạy vẫn tiếp tục ở nền; dùng Chạy lại phần lỗi nếu có lỗi."
+      },
+      {
+        "title": "Cập nhật trạng thái duyệt",
+        "detail": "Bấm Đọc lại trạng thái để đọc trạng thái duyệt từ TikTok ngay, không cần chờ lượt tự động 5 phút."
+      }
+    ],
+    "notes": [
+      "Chỉ publish được draft không có lỗi và đang ở trạng thái Draft nội bộ, Sẵn sàng hoặc Draft trên TikTok. Draft đã gửi lỗi trước đó hiện nút Publish lại.",
+      "Không xoá được draft Đang publish hoặc Đã gửi duyệt.",
+      "Xoá draft đã có trên TikTok sẽ xoá luôn Draft Product bên TikTok (Seller Center).",
+      "Một lượt publish chỉ mang một thị trường; nếu bán đa vùng, lọc theo thị trường trước khi bấm Publish All.",
+      "Đọc lại trạng thái chỉ đọc, không sửa gì trên shop."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Nút Publish không hiện trên một dòng.",
+        "solution": "Draft đang có lỗi hoặc ở trạng thái Đang publish, Đã gửi duyệt, Thất bại, Đã lưu trữ; mở Xem trước để kiểm tra."
+      },
+      {
+        "problem": "Publish All báo lỗi khi có nhiều thị trường.",
+        "solution": "Lọc theo một thị trường rồi publish lại."
+      },
+      {
+        "problem": "Trạng thái duyệt chưa cập nhật.",
+        "solution": "Bấm Đọc lại trạng thái."
+      },
+      {
+        "problem": "Danh sách trống.",
+        "solution": "Chạy Start Listing ở màn hình Auto Listing trước."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/draft-listings",
+    "permission": "pod.draft.read"
+  },
+  {
+    "slug": "lich-su-publish",
+    "title": "Lịch sử Publish",
+    "summary": "Xem từng lần đẩy listing lên TikTok cùng kết quả, thời lượng và lỗi.",
+    "overview": "Lịch sử Publish liệt kê các lượt chạy đẩy dữ liệu lên TikTok, gồm các loại Tạo Draft, Publish, Nhân bản sản phẩm và Publish Live. Mỗi dòng hiển thị shop, số item, số thành công, thất bại, tiến độ, thời lượng và thời điểm tạo. Bạn có thể xem chi tiết từng sản phẩm để biết đã gửi gì và TikTok trả về gì.",
+    "whenToUse": [
+      "Kiểm tra kết quả một lượt Start Listing, Publish, Publish Live hoặc nhân bản.",
+      "Tìm nguyên nhân sản phẩm không lên được sàn.",
+      "Chạy lại các item thất bại."
+    ],
+    "prerequisites": ["Có quyền pod.listing.read; chạy lại phần lỗi cần pod.listing.publish."],
+    "steps": [
+      {
+        "title": "Mở Lịch sử Publish",
+        "detail": "Vào Listing > Lịch sử Publish."
+      },
+      {
+        "title": "Lọc lượt chạy",
+        "detail": "Lọc theo loại lượt chạy và trạng thái; tìm theo tên lượt chạy."
+      },
+      {
+        "title": "Xem chi tiết",
+        "detail": "Bấm Xem chi tiết, chọn một sản phẩm ở tab Sản phẩm để xem Request đã gửi, Response TikTok và nhật ký."
+      },
+      {
+        "title": "Mở lượt đăng gốc",
+        "detail": "Với lượt chạy từ Auto Listing, bấm liên kết Auto Listing để mở đúng lượt đăng đó."
+      },
+      {
+        "title": "Chạy lại phần lỗi",
+        "detail": "Với lượt chạy có item thất bại, bấm Chạy lại phần lỗi."
+      }
+    ],
+    "notes": [
+      "Trạng thái lượt chạy: Chờ chạy, Đang chạy, Hoàn tất, Xong nhưng có lỗi, Thất bại, Đã huỷ.",
+      "Hàng đợi tự thử lại item lỗi với giãn cách tăng dần trước khi đánh dấu thất bại."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Item ở trạng thái Bỏ qua (thiếu dữ liệu).",
+        "solution": "Bổ sung dữ liệu còn thiếu cho sản phẩm trong lượt đăng rồi chạy lại."
+      },
+      {
+        "problem": "Không thấy nút Chạy lại phần lỗi.",
+        "solution": "Nút chỉ hiện khi lượt chạy có item thất bại và bạn có quyền publish."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/publish-history",
+    "permission": "pod.listing.read"
+  },
+  {
+    "slug": "flash-sale",
+    "title": "Flash Sale",
+    "summary": "Tạo đợt khuyến mãi giới hạn thời gian cho một shop TikTok, thêm sản phẩm, đặt giá deal và đẩy lên sàn.",
+    "overview": "Flash Sale quản lý các đợt khuyến mãi giới hạn thời gian trên TikTok Shop. Mỗi đợt thuộc đúng một shop và không đổi shop được sau khi tạo. Danh sách chỉ đọc dữ liệu đã đồng bộ; hệ thống chỉ gọi TikTok khi bạn Publish, Huỷ, Đẩy sản phẩm mới, đồng bộ hoặc làm mới trạng thái.",
+    "whenToUse": [
+      "Chạy giá khuyến mãi cho một nhóm sản phẩm trong khung giờ cố định.",
+      "Thêm sản phẩm vào một đợt đang chạy.",
+      "Nhân bản hoặc lưu cấu hình đợt sale thành Template để dùng lại."
+    ],
+    "prerequisites": [
+      "Có quyền pod.flashsale.read; tạo/sửa/xoá cần pod.flashsale.write; Publish, Huỷ và bật/tắt Auto cần pod.flashsale.publish.",
+      "Shop đã được gán cho bạn và sản phẩm của shop đã được đồng bộ."
+    ],
+    "steps": [
+      {
+        "title": "Tạo đợt sale",
+        "detail": "Vào Flash Sale, bấm Tạo Flash Sale. Chọn Shop, nhập Tên Flash Sale (tối đa 50 ký tự, duy nhất trong shop), Bắt đầu, Kết thúc, Múi giờ và Product Type (Theo sản phẩm hoặc Theo biến thể (SKU)); có thể chọn Áp Template (tuỳ chọn)."
+      },
+      {
+        "title": "Lưu và sang bước thêm sản phẩm",
+        "detail": "Bấm Tạo và thêm sản phẩm để tạo đợt ở trạng thái Nháp và mở màn hình chi tiết."
+      },
+      {
+        "title": "Thêm sản phẩm",
+        "detail": "Bấm Thêm sản phẩm, tìm theo tên, Product ID hoặc SKU, chọn sản phẩm rồi bấm nút Thêm. Ở mức Theo biến thể (SKU), hệ thống tự bung sản phẩm thành các biến thể đang bán."
+      },
+      {
+        "title": "Đặt giá và giới hạn",
+        "detail": "Sửa Giá Flash Sale hoặc % giảm, Tổng suất, Mỗi khách trên từng dòng; hoặc chọn nhiều dòng và bấm Sửa hàng loạt. Giới hạn hợp lệ là 1 đến 99, nhập -1 hoặc để trống là không giới hạn."
+      },
+      {
+        "title": "Publish",
+        "detail": "Xử lý hết lỗi trong danh sách cảnh báo, bấm Publish và xác nhận. Sản phẩm được gửi theo lô tối đa 300 SKU và chạy nền; theo dõi kết quả từng lô trên thẻ tiến độ."
+      },
+      {
+        "title": "Theo dõi trạng thái",
+        "detail": "Xem cột Trạng thái và Kết quả chạy ở danh sách; ở trang chi tiết bấm Làm mới để đọc lại trạng thái từ TikTok. Mục Lịch sử lưu request, response và mã lỗi của mỗi lượt gọi TikTok."
+      },
+      {
+        "title": "Thêm sản phẩm khi đang chạy",
+        "detail": "Với đợt Đang chạy, thêm sản phẩm mới rồi bấm Đẩy sản phẩm mới lên TikTok; chỉ các dòng chưa lên sàn được gửi."
+      },
+      {
+        "title": "Huỷ hoặc xoá",
+        "detail": "Bấm Huỷ đợt sale để ngừng khuyến mãi trên TikTok ngay lập tức. Bấm Xoá để xoá vĩnh viễn đợt sale cùng các dòng sản phẩm và nhật ký."
+      }
+    ],
+    "notes": [
+      "Trạng thái đợt: Nháp, Sẵn sàng, Đang đẩy lên sàn, Đang chạy, Đã kết thúc, Thất bại, Đã huỷ.",
+      "Publish được ở trạng thái Nháp, Sẵn sàng, Thất bại; đợt thất bại dùng Thử lại Publish.",
+      "Không xoá được đợt Đang chạy hoặc Đang đẩy lên sàn — phải Huỷ trước.",
+      "Đợt Đang chạy khoá tên và khung giờ; chỉ thêm được sản phẩm mới và sửa/xoá dòng chưa lên TikTok.",
+      "Giá Flash Sale phải lớn hơn 0 và thấp hơn giá niêm yết. Dòng mới không nhập giá sẽ áp mức giảm mặc định 10%.",
+      "Giờ bắt đầu phải cách thời điểm Publish ít nhất 60 giây.",
+      "Nhân bản tạo bản sao ở trạng thái Nháp, mang theo sản phẩm, giá deal và giới hạn mua; dời giờ bắt đầu sẽ dời giờ kết thúc để giữ nguyên độ dài đợt.",
+      "Lưu Template lưu danh sách sản phẩm, SKU, % giảm, giới hạn mua, mức áp dụng; không lưu ngày giờ, trạng thái, Activity ID. Giá deal được tính lại theo giá niêm yết khi áp.",
+      "Đồng bộ từ TikTok chỉ ĐỌC Flash Sale từ TikTok về hệ thống, cho shop đang chọn hoặc mọi shop bạn quản lý.",
+      "Xoá Flash Sale không ảnh hưởng sản phẩm, template và khuyến mãi đã kết thúc trên TikTok; Đồng bộ từ TikTok sẽ không đưa đợt đã xoá trở lại."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Không Publish được, báo còn lỗi chưa xử lý.",
+        "solution": "Xem danh sách lỗi phía trên bảng sản phẩm, sửa giá/giới hạn hoặc gỡ dòng lỗi rồi Publish lại."
+      },
+      {
+        "problem": "Publish xong nhưng một phần SKU lỗi.",
+        "solution": "Mở danh sách SKU lỗi trên thẻ tiến độ để xem mã lỗi; lọc Thất bại ở bảng sản phẩm để xem tất cả."
+      },
+      {
+        "problem": "Không xoá được đợt sale.",
+        "solution": "Đợt đang chạy hoặc đang đẩy lên sàn; bấm Huỷ đợt sale trước rồi xoá."
+      },
+      {
+        "problem": "Đồng bộ từ TikTok báo SKU chưa có trong hệ thống.",
+        "solution": "Đồng bộ sản phẩm của shop rồi chạy lại Đồng bộ từ TikTok."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/flash-sales",
+    "permission": "pod.flashsale.read"
+  },
+  {
+    "slug": "auto-flash-sale",
+    "title": "Auto Flash Sale Scheduler",
+    "summary": "Cấu hình job hằng ngày tự tạo đợt Flash Sale kế tiếp cho các đợt đang bật Auto.",
+    "overview": "Khi một đợt Flash Sale bật Auto, job hằng ngày sẽ tự tạo đợt kế tiếp khi đợt đó sắp hết hạn, tạo thành một chuỗi; mỗi chuỗi chỉ có một đợt bật Auto tại một thời điểm. Đợt kế tiếp chép đủ sản phẩm, giữ % giảm (giá deal tính lại theo giá bán hiện tại) và được đưa lên TikTok. Màn hình Auto Flash Sale Scheduler đặt giờ chạy, múi giờ và độ dài của đợt mới.",
+    "whenToUse": [
+      "Duy trì Flash Sale liên tục mà không phải tạo đợt mới thủ công.",
+      "Đổi giờ chạy hoặc độ dài của các đợt tự tạo.",
+      "Chạy ngay job để tạo đợt kế tiếp cho các đợt đã tới hạn."
+    ],
+    "prerequisites": [
+      "Có quyền pod.flashsale.auto.config để mở màn hình cấu hình (mặc định cấp cho Admin).",
+      "Bật/tắt Auto trên từng đợt cần quyền pod.flashsale.publish.",
+      "Đã có đợt Flash Sale để làm đợt đầu chuỗi."
+    ],
+    "steps": [
+      {
+        "title": "Mở màn hình cấu hình",
+        "detail": "Vào Cài đặt > Auto Flash Sale Scheduler, hoặc bấm Auto Scheduler ở màn hình Flash Sale."
+      },
+      {
+        "title": "Bật job và đặt giờ chạy",
+        "detail": "Tick Bật job Auto Flash Sale, nhập Giờ chạy (dạng HH:mm) và chọn Múi giờ. Job chạy mỗi ngày đúng một lần."
+      },
+      {
+        "title": "Chọn độ dài đợt mới",
+        "detail": "Ở Mode Khoảng thời gian, chọn 1 ngày, 2 ngày hoặc 3 ngày. Thời lượng tính theo phút, không ép giờ kết thúc về 23:59."
+      },
+      {
+        "title": "Lưu cấu hình",
+        "detail": "Bấm Lưu cấu hình. Màn hình hiển thị Lần chạy gần nhất, Lần chạy kế tiếp, Kết quả gần nhất và Luật của chuỗi."
+      },
+      {
+        "title": "Bật Auto cho đợt sale",
+        "detail": "Ở màn hình Flash Sale, bấm nút OFF ở cột Auto của đợt cần duy trì và xác nhận để chuyển sang ON."
+      },
+      {
+        "title": "Chạy ngay (tuỳ chọn)",
+        "detail": "Bấm Chạy ngay và xác nhận để tạo ngay đợt kế tiếp cho các đợt đang bật Auto đã tới hạn."
+      }
+    ],
+    "notes": [
+      "Đợt kế tiếp được tạo khi đợt đang bật Auto còn không quá số giờ nêu trong Luật của chuỗi, và bắt đầu ngay sau khi đợt cũ kết thúc.",
+      "Đợt mới được đặt tên dạng <tên gốc> - Auto #<n>; khi đợt mới lên sàn, Auto chuyển từ đợt cũ sang đợt mới. Nếu có lỗi, đợt cũ vẫn giữ Auto ON.",
+      "Chạy ngay tạo đợt kế tiếp THẬT trên TikTok.",
+      "Nếu server tắt đúng giờ chạy, lần chạy được bù ngay khi server hoạt động lại.",
+      "Sau khi lưu hoặc đổi giờ chạy, mốc đã qua trong hôm nay không chạy lại; lần chạy đầu là mốc kế tiếp.",
+      "Đợt kế tiếp đã tạo trước khi đổi cấu hình giữ nguyên khung giờ cũ.",
+      "Không bật Auto được cho đợt Đã huỷ."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Báo Giờ chạy phải có dạng HH:mm.",
+        "solution": "Nhập giờ theo định dạng 24 giờ, ví dụ 05:00."
+      },
+      {
+        "problem": "Không bật được Auto cho một đợt.",
+        "solution": "Đợt đó đã có đợt kế tiếp hoặc chuỗi đã có đợt khác đang bật Auto; bật Auto ở đợt cuối của chuỗi."
+      },
+      {
+        "problem": "Chuỗi không tạo đợt mới.",
+        "solution": "Kiểm tra job đang bật và xem Kết quả gần nhất; nếu đợt kế tiếp đã bị huỷ, xoá đợt đó để chuỗi tạo lại hoặc tắt Auto."
+      }
+    ],
+    "screenshotRoute": "/dashboard/settings/auto-flash-sale",
+    "permission": "pod.flashsale.auto.config"
+  }
+]

@@ -1,0 +1,443 @@
+[
+  {
+    "slug": "ket-noi-tai-khoan-tiktok-shop",
+    "title": "Kết nối tài khoản TikTok Shop",
+    "summary": "Hướng dẫn liên kết, uỷ quyền lại và ngắt kết nối tài khoản TikTok Shop với Startly Ecom.",
+    "overview": "Màn hình TikTok Accounts quản lý các TikTok Shop đã liên kết với tổ chức. Khi liên kết, bạn đặt tên kết nối, tạo Authorization URL và để Seller bấm Approve trên TikTok. Sau đó hệ thống tự đổi token, lấy danh sách shop và lưu kết nối, bạn không cần copy Authorization Code. Một lần liên kết tạo ra một kết nối (account) kèm toàn bộ shop mà tài khoản TikTok đó được uỷ quyền.",
+    "whenToUse": [
+      "Đưa một TikTok Shop mới vào hệ thống để đồng bộ sản phẩm, đơn hàng và payout.",
+      "Kết nối có trạng thái “Cần uỷ quyền lại” hoặc token sắp hết hạn uỷ quyền.",
+      "Không muốn hệ thống tiếp tục dùng một kết nối nữa."
+    ],
+    "prerequisites": [
+      "Có quyền xem TikTok Accounts (pod.tiktok.account.read). Nút “Link TikTok Shop” chỉ hiện khi có quyền tạo kết nối, nút “Ngắt kết nối” chỉ hiện khi có quyền xoá kết nối.",
+      "Có thể đăng nhập Seller Center của TikTok Shop cần liên kết, hoặc có người làm được việc này để bấm Approve.",
+      "Tổ chức còn hạn mức số shop được phép kết nối."
+    ],
+    "steps": [
+      {
+        "title": "Mở TikTok Accounts",
+        "detail": "Trên menu, chọn “TikTok Accounts”, rồi bấm “Link TikTok Shop” ở góc trên bên phải."
+      },
+      {
+        "title": "Đặt tên kết nối",
+        "detail": "Ở “Bước 1 — Đặt tên kết nối”, nhập “Tên kết nối” (bắt buộc) để nhận diện kết nối trong hệ thống, sau đó bấm “Tạo Authorization URL”."
+      },
+      {
+        "title": "Copy Authorization URL",
+        "detail": "Ở “Bước 2 — Copy Authorization URL”, bấm “Copy Authorization URL” hoặc “Mở ở tab mới”. Nếu trình duyệt chặn copy, hãy bấm vào ô URL để bôi đen rồi copy thủ công."
+      },
+      {
+        "title": "Approve trên TikTok",
+        "detail": "Mở URL bằng tài khoản TikTok Shop cần liên kết và bấm Approve. Hệ thống tự hoàn tất phần còn lại: đổi token, lấy shop và lưu kết nối."
+      },
+      {
+        "title": "Xem kết quả liên kết",
+        "detail": "Khi thành công, trang “Liên kết TikTok Shop thành công” hiện Tên kết nối, Tên shop, Thị trường và Thời điểm liên kết. Bấm “Về trang quản trị” để quay lại danh sách TikTok Accounts."
+      },
+      {
+        "title": "Uỷ quyền lại khi cần",
+        "detail": "Nếu kết nối ở trạng thái “Cần uỷ quyền lại”, hãy làm lại các bước liên kết bằng chính tài khoản TikTok đó. Hệ thống cập nhật token cho kết nối hiện có thay vì tạo kết nối mới, và giữ nguyên Seller phụ trách."
+      },
+      {
+        "title": "Ngắt kết nối",
+        "detail": "Trong danh sách, bấm biểu tượng “Ngắt kết nối” ở cột thao tác rồi xác nhận. Hệ thống sẽ ngừng dùng token của kết nối này."
+      }
+    ],
+    "notes": [
+      "Mỗi Authorization URL dùng cho một phiên uỷ quyền. Mỗi lần mở lại hộp thoại liên kết, hãy tạo URL mới.",
+      "Kết nối mới do một nhân viên tự liên kết sẽ được tự động gán cho chính nhân viên đó làm Seller phụ trách.",
+      "Hạn mức số shop của tổ chức được kiểm tra khi lưu kết nối. Nếu vượt hạn mức, toàn bộ lượt liên kết bị huỷ, không có kết nối nào được lưu dở. Uỷ quyền lại mà không thêm shop mới vẫn thực hiện được.",
+      "Ngắt kết nối KHÔNG thu hồi uỷ quyền phía TikTok. Để thu hồi hoàn toàn, Seller cần vào Seller Center → App Store.",
+      "Access Token và Refresh Token được mã hoá và không bao giờ hiển thị trên giao diện.",
+      "Thẻ “Tổng số shop” trên màn hình cho biết số shop hiện có trong phạm vi của bạn."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Báo lỗi “Tổ chức đã đạt giới hạn số lượng Shop được phép kết nối. Vui lòng liên hệ quản trị viên.”",
+        "solution": "Tổ chức đã dùng hết hạn mức shop. Hãy liên hệ để nâng hạn mức, hoặc ngắt bớt kết nối không còn dùng, rồi liên kết lại."
+      },
+      {
+        "problem": "Trang “Uỷ quyền thất bại” báo phiên uỷ quyền không hợp lệ hoặc đã hết hạn.",
+        "solution": "Bấm “Thử lại” để về TikTok Accounts, tạo Authorization URL mới và uỷ quyền lại từ đầu."
+      },
+      {
+        "problem": "Báo “Mã uỷ quyền TikTok không hợp lệ, đã dùng hoặc đã hết hạn”.",
+        "solution": "Tạo lại Authorization URL và thực hiện Approve lại trên TikTok."
+      },
+      {
+        "problem": "Báo “Bạn đã từ chối cấp quyền cho ứng dụng trên TikTok Shop.”",
+        "solution": "Liên kết lại và bấm Approve thay vì từ chối trên trang uỷ quyền của TikTok."
+      },
+      {
+        "problem": "Báo “Shop này đã được liên kết”.",
+        "solution": "Shop đã thuộc một kết nối khác trong tổ chức. Kiểm tra danh sách TikTok Accounts và dùng kết nối hiện có."
+      },
+      {
+        "problem": "Báo “Tài khoản chưa có shop nào”.",
+        "solution": "Tài khoản TikTok được uỷ quyền chưa có shop. Hãy kiểm tra lại tài khoản trên Seller Center rồi liên kết lại."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/tiktok-accounts",
+    "permission": "pod.tiktok.account.read"
+  },
+  {
+    "slug": "quan-ly-shop-va-dong-bo-shop",
+    "title": "Quản lý shop & đồng bộ shop",
+    "summary": "Hướng dẫn xem shop của từng kết nối, đồng bộ trạng thái shop, phân công Seller, gán Fulfillment Provider và kho mặc định.",
+    "overview": "Mỗi kết nối TikTok có thể chứa nhiều shop. Danh sách TikTok Accounts cho phép lọc, phân công Seller phụ trách và Fulfillment Provider cho từng kết nối. Trang chi tiết kết nối hiển thị thông tin uỷ quyền, scope đã cấp và bảng shop, nơi bạn chọn kho mặc định cho từng shop. Nút “Đồng bộ shop” cập nhật tên và trạng thái shop từ TikTok.",
+    "whenToUse": [
+      "Cập nhật tên và trạng thái shop sau khi có thay đổi trên TikTok.",
+      "Giao kết nối TikTok cho nhân viên phụ trách hoặc đổi người phụ trách.",
+      "Chỉ định nhà cung cấp fulfillment cho một kết nối.",
+      "Chọn kho mặc định dùng khi đăng sản phẩm cho từng shop."
+    ],
+    "prerequisites": [
+      "Có quyền xem TikTok Accounts (pod.tiktok.account.read).",
+      "Phân công Seller, gán Fulfillment Provider, chọn kho mặc định và sửa Thông tin đăng nhập TikTok cần quyền cập nhật kết nối (pod.tiktok.account.update).",
+      "Nút “Đồng bộ shop” cần quyền pod.tiktok.shop.sync.",
+      "Đã có ít nhất một kết nối TikTok Shop. Để gán nhà cung cấp, tổ chức cần có Fulfillment Provider đã cấu hình."
+    ],
+    "steps": [
+      {
+        "title": "Lọc danh sách kết nối",
+        "detail": "Trong “TikTok Accounts”, tìm theo Account Name / Seller / Shop, lọc theo trạng thái kết nối, theo trạng thái shop (“Tất cả (Active / Inactive)”) hoặc theo Seller (“Tất cả seller”, “Chưa assign”)."
+      },
+      {
+        "title": "Đồng bộ shop",
+        "detail": "Bấm “Đồng bộ shop” để cập nhật tên và trạng thái shop từ TikTok cho mọi kết nối trong phạm vi của bạn. Hộp thoại “Kết quả đồng bộ shop” liệt kê kết quả và lỗi của từng shop."
+      },
+      {
+        "title": "Phân công Seller phụ trách",
+        "detail": "Ở cột “Seller phụ trách”, chọn nhân viên trong danh sách hoặc chọn “Chưa phân công” để bỏ phân công. Thay đổi được lưu ngay khi chọn."
+      },
+      {
+        "title": "Gán Fulfillment Provider",
+        "detail": "Ở cột “Fulfillment Provider”, chọn nhà cung cấp cho kết nối. Thay đổi được lưu ngay, nếu máy chủ từ chối thì ô chọn quay về giá trị cũ."
+      },
+      {
+        "title": "Cập nhật Thông tin đăng nhập TikTok",
+        "detail": "Bấm biểu tượng “Thông tin đăng nhập TikTok” để nhập Tiktok mail, Password tiktok, 2FA Code, Onhold Amount và Ngày về tiền. Để trống ô đã lưu nếu muốn giữ nguyên giá trị."
+      },
+      {
+        "title": "Xem chi tiết kết nối",
+        "detail": "Bấm “Xem chi tiết” để mở trang kết nối, gồm “Thông tin kết nối”, “Token & Uỷ quyền”, “Access Scope đã được cấp” và bảng TikTok Shops."
+      },
+      {
+        "title": "Chọn kho mặc định cho shop",
+        "detail": "Trong bảng TikTok Shops, chọn kho ở cột “Kho mặc định”. Chọn “Tự động (quyết lúc publish)” nếu muốn hệ thống quyết định kho khi đăng sản phẩm."
+      },
+      {
+        "title": "Đồng bộ kho hàng",
+        "detail": "Vào Syncs Master Data → “Kho hàng” và bấm “Đồng bộ kho” để kéo danh sách kho từ TikTok. Kho được lấy từ TikTok, không tạo thủ công trên hệ thống."
+      }
+    ],
+    "notes": [
+      "Trạng thái shop sau khi đồng bộ: “Hoạt động” (ACTIVE), “Ngừng hoạt động” (INACTIVE), “Mất uỷ quyền” (DEAUTHORIZED). Danh sách kết nối hiển thị số shop không hoạt động nếu có.",
+      "Trạng thái kết nối gồm: Đang hoạt động, Chờ xử lý, Cần uỷ quyền lại, Đã bị thu hồi, Đã ngắt kết nối, Lỗi.",
+      "Một shop lỗi không làm hỏng cả lượt đồng bộ shop. Kết quả từng shop là Đã đồng bộ, Bỏ qua hoặc Lỗi.",
+      "Seller chỉ thấy các kết nối được phân công cho mình. Seller phụ trách là căn cứ cho Order, Payout và Dashboard.",
+      "Mỗi lần xem Password / 2FA đã lưu (cần quyền riêng) đều được ghi nhật ký kiểm toán.",
+      "Ô “Kho mặc định” chỉ liệt kê kho của chính shop đó. Người không có quyền cập nhật chỉ xem được tên kho.",
+      "Trang chi tiết hiển thị số ngày còn lại trước hạn uỷ quyền. Khi gần hết hạn, hãy uỷ quyền lại kết nối."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Đồng bộ shop báo “Không có TikTok Shop nào trong phạm vi của bạn.”",
+        "solution": "Bạn chưa được phân công kết nối nào. Liên hệ Admin để được phân công."
+      },
+      {
+        "problem": "Shop chuyển sang “Mất uỷ quyền”.",
+        "solution": "Uỷ quyền lại kết nối bằng luồng “Link TikTok Shop” với chính tài khoản TikTok đó."
+      },
+      {
+        "problem": "Danh sách Fulfillment Provider báo chưa có nhà cung cấp nào.",
+        "solution": "Thêm nhà cung cấp ở Setting Fulfillment → Fulfillment Providers trước, rồi quay lại gán."
+      },
+      {
+        "problem": "Báo “Không đổi được Seller” hoặc “Nhân viên được chọn không hợp lệ”.",
+        "solution": "Kiểm tra nhân viên còn hoạt động và bạn có quyền cập nhật kết nối, rồi chọn lại."
+      },
+      {
+        "problem": "Ô “Kho mặc định” không có kho để chọn.",
+        "solution": "Vào màn hình “Kho hàng” và bấm “Đồng bộ kho” để kéo kho của shop về."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/tiktok-accounts",
+    "permission": "pod.tiktok.account.read"
+  },
+  {
+    "slug": "san-pham",
+    "title": "Sản phẩm",
+    "summary": "Hướng dẫn đồng bộ, tìm kiếm, xem chi tiết và chỉnh sửa sản phẩm TikTok Shop trong màn hình Sản phẩm.",
+    "overview": "Màn hình Sản phẩm hiển thị bản sao sản phẩm TikTok Shop đã đồng bộ về hệ thống. Mọi thao tác ghi (sửa, ngừng bán, xoá) đều được gửi lên TikTok Shop trước, TikTok nhận thì dữ liệu trong hệ thống mới thay đổi. Sản phẩm được đồng bộ theo lịch, và bạn cũng có thể đồng bộ thủ công.",
+    "whenToUse": [
+      "Kéo sản phẩm mới nhất từ TikTok Shop về hệ thống.",
+      "Tìm sản phẩm theo shop, trạng thái, danh mục, thương hiệu hoặc nhân viên.",
+      "Sửa tên, mô tả, ảnh, giá hoặc tồn kho của sản phẩm đang có trên TikTok.",
+      "Ngừng bán hoặc xoá sản phẩm trên TikTok Shop."
+    ],
+    "prerequisites": [
+      "Có quyền xem sản phẩm (pod.product.read).",
+      "Nút đồng bộ cần pod.product.sync. Các thao tác Sửa, Ngừng bán, Xoá, Nhân bản cần lần lượt pod.product.update, pod.product.deactivate, pod.product.delete, pod.product.clone.",
+      "Kết nối TikTok của shop đang hoạt động."
+    ],
+    "steps": [
+      { "title": "Mở màn hình Sản phẩm", "detail": "Trên menu, chọn “Sản phẩm”." },
+      {
+        "title": "Đồng bộ sản phẩm",
+        "detail": "Bấm “Đồng bộ ngay” để kéo sản phẩm từ TikTok Shop. Bấm “Đồng bộ toàn bộ” khi cần quét lại mọi sản phẩm ở mọi trạng thái (tốn nhiều quota API của TikTok hơn)."
+      },
+      {
+        "title": "Kiểm tra trạng thái đồng bộ",
+        "detail": "Bấm “Trạng thái đồng bộ” để xem lần đồng bộ sản phẩm gần nhất của từng shop, nguồn chạy (Tự động, Thủ công) và danh sách sản phẩm lỗi nếu có."
+      },
+      {
+        "title": "Tìm và lọc",
+        "detail": "Tìm theo tên sản phẩm, TikTok Product ID hoặc Seller SKU. Lọc theo shop, trạng thái (Đang bán, Đang duyệt, Ngừng bán, Cần xử lý), danh mục, thương hiệu, hoặc theo nhân viên nếu bạn có quyền xem mọi shop."
+      },
+      {
+        "title": "Xem chi tiết sản phẩm",
+        "detail": "Bấm “Xem chi tiết” để xem Biến thể (SKU), Thông tin, Thuộc tính, Mô tả và Hình ảnh & video. Bấm “Đồng bộ lại sản phẩm này” để cập nhật riêng sản phẩm đó từ TikTok."
+      },
+      {
+        "title": "Sửa sản phẩm",
+        "detail": "Mở menu “Thao tác khác” trên dòng sản phẩm, chọn “Sửa”. Chỉnh ở các tab “Nội dung sản phẩm”, “Ảnh sản phẩm”, “SKU sản phẩm”, rồi bấm “Lưu thay đổi”. Chỉ những trường đã sửa mới được gửi lên TikTok."
+      },
+      {
+        "title": "Ngừng bán hoặc xoá",
+        "detail": "Chọn một hoặc nhiều sản phẩm bằng ô chọn rồi bấm “Ngừng bán” hoặc “Xoá”, xem cảnh báo và xác nhận."
+      }
+    ],
+    "notes": [
+      "TikTok không cho đổi danh mục, cũng không cho thêm hoặc xoá biến thể của sản phẩm đã tạo. Bạn chỉ sửa được thông tin của các biến thể đang có.",
+      "Trong màn hình sửa có thể áp Mẫu Category, Mẫu Mô tả, Bộ ảnh mẫu và Mẫu SKU. Áp mẫu sẽ ghi đè các trường tương ứng.",
+      "Tồn kho chỉ được gửi lên sàn khi sản phẩm đã gắn kho. Giá và Seller SKU thì luôn gửi được.",
+      "Ngừng bán: sản phẩm bị Deactivate trên TikTok và có thể bật bán lại trên Seller Center. Bản ghi trong hệ thống được giữ lại.",
+      "Xoá: sản phẩm bị xoá khỏi TikTok Shop (TikTok giữ 30 ngày để khôi phục) và bị xoá mềm trong hệ thống. Draft Listing, ánh xạ sản phẩm và đơn hàng liên quan được giữ nguyên.",
+      "Seller chỉ thấy sản phẩm của các shop được phân công.",
+      "Listing Quality chỉ được TikTok chấm cho thị trường US."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Đồng bộ báo shop bị bỏ qua, ví dụ “kết nối cần uỷ quyền lại” hoặc “shop ngừng hoạt động trên TikTok”.",
+        "solution": "Uỷ quyền lại kết nối ở màn hình TikTok Accounts, hoặc kiểm tra trạng thái shop trên TikTok, rồi đồng bộ lại."
+      },
+      {
+        "problem": "Báo một số shop đang có lượt đồng bộ khác.",
+        "solution": "Chờ vài phút rồi thử lại."
+      },
+      {
+        "problem": "Báo shop chưa xong trong thời gian cho phép.",
+        "solution": "Lượt đồng bộ vẫn đang chạy tiếp ở nền. Theo dõi kết quả trong “Trạng thái đồng bộ”."
+      },
+      {
+        "problem": "Không lưu được thay đổi khi sửa sản phẩm.",
+        "solution": "Kiểm tra thông báo lỗi: tên không được để trống, phải có ít nhất một ảnh, giá bán phải lớn hơn 0, tồn kho từ 0 trở lên và Seller SKU không được trùng giữa các biến thể."
+      },
+      {
+        "problem": "Danh sách trống.",
+        "solution": "Bấm “Đồng bộ ngay” để kéo sản phẩm từ TikTok Shop, hoặc kiểm tra lại bộ lọc."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/products",
+    "permission": "pod.product.read"
+  },
+  {
+    "slug": "du-lieu-chuan-master-data",
+    "title": "Dữ liệu chuẩn (Master data)",
+    "summary": "Giải thích các màn hình trong nhóm Syncs Master Data (Danh mục, Thương hiệu, Kho hàng, TikTok Master Data, Đồng bộ dữ liệu) và cách đồng bộ.",
+    "overview": "Nhóm menu Syncs Master Data gom các dữ liệu nền dùng khi dựng listing và template. Danh mục, thương hiệu và thuộc tính danh mục là dữ liệu TikTok dùng chung cho mọi tổ chức, do Super Admin của nền tảng đồng bộ. Kho hàng là dữ liệu riêng của tổ chức, được đồng bộ từ shop TikTok của bạn.",
+    "whenToUse": [
+      "Tra cứu danh mục hoặc thương hiệu TikTok khi dựng template hay listing.",
+      "Kiểm tra vì sao danh sách danh mục hoặc thương hiệu trống khi dựng template.",
+      "Đồng bộ kho hàng của tổ chức trước khi dựng Listing Template."
+    ],
+    "prerequisites": [
+      "Xem Danh mục và Thương hiệu: pod.product.read.",
+      "Xem TikTok Master Data: pod.product.read hoặc platform.masterdata.read. Chỉ Super Admin nền tảng có nút đồng bộ.",
+      "Menu Kho hàng và Đồng bộ dữ liệu: pod.product.sync.",
+      "Đã có kết nối TikTok Shop đang hoạt động (đối với kho hàng)."
+    ],
+    "steps": [
+      {
+        "title": "Tra cứu Danh mục",
+        "detail": "Vào Syncs Master Data → “Danh mục” để xem cây danh mục TikTok (chỉ đọc). Tìm theo tên hoặc ID danh mục. Cột “Danh mục lá” cho biết danh mục là Lá hay Nhánh."
+      },
+      {
+        "title": "Tra cứu Thương hiệu",
+        "detail": "Vào “Thương hiệu” để xem danh sách thương hiệu TikTok (chỉ đọc), tìm theo tên. Cột “Được cấp quyền” cho biết thương hiệu đã được cấp quyền sử dụng hay chưa."
+      },
+      {
+        "title": "Kiểm tra TikTok Master Data",
+        "detail": "Vào “TikTok Master Data” để xem số bản ghi, lần đồng bộ thành công gần nhất và trạng thái của Danh mục, Thương hiệu và Thuộc tính danh mục."
+      },
+      {
+        "title": "Đồng bộ kho hàng của tổ chức",
+        "detail": "Vào “Đồng bộ dữ liệu”, bấm “Đồng bộ” ở dòng Kho hàng, hoặc vào “Kho hàng” và bấm “Đồng bộ kho”."
+      },
+      {
+        "title": "Xem nhật ký đồng bộ",
+        "detail": "Trong “Đồng bộ dữ liệu”, bấm “Xem log” để xem từng lượt chạy: mỗi shop một dòng, kèm một dòng tổng kết cho mỗi lượt."
+      }
+    ],
+    "notes": [
+      "Admin tổ chức không cần đồng bộ Danh mục, Thương hiệu hay Thuộc tính danh mục. Bộ dữ liệu này dùng chung và được đồng bộ ở cấp nền tảng.",
+      "Một số tài nguyên phải được đồng bộ sau tài nguyên khác. Khi đó dòng tài nguyên hiện thông báo “Cần đồng bộ … trước”.",
+      "Lượt đồng bộ lỗi không xoá dữ liệu hiện có, bạn có thể chạy lại.",
+      "Thương hiệu chưa được cấp quyền có thể khiến TikTok từ chối listing dùng thương hiệu đó.",
+      "Bản ghi “No brand” được đánh dấu “bản ghi hệ thống”.",
+      "Kho hàng chỉ được lấy từ TikTok, hệ thống không có chức năng tạo kho thủ công. Listing Template chọn kho từ danh sách này."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Danh sách danh mục khi dựng template bị trống.",
+        "solution": "Mở “TikTok Master Data” để kiểm tra trạng thái. Nếu hiện “Chưa đồng bộ”, hãy liên hệ qua email hỗ trợ."
+      },
+      {
+        "problem": "Đồng bộ kho báo một số shop lỗi.",
+        "solution": "Bấm “Xem log” để xem lỗi từng shop. Kiểm tra kết nối TikTok của shop đó còn hoạt động, rồi đồng bộ lại."
+      },
+      {
+        "problem": "Không thấy nút đồng bộ trong TikTok Master Data.",
+        "solution": "Đây là hành vi đúng. Dữ liệu này được đồng bộ ở cấp nền tảng, bạn chỉ cần sử dụng."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/master-data",
+    "permission": "pod.product.read"
+  },
+  {
+    "slug": "tiktok-payout",
+    "title": "Payout",
+    "summary": "Hướng dẫn xem thống kê tiền TikTok Shop đã chi trả theo Seller và theo Account, và đồng bộ dữ liệu Payout.",
+    "overview": "Màn hình Tiktok Payout thống kê tiền TikTok Shop đã chi trả, lấy từ Finance API của TikTok đã đồng bộ về hệ thống. Trang này không tự tính lại tiền. Admin thấy số liệu của toàn tổ chức, còn Seller chỉ thấy các Account do mình phụ trách.",
+    "whenToUse": [
+      "Theo dõi tổng tiền TikTok đã chi trả trong một khoảng thời gian.",
+      "So sánh payout giữa các Seller hoặc giữa các kết nối TikTok.",
+      "Cập nhật số liệu payout mới nhất từ TikTok."
+    ],
+    "prerequisites": [
+      "Có quyền xem Payout (pod.tiktok.payout.read).",
+      "Nút “Đồng bộ Payout” cần quyền pod.tiktok.payout.sync.",
+      "Kết nối TikTok Shop đã được phân công Seller phụ trách, để số liệu được gom đúng theo Seller."
+    ],
+    "steps": [
+      { "title": "Mở Tiktok Payout", "detail": "Trên menu, chọn “Tiktok Payout”." },
+      {
+        "title": "Chọn khoảng thời gian",
+        "detail": "Dùng bộ lọc ngày (mặc định “30 ngày gần nhất”) để chọn Hôm nay, 7 ngày gần nhất, Tháng này, Tháng trước, Tất cả thời gian hoặc “Tùy chọn” với Từ ngày và Đến ngày."
+      },
+      {
+        "title": "Lọc theo trạng thái",
+        "detail": "Chọn trạng thái Payout: Đã chi trả, Đang xử lý hoặc Thất bại. Trạng thái hiển thị đúng theo dữ liệu TikTok trả về."
+      },
+      {
+        "title": "Xem tổng quan",
+        "detail": "Thẻ tổng hợp hiển thị Total Payout cùng các chỉ số liên quan cho bộ lọc đang chọn."
+      },
+      {
+        "title": "Xem theo Seller và theo Account",
+        "detail": "Bảng “Payout theo Seller” gom theo nhân viên phụ trách. Bảng “Payout theo Account” liệt kê từng kết nối kèm Seller phụ trách. Mỗi bảng có ô tìm kiếm, phân trang và sắp xếp theo cột."
+      },
+      {
+        "title": "Đồng bộ Payout",
+        "detail": "Bấm “Đồng bộ Payout” để lấy dữ liệu mới từ TikTok. Thông báo kết quả cho biết số shop thành công, số khoản chi trả mới và số đối soát mới."
+      }
+    ],
+    "notes": [
+      "Bộ lọc thời gian và trạng thái áp dụng cho cả thẻ tổng hợp và hai bảng.",
+      "Bảng mặc định sắp xếp giảm dần theo Payout. Bấm lại cùng một cột để đảo chiều sắp xếp.",
+      "Account chưa phân công Seller nằm trong nhóm “Chưa phân công” ở bảng theo Seller.",
+      "Nếu dữ liệu có nhiều đơn vị tiền tệ, con số tổng là phép cộng các loại tiền khác nhau và không có ý nghĩa tài chính. Hãy xem theo từng Account có cùng đơn vị tiền tệ."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Bảng hiện “Chưa có dữ liệu Payout khớp bộ lọc”.",
+        "solution": "Đổi khoảng thời gian hoặc bấm “Đồng bộ Payout” để kéo dữ liệu mới."
+      },
+      {
+        "problem": "Báo “Đồng bộ Payout thất bại”.",
+        "solution": "Đọc mô tả lỗi trong thông báo. Kiểm tra kết nối TikTok ở màn hình TikTok Accounts, uỷ quyền lại nếu cần, rồi đồng bộ lại."
+      },
+      {
+        "problem": "Seller không thấy số liệu của mình.",
+        "solution": "Kiểm tra kết nối TikTok đã được phân công cho Seller đó ở cột “Seller phụ trách” trong TikTok Accounts."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/payout",
+    "permission": "pod.tiktok.payout.read"
+  },
+  {
+    "slug": "don-hoan-tra-returns",
+    "title": "Đơn hoàn trả (Returns)",
+    "summary": "Hướng dẫn theo dõi yêu cầu Return / Refund của TikTok Shop trong màn hình Đơn hoàn / hoàn tiền.",
+    "overview": "Màn hình Đơn hoàn / hoàn tiền (menu Đơn hàng) hiển thị các yêu cầu Return / Refund của TikTok Shop, được đồng bộ từ Return & Refund API. Bạn có thể xem số liệu tổng hợp theo nhóm trạng thái, lọc danh sách và mở lịch sử xử lý của từng yêu cầu. Dữ liệu được đồng bộ tự động, và bạn cũng có thể đồng bộ thủ công.",
+    "whenToUse": [
+      "Theo dõi các yêu cầu hoàn tiền hoặc trả hàng đang chờ xử lý.",
+      "Kiểm tra số tiền đã hoàn và doanh thu bị TikTok trừ khi quyết toán.",
+      "Xem lịch sử xử lý của một yêu cầu cụ thể."
+    ],
+    "prerequisites": [
+      "Có quyền xem đơn hoàn (pod.tiktok.return.read).",
+      "Nút “Đồng bộ ngay” cần quyền pod.tiktok.return.sync.",
+      "Kết nối TikTok đã được cấp quyền Return & Refund."
+    ],
+    "steps": [
+      {
+        "title": "Mở màn hình",
+        "detail": "Trên menu, chọn Đơn hàng → “Đơn hoàn / hoàn tiền”. Dưới tiêu đề là thời điểm đồng bộ gần nhất."
+      },
+      {
+        "title": "Đồng bộ dữ liệu",
+        "detail": "Bấm “Đồng bộ ngay” để lấy yêu cầu mới từ TikTok, hoặc chờ lượt đồng bộ tự động. Bấm “Trạng thái đồng bộ” để xem lần đồng bộ gần nhất của từng shop."
+      },
+      {
+        "title": "Xem số liệu tổng hợp",
+        "detail": "Các thẻ đầu trang hiển thị Tổng yêu cầu, Chờ xử lý, Đã duyệt / Đang xử lý, Hoàn tất, Từ chối / Huỷ và Số tiền hoàn theo từng loại tiền tệ."
+      },
+      {
+        "title": "Tìm và lọc",
+        "detail": "Tìm theo Order ID hoặc Return ID. Lọc theo tài khoản TikTok, loại yêu cầu, nhóm trạng thái, trạng thái TikTok, lý do và thời gian (theo ngày yêu cầu hoặc theo lần cập nhật)."
+      },
+      {
+        "title": "Sắp xếp",
+        "detail": "Chọn Yêu cầu mới nhất, Yêu cầu cũ nhất, Cập nhật gần đây hoặc Tiền hoàn cao nhất."
+      },
+      {
+        "title": "Xem lịch sử yêu cầu",
+        "detail": "Bấm “Lịch sử” trên dòng yêu cầu để xem lịch sử xử lý từ TikTok, mã vận đơn trả hàng và tệp đính kèm nếu có."
+      }
+    ],
+    "notes": [
+      "Loại yêu cầu gồm: Chỉ hoàn tiền, Trả hàng & hoàn tiền, Đổi sản phẩm, Trao đổi.",
+      "Nếu chưa khớp được mọi dòng hàng của yêu cầu với dòng đơn đã đồng bộ, cột “Khách đã trả” sẽ không hiển thị số tiền. Hệ thống không thay bằng tổng đơn.",
+      "“Doanh thu bị trừ trong quyết toán” là số TikTok trừ lại ở cấp đơn trong statement đã quyết toán, và đã được tính sẵn vào doanh thu / lợi nhuận.",
+      "Nếu không đọc được lịch sử mới nhất từ TikTok, hệ thống hiển thị bản đã lưu kèm thời điểm lưu.",
+      "Seller chỉ thấy yêu cầu thuộc các shop được phân công."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Cảnh báo “Một số shop không đồng bộ được dữ liệu Return / Refund”.",
+        "solution": "Số yêu cầu của các shop đó chưa đọc được, không có nghĩa là bằng 0. Sửa uỷ quyền theo lỗi hiển thị rồi bấm “Đồng bộ ngay”."
+      },
+      {
+        "problem": "Lỗi “ứng dụng chưa được cấp quyền Return & Refund”.",
+        "solution": "Uỷ quyền lại kết nối ở màn hình TikTok Accounts. Nếu vẫn lỗi, liên hệ qua email hỗ trợ."
+      },
+      {
+        "problem": "Lỗi “uỷ quyền TikTok đã hết hạn”.",
+        "solution": "Uỷ quyền lại kết nối ở màn hình TikTok Accounts rồi đồng bộ lại."
+      },
+      {
+        "problem": "Báo TikTok giới hạn tần suất hoặc không phản hồi.",
+        "solution": "Hệ thống sẽ tự thử lại ở lượt sau. Bạn cũng có thể chờ một lúc rồi bấm “Đồng bộ ngay”."
+      },
+      {
+        "problem": "Yêu cầu hiện “Đơn này chưa được đồng bộ vào POD Orders.”",
+        "solution": "Đồng bộ đơn hàng ở màn hình POD Orders để liên kết yêu cầu với đơn."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/returns",
+    "permission": "pod.tiktok.return.read"
+  }
+]

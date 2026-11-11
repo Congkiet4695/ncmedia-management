@@ -8,6 +8,7 @@ import { hasSession } from '@/lib/auth-cookies';
 import { useMounted } from '@/hooks/use-mounted';
 import { useAuthStore } from '@/stores/auth.store';
 import { useMe } from '@/features/auth/hooks/use-me';
+import { isPublicSitePath } from '@/features/public-site/site-config';
 
 const AUTH_ROUTES = ['/login', '/register'];
 
@@ -28,16 +29,22 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const clearSession = useAuthStore((s) => s.clearSession);
   const setLoading = useAuthStore((s) => s.setLoading);
 
+  // Website PUBLIC (/home, /docs, /pricing): không cần phiên — không gọi /me, không chặn hiển thị chờ phiên, không
+  // chuyển về /login khi phiên cũ hỏng. Nhờ vậy trang render ngay ở server (SEO). Mọi route khác giữ nguyên hành vi.
+  const publicSite = isPublicSitePath(pathname);
+
   // 🔴 Căn cứ là REFRESH token, không phải access token: access token hết hạn sau 15 phút
   // là chuyện bình thường và `apiClient` tự gia hạn khi /me trả 401. Lấy access token làm
   // điều kiện gọi /me nghĩa là mở lại trang sau 15 phút sẽ bị coi như chưa đăng nhập.
-  const sessionAlive = mounted ? hasSession() : false;
+  const sessionAlive = mounted && !publicSite ? hasSession() : false;
   const meQuery = useMe(sessionAlive);
 
   // Không có phiên → dừng loading, không gọi /me.
+  // 🔴 Trang public KHÔNG đụng phiên: `clearSession()` xoá cookie — chạy ở đây thì người đang đăng nhập chỉ cần ghé
+  // /home là bị đăng xuất.
   useEffect(() => {
-    if (mounted && !sessionAlive) clearSession();
-  }, [mounted, sessionAlive, clearSession]);
+    if (mounted && !publicSite && !sessionAlive) clearSession();
+  }, [mounted, publicSite, sessionAlive, clearSession]);
 
   // /me thành công → lưu phiên vào Zustand.
   useEffect(() => {
@@ -63,6 +70,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     setLoading(resolving);
   }, [resolving, setLoading]);
+
+  if (publicSite) return <>{children}</>;
 
   if (resolving) {
     return (

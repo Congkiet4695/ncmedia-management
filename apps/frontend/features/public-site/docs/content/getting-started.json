@@ -1,0 +1,546 @@
+[
+  {
+    "slug": "gioi-thieu",
+    "title": "Giới thiệu Startly Ecom",
+    "summary": "Startly Ecom là nền tảng quản lý vận hành bán hàng TikTok Shop cho từng tổ chức: shop, sản phẩm, listing, đơn hàng, fulfillment, payout và nhân sự.",
+    "overview": "Mỗi doanh nghiệp sử dụng hệ thống dưới dạng một Organization (tổ chức) với dữ liệu tách biệt hoàn toàn với tổ chức khác. Admin của tổ chức quản lý nhân viên, kết nối TikTok Shop và phân công shop cho từng Seller. Menu bên trái (Sidebar) chỉ hiển thị những chức năng mà vai trò của bạn được phép sử dụng.",
+    "whenToUse": [
+      "Bạn mới bắt đầu sử dụng hệ thống và muốn biết có những chức năng nào.",
+      "Bạn cần biết một chức năng nằm ở menu nào."
+    ],
+    "prerequisites": [
+      "Tổ chức đã được đăng ký và được Super Admin duyệt.",
+      "Có tài khoản đăng nhập do Admin tổ chức cấp (hoặc là Admin đã đăng ký tổ chức)."
+    ],
+    "steps": [
+      {
+        "title": "Dashboard",
+        "detail": "Menu \"Dashboard\" hiển thị tổng quan tiền hold, trạng thái shop, đơn hàng theo kỳ, tài chính, thống kê seller và biểu đồ xu hướng."
+      },
+      {
+        "title": "Quản lý nhân sự",
+        "detail": "Menu \"Nhân viên\" để tạo và quản lý tài khoản nhân viên; \"Thống kê công việc nhân viên\" để xem listing, shop, đơn và lợi nhuận theo từng người."
+      },
+      {
+        "title": "Shop và sản phẩm",
+        "detail": "\"TikTok Accounts\" để liên kết TikTok Shop; \"Sản phẩm\" để xem và quản lý sản phẩm đang bán trên các shop."
+      },
+      {
+        "title": "Listing",
+        "detail": "Nhóm \"Listing\" gồm \"Auto Listing\", \"Nhân bản sản phẩm\", \"Draft Listing\" và \"Lịch sử Publish\" — luồng đưa sản phẩm lên sàn. \"Template\" và \"Flash Sale\" hỗ trợ dựng listing và chạy khuyến mãi."
+      },
+      {
+        "title": "Đơn hàng và tiền",
+        "detail": "Nhóm \"Đơn hàng\" gồm \"POD Orders\" và \"Đơn hoàn / hoàn tiền\"; menu \"Tiktok Payout\" để xem các khoản TikTok đã chi trả."
+      },
+      {
+        "title": "Dữ liệu và cài đặt",
+        "detail": "\"Syncs Master Data\" gom Danh mục, Thương hiệu, Kho hàng, TikTok Master Data và Đồng bộ dữ liệu. \"Setting Fulfillment\" cấu hình nhà cung cấp fulfillment; \"Cài đặt\" chứa Thông báo, Thông báo Telegram của tôi và Auto Flash Sale Scheduler."
+      },
+      {
+        "title": "Thanh công cụ phía trên",
+        "detail": "Header hiển thị số Shop đang dùng, ngày hết hạn gói, giờ US, nút đổi ngôn ngữ, đổi giao diện sáng/tối, avatar và nút \"Đăng xuất\"."
+      }
+    ],
+    "notes": [
+      "Menu được lọc theo quyền: nếu không thấy một mục, vai trò của bạn chưa được cấp quyền tương ứng.",
+      "Seller chỉ làm việc trên các shop được Admin gán cho mình.",
+      "Giao diện hỗ trợ Tiếng Việt và English."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Không thấy một menu mà đồng nghiệp có.",
+        "solution": "Menu phụ thuộc vai trò và quyền. Liên hệ Admin tổ chức để kiểm tra vai trò của bạn."
+      }
+    ],
+    "screenshotRoute": "/dashboard",
+    "permission": null
+  },
+  {
+    "slug": "dang-ky-organization",
+    "title": "Đăng ký Organization",
+    "summary": "Tạo Organization mới cùng tài khoản Admin đầu tiên; hồ sơ phải được Super Admin duyệt trước khi đăng nhập được.",
+    "overview": "Trang \"Đăng ký tổ chức\" tạo một Organization và tài khoản Admin đầu tiên của tổ chức. Sau khi gửi, tổ chức ở trạng thái chờ duyệt (PENDING) và chưa ai đăng nhập được cho tới khi Super Admin duyệt. Khi được duyệt lần đầu, tổ chức nhận gói mặc định: tối đa 10 Shop, hết hạn sau 30 ngày tính từ ngày ĐĂNG KÝ (không phải ngày duyệt).",
+    "whenToUse": ["Doanh nghiệp của bạn bắt đầu sử dụng hệ thống lần đầu."],
+    "prerequisites": [
+      "Một địa chỉ email chưa từng được dùng trong hệ thống (email là duy nhất trên toàn hệ thống)."
+    ],
+    "steps": [
+      {
+        "title": "Mở trang đăng ký",
+        "detail": "Bấm \"Đăng ký\" trên website, hoặc tại trang Đăng nhập bấm \"Đăng ký tổ chức\" (cạnh dòng \"Chưa có tài khoản?\")."
+      },
+      {
+        "title": "Nhập thông tin tổ chức và Admin",
+        "detail": "Điền \"Tên tổ chức\", \"Họ và tên\" (mỗi trường 2–255 ký tự) và \"Email\" — email này dùng để đăng nhập với vai trò Admin."
+      },
+      {
+        "title": "Nhập số điện thoại (tuỳ chọn)",
+        "detail": "Ô \"Điện thoại\" không bắt buộc (6–20 ký tự gồm số, khoảng trắng, +, -, ngoặc); Super Admin có thể dùng để liên hệ xác minh trước khi duyệt."
+      },
+      {
+        "title": "Đặt mật khẩu",
+        "detail": "\"Mật khẩu\" tối thiểu 8 ký tự, có cả chữ và số. Dùng biểu tượng con mắt để hiện/ẩn mật khẩu."
+      },
+      {
+        "title": "Gửi đăng ký",
+        "detail": "Bấm \"Đăng ký\". Màn hình chuyển sang \"Đã tiếp nhận đăng ký\" và cho biết email xác nhận đã được gửi hay chưa."
+      },
+      {
+        "title": "Chờ duyệt",
+        "detail": "Bấm \"Về trang đăng nhập\". Bạn sẽ nhận email khi hồ sơ được duyệt hoặc bị từ chối (email từ chối có ghi lý do)."
+      },
+      {
+        "title": "Đăng nhập sau khi được duyệt",
+        "detail": "Khi được duyệt, đăng nhập bằng email và mật khẩu đã đăng ký. Gói mặc định: 10 Shop, hết hạn sau 30 ngày kể từ ngày đăng ký."
+      }
+    ],
+    "notes": [
+      "Đăng ký không tự đăng nhập: tổ chức đang chờ duyệt bị chặn đăng nhập.",
+      "Nếu không gửi được email xác nhận, hồ sơ đăng ký VẪN được ghi nhận — không cần đăng ký lại.",
+      "Ví dụ: đăng ký 01/11, được duyệt 03/11 thì gói hết hạn 01/12. Hồ sơ chờ quá 30 ngày có thể hết hạn ngay khi được duyệt; khi đó cần Super Admin gia hạn.",
+      "Hồ sơ bị từ chối vẫn có thể được Super Admin duyệt lại sau đó.",
+      "Tổ chức mới được tạo sẵn ba vai trò mặc định: Administrator, Employee và Fulfillment."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Báo \"Email này đã được sử dụng\".",
+        "solution": "Email đã tồn tại trong hệ thống (kể cả ở tổ chức khác). Dùng một email khác."
+      },
+      {
+        "problem": "Màn hình báo không gửi được email xác nhận.",
+        "solution": "Hồ sơ đã được ghi nhận, không cần đăng ký lại. Chờ thông báo kết quả xét duyệt."
+      },
+      {
+        "problem": "Đăng nhập báo tổ chức đang chờ xét duyệt.",
+        "solution": "Super Admin chưa duyệt hồ sơ. Vui lòng chờ hoặc liên hệ qua email hỗ trợ."
+      }
+    ],
+    "screenshotRoute": "/register",
+    "permission": null
+  },
+  {
+    "slug": "dang-nhap",
+    "title": "Đăng nhập",
+    "summary": "Đăng nhập bằng email và mật khẩu; hệ thống chặn đăng nhập khi tổ chức chưa duyệt, bị từ chối, bị vô hiệu hoá hoặc hết hạn.",
+    "overview": "Trang \"Đăng nhập\" dùng email và mật khẩu do bạn đăng ký hoặc do Admin tổ chức cấp. Phiên đăng nhập được tự động gia hạn trong khi bạn làm việc, và có hiệu lực tối đa 7 ngày nếu không đăng xuất. Nếu tổ chức hết hạn hoặc bị vô hiệu hoá trong lúc đang dùng, phiên bị kết thúc và trang đăng nhập hiển thị lý do.",
+    "whenToUse": [
+      "Truy cập hệ thống mỗi khi bắt đầu làm việc.",
+      "Sau khi bị đưa về trang đăng nhập do phiên kết thúc."
+    ],
+    "prerequisites": ["Có tài khoản thuộc một tổ chức đã được duyệt và còn hạn."],
+    "steps": [
+      { "title": "Mở trang Đăng nhập", "detail": "Bấm \"Đăng nhập\" trên thanh menu của website." },
+      {
+        "title": "Nhập thông tin",
+        "detail": "Nhập \"Email\" và \"Mật khẩu\". Bấm biểu tượng con mắt nếu muốn hiện mật khẩu để kiểm tra."
+      },
+      { "title": "Đăng nhập", "detail": "Bấm \"Đăng nhập\". Thành công sẽ chuyển vào Dashboard." },
+      {
+        "title": "Đọc thông báo lỗi nếu có",
+        "detail": "Nếu bị từ chối, thông báo \"Đăng nhập thất bại\" kèm lý do cụ thể hiện ở góc màn hình."
+      },
+      { "title": "Đăng xuất", "detail": "Khi làm việc xong, bấm \"Đăng xuất\" ở góc phải header." }
+    ],
+    "notes": [
+      "Phiên tự gia hạn ngầm khi đang làm việc; bạn chỉ phải đăng nhập lại khi phiên thật sự hết hạn (tối đa 7 ngày) hoặc đã đăng xuất.",
+      "Khi tổ chức vừa bị vô hiệu hoá hoặc hết hạn, phiên đang mở cũng bị chặn (có thể chậm tối đa khoảng 30 giây) và bạn được đưa về trang đăng nhập kèm lý do.",
+      "Để bảo mật, sai email hay sai mật khẩu đều chỉ báo chung \"Email hoặc mật khẩu không đúng\"."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "\"Email hoặc mật khẩu không đúng\".",
+        "solution": "Kiểm tra lại email và mật khẩu. Nhân viên có thể nhờ Admin tổ chức đặt lại mật khẩu (Reset Password)."
+      },
+      {
+        "problem": "\"Organization của bạn đang chờ xét duyệt. Vui lòng đợi quản trị viên xem xét hồ sơ đăng ký.\"",
+        "solution": "Tổ chức chưa được Super Admin duyệt. Chờ email thông báo kết quả."
+      },
+      {
+        "problem": "\"Hồ sơ đăng ký Organization của bạn chưa được phê duyệt. Vui lòng kiểm tra email chúng tôi đã gửi để biết lý do.\"",
+        "solution": "Hồ sơ bị từ chối. Đọc lý do trong email và liên hệ Super Admin nếu cần duyệt lại."
+      },
+      {
+        "problem": "\"Tổ chức của bạn hiện đang bị vô hiệu hóa. Vui lòng liên hệ Super Admin.\"",
+        "solution": "Super Admin đã vô hiệu hoá tổ chức (áp dụng kể cả khi gói còn hạn). Liên hệ Super Admin để được kích hoạt lại."
+      },
+      {
+        "problem": "\"Gói của tổ chức đã hết hạn, vui lòng liên hệ admin.\"",
+        "solution": "Gói đã quá ngày hết hạn. Liên hệ Super Admin để gia hạn; sau khi gia hạn có thể đăng nhập lại."
+      },
+      {
+        "problem": "\"Organization của bạn hiện không hoạt động. Vui lòng liên hệ quản trị viên.\"",
+        "solution": "Tổ chức không ở trạng thái hoạt động. Liên hệ quản trị viên."
+      },
+      {
+        "problem": "\"Tài khoản đã bị vô hiệu hoá\" hoặc \"Tài khoản đang bị khoá\".",
+        "solution": "Tài khoản cá nhân của bạn bị khoá/vô hiệu hoá. Liên hệ Admin tổ chức."
+      }
+    ],
+    "screenshotRoute": "/login",
+    "permission": null
+  },
+  {
+    "slug": "tong-quan-dashboard",
+    "title": "Tổng quan Dashboard",
+    "summary": "Dashboard tổng hợp tiền hold, trạng thái shop, đơn hàng, tài chính, thống kê seller và xu hướng; header hiển thị gói, giờ US, ngôn ngữ và giao diện.",
+    "overview": "Dashboard là trang đầu tiên sau khi đăng nhập. Admin thấy số liệu của toàn tổ chức; Seller chỉ thấy số liệu của các TikTok Account được gán. Cuối trang là khối \"Phiên đăng nhập\" với Họ và tên, Tổ chức và Vai trò. Header phía trên luôn hiển thị số Shop đang dùng, ngày hết hạn gói và giờ US.",
+    "whenToUse": [
+      "Theo dõi nhanh tình hình kinh doanh hằng ngày.",
+      "Kiểm tra số Shop còn được kết nối và ngày hết hạn gói."
+    ],
+    "prerequisites": [
+      "Để xem các widget số liệu cần quyền report.read (Admin) hoặc pod.dashboard.read (Seller). Vai trò không có quyền này chỉ thấy khối \"Phiên đăng nhập\"."
+    ],
+    "steps": [
+      {
+        "title": "Chọn khoảng thời gian",
+        "detail": "Ở ô \"Thời gian\" chọn Ngày hôm nay, Ngày hôm qua, Tháng này (mặc định), Tháng trước hoặc Tất cả thời gian; sửa \"Từ ngày\"/\"Đến ngày\" sẽ chuyển sang \"Tuỳ chỉnh\"."
+      },
+      {
+        "title": "Lọc theo tiền, shop, seller",
+        "detail": "Chọn \"Đơn vị tiền\" (mặc định là đơn vị phổ biến nhất), \"Shop\" và \"Seller\" để thu hẹp số liệu."
+      },
+      {
+        "title": "Xem các thẻ tổng quan",
+        "detail": "\"Tổng tiền đang hold\", \"Trạng thái shop\" (Live / Die / Mất uỷ quyền) và \"Tiền hold theo nhân sự\" là ảnh chụp hiện tại; bấm vào thẻ để xem danh sách shop chi tiết."
+      },
+      {
+        "title": "Xem đơn hàng và tài chính",
+        "detail": "\"Đơn hàng theo kỳ\" so sánh Hôm nay / Hôm qua / Tháng này / Tháng trước; khối \"Tài chính\" và \"Đơn hàng\" theo khoảng ngày đã chọn."
+      },
+      {
+        "title": "Xem thống kê seller và xu hướng",
+        "detail": "Bảng \"Thống kê seller\" liệt kê doanh thu, chi phí, Profit Dự kiến... theo từng seller; \"Biểu đồ xu hướng\" có hai tab Tài chính và Đơn hàng. Di chuột vào biểu tượng gợi ý để xem công thức."
+      },
+      {
+        "title": "Dùng thanh header",
+        "detail": "Huy hiệu \"Shops: x / y\" và \"Hết hạn: ngày\" nằm hai bên đồng hồ \"Giờ US\"; nút ngôn ngữ chọn Tiếng Việt/English, nút mặt trăng/mặt trời đổi giao diện Sáng/Tối."
+      }
+    ],
+    "notes": [
+      "\"Hôm nay\", \"Tháng này\" và đồng hồ header tính theo giờ US (Los Angeles, tự đổi PST/PDT), không theo giờ máy của bạn.",
+      "Huy hiệu Shops chuyển màu cảnh báo khi dùng từ 90% giới hạn, màu đỏ khi đạt giới hạn.",
+      "Huy hiệu hết hạn chuyển màu cảnh báo khi còn 7 ngày trở xuống và hiện \"Đã hết hạn\" màu đỏ khi quá hạn.",
+      "Huy hiệu Shops cập nhật ở lần tải trang kế tiếp (vd sau khi liên kết TikTok xong).",
+      "Ngôn ngữ và giao diện sáng/tối được ghi nhớ trên trình duyệt."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Báo \"Ngày bắt đầu phải trước hoặc bằng ngày kết thúc\".",
+        "solution": "Sửa lại \"Từ ngày\" không lớn hơn \"Đến ngày\"; số liệu sẽ tải lại."
+      },
+      {
+        "problem": "Dashboard chỉ có khối \"Phiên đăng nhập\", không có số liệu.",
+        "solution": "Vai trò của bạn không có quyền xem Dashboard số liệu. Liên hệ Admin tổ chức."
+      },
+      {
+        "problem": "Seller không thấy số liệu của một shop.",
+        "solution": "Seller chỉ thấy TikTok Account được gán. Nhờ Admin gán shop cho bạn."
+      }
+    ],
+    "screenshotRoute": "/dashboard",
+    "permission": null
+  },
+  {
+    "slug": "goi-su-dung-gioi-han-shop-ngay-het-han",
+    "title": "Gói sử dụng: giới hạn Shop & ngày hết hạn",
+    "summary": "Mỗi tổ chức có giới hạn số Shop TikTok được kết nối và một ngày hết hạn; chỉ Super Admin thay đổi được.",
+    "overview": "Gói sử dụng gồm hai thông số: số Shop tối đa được kết nối và ngày hết hạn. Gói mặc định khi duyệt lần đầu là 10 Shop, hết hạn sau 30 ngày kể từ ngày đăng ký. Khi đạt giới hạn, tổ chức không kết nối thêm Shop mới được; khi hết hạn hoặc bị vô hiệu hoá, Admin và nhân viên không truy cập được hệ thống.",
+    "whenToUse": [
+      "Kiểm tra còn bao nhiêu Shop được kết nối.",
+      "Gặp lỗi đạt giới hạn khi liên kết TikTok Shop.",
+      "Gói sắp hết hạn hoặc đã hết hạn."
+    ],
+    "prerequisites": ["Tổ chức đã được duyệt."],
+    "steps": [
+      {
+        "title": "Xem mức sử dụng",
+        "detail": "Huy hiệu \"Shops: x / y\" trên header cho biết số Shop đang kết nối / giới hạn; huy hiệu \"Hết hạn\" cho biết ngày hết hạn gói."
+      },
+      {
+        "title": "Hiểu cách đếm",
+        "detail": "Shop được tính là đang kết nối khi đã liên kết và chưa bị gỡ liên kết (cả shop và kết nối TikTok của nó chưa bị gỡ). Trạng thái phía TikTok (Live / Die / Mất uỷ quyền) không làm thay đổi phép đếm."
+      },
+      {
+        "title": "Giải phóng chỗ khi cần",
+        "detail": "Gỡ liên kết một kết nối TikTok không còn dùng tại \"TikTok Accounts\" sẽ giải phóng chỗ ngay lập tức."
+      },
+      {
+        "title": "Xin tăng giới hạn hoặc gia hạn",
+        "detail": "Liên hệ qua email hỗ trợ. Chỉ Super Admin đổi được giới hạn Shop và ngày hết hạn; Admin tổ chức không tự đổi được."
+      },
+      {
+        "title": "Sử dụng lại sau gia hạn",
+        "detail": "Khi Super Admin đặt ngày hết hạn mới trong tương lai, tổ chức dùng lại được ngay mà không cần đăng ký lại."
+      }
+    ],
+    "notes": [
+      "Khi kết nối thêm Shop làm vượt giới hạn, toàn bộ lượt liên kết đó bị huỷ, không có shop nào được thêm.",
+      "Uỷ quyền lại một kết nối cũ (không thêm shop) luôn được phép, kể cả khi tổ chức đang dùng nhiều hơn giới hạn — chỉ việc thêm Shop mới bị chặn.",
+      "Gói hết hạn khi thời điểm hiện tại đạt ngày giờ hết hạn. Khi đó mọi phiên đang mở cũng bị chặn.",
+      "Tổ chức bị vô hiệu hoá thì bị chặn kể cả khi gói còn hạn. Gia hạn không tự kích hoạt lại tổ chức đang bị vô hiệu hoá.",
+      "Ngày hết hạn không thể đặt trước ngày đăng ký."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "\"Tổ chức đã đạt giới hạn số lượng Shop được phép kết nối. Vui lòng liên hệ quản trị viên.\"",
+        "solution": "Gỡ liên kết các kết nối TikTok không dùng nữa để giải phóng chỗ, hoặc liên hệ để tăng giới hạn."
+      },
+      {
+        "problem": "Huy hiệu vẫn hiện số Shop cũ sau khi liên kết/gỡ liên kết.",
+        "solution": "Tải lại trang; huy hiệu cập nhật ở lần tải trang kế tiếp."
+      },
+      {
+        "problem": "\"Gói của tổ chức đã hết hạn, vui lòng liên hệ admin.\"",
+        "solution": "Liên hệ để gia hạn."
+      },
+      {
+        "problem": "\"Tổ chức của bạn hiện đang bị vô hiệu hóa. Vui lòng liên hệ Super Admin.\"",
+        "solution": "Liên hệ để được kích hoạt lại tổ chức."
+      }
+    ],
+    "screenshotRoute": "/dashboard",
+    "permission": null
+  },
+  {
+    "slug": "nhan-vien",
+    "title": "Nhân viên",
+    "summary": "Admin tạo, xem, sửa, xoá tài khoản nhân viên, gán vai trò và đặt lại mật khẩu.",
+    "overview": "Màn hình \"Nhân viên\" quản lý hồ sơ nhân sự và tài khoản đăng nhập của tổ chức. Mỗi nhân viên có một vai trò quyết định menu và thao tác được phép. Tổ chức có sẵn ba vai trò mặc định: Administrator (toàn quyền trong tổ chức), Employee (Seller) và Fulfillment. Chỉ Admin truy cập được khu vực này.",
+    "whenToUse": [
+      "Thêm nhân viên mới và cấp tài khoản đăng nhập.",
+      "Đổi vai trò, trạng thái hoặc thông tin của nhân viên.",
+      "Nhân viên quên mật khẩu.",
+      "Nhân viên nghỉ việc."
+    ],
+    "prerequisites": ["Đăng nhập với vai trò Admin (menu cần quyền employee.read)."],
+    "steps": [
+      {
+        "title": "Mở danh sách",
+        "detail": "Vào menu \"Nhân viên\". Lọc bằng \"Tìm kiếm (tên / email / SĐT)\", trạng thái, phòng làm việc và ngày vào làm."
+      },
+      {
+        "title": "Thêm nhân viên",
+        "detail": "Bấm \"Thêm nhân viên\", nhập \"Họ và tên\" và \"Email\" (bắt buộc) cùng các thông tin khác như Trạng thái, Phòng làm việc, Ngày bắt đầu làm việc, Lương (VND), KPI."
+      },
+      {
+        "title": "Chọn vai trò",
+        "detail": "Ở ô \"Vai trò\" chọn Administrator, Employee hoặc Fulfillment; để \"Mặc định (Employee)\" nếu là Seller."
+      },
+      {
+        "title": "Lưu và bàn giao mật khẩu",
+        "detail": "Bấm \"Thêm nhân viên\". Hộp thoại \"Tạo nhân viên thành công\" hiển thị email và mật khẩu tự sinh — mật khẩu chỉ hiện một lần, hãy lưu và chuyển an toàn cho nhân viên."
+      },
+      {
+        "title": "Xem và sửa",
+        "detail": "Trong bảng, dùng biểu tượng \"Xem chi tiết\" để xem nhanh, hoặc \"Sửa\" để mở trang chi tiết với form \"Sửa nhân viên\" rồi bấm \"Lưu\". Email không thể đổi."
+      },
+      {
+        "title": "Đặt lại mật khẩu",
+        "detail": "Trong trang chi tiết, khối \"Thông tin đăng nhập\" có nút \"Reset Password\"; mật khẩu mới hiển thị một lần."
+      },
+      {
+        "title": "Xoá nhân viên",
+        "detail": "Bấm \"Xoá\" và xác nhận ở hộp thoại \"Xóa nhân viên\". Nhân viên bị xoá mềm và không thể đăng nhập."
+      },
+      {
+        "title": "Nhập/xuất Excel",
+        "detail": "Dùng \"Export Excel\", \"Download Template\" và \"Import Excel\". Khi import: email chưa có sẽ được tạo mới (mật khẩu sinh ngẫu nhiên), email đã có trong tổ chức sẽ được cập nhật; chỉ cần một dòng lỗi là toàn bộ bị huỷ."
+      }
+    ],
+    "notes": [
+      "Administrator: toàn quyền trong tổ chức — quản lý nhân viên, TikTok Accounts, Fulfillment Providers, cài đặt thông báo, thống kê.",
+      "Employee (Seller): làm việc trên các shop được Admin gán — liên kết TikTok Shop của mình, quản lý sản phẩm, chạy listing, Flash Sale, xem POD Orders, đơn hoàn, Payout, tải design và fulfill đơn của shop mình; không gỡ liên kết shop và không cấu hình nhà cung cấp fulfillment.",
+      "Fulfillment: vai trò dành cho người xử lý fulfillment; trên menu hiện tại mặc định chỉ thấy \"Dashboard\" và \"Hồ sơ của tôi\".",
+      "Trạng thái nhân viên: Đang làm việc, Ngừng hoạt động, Đã nghỉ việc, Tạm khóa."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Thấy \"403 — Không có quyền truy cập\" khi vào Nhân viên.",
+        "solution": "Chỉ Quản trị viên (ADMIN) mới truy cập được khu vực này."
+      },
+      {
+        "problem": "Đóng hộp thoại mà quên lưu mật khẩu.",
+        "solution": "Mở trang chi tiết nhân viên và bấm \"Reset Password\" để tạo mật khẩu mới."
+      },
+      {
+        "problem": "Tạo nhân viên báo email đã được sử dụng.",
+        "solution": "Email là duy nhất trên toàn hệ thống; dùng email khác."
+      }
+    ],
+    "screenshotRoute": "/dashboard/employees",
+    "permission": "employee.read"
+  },
+  {
+    "slug": "thong-ke-cong-viec-nhan-vien",
+    "title": "Thống kê công việc nhân viên",
+    "summary": "Xem mỗi nhân viên đã listing trên shop nào, bao nhiêu sản phẩm, số đơn và lợi nhuận theo khoảng ngày.",
+    "overview": "Màn hình dành cho Admin để đánh giá công việc của từng nhân viên. Listing được tính là sản phẩm đưa lên sàn thành công do chính người đó thực hiện (mỗi sản phẩm trên một shop tính một lần). Đơn và lợi nhuận là của shop trong khoảng ngày, theo giờ vận hành.",
+    "whenToUse": [
+      "Đánh giá năng suất listing của nhân viên theo ngày hoặc giai đoạn.",
+      "Đối chiếu đơn hàng và lợi nhuận theo người và theo shop."
+    ],
+    "prerequisites": ["Vai trò Admin (cần cả quyền report.read và pod.shop.all)."],
+    "steps": [
+      {
+        "title": "Mở màn hình",
+        "detail": "Vào menu \"Thống kê công việc nhân viên\". Mặc định hiển thị số liệu hôm nay theo giờ vận hành."
+      },
+      {
+        "title": "Chọn khoảng ngày",
+        "detail": "Đặt \"Từ ngày\" và \"Đến ngày\"; bấm \"Hôm nay\" để quay về ngày hiện tại."
+      },
+      {
+        "title": "Lọc dữ liệu",
+        "detail": "Chọn \"Nhân viên\", \"Shop\" và \"Đơn vị tiền\". Bộ lọc áp dụng cho cả thẻ tóm tắt và bảng."
+      },
+      {
+        "title": "Đọc thẻ tóm tắt",
+        "detail": "Các thẻ: Nhân viên có listing, Shop được listing, Sản phẩm đã listing, Đơn hàng, Lợi nhuận, Lợi nhuận TB / đơn. Bấm thẻ nhân viên/shop để xem danh sách chi tiết."
+      },
+      {
+        "title": "Xem chi tiết theo nhân viên",
+        "detail": "Bảng \"Theo nhân viên\" mặc định sắp xếp giảm dần theo Listing; bấm tiêu đề cột để đổi sắp xếp, bấm một dòng để mở chi tiết từng shop."
+      },
+      {
+        "title": "Xuất báo cáo",
+        "detail": "Bấm \"Xuất Excel\" để tải dữ liệu theo bộ lọc hiện tại."
+      }
+    ],
+    "notes": [
+      "Lợi nhuận dùng cùng công thức màn Order; đơn chưa đủ giá vốn không được tính và hiện \"—\" (không phải 0).",
+      "Tổng đơn / lợi nhuận ở thẻ tóm tắt tính mỗi shop một lần.",
+      "Nhãn \"Không có hồ sơ nhân viên\" hoặc \"Ngừng hoạt động\" có thể xuất hiện cạnh tên người thực hiện."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Báo \"Chỉ Admin của tổ chức được xem thống kê công việc nhân viên.\"",
+        "solution": "Tài khoản của bạn không có quyền; liên hệ Admin."
+      },
+      {
+        "problem": "Bảng báo \"Không có dữ liệu trong khoảng ngày đã chọn.\"",
+        "solution": "Mở rộng khoảng ngày hoặc bỏ bớt bộ lọc Nhân viên/Shop."
+      },
+      {
+        "problem": "Cột lợi nhuận hiện \"—\".",
+        "solution": "Các đơn chưa có đủ dữ liệu giá vốn nên chưa được tính."
+      }
+    ],
+    "screenshotRoute": "/dashboard/employee-work",
+    "permission": "report.read"
+  },
+  {
+    "slug": "thong-bao",
+    "title": "Thông báo Telegram",
+    "summary": "Cấu hình bot Telegram để nhận thông báo đơn mới, fulfill và Return/Refund cho tổ chức hoặc cho riêng bạn.",
+    "overview": "Có hai trang trong nhóm \"Cài đặt\": \"Thông báo\" (cấu hình chung của tổ chức, dành cho Admin) và \"Thông báo Telegram của tôi\" (kênh cá nhân của nhân viên). Thông báo được gửi khi có đơn mới lúc đồng bộ, fulfill thành công, huỷ fulfillment thành công hoặc có yêu cầu Return/Refund mới. Kênh cá nhân chỉ nhận thông báo của các shop TikTok đang được gán cho bạn.",
+    "whenToUse": [
+      "Muốn nhận thông báo đơn hàng của tổ chức vào một group Telegram.",
+      "Seller muốn nhận thông báo đơn của shop mình vào Telegram riêng."
+    ],
+    "prerequisites": [
+      "Trang \"Thông báo\": quyền notification.config (mặc định Admin).",
+      "Trang \"Thông báo Telegram của tôi\": quyền notification.self (mặc định Employee).",
+      "Một bot Telegram tạo bằng @BotFather và đã được thêm vào group/channel nhận tin."
+    ],
+    "steps": [
+      {
+        "title": "Mở trang cài đặt",
+        "detail": "Vào \"Cài đặt\" > \"Thông báo\" (tổ chức) hoặc \"Cài đặt\" > \"Thông báo Telegram của tôi\" (cá nhân)."
+      },
+      {
+        "title": "Nhập Bot Token và Chat ID",
+        "detail": "Trong khối \"Tích hợp Telegram\", dán \"Bot Token\" lấy từ @BotFather và \"Chat ID\" (ID số của group/channel hoặc @channelusername)."
+      },
+      { "title": "Bật và lưu", "detail": "Tích \"Bật thông báo Telegram\" rồi bấm \"Lưu\"." },
+      {
+        "title": "Gửi tin thử",
+        "detail": "Bấm \"Gửi tin thử\" để kiểm tra; kết quả thành công hoặc lý do lỗi hiển thị ngay bên dưới."
+      },
+      {
+        "title": "Chọn loại thông báo",
+        "detail": "Trong khối \"Loại thông báo\", tích Đơn mới (New Order), Fulfill, Return / Refund theo nhu cầu rồi bấm \"Lưu\"."
+      },
+      {
+        "title": "Theo dõi và gửi lại",
+        "detail": "Khối \"Thông báo gần đây\" cho biết trạng thái từng tin (Chờ gửi, Đang gửi, Đã gửi, Lỗi, Bỏ qua); bấm \"Gửi lại\" hoặc \"Gửi lại tất cả lỗi\" với tin lỗi/bỏ qua."
+      }
+    ],
+    "notes": [
+      "Bot Token không bao giờ được hiển thị lại sau khi lưu; để trống ô token khi lưu nếu muốn giữ token cũ.",
+      "Nút \"Xoá\" xoá Bot Token và Chat ID đã lưu, ngừng gửi thông báo.",
+      "Có thể chọn loại thông báo trước khi bật Telegram; lựa chọn được lưu và áp dụng khi Telegram được bật.",
+      "Khi một shop được chuyển cho người khác, thông báo cá nhân của shop đó dừng ngay, kể cả tin đang chờ gửi.",
+      "Thông báo Return/Refund chỉ gửi một lần cho mỗi yêu cầu, không gửi lại khi đổi trạng thái."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "\"Bot Token không hợp lệ.\"",
+        "solution": "Lấy lại token từ @BotFather và dán đúng định dạng."
+      },
+      {
+        "problem": "\"Không tìm thấy chat — kiểm tra Chat ID và bot đã được thêm vào group chưa.\"",
+        "solution": "Kiểm tra Chat ID và thêm bot vào group/channel trước khi gửi thử."
+      },
+      {
+        "problem": "\"Bot không có quyền gửi tin vào chat này.\"",
+        "solution": "Cấp quyền gửi tin cho bot trong group/channel (với channel, thêm bot làm quản trị viên)."
+      },
+      {
+        "problem": "\"Telegram đang giới hạn tần suất bot\" hoặc Telegram gặp sự cố.",
+        "solution": "Thử lại sau ít phút, sau đó dùng \"Gửi lại tất cả lỗi\"."
+      }
+    ],
+    "screenshotRoute": "/dashboard/settings/notifications",
+    "permission": "notification.config"
+  },
+  {
+    "slug": "ho-so-ca-nhan",
+    "title": "Hồ sơ cá nhân",
+    "summary": "Xem thông tin tài khoản, tự cập nhật thông tin cá nhân và đổi mật khẩu.",
+    "overview": "Trang \"Hồ sơ của tôi\" dành cho nhân viên không có quyền quản lý nhân sự (Employee, Fulfillment). Phần \"Thông tin tài khoản\" do quản trị viên quản lý và chỉ để xem; phần \"Thông tin cá nhân\" bạn tự cập nhật được. Bạn cũng đổi mật khẩu đăng nhập tại đây.",
+    "whenToUse": [
+      "Cập nhật số điện thoại, ngân hàng, địa chỉ hoặc avatar.",
+      "Đổi mật khẩu đăng nhập."
+    ],
+    "prerequisites": [
+      "Quyền profile.read. Menu không hiển thị với Admin (người có quyền quản lý nhân viên)."
+    ],
+    "steps": [
+      { "title": "Mở hồ sơ", "detail": "Vào menu \"Hồ sơ của tôi\"." },
+      {
+        "title": "Xem thông tin tài khoản",
+        "detail": "Khối \"Thông tin tài khoản\" hiển thị Vai trò, Tổ chức, Phòng, Lương, Ngày vào làm, CCCD — chỉ quản trị viên sửa được."
+      },
+      {
+        "title": "Cập nhật thông tin cá nhân",
+        "detail": "Trong khối \"Thông tin cá nhân\", sửa Họ và tên, Số điện thoại, Ngày sinh, Account Lark, Tài khoản ngân hàng, QR Ngân hàng (URL), Địa chỉ, Avatar (URL) rồi bấm \"Lưu thay đổi\"."
+      },
+      {
+        "title": "Đổi mật khẩu",
+        "detail": "Trong khối \"Đổi mật khẩu\", nhập \"Mật khẩu hiện tại\", \"Mật khẩu mới\" và \"Nhập lại mật khẩu mới\", rồi bấm \"Đổi mật khẩu\"."
+      }
+    ],
+    "notes": [
+      "Mật khẩu mới tối thiểu 8 ký tự, có cả chữ và số, phải khác mật khẩu hiện tại và trùng với ô nhập lại.",
+      "Họ và tên, avatar sau khi lưu được cập nhật luôn trên header."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "\"Đổi mật khẩu thất bại\".",
+        "solution": "Kiểm tra mật khẩu hiện tại và yêu cầu về mật khẩu mới. Nếu quên mật khẩu hiện tại, nhờ Admin dùng \"Reset Password\"."
+      },
+      {
+        "problem": "Không thấy menu \"Hồ sơ của tôi\".",
+        "solution": "Menu ẩn với Admin; thông tin của Admin được quản lý tại màn hình Nhân viên."
+      },
+      {
+        "problem": "Không sửa được Phòng, Lương hoặc Vai trò.",
+        "solution": "Các thông tin này do quản trị viên quản lý; liên hệ Admin tổ chức."
+      }
+    ],
+    "screenshotRoute": "/dashboard/profile",
+    "permission": "profile.read"
+  }
+]

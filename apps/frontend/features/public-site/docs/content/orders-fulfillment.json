@@ -1,0 +1,460 @@
+[
+  {
+    "slug": "don-hang-tiktok",
+    "title": "Đơn hàng TikTok",
+    "summary": "Xem, lọc và theo dõi đơn hàng đồng bộ từ TikTok Shop tại màn hình POD Orders.",
+    "overview": "Màn hình POD Orders (menu Đơn hàng → POD Orders) hiển thị đơn hàng được đồng bộ tự động từ TikTok Shop, scheduler chạy mỗi 5 phút. Mỗi dòng đơn gồm các cột Thông tin, Sản phẩm, Giá, Trạng thái, Vận đơn, Xưởng in và Thao tác. Bạn có thể đồng bộ thủ công, kéo lịch sử đơn, lọc theo nhiều tiêu chí, mở chi tiết đơn và thao tác hàng loạt.",
+    "whenToUse": [
+      "Kiểm tra đơn mới từ các shop TikTok đã kết nối.",
+      "Tìm một đơn theo Order ID, mã vận đơn hoặc người mua.",
+      "Theo dõi trạng thái đơn trên TikTok và trạng thái ở xưởng in.",
+      "Xem tiền thu về, Base cost và lợi nhuận của từng đơn."
+    ],
+    "prerequisites": [
+      "Có quyền xem đơn hàng POD (pod.tiktok.order.read).",
+      "Đã kết nối ít nhất một TikTok Account.",
+      "Nút Đồng bộ ngay và Kéo lịch sử chỉ hiện khi có quyền đồng bộ đơn (pod.tiktok.order.sync)."
+    ],
+    "steps": [
+      {
+        "title": "Mở POD Orders",
+        "detail": "Vào menu Đơn hàng → POD Orders. Thẻ Tổng đơn và Total Amount phía trên tính theo đúng bộ lọc đang áp dụng."
+      },
+      {
+        "title": "Đồng bộ đơn",
+        "detail": "Bấm Đồng bộ ngay để lấy đơn mới ngay lập tức, hoặc Kéo lịch sử để kéo lại toàn bộ đơn từ trước tới nay theo ngày tạo. Kết quả hiển thị số shop thành công, số đơn tạo mới, cập nhật và bỏ qua."
+      },
+      {
+        "title": "Xem trạng thái đồng bộ",
+        "detail": "Bấm Trạng thái đồng bộ để xem lần đồng bộ đơn gần nhất của từng shop, gồm nguồn (Tự động (lịch), Thủ công, Kéo lịch sử), thời gian và lỗi gần nhất."
+      },
+      {
+        "title": "Lọc và tìm kiếm",
+        "detail": "Dùng ô Tìm theo Order ID / Tracking / Buyer..., bộ lọc thời gian, Tất cả trạng thái, Tất cả kết nối và Chỉ đơn POD / Không phải POD. Có thể bật thêm Đã có design, Chưa có design, Chưa đẩy Fulfill; bấm Xoá … bộ lọc để bỏ toàn bộ."
+      },
+      {
+        "title": "Xem nhanh trên dòng",
+        "detail": "Bấm Xem chi tiết trên một dòng để mở rộng: Thông tin người mua, Địa chỉ giao hàng, Chi tiết giá, Ghi chú & mốc thời gian, Dòng thời gian xưởng in và Log từ xưởng in."
+      },
+      {
+        "title": "Mở trang chi tiết đơn",
+        "detail": "Bấm biểu tượng Xem chi tiết đơn (hoặc chọn trong menu Thao tác khác) để xem Thông tin đơn, Thanh toán & Vận chuyển, danh sách Sản phẩm và phần Đồng bộ."
+      },
+      {
+        "title": "Thao tác hàng loạt",
+        "detail": "Tích chọn nhiều đơn để hiện thanh thao tác: Upload Design, Gửi xưởng, Đồng bộ xưởng in, Xuất Excel (xuất các đơn đang chọn đã tải trên màn hình ra file CSV) và Bỏ chọn."
+      }
+    ],
+    "notes": [
+      "Các trạng thái đơn TikTok: Chưa thanh toán, Đang giữ (On Hold), Chờ giao vận, Giao một phần, Chờ lấy hàng, Đang vận chuyển, Đã giao, Hoàn tất, Đã huỷ.",
+      "Đơn ở trạng thái On Hold chưa được đưa vào sản xuất/in; người mua vẫn có thể huỷ tự do trong 1 giờ.",
+      "Thông tin người nhận được mã hoá và hiển thị là Đã ẩn; với một số đơn, TikTok đã che thông tin người nhận.",
+      "Lợi nhuận = Tiền thu về − Base cost − Phí ship Seller (phần chưa trừ trong tiền thu về) − Label cost. Margin = Lợi nhuận ÷ Tiền thu về. Khi thiếu dữ liệu, cột Giá hiển thị lý do chưa tính lợi nhuận.",
+      "Bộ lọc Tất cả nhân viên chỉ hiện với người dùng xem được mọi shop.",
+      "Nhãn vận chuyển của TikTok được lấy trong drawer Fulfill bằng nút Lấy nhãn từ TikTok (xem bài Fulfill đơn hàng)."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Thông báo Đang có lượt đồng bộ khác chạy.",
+        "solution": "Chờ lượt hiện tại kết thúc rồi bấm Đồng bộ ngay lại."
+      },
+      {
+        "problem": "Không có đơn nào khớp bộ lọc.",
+        "solution": "Đổi khoảng thời gian, bấm Xoá … bộ lọc hoặc bấm Đồng bộ ngay."
+      },
+      {
+        "problem": "Một shop báo Thất bại trong Trạng thái đồng bộ.",
+        "solution": "Xem cột Lỗi gần nhất; nếu là lỗi xác thực, kết nối lại TikTok Account rồi đồng bộ lại."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/orders",
+    "permission": "pod.tiktok.order.read"
+  },
+  {
+    "slug": "fulfill-don-hang",
+    "title": "Fulfill đơn hàng",
+    "summary": "Gửi đơn TikTok sang xưởng in (Mango Tee Prints hoặc Sellerwix) qua drawer Fulfill, theo dõi trạng thái, đồng bộ và huỷ đơn.",
+    "overview": "Drawer Fulfill đơn hàng cho phép chọn nhà cung cấp fulfillment, kiểm tra điều kiện gửi, thiết lập tuỳ chọn cho lần gửi và đẩy đơn sang xưởng in. Hệ thống liệt kê cùng lúc mọi vấn đề cần xử lý trước khi gửi. Sau khi gửi, trạng thái được cập nhật từ nhà cung cấp; bạn có thể đồng bộ thủ công hoặc yêu cầu huỷ đơn tại xưởng in.",
+    "whenToUse": [
+      "Gửi một đơn POD sang xưởng in để sản xuất.",
+      "Gửi lại đơn bị lỗi hoặc Fulfill lại đơn đã huỷ ở nhà cung cấp.",
+      "Cập nhật trạng thái, vận đơn và chi phí thật từ nhà cung cấp.",
+      "Huỷ đơn đã gửi khi xưởng in chưa đưa vào sản xuất."
+    ],
+    "prerequisites": [
+      "Có quyền gửi fulfillment (fulfillment.create); huỷ đơn cần quyền fulfillment.cancel.",
+      "Có ít nhất một nhà cung cấp fulfillment dùng được (của tổ chức hoặc dùng chung).",
+      "Biến thể của đơn đã có Cấu hình sản phẩm (ánh xạ) và design có URL công khai."
+    ],
+    "steps": [
+      {
+        "title": "Mở drawer Fulfill",
+        "detail": "Tại POD Orders, bấm Gửi xưởng ở cột Xưởng in của đơn. Drawer Fulfill đơn hàng mở ra với khối Thông tin đơn hàng."
+      },
+      {
+        "title": "Chọn nhà cung cấp",
+        "detail": "Ở khối Loại fulfill, chọn Nhà cung cấp fulfillment. Đơn sẽ được gửi tới đúng nhà cung cấp đang chọn; nhà cung cấp dùng chung có ghi chú “dùng chung”. Hiện chỉ gửi được đơn POD."
+      },
+      {
+        "title": "Xử lý các vấn đề",
+        "detail": "Nếu drawer báo “Chưa gửi được: … vấn đề cần xử lý”, bấm Xem chi tiết để xem từng lỗi, ví dụ Chưa khai báo ánh xạ sản phẩm, Chưa có file design, Cần địa chỉ hoặc nhãn vận chuyển."
+      },
+      {
+        "title": "Thiết lập Fulfill",
+        "detail": "Chọn Shipping method và các tuỳ chọn mà nhà cung cấp hỗ trợ (Speed type, Facility, Preferred carrier, Scan label, Rush service), nhập Note nếu cần. Ô để trống dùng mặc định của đơn vị Fulfill."
+      },
+      {
+        "title": "Nhãn vận chuyển",
+        "detail": "Với phương thức By TikTok, bấm Lấy nhãn từ TikTok trước khi gửi. Có thể dán link nhãn công khai vào Label đơn hàng (URL) rồi bấm Lưu nhãn."
+      },
+      {
+        "title": "Kiểm tra sản phẩm và design",
+        "detail": "Rà khối Cấu hình sản phẩm và Cấu hình Design; khai báo hoặc sửa ngay trong drawer rồi bấm Lưu cấu hình."
+      },
+      {
+        "title": "Gửi đơn",
+        "detail": "Bấm Đẩy sang Fulfill. Khi thành công, drawer hiện ID xưởng in, Mã gửi đi, Trạng thái, Giá vốn xưởng in và tổng chi phí."
+      },
+      {
+        "title": "Theo dõi, đồng bộ, huỷ",
+        "detail": "Bấm Đồng bộ fulfillment để đọc trạng thái, vận đơn và chi phí thật từ nhà cung cấp. Bấm Huỷ đơn, nhập lý do (tuỳ chọn) rồi xác nhận để yêu cầu huỷ tại xưởng in."
+      }
+    ],
+    "notes": [
+      "Trạng thái sau khi gửi: Đang gửi, Đã gửi xưởng, Đang sản xuất, Tạm giữ, Đã gửi hàng, Đã giao, Đã huỷ, Bị từ chối, Gửi thất bại, Đã hoàn tiền, Chưa xác định.",
+      "Đồng bộ fulfillment không bao giờ tạo đơn mới ở nhà cung cấp. Có thể đồng bộ hàng loạt bằng nút Đồng bộ xưởng in trên thanh thao tác.",
+      "Chạy lại Fulfill dùng đúng mã đơn cũ nên xưởng in không tạo đơn thứ hai.",
+      "Huỷ đơn chỉ hoàn tất khi nhà cung cấp xác nhận. Sau khi đã huỷ, có thể Fulfill lại (tạo đơn mới ở nhà cung cấp); ánh xạ và design được giữ nguyên.",
+      "Quà tặng khuyến mãi của TikTok không được gửi sang nhà cung cấp; hãy đảm bảo quà được giao tới người mua.",
+      "Khi đơn ở trạng thái Đang gửi, hệ thống đang đối soát với nhà cung cấp — không gửi lại đơn này.",
+      "Các ô tuỳ chọn trong Thiết lập Fulfill thay đổi theo nhà cung cấp đang chọn."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Chưa có nhà cung cấp nào dùng được.",
+        "solution": "Thêm nhà cung cấp ở Setting Fulfillment → Fulfillment Providers, hoặc nhờ Super Admin bật nhà cung cấp dùng chung."
+      },
+      {
+        "problem": "Ánh xạ thuộc nhà cung cấp khác.",
+        "solution": "Sửa ánh xạ cho đúng nhà cung cấp, hoặc đổi nhà cung cấp gán cho kết nối TikTok của đơn cho khớp."
+      },
+      {
+        "problem": "Các sản phẩm khác line sản xuất.",
+        "solution": "Cả đơn phải cùng một line; chỉnh Cấu hình line sản xuất của các sản phẩm về cùng một line rồi lưu."
+      },
+      {
+        "problem": "Xưởng in từ chối đơn hoặc Gửi thất bại.",
+        "solution": "Đọc Chi tiết lỗi trong drawer, sửa nguyên nhân rồi bấm Chạy lại Fulfill."
+      },
+      {
+        "problem": "Yêu cầu huỷ có thể vẫn đang được xử lý.",
+        "solution": "Không bấm huỷ lại; trạng thái tự cập nhật khi nhà cung cấp xác nhận."
+      },
+      {
+        "problem": "Đơn không còn tồn tại ở nhà cung cấp.",
+        "solution": "Có thể Fulfill lại; hệ thống tạo đơn mới ở nhà cung cấp, ánh xạ và design giữ nguyên."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/orders",
+    "permission": "pod.tiktok.order.read"
+  },
+  {
+    "slug": "cau-hinh-san-pham-anh-xa",
+    "title": "Cấu hình sản phẩm & ánh xạ (Product Mapping)",
+    "summary": "Ánh xạ biến thể sản phẩm TikTok sang sản phẩm, biến thể và SKU của nhà cung cấp fulfillment.",
+    "overview": "Mỗi biến thể TikTok được xác định bằng Product ID + TikTok SKU ID; Design, Fulfillment SKU và Base Cost khai theo từng biến thể. Ánh xạ chỉ cần khai một lần là mọi đơn cùng biến thể đều dùng được. Bạn có thể khai trong khối Cấu hình sản phẩm của drawer Fulfill hoặc tại màn hình Product Mapping.",
+    "whenToUse": [
+      "Đơn báo Chưa khai báo ánh xạ sản phẩm khi gửi xưởng.",
+      "Chuẩn bị ánh xạ cho sản phẩm mới trước khi có đơn.",
+      "Đổi sản phẩm hoặc biến thể nhà cung cấp cho một biến thể TikTok."
+    ],
+    "prerequisites": [
+      "Có quyền cấu hình fulfillment (fulfillment.config).",
+      "Kết nối TikTok của đơn đã được gán nhà cung cấp fulfillment.",
+      "Danh mục của nhà cung cấp đã được đồng bộ."
+    ],
+    "steps": [
+      {
+        "title": "Mở nơi cấu hình",
+        "detail": "Mở drawer Fulfill của đơn và xem khối Cấu hình sản phẩm, hoặc mở màn hình Product Mapping rồi bấm Thêm ánh xạ."
+      },
+      {
+        "title": "Chọn nhà cung cấp và sản phẩm TikTok",
+        "detail": "Trên màn hình Product Mapping: Bước 1 — Chọn nhà cung cấp, Bước 2 — Chọn sản phẩm TikTok (biến thể đã có ánh xạ được gắn nhãn Đã ánh xạ)."
+      },
+      {
+        "title": "Chọn sản phẩm nhà cung cấp",
+        "detail": "Bước 3 — tìm theo tên hoặc SKU trong danh mục nhà cung cấp. Nếu danh mục chưa có dữ liệu, bấm Đồng bộ danh mục."
+      },
+      {
+        "title": "Chọn biến thể",
+        "detail": "Bước 4 — chọn biến thể theo Color/Size, hoặc dùng Select by fulfillment SKUs để chọn thẳng Fulfillment SKU. Hệ thống hiển thị SKU sẽ gửi."
+      },
+      {
+        "title": "Thiết lập bổ sung",
+        "detail": "Tuỳ nhà cung cấp, chọn Cấu hình kích thước hình in, Cấu hình line sản xuất, Vùng in của biến thể hoặc Artwork / Design theo vị trí in."
+      },
+      {
+        "title": "Kiểm tra Base Cost và lưu",
+        "detail": "Base Cost được lấy tự động từ giá nhà cung cấp của biến thể đã chọn. Bấm Lưu cấu hình (drawer) hoặc Lưu (Product Mapping)."
+      },
+      {
+        "title": "Ánh xạ tự động",
+        "detail": "Trên màn hình Product Mapping, bấm Ánh xạ tự động để rà các sản phẩm chưa ánh xạ. Kết quả cho biết số tự ánh xạ, số cần chọn tay và số không tìm thấy."
+      }
+    ],
+    "notes": [
+      "Ánh xạ tự động chỉ tạo ánh xạ khi tìm được đúng một kết quả. Khi có nhiều khả năng, hệ thống không tự chọn và đánh dấu Cần chọn tay để bạn chọn đúng biến thể.",
+      "Trạng thái ánh xạ trên dòng hàng: Đã ánh xạ, Chưa ánh xạ, Cần chọn tay, Chưa có nhà cung cấp.",
+      "Màn hình Product Mapping hỗ trợ lọc theo nhà cung cấp, trạng thái (ACTIVE/INACTIVE) và tình trạng design; có nút sửa và xoá ánh xạ.",
+      "Xoá ánh xạ khiến đơn dùng biến thể đó không gửi sản xuất được cho tới khi ánh xạ lại.",
+      "Cấu hình cũ (gắn nhãn Cấu hình cũ) dùng chung nhiều biến thể nên không tự áp dụng; xác nhận cho từng biến thể bằng nút Xác nhận dùng cho biến thể này trong drawer Fulfill.",
+      "Màn hình Product Mapping không có trên menu; phần lớn thao tác có thể thực hiện trong khối Cấu hình sản phẩm của drawer Fulfill.",
+      "Với Mango, cả đơn phải cùng một line sản xuất."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Danh mục chưa được đồng bộ, không chọn được sản phẩm.",
+        "solution": "Bấm Đồng bộ danh mục. Đồng bộ chạy nền, danh mục lớn có thể mất vài chục phút; danh sách tự cập nhật khi xong. Người không có quyền cấu hình cần nhờ Admin đồng bộ."
+      },
+      {
+        "problem": "Dòng hàng thiếu Product ID hoặc TikTok SKU ID nên không khai ánh xạ được.",
+        "solution": "Đồng bộ lại đơn từ TikTok."
+      },
+      {
+        "problem": "Sản phẩm đã lưu không còn trong danh mục đã đồng bộ.",
+        "solution": "Đồng bộ lại danh mục hoặc chọn sản phẩm khác rồi lưu; cấu hình cũ vẫn được giữ."
+      },
+      {
+        "problem": "Đã lưu cấu hình nhưng Base Cost để trống hoặc không cập nhật.",
+        "solution": "Biến thể chưa có giá nhà cung cấp trong danh mục. Đồng bộ lại danh mục rồi lưu lại cấu hình."
+      },
+      {
+        "problem": "SKU đã lưu thuộc xưởng khác với line sản xuất đang chọn.",
+        "solution": "Chọn lại Color/Size (đã lọc theo line) rồi bấm Lưu cấu hình."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/product-mapping",
+    "permission": "fulfillment.config"
+  },
+  {
+    "slug": "design",
+    "title": "Design",
+    "summary": "Tải file design hoặc dùng URL công khai cho từng vị trí in của một biến thể sản phẩm.",
+    "overview": "Design thuộc về biến thể (Product ID + TikTok SKU ID), không thuộc riêng một đơn. Upload một lần là dùng cho mọi đơn cùng biến thể, kể cả đơn đồng bộ về sau. Mỗi vị trí in (Front Design, Back Design) có thể nhận file tải lên hoặc một URL công khai; xưởng in dùng bản đã lưu trong hệ thống.",
+    "whenToUse": [
+      "Đơn báo Chưa có file design hoặc Thiếu mặt trước.",
+      "Thay file in của một biến thể.",
+      "Dùng file đang lưu trên Google Drive hoặc một link ảnh công khai."
+    ],
+    "prerequisites": [
+      "Có quyền upload design (pod.tiktok.design.upload); xoá design cần quyền pod.tiktok.design.delete.",
+      "Dòng hàng có đủ Product ID và TikTok SKU ID.",
+      "File định dạng PNG, JPEG hoặc WEBP, không vượt dung lượng tối đa hiển thị trong hộp thoại."
+    ],
+    "steps": [
+      {
+        "title": "Mở hộp thoại Upload Design",
+        "detail": "Tại POD Orders, mở menu Thao tác khác của đơn và chọn Upload Design. Có thể chọn nhiều đơn rồi bấm Upload Design trên thanh thao tác để lần lượt mở các sản phẩm chưa có design."
+      },
+      {
+        "title": "Chọn vị trí in",
+        "detail": "Hộp thoại hiển thị Product Name, Product ID, Seller SKU, biến thể và các vị trí in Front Design, Back Design."
+      },
+      {
+        "title": "Tải file lên",
+        "detail": "Ở chế độ Upload file, bấm Chọn file và chọn ảnh. Tiến trình hiển thị Đang tải …%; xong sẽ báo Đã tải lên."
+      },
+      {
+        "title": "Hoặc dùng URL công khai",
+        "detail": "Chuyển sang Public URL, dán link ảnh công khai hoặc link Google Drive rồi bấm Dùng URL. Hệ thống tải file từ URL về và lưu lại."
+      },
+      {
+        "title": "Thay hoặc xoá",
+        "detail": "Bấm Thay design (hoặc Thay với URL) để thay file; bấm Xoá design để xoá. Có thể bấm Copy URL hoặc Xem ảnh lớn."
+      },
+      {
+        "title": "Kiểm tra trong drawer Fulfill",
+        "detail": "Khối Cấu hình Design của drawer Fulfill và cột Design ở màn hình Product Mapping hiển thị tình trạng: Sẵn sàng, Thiếu mặt trước hoặc Chưa có design."
+      }
+    ],
+    "notes": [
+      "Thay hoặc xoá file là mọi đơn chưa gửi của biến thể đều bị ảnh hưởng.",
+      "Link Google Drive phải được chia sẻ ở chế độ “Bất kỳ ai có đường liên kết”.",
+      "Với Sellerwix, design Front/Back được ghép tự động vào vùng in; các vùng in khác phải chọn trong khối Cấu hình sản phẩm.",
+      "Hộp thoại ghi số lần đã thay file (Bản đầu tiên hoặc Đã thay … lần).",
+      "Bộ lọc Đã có design / Chưa có design ở POD Orders giúp tìm đơn còn thiếu file."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Không dùng được URL này.",
+        "solution": "Kiểm tra URL bắt đầu bằng http:// hoặc https://, truy cập công khai được và trỏ tới ảnh PNG, JPEG hoặc WEBP."
+      },
+      {
+        "problem": "File vượt dung lượng tối đa.",
+        "solution": "Giảm dung lượng file xuống dưới giới hạn ghi trong hộp thoại rồi tải lại."
+      },
+      {
+        "problem": "Sản phẩm thiếu khoá, không upload được.",
+        "solution": "Dòng hàng thiếu Product ID hoặc TikTok SKU ID; đồng bộ lại đơn từ TikTok."
+      },
+      {
+        "problem": "Drawer báo Design cũ chờ xác nhận.",
+        "solution": "Kiểm tra design cũ rồi bấm Xác nhận dùng cho biến thể này trong khối Cấu hình sản phẩm, hoặc upload design mới."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/orders",
+    "permission": "pod.tiktok.order.read"
+  },
+  {
+    "slug": "base-cost",
+    "title": "Base Cost",
+    "summary": "Theo dõi và cập nhật giá vốn (Base Cost) của đơn đã fulfill, kể cả nhập hàng loạt từ Excel.",
+    "overview": "Khi gửi đơn, giá vốn ở ánh xạ sản phẩm được chép vào từng dòng hàng làm giá tạm; khi nhà cung cấp báo giá thật, giá thật thay thế. Nếu nhà cung cấp chưa báo giá, đơn hiển thị Chờ báo giá. Người có quyền có thể nhập Base Cost thủ công hoặc import Base Cost và Tracking Number từ file Excel; lợi nhuận được tính lại ngay.",
+    "whenToUse": [
+      "Đơn hiển thị Chờ báo giá và cần lấy lại giá từ nhà cung cấp.",
+      "Nhập giá vốn theo hoá đơn của nhà cung cấp.",
+      "Cập nhật Base Cost và mã vận đơn cho nhiều đơn cùng lúc."
+    ],
+    "prerequisites": [
+      "Xem đơn cần quyền pod.tiktok.order.read.",
+      "Sửa Base Cost và Import Basecost / Tracking cần quyền riêng fulfillment.basecost.update (mặc định chỉ Admin).",
+      "File import là .xlsx, tối đa 2MB và 2000 dòng."
+    ],
+    "steps": [
+      {
+        "title": "Lấy lại giá",
+        "detail": "Ở cột Xưởng in của đơn đang thiếu giá vốn, bấm Lấy lại giá để hỏi lại nhà cung cấp. Nếu vẫn chưa có, hệ thống báo có thể nhập tay."
+      },
+      {
+        "title": "Nhập giá từng dòng",
+        "detail": "Bấm Nhập giá để mở hộp thoại Cập nhật Base Cost, nhập giá cho từng dòng, chọn Đơn vị tiền, ghi Lý do / nguồn số liệu (tuỳ chọn) rồi bấm Lưu."
+      },
+      {
+        "title": "Sửa tại cột Giá",
+        "detail": "Với đơn đã fulfill có một dòng hàng số lượng 1, bấm Sửa Base cost ở cột Giá, nhập số rồi lưu. Lợi nhuận được tính lại ngay."
+      },
+      {
+        "title": "Chuẩn bị file Excel",
+        "detail": "Sheet đầu tiên, header ở dòng 1, gồm cột OrderID (TikTok Order ID, định dạng Text), Basecost (giá tổng của đơn, ví dụ 12.50) và Tracking Number (định dạng Text). File chỉ có OrderID · Basecost vẫn dùng được."
+      },
+      {
+        "title": "Import và xem trước",
+        "detail": "Tại POD Orders, bấm Import Basecost / Tracking, rồi Chọn file Excel. Hệ thống kiểm tra toàn bộ file và hiển thị thống kê, Lỗi theo dòng và bảng Xem trước."
+      },
+      {
+        "title": "Xác nhận",
+        "detail": "Bấm Xác nhận import để ghi các dòng hợp lệ; dòng lỗi bị bỏ qua và được liệt kê."
+      }
+    ],
+    "notes": [
+      "Base Cost của đơn là tổng giá vốn sản phẩm × số lượng của mọi dòng; phí ship, thuế và tổng của nhà cung cấp hiển thị riêng (Ship NCC, Thuế NCC, Tổng NCC).",
+      "Giá nhập tay được ghi vào nhật ký; nếu sau này nhà cung cấp báo giá thật, giá thật sẽ thay thế.",
+      "Ô trống trong file Excel giữ nguyên giá trị hiện có, không bị xoá. Mỗi OrderID chỉ được xuất hiện một lần.",
+      "Đơn đã fulfill: import chỉ cập nhật Base cost / Tracking Number, không đổi trạng thái.",
+      "Đơn chưa fulfill hoặc fulfill thất bại: có cả Basecost lẫn Tracking Number thì chuyển sang Đã gửi hàng kèm nhãn Nhập tay (Excel); chỉ có Basecost thì lưu giá nhưng chưa tính lợi nhuận; chỉ có Tracking Number thì bị từ chối.",
+      "Đơn đã huỷ, hoặc nhà cung cấp đã có mã đơn, không import được.",
+      "Đơn Nhập tay (Excel) không được nhà cung cấp xác nhận và không đồng bộ / huỷ được qua nhà cung cấp.",
+      "Đổi Base Cost ở ánh xạ sản phẩm không làm thay đổi giá vốn đã chép vào các đơn đã gửi trước đó.",
+      "Import lại cùng một file không ghi thêm gì; các dòng hiển thị Không đổi."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Chỉ chấp nhận file .xlsx hoặc File lớn hơn 2MB.",
+        "solution": "Lưu file dưới định dạng .xlsx và giảm kích thước xuống dưới 2MB."
+      },
+      {
+        "problem": "OrderID bị báo không tìm thấy / ngoài phạm vi.",
+        "solution": "Kiểm tra OrderID là TikTok Order ID đúng, định dạng Text, và thuộc shop bạn được truy cập."
+      },
+      {
+        "problem": "Cột bị bỏ qua.",
+        "solution": "Đặt lại tên cột đúng OrderID, Basecost, Tracking Number; thứ tự cột không quan trọng."
+      },
+      {
+        "problem": "Lỗi Chọn đơn vị tiền khi nhập giá.",
+        "solution": "Chọn mã tiền tệ hợp lệ (ví dụ USD) trong ô Đơn vị tiền."
+      },
+      {
+        "problem": "Lợi nhuận chưa được tính.",
+        "solution": "Xem lý do ở cột Giá, ví dụ chưa có base cost, đang chờ nhà cung cấp xác nhận hoặc khác đơn vị tiền."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/orders",
+    "permission": "pod.tiktok.order.read"
+  },
+  {
+    "slug": "nha-cung-cap-fulfillment",
+    "title": "Nhà cung cấp Fulfillment",
+    "summary": "Thêm và quản lý tài khoản xưởng in (MangoTeePrints, Sellerwix) mà hệ thống gửi đơn sang.",
+    "overview": "Màn hình Fulfillment Providers (menu Setting Fulfillment) quản lý các xưởng in của tổ chức. Mỗi TikTok Account dùng một nhà cung cấp. API key chỉ hiển thị 4 ký tự cuối sau khi lưu. Ngoài nhà cung cấp riêng, tổ chức có thể dùng nhà cung cấp dùng chung do Super Admin bật.",
+    "whenToUse": [
+      "Kết nối tài khoản MangoTeePrints hoặc Sellerwix lần đầu.",
+      "Thay API key, kiểm tra kết nối hoặc tạm tắt một nhà cung cấp.",
+      "Gán nhà cung cấp cho TikTok Account."
+    ],
+    "prerequisites": [
+      "Có quyền cấu hình fulfillment (fulfillment.config).",
+      "Có API key của nhà cung cấp. Với Sellerwix, API key tạo tại Settings → Public API → Generate API Key."
+    ],
+    "steps": [
+      {
+        "title": "Mở màn hình",
+        "detail": "Vào menu Setting Fulfillment → Fulfillment Providers."
+      },
+      {
+        "title": "Thêm nhà cung cấp",
+        "detail": "Bấm Thêm nhà cung cấp, chọn Provider (MangoTeePrints hoặc Sellerwix) và nhập Display Name, ví dụ Mango US."
+      },
+      {
+        "title": "Nhập thông tin kết nối",
+        "detail": "Dán API key vào ô API Key. Với MangoTeePrints, ô API Base URL đã điền sẵn; với Sellerwix, để trống API Base URL để dùng mặc định và có thể nhập Store ID Sellerwix (tuỳ chọn)."
+      },
+      {
+        "title": "Lưu và ghi lại URL webhook",
+        "detail": "Bấm Lưu. Nếu hệ thống hiện URL webhook, hãy lưu lại ngay vì URL này chỉ hiện một lần."
+      },
+      {
+        "title": "Test Connection",
+        "detail": "Bấm biểu tượng Test Connection trên dòng nhà cung cấp; kết quả Connected hoặc Không kết nối được hiển thị dưới tên."
+      },
+      {
+        "title": "Gán cho TikTok Account",
+        "detail": "Tại TikTok Accounts, chọn nhà cung cấp trong cột Fulfillment Provider của từng kết nối; lựa chọn được lưu ngay."
+      },
+      {
+        "title": "Đồng bộ danh mục",
+        "detail": "Để khai ánh xạ, đồng bộ danh mục của nhà cung cấp bằng nút Đồng bộ danh mục trong form ánh xạ sản phẩm. Đồng bộ chạy nền."
+      }
+    ],
+    "notes": [
+      "Sửa nhà cung cấp: bấm Replace API Key để nhập khoá mới; bỏ trống thì giữ nguyên khoá hiện tại. Không đổi được loại Provider sau khi tạo.",
+      "Bấm Tắt / Bật để tạm ngừng hoặc dùng lại nhà cung cấp. Đơn không gửi được tới nhà cung cấp đang tắt.",
+      "Xoá nhà cung cấp sẽ gỡ liên kết các TikTok Account đang dùng; các kết nối đó không gửi đơn được cho tới khi chọn lại. Lịch sử đơn đã gửi được giữ nguyên.",
+      "Store ID Sellerwix không bắt buộc khi lưu, chỉ cần khi đẩy đơn sang Sellerwix.",
+      "Nhà cung cấp dùng chung do Super Admin bật xuất hiện trong drawer Fulfill với ghi chú “dùng chung”.",
+      "Printful, Printify và Tự khai báo hiện chưa tích hợp.",
+      "Không chia sẻ API key qua kênh không bảo mật; giao diện không hiển thị lại khoá đã lưu."
+    ],
+    "troubleshooting": [
+      {
+        "problem": "Test Connection báo Không kết nối được.",
+        "solution": "Kiểm tra API key còn hiệu lực và API Base URL đúng; dùng Replace API Key để thay khoá rồi kiểm tra lại."
+      },
+      {
+        "problem": "Không lưu được nhà cung cấp Sellerwix.",
+        "solution": "Sellerwix bắt buộc Display Name và API Key."
+      },
+      {
+        "problem": "Ô Fulfillment Provider ở TikTok Accounts hiển thị (INACTIVE).",
+        "solution": "Nhà cung cấp đang gán đã bị tắt; bật lại hoặc chọn nhà cung cấp khác."
+      },
+      {
+        "problem": "Không thấy nhà cung cấp nào khi gán cho TikTok Account.",
+        "solution": "Thêm nhà cung cấp tại Fulfillment Providers trước."
+      }
+    ],
+    "screenshotRoute": "/dashboard/pod/fulfillment-providers",
+    "permission": "fulfillment.config"
+  }
+]

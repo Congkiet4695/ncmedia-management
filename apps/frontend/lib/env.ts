@@ -4,7 +4,7 @@
  */
 export const env = {
   apiBaseUrl: process.env.NEXT_PUBLIC_API_BASE_URL ?? 'http://localhost:3000/api/v1',
-  appName: process.env.NEXT_PUBLIC_APP_NAME ?? 'NCMedia Management Platform',
+  appName: process.env.NEXT_PUBLIC_APP_NAME ?? 'STARTLY ECOM',
   /**
    * Giới hạn dung lượng MỘT file upload (byte). Mặc định 104857600 = 100MB.
    *

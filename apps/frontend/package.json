@@ -18,6 +18,7 @@
     "test:dashboard": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-dashboard.ts",
     "test:business-time": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-business-time.ts",
     "test:navigation": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-navigation.ts",
+    "test:public-site": "node --experimental-strip-types --import ./scripts/register-ts.mjs scripts/verify-public-site.ts",
     "check:i18n": "node scripts/check-i18n.mjs",
     "test:issues": "node --experimental-strip-types scripts/verify-issue-grouping.ts",
     "test:selection": "node --experimental-strip-types scripts/verify-selection.ts",

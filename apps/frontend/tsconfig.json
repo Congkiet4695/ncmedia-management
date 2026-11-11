@@ -28,6 +28,7 @@
     "node_modules",
     "scripts/verify-pagination.ts",
     "scripts/verify-navigation.ts",
+    "scripts/verify-public-site.ts",
     "scripts/verify-fulfill-config.ts",
     "scripts/verify-business-time.ts",
     "scripts/verify-issue-grouping.ts",
