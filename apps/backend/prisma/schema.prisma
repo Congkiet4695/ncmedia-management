@@ -2261,6 +2261,8 @@ enum FulfillmentProvider {
   PRINTFUL
   /// Sellerwix Public API — xem docs/fulfillment/sellerwix.md.
   SELLERWIX
+  /// Pressify Seller API (https://pressify.us/docs/api) — xem docs/fulfillment/pressify.md.
+  PRESSIFY
   /// Nhà cung cấp tự khai báo (tích hợp riêng). Giữ chỗ để thêm provider không nằm
   /// trong danh sách dựng sẵn mà không phải đổi enum lần nữa.
   CUSTOM

@@ -214,9 +214,10 @@ export function ProductConfigPanel({
   /** SKU ĐÃ LƯU thuộc xưởng khác line đang áp dụng (dữ liệu cũ của lỗi TIKTOK → FASTUS). */
   const savedVariantOtherLine = useMemo(() => {
     if (!lineName || !mapping) return null;
+    // SKU chỉ là phương án dự phòng khi KHÔNG RỖNG — Pressify có biến thể không SKU, so '' = '' là ghép nhầm.
     const saved =
       allVariants.find((variant) => variant.externalVariantId === mapping.providerVariantId) ??
-      allVariants.find((variant) => variant.sku === mapping.providerSku) ??
+      (mapping.providerSku ? allVariants.find((variant) => variant.sku === mapping.providerSku) : undefined) ??
       null;
     const savedLine = saved?.productionLine?.trim().toUpperCase() ?? null;
     return saved && savedLine && savedLine !== lineName ? { sku: saved.sku, line: savedLine } : null;
@@ -235,7 +236,7 @@ export function ProductConfigPanel({
 
     const found =
       variants.find((variant) => variant.externalVariantId === mapping.providerVariantId) ??
-      variants.find((variant) => variant.sku === mapping.providerSku) ??
+      (mapping.providerSku ? variants.find((variant) => variant.sku === mapping.providerSku) : undefined) ??
       null;
     if (!found) return;
     setVariantId(found.id);

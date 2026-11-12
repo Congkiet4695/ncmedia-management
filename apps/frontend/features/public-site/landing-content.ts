@@ -81,7 +81,7 @@ export const FEATURES: readonly LandingFeature[] = [
     description:
       'Gửi đơn sang xưởng in ngay trong hệ thống, với ánh xạ sản phẩm, design và giá vốn rõ ràng.',
     points: [
-      'Mango Tee Prints và Sellerwix',
+      'Mango Tee Prints, Sellerwix và Pressify',
       'Ánh xạ sản phẩm & design theo biến thể',
       'Base Cost, đồng bộ trạng thái, huỷ đơn',
     ],

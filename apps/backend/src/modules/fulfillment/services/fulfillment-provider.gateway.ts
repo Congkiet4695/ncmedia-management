@@ -30,6 +30,7 @@ import {
   FulfillmentRepository,
 } from '../repositories/fulfillment.repository';
 import { SellerwixFulfillmentService } from '../sellerwix/services/sellerwix-fulfillment.service';
+import { PressifyFulfillmentService } from '../pressify/services/pressify-fulfillment.service';
 import {
   fulfillmentOrderLockKey,
   hasProvider,
@@ -78,9 +79,10 @@ export class FulfillmentProviderGateway {
     private readonly accessScope: PodAccessScopeService,
     private readonly notifications: FulfillmentNotificationService,
     private readonly lock: DistributedLockService,
+    pressify: PressifyFulfillmentService,
   ) {
     this.adapters = new Map<FulfillmentProvider, FulfillmentProviderAdapter>(
-      [mango, sellerwix].map((adapter) => [adapter.provider, adapter]),
+      [mango, sellerwix, pressify].map((adapter) => [adapter.provider, adapter]),
     );
   }
 

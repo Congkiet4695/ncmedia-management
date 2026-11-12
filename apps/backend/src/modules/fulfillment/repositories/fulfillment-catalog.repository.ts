@@ -585,6 +585,18 @@ export class FulfillmentCatalogRepository {
     });
   }
 
+  /**
+   * Biến thể của một tài khoản theo ID NHÀ CUNG CẤP (`external_variant_id`) — cho nhà cung cấp định danh
+   * biến thể bằng id chứ không bằng SKU (Pressify: `variant_id`; SKU có thể rỗng / trùng).
+   */
+  findVariantsByExternalIds(accountId: string, externalVariantIds: string[]) {
+    if (externalVariantIds.length === 0) return Promise.resolve([]);
+    return this.prisma.fulfillmentVariant.findMany({
+      where: { accountId, deletedAt: null, externalVariantId: { in: externalVariantIds } },
+      select: { externalVariantId: true, sku: true, status: true, rawData: true },
+    });
+  }
+
   findVariantsForAccount(accountId: string, skus: string[]) {
     if (skus.length === 0) return Promise.resolve([]);
     return this.prisma.fulfillmentVariant.findMany({

@@ -33,6 +33,10 @@ export interface FulfillOptionsInput {
   note?: string | null;
   /** Sellerwix: `rush_service`. */
   rushService?: boolean;
+  /** Kiểu xử lý đơn — Pressify: `order_status` (new_order | priority | express). */
+  handlingType?: string | null;
+  /** Phương thức in — Pressify: `production` (DTF | DTG). */
+  printMethod?: string | null;
 }
 
 /** Kết quả Test Connection — không bao giờ chứa thông tin xác thực. */

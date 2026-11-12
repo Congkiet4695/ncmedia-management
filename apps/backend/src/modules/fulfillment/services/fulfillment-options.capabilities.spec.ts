@@ -31,7 +31,12 @@ describe('FulfillmentOptionsService — ô cấu hình theo nhà cung cấp', ()
       rushService: true,
       shippingMethodsByOrder: true,
       updateAfterSubmit: false,
+      // Ô của Pressify không xuất hiện với Sellerwix.
+      handlingType: false,
+      printMethod: false,
     });
+    expect(result.handlingTypes).toEqual([]);
+    expect(result.printMethods).toEqual([]);
     // Không có danh sách cố định nào mượn của Mango.
     expect(result.shippingMethods).toEqual([]);
     expect(result.facilities).toEqual([]);
@@ -57,8 +62,52 @@ describe('FulfillmentOptionsService — ô cấu hình theo nhà cung cấp', ()
       scanLabel: true,
       rushService: false,
       shippingMethodsByOrder: false,
+      // Ô của Pressify không xuất hiện với Mango.
+      handlingType: false,
+      printMethod: false,
     });
+    expect(result.handlingTypes).toEqual([]);
+    expect(result.printMethods).toEqual([]);
     expect(result.shippingMethods.length).toBeGreaterThan(0);
     expect(result.productionLines).toEqual([{ value: 'line-1', label: 'TikTok line' }]);
+  });
+
+  it('Pressify: CHỈ kiểu xử lý đơn + phương thức in + vận chuyển standard/priority; KHÔNG ô Mango / Sellerwix', async () => {
+    const { options, fetchProductionLines } = service();
+
+    const result = await options.forAccount(account(FulfillmentProvider.PRESSIFY));
+
+    expect(result.capabilities).toEqual({
+      productionLine: false,
+      productionConfig: false,
+      facility: false,
+      speedType: false,
+      preferredCarrier: false,
+      scanLabel: false,
+      rushService: false,
+      shippingMethodsByOrder: false,
+      updateAfterSubmit: false,
+      handlingType: true,
+      printMethod: true,
+    });
+    // Đúng tập giá trị của tài liệu Pressify, phần tử đầu = mặc định.
+    expect(result.handlingTypes.map((option) => option.value)).toEqual(['new_order', 'priority', 'express']);
+    expect(result.printMethods.map((option) => option.value)).toEqual(['DTF', 'DTG']);
+    expect(result.shippingMethods.map((option) => option.value)).toEqual(['standard', 'priority']);
+    // Không mượn danh sách của Mango, không gọi API Mango.
+    expect(result.facilities).toEqual([]);
+    expect(result.speedTypes).toEqual([]);
+    expect(result.preferredCarriers).toEqual([]);
+    expect(result.productionConfigs).toEqual([]);
+    expect(result.productionLines).toEqual([]);
+    expect(fetchProductionLines).not.toHaveBeenCalled();
+    // Nhãn cổ (LABEL) không có ở Pressify ⇒ không liệt kê; các vị trí còn lại đúng khoá tài liệu.
+    expect(result.printLocations).toEqual([
+      { placement: 'FRONT', providerKey: 'front' },
+      { placement: 'BACK', providerKey: 'back' },
+      { placement: 'LEFT', providerKey: 'sleeve_left' },
+      { placement: 'RIGHT', providerKey: 'sleeve_right' },
+      { placement: 'SLEEVE', providerKey: 'sleeve_left' },
+    ]);
   });
 });

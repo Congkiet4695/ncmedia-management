@@ -262,6 +262,9 @@ export const envValidationSchema = Joi.object({
   SELLERWIX_COST_CURRENCY: Joi.string()
     .pattern(/^[A-Za-z]{3}$/)
     .default('USD'),
+  // Pressify Seller API (docs/fulfillment/pressify.md) — key nằm trong DB theo từng tài khoản.
+  PRESSIFY_API_BASE_URL: Joi.string().uri().default('https://pressify.us/api'),
+  PRESSIFY_HTTP_TIMEOUT_MS: Joi.number().integer().min(1000).max(120000).default(30000),
   FULFILLMENT_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
   FULFILLMENT_SYNC_CRON: Joi.string().default('*/5 * * * *'),
   FULFILLMENT_SYNC_BATCH_SIZE: Joi.number().integer().min(1).max(1000).default(100),

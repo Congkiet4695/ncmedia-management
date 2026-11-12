@@ -18,6 +18,7 @@ import {
 } from '../exceptions/fulfillment.exceptions';
 import { MangoCatalogService } from '../mango/services/mango-catalog.service';
 import { SellerwixCatalogService } from '../sellerwix/services/sellerwix-catalog.service';
+import { PressifyCatalogService } from '../pressify/services/pressify-catalog.service';
 import type { MangoAccountCredentialRef } from '../mango/services/mango-credential.service';
 import { MANGO_CATALOG_SYNC } from '../mango/constants/mango.constants';
 import type { MangoProduct, MangoVariation } from '../mango/types/mango-api.types';
@@ -178,6 +179,8 @@ export class FulfillmentCatalogSyncService {
     /** Thiếu (kiểm thử dựng tay) ⇒ không dual write. */
     @Optional() private readonly globalCatalog?: FulfillmentGlobalCatalogRepository,
     @Optional() private readonly config?: ConfigService,
+    /** Thiếu (kiểm thử dựng tay của Mango / Sellerwix) ⇒ tài khoản Pressify báo chưa tích hợp. */
+    @Optional() private readonly pressifyCatalog?: PressifyCatalogService,
   ) {}
 
   /**
@@ -411,6 +414,11 @@ export class FulfillmentCatalogSyncService {
         return this.runMangoSync(scope, account, startedAt);
       case FulfillmentProvider.SELLERWIX:
         return this.runSellerwixSync(scope, account, startedAt);
+      case FulfillmentProvider.PRESSIFY: {
+        const pressify = this.pressifyCatalog;
+        if (!pressify) throw new FulfillmentProviderNotSupportedException(account.provider);
+        return this.runSnapshotSync(scope, () => pressify.fetchCatalog(account), startedAt);
+      }
       default:
         throw new FulfillmentProviderNotSupportedException(account.provider);
     }
@@ -420,13 +428,31 @@ export class FulfillmentCatalogSyncService {
    * Sellerwix: Category → Product → Variant (`SellerwixCatalogService`), ghi qua CÙNG repository và
    * CÙNG luật archive với Mango.
    */
-  private async runSellerwixSync(
+  private runSellerwixSync(
     scope: CatalogScope,
     account: FulfillmentAccount,
     startedAt: Date,
   ): Promise<CatalogSyncResult> {
+    return this.runSnapshotSync(scope, () => this.sellerwixCatalog.fetchCatalog(account), startedAt);
+  }
+
+  /**
+   * Nhà cung cấp trả về MỘT ảnh chụp danh mục đã chuẩn hoá (Sellerwix, Pressify): ghi qua CÙNG repository,
+   * CÙNG luật archive (chỉ khi đọc đủ) và CÙNG bước chiếu Global Catalog với Mango.
+   */
+  private async runSnapshotSync(
+    scope: CatalogScope,
+    fetchSnapshot: () => Promise<{
+      catalogues: CatalogueUpsertInput[];
+      products: ProductUpsertInput[];
+      variants: VariantUpsertInput[];
+      apiCalls: number;
+      warnings: string[];
+    }>,
+    startedAt: Date,
+  ): Promise<CatalogSyncResult> {
     const syncedAt = new Date();
-    const snapshot = await this.sellerwixCatalog.fetchCatalog(account);
+    const snapshot = await fetchSnapshot();
 
     const catalogueIds = await this.catalogRepo.upsertCatalogues(scope, snapshot.catalogues, syncedAt);
     const productIds = await this.catalogRepo.upsertProducts(

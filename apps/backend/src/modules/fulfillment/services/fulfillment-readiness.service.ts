@@ -552,6 +552,7 @@ export class FulfillmentReadinessService {
         podOrderItemId: item.id,
         tiktokLineItemId: item.tiktokLineItemId,
         providerSku: mapping.providerSku,
+        providerVariantId: mapping.providerVariantId ?? null,
         // TikTok trả 1 line item = 1 đơn vị sản phẩm (Order API overview).
         quantity: 1,
         productionConfig: mapping.productionConfig,

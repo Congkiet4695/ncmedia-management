@@ -15,16 +15,69 @@ import {
   type FulfillmentProviderType,
   type UpdateFulfillmentProviderInput,
 } from '../types';
+import { PRESSIFY_PUBLIC_TIERS } from '../pressify';
 
 const DEFAULT_BASE_URL = 'https://v3.mangoteeprints.com/api/public/v1';
 
 /**
- * Base URL gợi ý khi TẠO theo từng nhà cung cấp. Sellerwix để trống: backend dùng mặc định cấu hình
- * (`SELLERWIX_API_BASE_URL`) — chỉ điền khi cần môi trường khác.
+ * Ô cấu hình của TỪNG nhà cung cấp — form chỉ hiện đúng ô của nhà cung cấp đang chọn, không gộp ô của mọi
+ * nhà cung cấp vào một form.
+ *
+ * - `initialBaseUrl` — gợi ý khi TẠO. Chuỗi rỗng ⇒ backend dùng mặc định cấu hình (`SELLERWIX_API_BASE_URL`,
+ *   `PRESSIFY_API_BASE_URL`) — chỉ điền khi cần môi trường khác.
+ * - `extraField` — ô riêng duy nhất của nhà cung cấp (Sellerwix: Store ID; Pressify: bậc giá).
  */
-const INITIAL_BASE_URL: Partial<Record<FulfillmentProviderType, string>> = {
-  MANGO: DEFAULT_BASE_URL,
-  SELLERWIX: '',
+interface ProviderFormConfig {
+  initialBaseUrl: string;
+  baseUrlRequired: boolean;
+  apiKeyLabelKey: string;
+  apiKeyHintKey: string | null;
+  extraField: 'storeId' | 'pressifyTier' | null;
+}
+
+const PROVIDER_FORM: Record<FulfillmentProviderType, ProviderFormConfig> = {
+  MANGO: {
+    initialBaseUrl: DEFAULT_BASE_URL,
+    baseUrlRequired: true,
+    apiKeyLabelKey: 'provider.apiKey',
+    apiKeyHintKey: null,
+    extraField: null,
+  },
+  SELLERWIX: {
+    initialBaseUrl: '',
+    baseUrlRequired: false,
+    apiKeyLabelKey: 'provider.sellerwix.apiKey',
+    apiKeyHintKey: 'provider.sellerwix.apiKeyHint',
+    extraField: 'storeId',
+  },
+  PRESSIFY: {
+    initialBaseUrl: '',
+    baseUrlRequired: false,
+    apiKeyLabelKey: 'provider.pressify.apiKey',
+    apiKeyHintKey: 'provider.pressify.apiKeyHint',
+    extraField: 'pressifyTier',
+  },
+  PRINTIFY: {
+    initialBaseUrl: '',
+    baseUrlRequired: true,
+    apiKeyLabelKey: 'provider.apiKey',
+    apiKeyHintKey: null,
+    extraField: null,
+  },
+  PRINTFUL: {
+    initialBaseUrl: '',
+    baseUrlRequired: true,
+    apiKeyLabelKey: 'provider.apiKey',
+    apiKeyHintKey: null,
+    extraField: null,
+  },
+  CUSTOM: {
+    initialBaseUrl: '',
+    baseUrlRequired: true,
+    apiKeyLabelKey: 'provider.apiKey',
+    apiKeyHintKey: null,
+    extraField: null,
+  },
 };
 
 interface ProviderFormDialogProps {
@@ -64,8 +117,9 @@ export function ProviderFormDialog({
   const [apiKey, setApiKey] = useState('');
   const [replacingKey, setReplacingKey] = useState(false);
   const [storeId, setStoreId] = useState('');
+  const [tierId, setTierId] = useState('');
 
-  const isSellerwix = type === 'SELLERWIX';
+  const form = PROVIDER_FORM[type];
 
   // Mỗi lần mở lại phải sạch — tránh mang khoá vừa gõ sang bản ghi khác.
   useEffect(() => {
@@ -73,28 +127,36 @@ export function ProviderFormDialog({
     const initialType = provider?.provider ?? 'MANGO';
     setType(initialType);
     setName(provider?.name ?? '');
-    setBaseUrl(provider ? (provider.baseUrl ?? '') : (INITIAL_BASE_URL[initialType] ?? ''));
+    setBaseUrl(provider ? (provider.baseUrl ?? '') : PROVIDER_FORM[initialType].initialBaseUrl);
     setApiKey('');
     setReplacingKey(false);
     setStoreId(provider?.storeId ?? '');
+    setTierId(provider?.tierId ?? '');
   }, [open, provider]);
 
   const changeType = (next: FulfillmentProviderType) => {
     setType(next);
-    // Base URL gợi ý là của nhà cung cấp VỪA chọn — không mang URL Mango sang Sellerwix.
-    setBaseUrl(INITIAL_BASE_URL[next] ?? '');
+    // Base URL gợi ý là của nhà cung cấp VỪA chọn — không mang URL Mango sang nhà cung cấp khác.
+    setBaseUrl(PROVIDER_FORM[next].initialBaseUrl);
   };
+
+  /** CHỈ ô riêng của nhà cung cấp đang chọn được gửi đi. */
+  const extraFields =
+    form.extraField === 'storeId'
+      ? { storeId: storeId.trim() }
+      : form.extraField === 'pressifyTier'
+        ? { tierId }
+        : {};
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault();
-    const sellerwixFields = isSellerwix ? { storeId: storeId.trim() } : {};
     if (isEdit) {
       onUpdate({
         name,
         baseUrl,
         // Chỉ gửi khoá khi người dùng chủ động thay — không gửi chuỗi rỗng đè lên khoá cũ.
         ...(replacingKey && apiKey ? { apiKey } : {}),
-        ...sellerwixFields,
+        ...extraFields,
       });
       return;
     }
@@ -103,15 +165,15 @@ export function ProviderFormDialog({
       name,
       apiKey,
       ...(baseUrl.trim() ? { baseUrl: baseUrl.trim() } : {}),
-      ...sellerwixFields,
+      ...extraFields,
     });
   };
 
-  // Sellerwix: CHỈ tên + API Key bắt buộc (sửa: API Key đã lưu, chỉ bắt buộc khi đang thay khoá).
+  // Tên + API key bắt buộc (sửa: key đã lưu, chỉ bắt buộc khi đang thay); Base URL theo nhà cung cấp.
   const apiKeyMissing = (!isEdit || replacingKey) && !apiKey.trim();
-  const canSubmit = isSellerwix
-    ? Boolean(name.trim() && !apiKeyMissing)
-    : Boolean(name.trim() && baseUrl.trim() && (isEdit || apiKey.trim()));
+  const canSubmit = Boolean(
+    name.trim() && !apiKeyMissing && (!form.baseUrlRequired || baseUrl.trim()),
+  );
 
   return (
     <Modal
@@ -155,13 +217,15 @@ export function ProviderFormDialog({
         <div className="space-y-2">
           <Label htmlFor="provider-base-url">
             {t('provider.baseUrl')}
-            {!isSellerwix && <span className="text-destructive"> *</span>}
+            {form.baseUrlRequired && <span className="text-destructive"> *</span>}
           </Label>
           <Input
             id="provider-base-url"
             value={baseUrl}
             onChange={(e) => setBaseUrl(e.target.value)}
-            placeholder={isSellerwix ? t('provider.sellerwix.baseUrlPlaceholder') : undefined}
+            placeholder={
+              form.baseUrlRequired ? undefined : t('provider.optionalBaseUrlPlaceholder')
+            }
             autoComplete="off"
             spellCheck={false}
           />
@@ -169,7 +233,7 @@ export function ProviderFormDialog({
 
         <div className="space-y-2">
           <Label htmlFor="provider-api-key">
-            {isSellerwix ? t('provider.sellerwix.apiKey') : t('provider.apiKey')}
+            {t(form.apiKeyLabelKey)}
             {!isEdit && <span className="text-destructive"> *</span>}
           </Label>
 
@@ -216,15 +280,34 @@ export function ProviderFormDialog({
             </>
           )}
           {!isEdit && <p className="text-xs text-muted-foreground">{t('provider.apiKeyMasked')}</p>}
-          {isSellerwix && (
-            <p className="text-xs text-muted-foreground">{t('provider.sellerwix.apiKeyHint')}</p>
+          {form.apiKeyHintKey && (
+            <p className="text-xs text-muted-foreground">{t(form.apiKeyHintKey)}</p>
           )}
-          {isSellerwix && apiKeyMissing && apiKey !== '' && (
+          {form.extraField === 'storeId' && apiKeyMissing && apiKey !== '' && (
             <p className="text-xs text-destructive">{t('provider.sellerwix.apiKeyRequired')}</p>
           )}
         </div>
 
-        {isSellerwix && (
+        {form.extraField === 'pressifyTier' && (
+          <div className="space-y-2">
+            <Label htmlFor="provider-pressify-tier">{t('provider.pressify.tier')}</Label>
+            <NativeSelect
+              id="provider-pressify-tier"
+              value={tierId}
+              onChange={(e) => setTierId(e.target.value)}
+            >
+              <option value="">{t('provider.pressify.tierNone')}</option>
+              {PRESSIFY_PUBLIC_TIERS.map((tier) => (
+                <option key={tier.id} value={tier.id}>
+                  {tier.name}
+                </option>
+              ))}
+            </NativeSelect>
+            <p className="text-xs text-muted-foreground">{t('provider.pressify.tierHint')}</p>
+          </div>
+        )}
+
+        {form.extraField === 'storeId' && (
           <div className="space-y-2">
             <Label htmlFor="provider-store-id">{t('provider.sellerwix.storeId')}</Label>
             <Input

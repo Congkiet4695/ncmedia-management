@@ -51,6 +51,11 @@ export interface ResolvedItem {
    */
   tiktokLineItemId?: string | null;
   providerSku: string;
+  /**
+   * Id biến thể PHÍA NHÀ CUNG CẤP của ánh xạ (`provider_variant_id`). Mango / Sellerwix gửi theo SKU nên
+   * không dùng; Pressify gửi `line_items[].variant_id` = giá trị này (SKU Pressify có thể rỗng).
+   */
+  providerVariantId?: string | null;
   quantity: number;
   productionConfig: string | null;
   /**

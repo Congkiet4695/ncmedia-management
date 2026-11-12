@@ -249,6 +249,16 @@ export default () => ({
       costCurrency: (process.env.SELLERWIX_COST_CURRENCY ?? 'USD').trim().toUpperCase(),
     },
 
+    /**
+     * Pressify Seller API (docs/fulfillment/pressify.md). Store API key nằm trong DB của từng tài khoản
+     * (`api_key_enc`, mã hoá) — KHÔNG ở đây, không có biến môi trường chứa key.
+     */
+    pressify: {
+      /** Base URL theo tài liệu ("Base URL https://pressify.us/api"). */
+      baseUrl: process.env.PRESSIFY_API_BASE_URL ?? 'https://pressify.us/api',
+      timeoutMs: parseInt(process.env.PRESSIFY_HTTP_TIMEOUT_MS ?? '30000', 10),
+    },
+
     sync: {
       enabled: (process.env.FULFILLMENT_SYNC_ENABLED ?? 'false') === 'true',
       /** Cron 5 trường — mặc định mỗi 5 phút. */

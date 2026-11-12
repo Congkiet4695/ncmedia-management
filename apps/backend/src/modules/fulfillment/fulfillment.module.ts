@@ -42,6 +42,13 @@ import { SellerwixCredentialService } from './sellerwix/services/sellerwix-crede
 import { SellerwixFulfillmentService } from './sellerwix/services/sellerwix-fulfillment.service';
 import { SellerwixWebhookController } from './sellerwix/webhook/sellerwix-webhook.controller';
 import { SellerwixWebhookService } from './sellerwix/webhook/sellerwix-webhook.service';
+import { PressifyApiClient } from './pressify/clients/pressify-api.client';
+import { PressifyOrderMapper } from './pressify/mappers/pressify-order.mapper';
+import { PressifyCatalogService } from './pressify/services/pressify-catalog.service';
+import { PressifyCredentialService } from './pressify/services/pressify-credential.service';
+import { PressifyFulfillmentService } from './pressify/services/pressify-fulfillment.service';
+import { PressifyWebhookController } from './pressify/webhook/pressify-webhook.controller';
+import { PressifyWebhookService } from './pressify/webhook/pressify-webhook.service';
 
 /**
  * FulfillmentModule — gửi đơn POD sang xưởng in.
@@ -53,6 +60,7 @@ import { SellerwixWebhookService } from './sellerwix/webhook/sellerwix-webhook.s
  *      controller/scheduler CHỈ gọi gateway, không gọi thẳng nhà cung cấp nào
  *  - `mango/*`              — toàn bộ phần đặc thù MangoTeePrints
  *  - `sellerwix/*`          — toàn bộ phần đặc thù Sellerwix (cùng bố cục với `mango/`)
+ *  - `pressify/*`           — toàn bộ phần đặc thù Pressify (cùng bố cục)
  *      · `clients/`  cửa duy nhất ra API nhà cung cấp
  *      · `mappers/`  Anti-Corruption Layer hai chiều
  *      · `services/` nghiệp vụ tạo/đồng bộ/huỷ đơn
@@ -75,6 +83,7 @@ import { SellerwixWebhookService } from './sellerwix/webhook/sellerwix-webhook.s
     PlatformFulfillmentController,
     MangoWebhookController,
     SellerwixWebhookController,
+    PressifyWebhookController,
   ],
   providers: [
     // Nghiệp vụ chung
@@ -115,6 +124,13 @@ import { SellerwixWebhookService } from './sellerwix/webhook/sellerwix-webhook.s
     SellerwixCredentialService,
     SellerwixFulfillmentService,
     SellerwixWebhookService,
+    // Pressify
+    PressifyApiClient,
+    PressifyOrderMapper,
+    PressifyCatalogService,
+    PressifyCredentialService,
+    PressifyFulfillmentService,
+    PressifyWebhookService,
     // Chọn adapter theo nhà cung cấp — điểm vào duy nhất từ controller/scheduler.
     FulfillmentProviderGateway,
     FulfillmentNotificationService,

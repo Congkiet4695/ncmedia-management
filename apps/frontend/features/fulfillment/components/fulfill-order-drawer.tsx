@@ -184,6 +184,23 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
   /** Chưa tải xong ⇒ `undefined` ⇒ chưa hiện ô tuỳ chọn riêng nào (không đoán nhà cung cấp). */
   const capabilities = optionsQuery.data?.capabilities;
   const shippingByOrder = capabilities?.shippingMethodsByOrder === true;
+  /**
+   * Phương thức vận chuyển CỐ ĐỊNH của nhà cung cấp (không phụ thuộc đơn).
+   *
+   * 🔴 Mango giữ nguyên hiển thị cũ (giá trị tài liệu Mango + nhãn i18n). Nhà cung cấp khác (Pressify) dùng
+   * ĐÚNG danh sách backend trả — tuyệt đối không hiện mã vận chuyển của Mango cho nhà cung cấp khác.
+   */
+  const fixedShippingOptions = useMemo(() => {
+    const options = optionsQuery.data;
+    if (!options) return [];
+    if (options.provider === 'MANGO') {
+      return FULFILL_SHIPPING_METHODS.map((value) => ({
+        value: value as string,
+        label: t(`fulfill.shippingMethod.${value}`),
+      }));
+    }
+    return options.shippingMethods;
+  }, [optionsQuery.data, t]);
   const orderShipping = useOrderShippingMethods(
     podOrderId,
     activeProviderId || undefined,
@@ -290,9 +307,9 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
       shippingByOrder
         ? (orderShipping.data?.options ?? []).map((entry) => entry.value)
         : capabilities
-          ? [...FULFILL_SHIPPING_METHODS]
+          ? fixedShippingOptions.map((entry) => entry.value)
           : [],
-    [shippingByOrder, orderShipping.data, capabilities],
+    [shippingByOrder, orderShipping.data, capabilities, fixedShippingOptions],
   );
   useEffect(() => {
     if (!previousShipping || form.shippingMethod) return;
@@ -529,6 +546,9 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
         ...(form.preferredCarrier ? { preferredCarrier: form.preferredCarrier } : {}),
         ...(form.isScanLabel ? { isScanLabel: true } : {}),
         ...(form.rushService ? { rushService: true } : {}),
+        // Pressify — chỉ có giá trị khi nhà cung cấp hiện ô tương ứng (form được xoá khi đổi nhà cung cấp).
+        ...(capabilities?.handlingType && form.handlingType ? { handlingType: form.handlingType } : {}),
+        ...(capabilities?.printMethod && form.printMethod ? { printMethod: form.printMethod } : {}),
         // Nhãn KHÔNG đi trong body nữa: backend đọc nhãn ĐÃ LƯU của đơn (xem
         // `MangoFulfillmentService`). Gửi kèm một giá trị thứ hai chỉ tạo ra hai nguồn sự thật.
 
@@ -812,12 +832,7 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                                 option('', t('fulfill.selectShippingMethod')),
                                 ...(orderShipping.data?.options ?? []),
                               ]
-                            : [
-                                option('', t('fulfill.useAccountDefault')),
-                                ...FULFILL_SHIPPING_METHODS.map((value) =>
-                                  option(value, t(`fulfill.shippingMethod.${value}`)),
-                                ),
-                              ]
+                            : [option('', t('fulfill.useAccountDefault')), ...fixedShippingOptions]
                       }
                       disabled={!capabilities}
                       loading={!capabilities || (shippingByOrder && orderShipping.isLoading)}
@@ -840,6 +855,38 @@ export function FulfillOrderDrawer({ open, onClose, podOrderId }: FulfillOrderDr
                       </p>
                     )}
                   </div>
+
+                  {/* Pressify: kiểu xử lý đơn (`order_status`) — chỉ hiện khi nhà cung cấp có. */}
+                  {capabilities?.handlingType && (
+                    <div className="space-y-1">
+                      <Label>{t('fulfill.handlingTypeLabel')}</Label>
+                      <Combobox
+                        value={form.handlingType ?? ''}
+                        onChange={(value) =>
+                          setForm((prev) => ({ ...prev, handlingType: value || undefined }))
+                        }
+                        options={optionsQuery.data?.handlingTypes ?? []}
+                        placeholder={optionsQuery.data?.handlingTypes[0]?.label}
+                      />
+                      <p className="text-[11px] text-muted-foreground">{t('fulfill.handlingTypeHint')}</p>
+                    </div>
+                  )}
+
+                  {/* Pressify: phương thức in (`production`) — chỉ hiện khi nhà cung cấp có. */}
+                  {capabilities?.printMethod && (
+                    <div className="space-y-1">
+                      <Label>{t('fulfill.printMethodLabel')}</Label>
+                      <Combobox
+                        value={form.printMethod ?? ''}
+                        onChange={(value) =>
+                          setForm((prev) => ({ ...prev, printMethod: value || undefined }))
+                        }
+                        options={optionsQuery.data?.printMethods ?? []}
+                        placeholder={optionsQuery.data?.printMethods[0]?.label}
+                      />
+                      <p className="text-[11px] text-muted-foreground">{t('fulfill.printMethodHint')}</p>
+                    </div>
+                  )}
 
                   {capabilities?.speedType && (
                   <div className="space-y-1">

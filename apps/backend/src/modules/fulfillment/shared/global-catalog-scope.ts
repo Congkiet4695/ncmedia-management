@@ -21,7 +21,10 @@ export interface ProviderRawScope {
   dropPath: string[] | null;
 }
 
-type ScopedProvider = typeof FulfillmentProvider.MANGO | typeof FulfillmentProvider.SELLERWIX;
+type ScopedProvider =
+  | typeof FulfillmentProvider.MANGO
+  | typeof FulfillmentProvider.SELLERWIX
+  | typeof FulfillmentProvider.PRESSIFY;
 
 export const GLOBAL_CATALOG_RAW_SCOPE: {
   product: Record<ScopedProvider, ProviderRawScope>;
@@ -34,6 +37,9 @@ export const GLOBAL_CATALOG_RAW_SCOPE: {
       dropPath: null,
     },
     SELLERWIX: { dropKeys: ['active', 'additional_design_price'], dropPath: null },
+    // Pressify: `accessories[].accessory_items[]` mang PHÍ theo từng bậc (`tier_id`, `fee`) ⇒ là dữ liệu giá;
+    // `status` = trạng thái bán nhìn từ một lượt đồng bộ.
+    PRESSIFY: { dropKeys: ['accessories', 'status'], dropPath: null },
   },
   variant: {
     MANGO: {
@@ -41,10 +47,26 @@ export const GLOBAL_CATALOG_RAW_SCOPE: {
       dropPath: ['attributes', 'tier'],
     },
     SELLERWIX: { dropKeys: ['cost', 'active'], dropPath: null },
+    // Pressify: giá theo bậc (`product_prices`) + các field giá nội bộ (tài liệu: "not what you pay") + tồn
+    // kho / còn bán. Lớp global chỉ giữ thông tin mô tả biến thể (màu, size, SKU, cân nặng, ảnh…).
+    PRESSIFY: {
+      dropKeys: [
+        'product_prices',
+        'price',
+        'basecost',
+        'landed_cost',
+        'landed_cost_twoside',
+        'landed_cost_sleeve',
+        'stock',
+        'active',
+      ],
+      dropPath: null,
+    },
   },
   catalogue: {
     MANGO: { dropKeys: [], dropPath: null },
     SELLERWIX: { dropKeys: [], dropPath: null },
+    PRESSIFY: { dropKeys: [], dropPath: null },
   },
 };
 

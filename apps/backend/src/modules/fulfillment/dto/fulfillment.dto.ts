@@ -138,6 +138,18 @@ export class CreateFulfillmentAccountDto {
   storeId?: string;
 
   @ApiPropertyOptional({
+    description:
+      'Pressify: bậc giá của store (id bậc, vd "13" = Platinum) — TUỲ CHỌN. API Pressify không cho biết ' +
+      'store ở bậc nào; khai để giá biến thể (giá vốn dự kiến) theo đúng bậc. Chuỗi rỗng = bỏ khai.',
+    example: '13',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @Matches(/^(\d{1,8})?$/, { message: 'Bậc giá Pressify là id số (vd 13).' })
+  tierId?: string;
+
+  @ApiPropertyOptional({
     deprecated: true,
     description:
       '[CŨ] Sellerwix nay xác thực CHỈ bằng API Key — trường này được nhận nhưng BỎ QUA.',
@@ -192,6 +204,18 @@ export class UpdateFulfillmentAccountDto {
   @IsString()
   @MaxLength(128)
   storeId?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Pressify: bậc giá của store (id bậc, vd "13" = Platinum) — TUỲ CHỌN. API Pressify không cho biết ' +
+      'store ở bậc nào; khai để giá biến thể (giá vốn dự kiến) theo đúng bậc. Chuỗi rỗng = bỏ khai.',
+    example: '13',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @Matches(/^(\d{1,8})?$/, { message: 'Bậc giá Pressify là id số (vd 13).' })
+  tierId?: string;
 
   @ApiPropertyOptional({
     deprecated: true,
@@ -273,6 +297,8 @@ export class FulfillmentAccountDto {
   linkedTiktokAccounts!: number;
   @ApiProperty({ nullable: true, type: String, description: 'Sellerwix: Store ID (không bí mật).' })
   storeId!: string | null;
+  @ApiProperty({ nullable: true, type: String, description: 'Pressify: bậc giá đã khai (không bí mật).' })
+  tierId!: string | null;
 }
 
 /** Nhà cung cấp gán cho đơn — hiển thị ở Order Detail. KHÔNG chứa API key. */
@@ -945,6 +971,28 @@ export class FulfillPodOrderDto {
   rushService?: boolean;
 
   @ApiPropertyOptional({
+    description:
+      'Kiểu xử lý đơn — Pressify `order_status` (new_order | priority | express). Lấy từ `handlingTypes` của ' +
+      'GET options. Nhà cung cấp khác từ chối tuỳ chọn này.',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(32)
+  handlingType?: string;
+
+  @ApiPropertyOptional({
+    description:
+      'Phương thức in — Pressify `production` (DTF | DTG). Lấy từ `printMethods` của GET options. Nhà cung ' +
+      'cấp khác từ chối tuỳ chọn này.',
+  })
+  @IsOptional()
+  @Transform(trim)
+  @IsString()
+  @MaxLength(16)
+  printMethod?: string;
+
+  @ApiPropertyOptional({
     description: 'URL nhãn vận chuyển người bán tự mua (PDF/PNG/JPG, phải truy cập công khai).',
   })
   @IsOptional()
@@ -1011,6 +1059,10 @@ export class FulfillmentCapabilitiesDto {
   shippingMethodsByOrder!: boolean;
   @ApiProperty({ description: 'Sửa đơn đã gửi (nhãn/ghi chú/vận chuyển) qua API nhà cung cấp.' })
   updateAfterSubmit!: boolean;
+  @ApiProperty({ description: 'Chọn kiểu xử lý đơn (Pressify `order_status`).' })
+  handlingType!: boolean;
+  @ApiProperty({ description: 'Chọn phương thức in (Pressify `production`).' })
+  printMethod!: boolean;
 }
 
 /** Phương thức vận chuyển dùng được cho MỘT đơn với MỘT tài khoản nhà cung cấp. */
@@ -1043,6 +1095,10 @@ export class FulfillmentOptionsDto {
   preferredCarriers!: FulfillmentOptionDto[];
   @ApiProperty({ type: FulfillmentOptionDto, isArray: true })
   productionConfigs!: FulfillmentOptionDto[];
+  @ApiProperty({ type: FulfillmentOptionDto, isArray: true, description: 'Phần tử đầu = mặc định.' })
+  handlingTypes!: FulfillmentOptionDto[];
+  @ApiProperty({ type: FulfillmentOptionDto, isArray: true, description: 'Phần tử đầu = mặc định.' })
+  printMethods!: FulfillmentOptionDto[];
   @ApiProperty({
     type: FulfillmentOptionDto,
     isArray: true,

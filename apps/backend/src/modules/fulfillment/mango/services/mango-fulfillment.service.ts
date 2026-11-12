@@ -1365,6 +1365,12 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
     if (options.rushService) {
       errors.push({ field: 'rushService', message: 'MangoTeePrints không có tuỳ chọn rush service.' });
     }
+    if (options.handlingType) {
+      errors.push({ field: 'handlingType', message: 'MangoTeePrints không có tuỳ chọn kiểu xử lý đơn.' });
+    }
+    if (options.printMethod) {
+      errors.push({ field: 'printMethod', message: 'MangoTeePrints không có tuỳ chọn phương thức in.' });
+    }
     if (errors.length === 0) return;
     throw new FulfillmentValidationException(
       `Tuỳ chọn gửi MangoTeePrints không hợp lệ: ${errors

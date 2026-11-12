@@ -26,6 +26,8 @@ export interface FulfillmentProviderAccount {
   isGlobal: boolean;
   /** Sellerwix: Store ID (không bí mật) — chỉ cần khi đẩy đơn. */
   storeId: string | null;
+  /** Pressify: bậc giá đã khai (id, vd "13") — không bí mật. NULL = chưa khai. */
+  tierId: string | null;
 }
 
 /** Mục trong dropdown chọn nhà cung cấp ở màn hình TikTok Account. */
@@ -54,7 +56,16 @@ export interface SellerwixCredentialInput {
   storeId?: string;
 }
 
-export interface CreateFulfillmentProviderInput extends SellerwixCredentialInput {
+/**
+ * Trường cấu hình RIÊNG của Pressify: bậc giá (tuỳ chọn) — chỉ gửi khi nhà cung cấp là PRESSIFY.
+ * Xác thực bằng Store API key (ô API Key chung).
+ */
+export interface PressifyConfigInput {
+  tierId?: string;
+}
+
+export interface CreateFulfillmentProviderInput
+  extends SellerwixCredentialInput, PressifyConfigInput {
   provider: FulfillmentProviderType;
   name: string;
   apiKey: string;
@@ -62,7 +73,8 @@ export interface CreateFulfillmentProviderInput extends SellerwixCredentialInput
   isActive?: boolean;
 }
 
-export interface UpdateFulfillmentProviderInput extends SellerwixCredentialInput {
+export interface UpdateFulfillmentProviderInput
+  extends SellerwixCredentialInput, PressifyConfigInput {
   name?: string;
   /** Bỏ trống ⇒ GIỮ NGUYÊN khoá cũ. Chỉ gửi khi người dùng bấm "Replace API Key". */
   apiKey?: string;
@@ -70,8 +82,15 @@ export interface UpdateFulfillmentProviderInput extends SellerwixCredentialInput
   isActive?: boolean;
 }
 
-/** Nhà cung cấp fulfillment. Đã tích hợp: MANGO (MangoTeePrints), SELLERWIX. */
-export const FULFILLMENT_PROVIDERS = ['MANGO', 'SELLERWIX', 'PRINTIFY', 'PRINTFUL', 'CUSTOM'] as const;
+/** Nhà cung cấp fulfillment. Đã tích hợp: MANGO (MangoTeePrints), SELLERWIX, PRESSIFY. */
+export const FULFILLMENT_PROVIDERS = [
+  'MANGO',
+  'SELLERWIX',
+  'PRESSIFY',
+  'PRINTIFY',
+  'PRINTFUL',
+  'CUSTOM',
+] as const;
 export type FulfillmentProviderType = (typeof FULFILLMENT_PROVIDERS)[number];
 
 /**
@@ -159,6 +178,10 @@ export interface FulfillPayload {
   isScanLabel?: boolean;
   /** Sellerwix `rush_service`. */
   rushService?: boolean;
+  /** Kiểu xử lý đơn — Pressify `order_status` (giá trị lấy từ `options.handlingTypes`). */
+  handlingType?: string;
+  /** Phương thức in — Pressify `production` (giá trị lấy từ `options.printMethods`). */
+  printMethod?: string;
   labelUrl?: string;
   note?: string;
 }
@@ -327,6 +350,10 @@ export interface FulfillmentOptions {
   speedTypes: FulfillmentOption[];
   preferredCarriers: FulfillmentOption[];
   productionConfigs: FulfillmentOption[];
+  /** Kiểu xử lý đơn (Pressify) — phần tử đầu là mặc định. */
+  handlingTypes: FulfillmentOption[];
+  /** Phương thức in (Pressify) — phần tử đầu là mặc định. */
+  printMethods: FulfillmentOption[];
   productionLines: FulfillmentOption[];
   /** Line mặc định của tài khoản (id) — chỉ DỰ PHÒNG khi cấu hình sản phẩm không chọn line. */
   defaultProductionLine: string | null;
@@ -350,6 +377,10 @@ export interface FulfillmentCapabilities {
   /** Phương thức vận chuyển phụ thuộc sản phẩm của đơn (Sellerwix). */
   shippingMethodsByOrder: boolean;
   updateAfterSubmit: boolean;
+  /** Chọn kiểu xử lý đơn (Pressify `order_status`). */
+  handlingType: boolean;
+  /** Chọn phương thức in (Pressify `production`). */
+  printMethod: boolean;
 }
 
 /**

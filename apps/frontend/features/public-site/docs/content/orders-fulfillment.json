@@ -73,7 +73,7 @@
   {
     "slug": "fulfill-don-hang",
     "title": "Fulfill đơn hàng",
-    "summary": "Gửi đơn TikTok sang xưởng in (Mango Tee Prints hoặc Sellerwix) qua drawer Fulfill, theo dõi trạng thái, đồng bộ và huỷ đơn.",
+    "summary": "Gửi đơn TikTok sang xưởng in (Mango Tee Prints, Sellerwix hoặc Pressify) qua drawer Fulfill, theo dõi trạng thái, đồng bộ và huỷ đơn.",
     "overview": "Drawer Fulfill đơn hàng cho phép chọn nhà cung cấp fulfillment, kiểm tra điều kiện gửi, thiết lập tuỳ chọn cho lần gửi và đẩy đơn sang xưởng in. Hệ thống liệt kê cùng lúc mọi vấn đề cần xử lý trước khi gửi. Sau khi gửi, trạng thái được cập nhật từ nhà cung cấp; bạn có thể đồng bộ thủ công hoặc yêu cầu huỷ đơn tại xưởng in.",
     "whenToUse": [
       "Gửi một đơn POD sang xưởng in để sản xuất.",
@@ -127,7 +127,8 @@
       "Huỷ đơn chỉ hoàn tất khi nhà cung cấp xác nhận. Sau khi đã huỷ, có thể Fulfill lại (tạo đơn mới ở nhà cung cấp); ánh xạ và design được giữ nguyên.",
       "Quà tặng khuyến mãi của TikTok không được gửi sang nhà cung cấp; hãy đảm bảo quà được giao tới người mua.",
       "Khi đơn ở trạng thái Đang gửi, hệ thống đang đối soát với nhà cung cấp — không gửi lại đơn này.",
-      "Các ô tuỳ chọn trong Thiết lập Fulfill thay đổi theo nhà cung cấp đang chọn."
+      "Các ô tuỳ chọn trong Thiết lập Fulfill thay đổi theo nhà cung cấp đang chọn.",
+      "Với Pressify, ô \"Kiểu xử lý đơn\" (thường / ưu tiên / express) và \"Phương thức in\" (DTF / DTG) chỉ hiện khi chọn Pressify; đơn có nhãn vận chuyển được gửi kèm nhãn, không có nhãn thì Pressify tự mua nhãn USPS theo địa chỉ."
     ],
     "troubleshooting": [
       {
@@ -386,16 +387,16 @@
   {
     "slug": "nha-cung-cap-fulfillment",
     "title": "Nhà cung cấp Fulfillment",
-    "summary": "Thêm và quản lý tài khoản xưởng in (MangoTeePrints, Sellerwix) mà hệ thống gửi đơn sang.",
+    "summary": "Thêm và quản lý tài khoản xưởng in (MangoTeePrints, Sellerwix, Pressify) mà hệ thống gửi đơn sang.",
     "overview": "Màn hình Fulfillment Providers (menu Setting Fulfillment) quản lý các xưởng in của tổ chức. Mỗi TikTok Account dùng một nhà cung cấp. API key chỉ hiển thị 4 ký tự cuối sau khi lưu. Ngoài nhà cung cấp riêng, tổ chức có thể dùng nhà cung cấp dùng chung do Super Admin bật.",
     "whenToUse": [
-      "Kết nối tài khoản MangoTeePrints hoặc Sellerwix lần đầu.",
+      "Kết nối tài khoản MangoTeePrints, Sellerwix hoặc Pressify lần đầu.",
       "Thay API key, kiểm tra kết nối hoặc tạm tắt một nhà cung cấp.",
       "Gán nhà cung cấp cho TikTok Account."
     ],
     "prerequisites": [
       "Có quyền cấu hình fulfillment (fulfillment.config).",
-      "Có API key của nhà cung cấp. Với Sellerwix, API key tạo tại Settings → Public API → Generate API Key."
+      "Có API key của nhà cung cấp. Với Sellerwix, API key tạo tại Settings → Public API → Generate API Key. Với Pressify, dùng Store API key tại Dashboard → Stores (không dùng User API key)."
     ],
     "steps": [
       {
@@ -404,11 +405,11 @@
       },
       {
         "title": "Thêm nhà cung cấp",
-        "detail": "Bấm Thêm nhà cung cấp, chọn Provider (MangoTeePrints hoặc Sellerwix) và nhập Display Name, ví dụ Mango US."
+        "detail": "Bấm Thêm nhà cung cấp, chọn Provider (MangoTeePrints, Sellerwix hoặc Pressify) và nhập Display Name, ví dụ Mango US."
       },
       {
         "title": "Nhập thông tin kết nối",
-        "detail": "Dán API key vào ô API Key. Với MangoTeePrints, ô API Base URL đã điền sẵn; với Sellerwix, để trống API Base URL để dùng mặc định và có thể nhập Store ID Sellerwix (tuỳ chọn)."
+        "detail": "Dán API key vào ô API Key. Với MangoTeePrints, ô API Base URL đã điền sẵn; với Sellerwix, để trống API Base URL để dùng mặc định và có thể nhập Store ID Sellerwix (tuỳ chọn). Với Pressify, dán Store API key và có thể chọn Bậc giá Pressify (tuỳ chọn) để Product Mapping có giá vốn dự kiến."
       },
       {
         "title": "Lưu và ghi lại URL webhook",
@@ -434,7 +435,8 @@
       "Store ID Sellerwix không bắt buộc khi lưu, chỉ cần khi đẩy đơn sang Sellerwix.",
       "Nhà cung cấp dùng chung do Super Admin bật xuất hiện trong drawer Fulfill với ghi chú “dùng chung”.",
       "Printful, Printify và Tự khai báo hiện chưa tích hợp.",
-      "Không chia sẻ API key qua kênh không bảo mật; giao diện không hiển thị lại khoá đã lưu."
+      "Không chia sẻ API key qua kênh không bảo mật; giao diện không hiển thị lại khoá đã lưu.",
+      "Pressify định danh biến thể bằng variant_id (nhiều biến thể Pressify không có SKU). Giá vốn thật của đơn Pressify được cập nhật sau khi Pressify trừ tiền."
     ],
     "troubleshooting": [
       {

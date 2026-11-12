@@ -53,6 +53,8 @@ import {
 } from '../exceptions/fulfillment.exceptions';
 import { MANGO_SHIPPING_METHODS } from '../mango/constants/mango.constants';
 import { SellerwixCredentialService } from '../sellerwix/services/sellerwix-credential.service';
+import { PRESSIFY_SHIPPING_METHODS } from '../pressify/constants/pressify.constants';
+import { PressifyCredentialService } from '../pressify/services/pressify-credential.service';
 import { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 import { FulfillmentVariantPriceService } from './fulfillment-variant-price.service';
 import { FulfillmentCatalogSyncService } from './fulfillment-catalog-sync.service';
@@ -180,7 +182,11 @@ export class FulfillmentService {
       // Sellerwix xác thực CHỈ bằng API Key — `privateKey`/`publicKeyId` (cũ) không còn được lưu.
       secretEnc: null,
       providerConfig:
-        dto.provider === FulfillmentProvider.SELLERWIX ? { storeId: dto.storeId ?? '' } : Prisma.JsonNull,
+        dto.provider === FulfillmentProvider.SELLERWIX
+          ? { storeId: dto.storeId ?? '' }
+          : dto.provider === FulfillmentProvider.PRESSIFY
+            ? { tierId: dto.tierId ?? '' }
+            : Prisma.JsonNull,
       webhookSecretEnc: this.encryption.encrypt(webhookSecret),
       isDefault: dto.isDefault ?? true,
       createdBy: actorUserId,
@@ -252,6 +258,9 @@ export class FulfillmentService {
       ...(dto.baseUrl !== undefined ? { baseUrlOverride: dto.baseUrl || null } : {}),
       ...(existing.provider === FulfillmentProvider.SELLERWIX && dto.storeId !== undefined
         ? { providerConfig: { ...currentConfig, storeId: dto.storeId } }
+        : {}),
+      ...(existing.provider === FulfillmentProvider.PRESSIFY && dto.tierId !== undefined
+        ? { providerConfig: { ...currentConfig, tierId: dto.tierId } }
         : {}),
       // Chỉ đổi khoá khi người dùng thực sự gửi khoá mới.
       ...(dto.apiKey
@@ -1509,6 +1518,7 @@ export class FulfillmentService {
       defaultProductionLine?: string;
       defaultFacility?: string;
       defaultShippingMethod?: string;
+      tierId?: string;
     },
   ): void {
     const errors: Array<{ field: string; message: string }> = [];
@@ -1519,7 +1529,27 @@ export class FulfillmentService {
       }
     };
 
-    if (provider === FulfillmentProvider.SELLERWIX) {
+    // Bậc giá là cấu hình RIÊNG của Pressify.
+    if (provider !== FulfillmentProvider.PRESSIFY) notFor('tierId', dto.tierId);
+
+    if (provider === FulfillmentProvider.PRESSIFY) {
+      // 🔴 Pressify chỉ cần Store API key (DTO đã bắt buộc) + bậc giá tuỳ chọn. Không có private key, Store ID
+      // (store được xác định bởi chính key), production line hay facility.
+      notFor('privateKey', dto.privateKey);
+      notFor('storeId', dto.storeId);
+      notFor('publicKeyId', dto.publicKeyId);
+      notFor('defaultProductionLine', dto.defaultProductionLine);
+      notFor('defaultFacility', dto.defaultFacility);
+      if (
+        dto.defaultShippingMethod &&
+        !(PRESSIFY_SHIPPING_METHODS as readonly string[]).includes(dto.defaultShippingMethod)
+      ) {
+        errors.push({
+          field: 'defaultShippingMethod',
+          message: `Phải thuộc: ${PRESSIFY_SHIPPING_METHODS.join(', ')}.`,
+        });
+      }
+    } else if (provider === FulfillmentProvider.SELLERWIX) {
       notFor('defaultProductionLine', dto.defaultProductionLine);
       notFor('defaultFacility', dto.defaultFacility);
       // 🔴 Sellerwix chỉ cần API Key (DTO đã bắt buộc). `privateKey` / `publicKeyId` là trường CŨ:
@@ -1587,6 +1617,11 @@ export class FulfillmentService {
           : null,
       // Cấu hình KHÔNG bí mật của Sellerwix — được phép hiển thị để người dùng đối chiếu.
       storeId: sellerwix?.storeId || null,
+      // Cấu hình KHÔNG bí mật của Pressify (bậc giá).
+      tierId:
+        account.provider === FulfillmentProvider.PRESSIFY
+          ? PressifyCredentialService.readConfig(account.providerConfig).tierId || null
+          : null,
       providerWebhookId: account.providerWebhookId,
       lastUsedAt: account.lastUsedAt?.toISOString() ?? null,
       lastErrorMsg: account.lastErrorMsg,

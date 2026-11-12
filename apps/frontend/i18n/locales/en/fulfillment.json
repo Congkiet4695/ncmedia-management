@@ -294,7 +294,11 @@
     "total": "Total",
     "useAccountDefault": "Provider default",
     "shippingLoadFailed": "Could not load shipping methods",
-    "orderId": "Order ID"
+    "orderId": "Order ID",
+    "handlingTypeLabel": "Handling type",
+    "handlingTypeHint": "Priority / Express add a fee and are capped by the number of open orders across Pressify.",
+    "printMethodLabel": "Print method",
+    "printMethodHint": "DTF is the default. DTG only accepts T-shirt, Sweatshirt, Wash tee, Comfort Colors, Youth T-Shirt, Bella Canvas and front / back prints."
   },
   "fulfillNow": "Fulfill now",
   "history": "History",
@@ -485,11 +489,20 @@
       "MANGO": "MangoTeePrints",
       "PRINTFUL": "Printful (not integrated)",
       "PRINTIFY": "Printify (not integrated)",
-      "SELLERWIX": "Sellerwix"
+      "SELLERWIX": "Sellerwix",
+      "PRESSIFY": "Pressify"
     },
     "updateSuccess": "Provider updated",
     "updated": "Updated",
-    "webhookUrlOnce": "Webhook URL (shown ONCE — save it now)"
+    "webhookUrlOnce": "Webhook URL (shown ONCE — save it now)",
+    "optionalBaseUrlPlaceholder": "Leave empty to use the system default",
+    "pressify": {
+      "apiKey": "Store API Key (Pressify Dashboard → Stores)",
+      "apiKeyHint": "Use the Store API key of the store that receives orders. The User API key (Profile → Details) does not work for orders.",
+      "tier": "Pressify price tier (optional)",
+      "tierNone": "Not set — base cost comes from what Pressify charges",
+      "tierHint": "Pressify prices by account tier but the API does not expose the tier. Set it so the estimated base cost in Product Mapping is right; the real order base cost always comes from Pressify once the order is paid."
+    }
   },
   "providerOrderId": "Provider order ID",
   "readiness": {

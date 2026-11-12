@@ -971,6 +971,8 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
       options.speedType ? 'speedType' : null,
       options.preferredCarrier ? 'preferredCarrier' : null,
       options.isScanLabel ? 'isScanLabel' : null,
+      options.handlingType ? 'handlingType' : null,
+      options.printMethod ? 'printMethod' : null,
     ].filter((field): field is string => field !== null);
     if (unsupported.length === 0) return;
     throw new FulfillmentValidationException(

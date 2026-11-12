@@ -14,6 +14,15 @@ import {
   SELLERWIX_DEFAULT_PLACEMENT_DISPLAY_NAMES,
   SELLERWIX_PROVIDER_NOTICE,
 } from '../sellerwix/constants/sellerwix.constants';
+import {
+  PRESSIFY_DEFAULT_PLACEMENT_MAP,
+  PRESSIFY_HANDLING_TYPE_LABELS,
+  PRESSIFY_HANDLING_TYPES,
+  PRESSIFY_PRINT_METHODS,
+  PRESSIFY_PROVIDER_NOTICE,
+  PRESSIFY_SHIPPING_METHOD_LABELS,
+  PRESSIFY_SHIPPING_METHODS,
+} from '../pressify/constants/pressify.constants';
 
 /** Một lựa chọn cho ô chọn ở giao diện: giá trị gửi lên + nhãn hiển thị. */
 export interface FulfillmentOption {
@@ -41,6 +50,10 @@ export interface FulfillmentCapabilities {
   /** Phương thức vận chuyển phụ thuộc sản phẩm của đơn ⇒ hỏi theo đơn. */
   shippingMethodsByOrder: boolean;
   updateAfterSubmit: boolean;
+  /** Chọn kiểu xử lý đơn (Pressify `order_status`: thường / ưu tiên / express). */
+  handlingType: boolean;
+  /** Chọn phương thức in (Pressify `production`: DTF / DTG). */
+  printMethod: boolean;
 }
 
 const NO_CAPABILITIES: FulfillmentCapabilities = {
@@ -53,6 +66,8 @@ const NO_CAPABILITIES: FulfillmentCapabilities = {
   rushService: false,
   shippingMethodsByOrder: false,
   updateAfterSubmit: false,
+  handlingType: false,
+  printMethod: false,
 };
 
 /** Toàn bộ lựa chọn của MỘT tài khoản nhà cung cấp — nguồn duy nhất cho màn hình Fulfill. */
@@ -66,6 +81,10 @@ export interface FulfillmentOptions {
   speedTypes: FulfillmentOption[];
   preferredCarriers: FulfillmentOption[];
   productionConfigs: FulfillmentOption[];
+  /** Kiểu xử lý đơn — chỉ khi `capabilities.handlingType`. Phần tử đầu = mặc định. */
+  handlingTypes: FulfillmentOption[];
+  /** Phương thức in — chỉ khi `capabilities.printMethod`. Phần tử đầu = mặc định. */
+  printMethods: FulfillmentOption[];
   /** Lấy TRỰC TIẾP từ nhà cung cấp (`GET /production-lines`). Rỗng = chưa hỏi được. */
   productionLines: FulfillmentOption[];
   printLocations: PrintLocationOption[];
@@ -116,12 +135,37 @@ export class FulfillmentOptionsService {
       speedTypes: [],
       preferredCarriers: [],
       productionConfigs: [],
+      handlingTypes: [],
+      printMethods: [],
       productionLines: [],
       printLocations: [],
       defaultProductionLine: null,
       capabilities: NO_CAPABILITIES,
       warnings,
     };
+
+    if (account.provider === FulfillmentProvider.PRESSIFY) {
+      // 🔴 Pressify chỉ nhận đúng các field của POST /order (tài liệu): order_status, shipping_method,
+      // production. KHÔNG có production line / facility / speed type / carrier / scan label / rush.
+      return {
+        ...base,
+        notice: PRESSIFY_PROVIDER_NOTICE,
+        shippingMethods: PRESSIFY_SHIPPING_METHODS.map((value) => ({
+          value,
+          label: PRESSIFY_SHIPPING_METHOD_LABELS[value],
+        })),
+        handlingTypes: PRESSIFY_HANDLING_TYPES.map((value) => ({
+          value,
+          label: PRESSIFY_HANDLING_TYPE_LABELS[value],
+        })),
+        printMethods: PRESSIFY_PRINT_METHODS.map((value) => ({ value, label: value })),
+        // Vị trí không có tương ứng ở Pressify (nhãn cổ) không được liệt kê.
+        printLocations: Object.entries(PRESSIFY_DEFAULT_PLACEMENT_MAP).flatMap(([placement, providerKey]) =>
+          providerKey ? [{ placement: placement as PodDesignPlacement, providerKey }] : [],
+        ),
+        capabilities: { ...NO_CAPABILITIES, handlingType: true, printMethod: true },
+      };
+    }
 
     if (account.provider === FulfillmentProvider.SELLERWIX) {
       // 🔴 Sellerwix KHÔNG có production line / production config / facility / speed type /
@@ -177,6 +221,8 @@ export class FulfillmentOptionsService {
         rushService: false,
         shippingMethodsByOrder: false,
         updateAfterSubmit: true,
+        handlingType: false,
+        printMethod: false,
       },
     };
   }

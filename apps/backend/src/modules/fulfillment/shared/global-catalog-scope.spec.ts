@@ -74,6 +74,48 @@ describe('global-catalog-scope', () => {
     expect(canonicalRaw('variant', FulfillmentProvider.MANGO, ['a'])).toEqual(['a']);
   });
 
+  it('Pressify variant: bỏ giá theo bậc + mọi field giá nội bộ + tồn kho / còn bán; GIỮ variant_id, SKU, màu, size', () => {
+    const raw = {
+      variant_id: 188,
+      id: null,
+      sku: 'USG5000UL-Forest-L',
+      color: 'Forest',
+      size: 'L',
+      weight: '6.00',
+      price: '2.7',
+      basecost: '5.79',
+      landed_cost: '4.30',
+      landed_cost_twoside: '1.50',
+      landed_cost_sleeve: '1.00',
+      stock: 0,
+      active: 1,
+      product_prices: [{ tier_id: 14, price: '4.99' }],
+      product_style: 'T-shirt',
+    };
+    expect(canonicalRaw('variant', FulfillmentProvider.PRESSIFY, raw)).toEqual({
+      variant_id: 188,
+      id: null,
+      sku: 'USG5000UL-Forest-L',
+      color: 'Forest',
+      size: 'L',
+      weight: '6.00',
+      product_style: 'T-shirt',
+    });
+    expect(raw.product_prices).toHaveLength(1);
+  });
+
+  it('Pressify sản phẩm: bỏ accessories (phí theo bậc) + status; giữ mô tả sản phẩm', () => {
+    expect(
+      canonicalRaw('product', FulfillmentProvider.PRESSIFY, {
+        id: 1,
+        name: 'Unisex T-shirt G5000',
+        style: 'T-shirt',
+        status: 1,
+        accessories: [{ accessory_items: [{ tier_id: '14', fee: '0.50' }] }],
+      }),
+    ).toEqual({ id: 1, name: 'Unisex T-shirt G5000', style: 'T-shirt' });
+  });
+
   it('tier chỉ có ở Mango', () => {
     expect(VARIANT_TIER_PATH.MANGO).toEqual(['attributes', 'tier']);
     expect(VARIANT_TIER_PATH.SELLERWIX).toBeUndefined();

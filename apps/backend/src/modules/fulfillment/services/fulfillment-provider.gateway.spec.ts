@@ -16,6 +16,7 @@ import {
 import { MangoFulfillmentService } from '../mango/services/mango-fulfillment.service';
 import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import { SellerwixFulfillmentService } from '../sellerwix/services/sellerwix-fulfillment.service';
+import { PressifyFulfillmentService } from '../pressify/services/pressify-fulfillment.service';
 import { FulfillmentProviderGateway } from './fulfillment-provider.gateway';
 import { FulfillmentNotificationService } from './fulfillment-notification.service';
 import { DistributedLockService } from '../../pod-tiktok/infra/distributed-lock.service';
@@ -37,6 +38,12 @@ const SELLERWIX = {
   provider: FulfillmentProvider.SELLERWIX,
   isActive: true,
   name: 'Sellerwix',
+};
+const PRESSIFY = {
+  id: 'acc-psf',
+  provider: FulfillmentProvider.PRESSIFY,
+  isActive: true,
+  name: 'Pressify',
 };
 const PRINTIFY = {
   id: 'acc-pf',
@@ -90,6 +97,10 @@ function build(
     fulfill: jest.fn().mockResolvedValue({ provider: 'SELLERWIX' }),
     cancel: jest.fn().mockResolvedValue({}),
   };
+  const pressify = {
+    fulfill: jest.fn().mockResolvedValue({ provider: 'PRESSIFY' }),
+    cancel: jest.fn().mockResolvedValue({}),
+  };
   // Khoá trong bộ nhớ: giữ đúng ngữ nghĩa "đang có người giữ ⇒ null" của DistributedLockService.
   const held = new Set<string>();
   const lock = {
@@ -119,8 +130,9 @@ function build(
     new PodAccessScopeService({} as never),
     notifications as unknown as FulfillmentNotificationService,
     lock as unknown as DistributedLockService,
+    { provider: FulfillmentProvider.PRESSIFY, ...pressify } as unknown as PressifyFulfillmentService,
   );
-  return { gateway, mango, sellerwix, notifications, lock };
+  return { gateway, mango, sellerwix, pressify, notifications, lock };
 }
 
 describe('FulfillmentProviderGateway', () => {
@@ -143,6 +155,25 @@ describe('FulfillmentProviderGateway', () => {
       },
     );
     expect(mango.fulfill).not.toHaveBeenCalled();
+  });
+
+  it('Pressify — chọn tài khoản Pressify ⇒ CHỈ adapter Pressify được gọi, nguyên tuỳ chọn Pressify', async () => {
+    const { gateway, mango, sellerwix, pressify } = build({ accounts: [MANGO, SELLERWIX, PRESSIFY] });
+
+    await gateway.fulfill('org', 'user', 'pod-1', FulfillmentTrigger.MANUAL, {
+      fulfillmentAccountId: 'acc-psf',
+      handlingType: 'priority',
+      printMethod: 'DTG',
+    }, ALL);
+
+    expect(pressify.fulfill).toHaveBeenCalledWith('org', 'user', 'pod-1', FulfillmentTrigger.MANUAL, {
+      fulfillmentAccountId: 'acc-psf',
+      handlingType: 'priority',
+      printMethod: 'DTG',
+    });
+    expect(mango.fulfill).not.toHaveBeenCalled();
+    expect(sellerwix.fulfill).not.toHaveBeenCalled();
+    expect(gateway.isSupported(FulfillmentProvider.PRESSIFY)).toBe(true);
   });
 
   it('Retry không chọn lại ⇒ dùng đúng nhà cung cấp của bản ghi hiện hành', async () => {

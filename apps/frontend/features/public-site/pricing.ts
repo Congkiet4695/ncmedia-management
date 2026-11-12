@@ -70,7 +70,7 @@ export const INCLUDED_IN_EVERY_PLAN = [
   'Đồng bộ sản phẩm, đơn hàng, đơn hoàn trả và payout',
   'Đăng sản phẩm hàng loạt với template',
   'Flash Sale và Auto Flash Sale',
-  'Fulfillment với Mango Tee Prints và Sellerwix',
+  'Fulfillment với Mango Tee Prints, Sellerwix và Pressify',
   'Nhân viên, vai trò và phân quyền theo shop',
   'Dashboard vận hành và thông báo Telegram',
 ] as const;

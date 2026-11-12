@@ -4,6 +4,7 @@ import { FulfillmentProvider } from '@prisma/client';
 export const FULFILLMENT_PROVIDER_LABELS: Readonly<Record<FulfillmentProvider, string>> = {
   MANGO: 'MangoTeePrints',
   SELLERWIX: 'Sellerwix',
+  PRESSIFY: 'Pressify',
   PRINTIFY: 'Printify',
   PRINTFUL: 'Printful',
   CUSTOM: 'Custom',
@@ -24,4 +25,5 @@ export function providerLabelOf(provider: FulfillmentProvider | null): string {
 export const FULFILLMENT_WEBHOOK_PATHS: Readonly<Partial<Record<FulfillmentProvider, string>>> = {
   MANGO: 'mango',
   SELLERWIX: 'sellerwix',
+  PRESSIFY: 'pressify',
 };

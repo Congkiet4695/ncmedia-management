@@ -294,7 +294,11 @@
     "total": "Tổng cộng",
     "useAccountDefault": "Mặc định của đơn vị Fulfill",
     "shippingLoadFailed": "Không tải được phương thức vận chuyển",
-    "orderId": "Mã đơn hàng"
+    "orderId": "Mã đơn hàng",
+    "handlingTypeLabel": "Kiểu xử lý đơn",
+    "handlingTypeHint": "Priority / Express cộng phí và có giới hạn số đơn đang mở trên toàn Pressify.",
+    "printMethodLabel": "Phương thức in",
+    "printMethodHint": "DTF là mặc định. DTG chỉ nhận T-shirt, Sweatshirt, Wash tee, Comfort Colors, Youth T-Shirt, Bella Canvas và chỉ in mặt trước / sau."
   },
   "fulfillNow": "Fulfill Now",
   "history": "Lịch sử",
@@ -485,11 +489,20 @@
       "MANGO": "MangoTeePrints",
       "PRINTFUL": "Printful (chưa tích hợp)",
       "PRINTIFY": "Printify (chưa tích hợp)",
-      "SELLERWIX": "Sellerwix"
+      "SELLERWIX": "Sellerwix",
+      "PRESSIFY": "Pressify"
     },
     "updateSuccess": "Đã cập nhật nhà cung cấp",
     "updated": "Updated",
-    "webhookUrlOnce": "URL webhook (chỉ hiện MỘT LẦN — hãy lưu lại ngay)"
+    "webhookUrlOnce": "URL webhook (chỉ hiện MỘT LẦN — hãy lưu lại ngay)",
+    "optionalBaseUrlPlaceholder": "Để trống để dùng mặc định của hệ thống",
+    "pressify": {
+      "apiKey": "Store API Key (Pressify Dashboard → Stores)",
+      "apiKeyHint": "Dùng Store API key của store sẽ nhận đơn. User API key (Profile → Details) KHÔNG dùng được cho đơn hàng.",
+      "tier": "Bậc giá Pressify (tuỳ chọn)",
+      "tierNone": "Không khai — giá vốn lấy theo số Pressify thực trừ",
+      "tierHint": "Pressify tính giá theo bậc của tài khoản nhưng API không cho biết bậc. Khai bậc để giá vốn dự kiến ở Product Mapping đúng; giá vốn thật của đơn luôn lấy từ Pressify sau khi đơn được thanh toán."
+    }
   },
   "providerOrderId": "ID xưởng in",
   "readiness": {
