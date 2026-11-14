@@ -36,8 +36,11 @@ export interface PressifyCatalogSnapshot {
  *   - `external_product_id` = `product.id` (số nguyên).
  *   - `external_variant_id` = `variant_id` (số nguyên, duy nhất toàn danh mục) — chính là giá trị gửi vào
  *     `line_items[].variant_id`. `variant.id` của API luôn NULL (tài liệu: "Use variant_id, not id").
- *   - `sku` = SKU Pressify NGUYÊN VĂN, có thể RỖNG (294/807 biến thể không có SKU) — chỉ để hiển thị /
- *     tra cứu, KHÔNG phải định danh. Biến thể không có SKU vẫn được đồng bộ (vẫn đặt hàng được).
+ *   - `sku` = SKU Pressify nguyên văn; biến thể KHÔNG có SKU (294/807) ⇒ `sku` = chính `variant_id`.
+ *     🔴 Vì sao: `fulfillment_product_mappings.provider_sku` có CHECK `length(btrim(provider_sku)) > 0` (từ
+ *     migration đầu của module) — lưu SKU rỗng làm Save configuration lỗi 500 và không tạo được ánh xạ. Dùng
+ *     `variant_id` là đúng ngữ nghĩa Pressify: tài liệu GET /products nhận `sku` = "A variant_id, to fetch one
+ *     variant". SKU vẫn KHÔNG phải định danh — định danh / giá trị gửi đi luôn là `external_variant_id`.
  *
  * Danh mục: Pressify không có thực thể danh mục (`catalog_id` luôn rỗng). Nhóm theo `style` — trường
  * thật của sản phẩm (T-shirt, Hoodie, Poster…), không bịa nhóm. Sản phẩm không có style ⇒ không danh mục.
@@ -178,8 +181,8 @@ export class PressifyCatalogService {
     return {
       externalProductId: productId,
       externalVariantId,
-      // SKU nguyên văn (có thể rỗng) — cột NOT NULL nhận chuỗi rỗng; không bịa SKU.
-      sku: variant.sku?.trim() ?? '',
+      // SKU thật nếu có; không có ⇒ variant_id (giá trị tra `sku` của Pressify, thoả CHECK provider_sku của ánh xạ).
+      sku: variant.sku?.trim() || externalVariantId,
       name: [color, size].filter(Boolean).join(' / ') || product.name?.trim() || externalVariantId,
       color,
       size,

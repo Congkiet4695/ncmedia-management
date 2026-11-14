@@ -501,7 +501,8 @@
       "apiKeyHint": "Use the Store API key of the store that receives orders. The User API key (Profile → Details) does not work for orders.",
       "tier": "Pressify price tier (optional)",
       "tierNone": "Not set — base cost comes from what Pressify charges",
-      "tierHint": "Pressify prices by account tier but the API does not expose the tier. Set it so the estimated base cost in Product Mapping is right; the real order base cost always comes from Pressify once the order is paid."
+      "tierHint": "Pressify prices by account tier but the API does not expose the tier. Set it so the estimated base cost in Product Mapping is right; the real order base cost always comes from Pressify once the order is paid.",
+      "tierMissing": "Price tier not set — Pressify variants have no reference base cost. Edit to choose the tier, then sync the catalog."
     }
   },
   "providerOrderId": "Provider order ID",

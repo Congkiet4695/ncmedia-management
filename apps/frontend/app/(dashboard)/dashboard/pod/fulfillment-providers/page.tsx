@@ -185,6 +185,12 @@ function ProvidersView() {
                         </TableCell>
                         <TableCell className="font-medium">
                           {provider.name}
+                          {/* Pressify định giá theo bậc của store — chưa khai bậc ⇒ không có Reference base cost. */}
+                          {provider.provider === 'PRESSIFY' && !provider.tierId && (
+                            <p className="mt-1 max-w-[280px] text-xs text-warning">
+                              {t('provider.pressify.tierMissing')}
+                            </p>
+                          )}
                           {result && (
                             <p
                               className={

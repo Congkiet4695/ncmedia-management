@@ -501,7 +501,8 @@
       "apiKeyHint": "Dùng Store API key của store sẽ nhận đơn. User API key (Profile → Details) KHÔNG dùng được cho đơn hàng.",
       "tier": "Bậc giá Pressify (tuỳ chọn)",
       "tierNone": "Không khai — giá vốn lấy theo số Pressify thực trừ",
-      "tierHint": "Pressify tính giá theo bậc của tài khoản nhưng API không cho biết bậc. Khai bậc để giá vốn dự kiến ở Product Mapping đúng; giá vốn thật của đơn luôn lấy từ Pressify sau khi đơn được thanh toán."
+      "tierHint": "Pressify tính giá theo bậc của tài khoản nhưng API không cho biết bậc. Khai bậc để giá vốn dự kiến ở Product Mapping đúng; giá vốn thật của đơn luôn lấy từ Pressify sau khi đơn được thanh toán.",
+      "tierMissing": "Chưa khai Bậc giá — chưa có Reference base cost cho biến thể Pressify. Bấm Sửa để chọn bậc rồi đồng bộ danh mục."
     }
   },
   "providerOrderId": "ID xưởng in",

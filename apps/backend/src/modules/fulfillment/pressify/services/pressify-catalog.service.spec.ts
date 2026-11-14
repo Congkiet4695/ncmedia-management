@@ -138,17 +138,27 @@ describe('PressifyCatalogService', () => {
     );
   });
 
-  it('Biến thể KHÔNG có SKU (rỗng / null) vẫn được đồng bộ — SKU lưu nguyên văn là chuỗi rỗng, không bịa', async () => {
+  it('Biến thể KHÔNG có SKU (rỗng / null) vẫn được đồng bộ — sku = variant_id (CHECK provider_sku của ánh xạ không nhận rỗng)', async () => {
     const { service } = build(CATALOG);
 
     const snapshot = await service.fetchCatalog(account());
 
     const poster = snapshot.variants.filter((item) => item.externalProductId === '9');
     expect(poster.map((item) => [item.externalVariantId, item.sku])).toEqual([
-      ['3183', ''],
-      ['3184', ''],
+      ['3183', '3183'],
+      ['3184', '3184'],
     ]);
     expect(poster[0].name).toBe('White / 27x40');
+    // Mọi biến thể đều có SKU không rỗng ⇒ lưu ánh xạ không bao giờ vướng CHECK `length(btrim(provider_sku)) > 0`.
+    expect(snapshot.variants.every((item) => item.sku.trim().length > 0)).toBe(true);
+  });
+
+  it('Biến thể CÓ SKU thật ⇒ giữ nguyên SKU Pressify (không thay bằng variant_id)', async () => {
+    const { service } = build(CATALOG);
+    const snapshot = await service.fetchCatalog(account());
+    expect(snapshot.variants.find((item) => item.externalVariantId === '102')?.sku).toBe(
+      'USG5000UL-Black-102',
+    );
   });
 
   it('Danh mục suy từ `style` (trường thật) — Pressify không có thực thể danh mục', async () => {

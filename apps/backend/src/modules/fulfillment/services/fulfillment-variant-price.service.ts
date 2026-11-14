@@ -1,7 +1,9 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { FulfillmentCatalogItemStatus } from '@prisma/client';
 import { FulfillmentVariantPriceUnavailableException } from '../exceptions/fulfillment.exceptions';
+import { PressifyCredentialService } from '../pressify/services/pressify-credential.service';
 import { type VariantPriceKey } from '../repositories/fulfillment-catalog.repository';
+import { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import { FulfillmentCatalogReader, type CatalogReadPort } from './fulfillment-catalog-reader.service';
 
 /** Nguồn của giá — hiện chỉ có danh mục đã đồng bộ từ API chính thức của nhà cung cấp. */
@@ -12,6 +14,8 @@ export type VariantPriceFailure =
   | 'VARIANT_NOT_FOUND'
   | 'VARIANT_INACTIVE'
   | 'PRICE_MISSING'
+  /** Nhà cung cấp định giá theo bậc của tài khoản (Pressify) và tài khoản CHƯA khai bậc ⇒ chưa có giá. */
+  | 'PROVIDER_TIER_NOT_CONFIGURED'
   | 'PRICE_INVALID'
   | 'AMBIGUOUS';
 
@@ -73,7 +77,22 @@ export class FulfillmentVariantPriceService {
    * Đọc qua `FulfillmentCatalogReader`: cờ Global Catalog bật ⇒ giá ở `fulfillment_account_variants` của ĐÚNG
    * `accountId` (lớp global không có giá); tắt / chưa chiếu ⇒ `fulfillment_variants` như trước.
    */
-  constructor(@Inject(FulfillmentCatalogReader) private readonly catalogRepo: CatalogReadPort) {}
+  constructor(
+    @Inject(FulfillmentCatalogReader) private readonly catalogRepo: CatalogReadPort,
+    /** Chỉ để giải thích lý do thiếu giá (vd Pressify chưa khai bậc). Thiếu (kiểm thử dựng tay) ⇒ thông điệp chung. */
+    @Optional() private readonly accounts?: FulfillmentRepository,
+  ) {}
+
+  /** Lý do thiếu giá RIÊNG của nhà cung cấp — `null` ⇒ dùng thông điệp chung. Không bao giờ ném lỗi. */
+  private async missingPriceHint(organizationId: string, accountId: string): Promise<string | null> {
+    if (!this.accounts) return null;
+    try {
+      const account = await this.accounts.findAccountById(organizationId, accountId);
+      return account ? PressifyCredentialService.missingPriceHint(account) : null;
+    } catch {
+      return null;
+    }
+  }
 
   /** Tra giá — không ném lỗi khi không có giá (nơi gọi tự quyết). */
   async lookup(
@@ -107,12 +126,16 @@ export class FulfillmentVariantPriceService {
     const withPrice = priced.filter((entry) => entry.price !== null);
     if (withPrice.length === 0) {
       const raw = active[0].price?.trim();
-      return raw
-        ? {
-            ok: false,
-            reason: 'PRICE_INVALID',
-            message: `Giá nhà cung cấp của biến thể ${label} không hợp lệ ("${raw}") — không cập nhật Base Cost.`,
-          }
+      if (raw) {
+        return {
+          ok: false,
+          reason: 'PRICE_INVALID',
+          message: `Giá nhà cung cấp của biến thể ${label} không hợp lệ ("${raw}") — không cập nhật Base Cost.`,
+        };
+      }
+      const hint = await this.missingPriceHint(organizationId, accountId);
+      return hint
+        ? { ok: false, reason: 'PROVIDER_TIER_NOT_CONFIGURED', message: hint }
         : {
             ok: false,
             reason: 'PRICE_MISSING',

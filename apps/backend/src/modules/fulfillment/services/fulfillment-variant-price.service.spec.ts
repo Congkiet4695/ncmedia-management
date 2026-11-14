@@ -1,6 +1,7 @@
 import { FulfillmentCatalogItemStatus } from '@prisma/client';
 import { FulfillmentVariantPriceUnavailableException } from '../exceptions/fulfillment.exceptions';
 import type { FulfillmentCatalogRepository } from '../repositories/fulfillment-catalog.repository';
+import type { FulfillmentRepository } from '../repositories/fulfillment.repository';
 import {
   FulfillmentVariantPriceService,
   parseProviderPrice,
@@ -26,11 +27,16 @@ function row(over: Record<string, unknown> = {}) {
   };
 }
 
-function build(rows: unknown[]) {
+function build(rows: unknown[], account?: Record<string, unknown> | null) {
   const findVariantsForPrice = jest.fn().mockResolvedValue(rows);
-  const service = new FulfillmentVariantPriceService({
-    findVariantsForPrice,
-  } as unknown as FulfillmentCatalogRepository);
+  const accounts =
+    account === undefined
+      ? undefined
+      : ({ findAccountById: jest.fn().mockResolvedValue(account) } as unknown as FulfillmentRepository);
+  const service = new FulfillmentVariantPriceService(
+    { findVariantsForPrice } as unknown as FulfillmentCatalogRepository,
+    accounts,
+  );
   return { service, findVariantsForPrice };
 }
 
@@ -101,6 +107,33 @@ describe('FulfillmentVariantPriceService', () => {
       ok: false,
       reason: 'PRICE_MISSING',
     });
+  });
+
+  it('Pressify CHƯA khai bậc giá ⇒ PROVIDER_TIER_NOT_CONFIGURED kèm việc cần làm (không phải "nhà cung cấp không trả giá")', async () => {
+    const { service } = build([row({ price: null, sku: '3165', externalVariantId: '3165' })], {
+      provider: 'PRESSIFY',
+      name: 'Pressify',
+      providerConfig: { tierId: '' },
+    });
+    const result = await service.lookup('org-1', 'acc-1', { externalVariantId: '3165' });
+    expect(result).toMatchObject({ ok: false, reason: 'PROVIDER_TIER_NOT_CONFIGURED' });
+    expect(!result.ok && result.message).toContain('chưa khai Bậc giá');
+    // Không bao giờ ra giá mặc định.
+    expect(result.ok).toBe(false);
+  });
+
+  it('Pressify ĐÃ khai bậc nhưng biến thể vẫn thiếu giá ⇒ PRICE_MISSING (thông điệp chung)', async () => {
+    const { service } = build([row({ price: null })], {
+      provider: 'PRESSIFY',
+      name: 'Pressify',
+      providerConfig: { tierId: '13' },
+    });
+    await expect(service.lookup('org-1', 'acc-1', { sku: 'SKU-1' })).resolves.toMatchObject({ reason: 'PRICE_MISSING' });
+  });
+
+  it.each(['MANGO', 'SELLERWIX'])('%s thiếu giá ⇒ PRICE_MISSING như cũ (gợi ý Pressify không áp dụng)', async (provider) => {
+    const { service } = build([row({ price: null })], { provider, name: provider, providerConfig: null });
+    await expect(service.lookup('org-1', 'acc-1', { sku: 'SKU-1' })).resolves.toMatchObject({ reason: 'PRICE_MISSING' });
   });
 
   it('giá sai định dạng ⇒ PRICE_INVALID, nêu nguyên văn', async () => {

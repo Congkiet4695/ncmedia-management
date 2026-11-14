@@ -87,4 +87,25 @@ export class PressifyCredentialService {
       tierId: typeof tier === 'string' ? tier.trim() : typeof tier === 'number' ? String(tier) : '',
     };
   }
+
+  /**
+   * Vì sao biến thể Pressify KHÔNG có giá — `null` khi không phải lý do của Pressify.
+   *
+   * 🔴 Pressify CÓ công bố giá (theo bậc), nhưng API không cho biết store ở bậc nào ⇒ giá vốn tham chiếu
+   * chỉ có khi tài khoản khai bậc giá (`tierId`). Chưa khai ⇒ nói đúng việc cần làm, thay cho thông điệp
+   * chung "nhà cung cấp không trả giá" (sai với Pressify).
+   */
+  static missingPriceHint(account: {
+    provider: string;
+    name: string;
+    providerConfig: Prisma.JsonValue | null;
+  }): string | null {
+    if (account.provider !== 'PRESSIFY') return null;
+    if (PressifyCredentialService.readConfig(account.providerConfig).tierId) return null;
+    return (
+      `Tài khoản Pressify "${account.name}" chưa khai Bậc giá — Pressify tính giá theo bậc của store nhưng API ` +
+      'không cho biết bậc. Mở Setting Fulfillment → Fulfillment Providers, sửa tài khoản, chọn đúng Bậc giá ' +
+      '(xem ở Pressify Dashboard) rồi Đồng bộ danh mục.'
+    );
+  }
 }

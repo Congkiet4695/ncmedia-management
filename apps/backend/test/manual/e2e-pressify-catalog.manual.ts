@@ -201,15 +201,17 @@ async function main(): Promise<void> {
       `global variant có giá: ${leaked[0].n} · global product có phí bậc: ${leakedProducts[0].n} · account raw đủ: ${accountKeepsRaw[0].n}`,
     );
 
-    // ------------------------------------------------ P6 — biến thể không có SKU
+    // ------------------------------------------------ P6 — biến thể không có SKU ⇒ sku = variant_id
     const noSkuApi = apiVariants.filter((v) => !v.sku).length;
-    const noSkuGlobal = await prisma.providerCatalogVariant.count({
+    const emptySku = await prisma.providerCatalogVariant.count({
       where: { provider: 'PRESSIFY' as never, sku: '' },
     });
+    const skuIsVariantId = await prisma.$queryRaw<Array<{ n: bigint }>>`
+      SELECT COUNT(*)::bigint AS n FROM provider_catalog_variants WHERE provider = 'PRESSIFY' AND sku = external_variant_id`;
     check(
-      'P6. Biến thể KHÔNG có SKU vẫn được đồng bộ (sku = chuỗi rỗng)',
-      noSkuGlobal === noSkuApi && noSkuApi > 0,
-      `API không SKU ${noSkuApi} · global sku='' ${noSkuGlobal}`,
+      'P6. Biến thể KHÔNG có SKU vẫn được đồng bộ — sku = variant_id, không còn SKU rỗng',
+      emptySku === 0 && Number(skuIsVariantId[0].n) === noSkuApi && noSkuApi > 0,
+      `API không SKU ${noSkuApi} · global sku='' ${emptySku} · sku=variant_id ${skuIsVariantId[0].n}`,
     );
 
     // ------------------------------------------------ P7 — Mango trùng chuỗi id + trùng SKU
@@ -311,6 +313,51 @@ async function main(): Promise<void> {
       'P10. Đồng bộ danh mục KHÔNG sửa dòng hàng fulfillment (giá vốn đơn giữ nguyên)',
       (await orderItemsTouched(startedAt)) === 0,
     );
+
+    // ------------------------------------------------ P11 — lưu ánh xạ cho biến thể KHÔNG có SKU (CHECK thật)
+    const posterNoSku =
+      apiVariants.find((v) => !v.sku && v.variant_id === 3165) ?? apiVariants.find((v) => !v.sku);
+    const catalogRow = await prisma.fulfillmentVariant.findFirst({
+      where: { accountId: A.id, externalVariantId: String(posterNoSku?.variant_id) },
+      select: { sku: true, externalVariantId: true },
+    });
+    const baseMapping = {
+      organizationId: orgA.id,
+      accountId: A.id,
+      provider: 'PRESSIFY' as never,
+      tiktokProductId: `${RUN}-tt-p`,
+      sellerSku: null,
+      providerProductId: String(posterNoSku?.product_id),
+      providerVariantId: catalogRow?.externalVariantId,
+      isActive: true,
+    };
+    let emptyRejected = false;
+    try {
+      await prisma.fulfillmentProductMapping.create({
+        data: { ...baseMapping, tiktokSkuId: `${RUN}-tt-s0`, providerSku: '' } as never,
+      });
+    } catch (error) {
+      emptyRejected = String((error as Error).message).includes(
+        'fulfillment_product_mappings_sku_check',
+      );
+    }
+    const saved = await repo.createMapping({
+      ...baseMapping,
+      tiktokSkuId: `${RUN}-tt-s1`,
+      providerSku: catalogRow?.sku ?? '',
+    } as never);
+    const savedPrice = await price.lookup(orgA.id, A.id, {
+      externalVariantId: saved.providerVariantId,
+      sku: saved.providerSku,
+    });
+    check(
+      'P11. Ánh xạ cho biến thể KHÔNG có SKU lưu được (provider_sku = variant_id thoả CHECK); SKU rỗng bị CHECK chặn đúng như lỗi 500 cũ',
+      emptyRejected && saved.providerSku === String(posterNoSku?.variant_id) && savedPrice.ok,
+      `variant ${posterNoSku?.variant_id}: '' bị chặn=${emptyRejected} · provider_sku='${saved.providerSku}' · giá tham chiếu ${savedPrice.ok ? `${savedPrice.price.price} ${savedPrice.price.currency}` : savedPrice.reason}`,
+    );
+    await prisma.fulfillmentProductMapping.deleteMany({
+      where: { tiktokProductId: `${RUN}-tt-p` },
+    });
   } finally {
     // Dọn: chỉ dữ liệu của lượt chạy này + danh mục PRESSIFY (database thử nghiệm sạch từ đầu).
     const accounts = [A.id, B.id, M.id];

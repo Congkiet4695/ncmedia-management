@@ -376,7 +376,8 @@ export class FulfillmentMappingConflictException extends ConflictException {
 
 /**
  * Không lấy được giá vốn của biến thể nhà cung cấp đang chọn. `reason`: VARIANT_NOT_FOUND ·
- * VARIANT_INACTIVE · PRICE_MISSING · PRICE_INVALID · AMBIGUOUS. Base Cost KHÔNG bị ghi đè.
+ * VARIANT_INACTIVE · PRICE_MISSING · PROVIDER_TIER_NOT_CONFIGURED · PRICE_INVALID · AMBIGUOUS. Base Cost KHÔNG
+ * bị ghi đè.
  */
 export class FulfillmentVariantPriceUnavailableException extends UnprocessableEntityException {
   constructor(reason: string, message: string) {
