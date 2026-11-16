@@ -258,6 +258,8 @@ export const POD_DRAFT_ISSUE_CODES = {
   CURRENCY_MISMATCH: 'DRAFT_CURRENCY_MISMATCH',
   /** Không tra được tiền tệ từ shop, thị trường lẫn mẫu. */
   MISSING_CURRENCY: 'DRAFT_MISSING_CURRENCY',
+  /** Nhân bản: Seller SKU nguồn dùng chung cho nhiều biến thể ⇒ bản sao dùng mã riêng cho từng biến thể (cảnh báo). */
+  SELLER_SKU_DERIVED: 'DRAFT_SELLER_SKU_DERIVED',
 } as const;
 
 // ---------------------------------------------------------------------------
@@ -388,6 +390,15 @@ export const POD_PRODUCT_CLONE_WAIT_MS = 30_000;
  * CÙNG sản phẩm chưa — xem `PodProductCloneResolverService.findLineage`. Chặn vòng lặp vô hạn nếu dữ liệu vòng.
  */
 export const POD_PRODUCT_CLONE_LINEAGE_MAX_DEPTH = 5;
+
+/**
+ * Độ dài tối đa của Seller SKU mà lượt nhân bản TỰ SINH (khi sản phẩm nguồn dùng chung một Seller SKU cho nhiều biến
+ * thể — xem `resolveVariants` trong `pod-product-clone-resolver.service.ts`).
+ *
+ * Bằng Seller SKU DÀI NHẤT TikTok đã nhận trên dữ liệu thật (biến thể đã đồng bộ, đo 2026-11-16: tối đa 96 ký tự). Mã
+ * do hệ thống sinh không được dài hơn mã TikTok đã từng chấp nhận.
+ */
+export const POD_PRODUCT_CLONE_SELLER_SKU_MAX_LENGTH = 96;
 
 /**
  * Luật danh mục (Get Category Rules: bảng size có hỗ trợ / bắt buộc…) được nhớ theo cặp

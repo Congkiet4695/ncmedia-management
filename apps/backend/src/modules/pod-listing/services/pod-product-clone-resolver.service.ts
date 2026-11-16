@@ -17,6 +17,7 @@ import {
 import {
   POD_DRAFT_ISSUE_CODES,
   POD_PRODUCT_CLONE_LINEAGE_MAX_DEPTH,
+  POD_PRODUCT_CLONE_SELLER_SKU_MAX_LENGTH,
 } from '../constants/pod-listing.constants';
 import type {
   ResolveIssue,
@@ -331,8 +332,13 @@ function resolveImages(product: CloneSourceProduct, issues: ResolveIssue[]): Res
  * Biến thể: đủ tổ hợp, đủ giá / tồn / Seller SKU / ảnh SKU — KHÔNG mang `tiktokSkuId`.
  *
  * Seller SKU trống ⇒ sinh từ tên biến thể (hoặc số thứ tự) vì bảng payload item bắt buộc có và
- * TikTok cũng cần mã để đối soát đơn. Seller SKU trùng trong cùng sản phẩm ⇒ lỗi chặn (TikTok
- * từ chối cả sản phẩm).
+ * TikTok cũng cần mã để đối soát đơn.
+ *
+ * 🔴 Seller SKU DÙNG CHUNG cho nhiều biến thể (TikTok nhận — dữ liệu thật 2026-11-16: ~19.7k sản phẩm dùng MỘT mã cho
+ * mọi biến thể) ⇒ bản sao dùng mã RIÊNG cho từng biến thể: `{mã nguồn}-{tên biến thể}` (xem `uniqueSellerSkus`),
+ * kèm cảnh báo liệt kê mã đã đổi. Không thể chép nguyên: payload item khoá `(payload_id, seller_sku)` vì sau khi
+ * TikTok tạo sản phẩm, `sku_id` được ghi ngược theo đúng cặp đó — mã trùng ⇒ gán nhầm `sku_id`. Trước 2026-11-16 mã
+ * trùng được chép nguyên ⇒ `createMany` vỡ unique constraint, lượt nhân bản FAILED với lỗi Prisma thô.
  */
 function resolveVariants(
   product: CloneSourceProduct,
@@ -349,20 +355,23 @@ function resolveVariants(
     return [];
   }
 
-  const seen = new Set<string>();
-  const duplicated: string[] = [];
   const missingPrice: string[] = [];
 
-  const variants = product.variants.map((variant, index): ResolvedVariant => {
+  const drafts = product.variants.map((variant, index) => {
     const optionValues = toOptionValues(variant.salesAttributes);
     const variantName =
       variant.variantName?.trim() ||
       optionValues.map((option) => option.value).join(' / ') ||
       `SKU ${index + 1}`;
-    const sellerSku = variant.sellerSku?.trim() || slug(variantName) || `SKU-${index + 1}`;
+    const sourceSku = variant.sellerSku?.trim() || slug(variantName) || `SKU-${index + 1}`;
+    return { variant, optionValues, variantName, sourceSku };
+  });
+  const sellerSkus = uniqueSellerSkus(drafts);
 
-    if (seen.has(sellerSku)) duplicated.push(sellerSku);
-    else seen.add(sellerSku);
+  const renamed: string[] = [];
+  const variants = drafts.map(({ variant, optionValues, variantName, sourceSku }, index): ResolvedVariant => {
+    const sellerSku = sellerSkus[index];
+    if (sellerSku !== sourceSku) renamed.push(`${sourceSku} → ${sellerSku}`);
 
     const salePrice = positiveDecimal(variant.salePrice?.toString());
     if (!salePrice) missingPrice.push(sellerSku);
@@ -392,16 +401,51 @@ function resolveVariants(
       }`,
     });
   }
-  if (duplicated.length > 0) {
+  if (renamed.length > 0) {
     issues.push({
-      level: 'ERROR',
+      level: 'WARNING',
       field: 'variants.sellerSku',
-      code: POD_DRAFT_ISSUE_CODES.MISSING_VARIANT,
-      message: `Seller SKU bị trùng trong sản phẩm nguồn: ${[...new Set(duplicated)].join(', ')}`,
+      code: POD_DRAFT_ISSUE_CODES.SELLER_SKU_DERIVED,
+      message:
+        `Sản phẩm nguồn dùng chung Seller SKU cho nhiều biến thể — bản sao dùng mã riêng cho ${renamed.length} biến thể: ` +
+        `${renamed.slice(0, 3).join(', ')}${renamed.length > 3 ? '…' : ''}`,
     });
   }
 
   return variants;
+}
+
+/**
+ * Seller SKU của bản sao, theo đúng thứ tự biến thể — **không bao giờ trùng nhau**, và **tất định** (cùng nguồn ⇒ cùng
+ * kết quả, chạy lại lượt nhân bản không đổi mã; không ngẫu nhiên).
+ *
+ *  - Mã nguồn chỉ một biến thể dùng ⇒ GIỮ NGUYÊN (được giữ chỗ trước, mã sinh ra không bao giờ chiếm mã thật).
+ *  - Mã nguồn nhiều biến thể dùng chung ⇒ `{mã nguồn}-{slug tên biến thể}`; vẫn trùng (hai biến thể cùng tên) ⇒ thêm
+ *    `-2`, `-3`… theo thứ tự biến thể. Phần mã nguồn bị cắt bớt nếu cần để không vượt
+ *    `POD_PRODUCT_CLONE_SELLER_SKU_MAX_LENGTH`; phần đuôi (thứ làm mã khác nhau) luôn giữ đủ.
+ */
+export function uniqueSellerSkus(
+  drafts: ReadonlyArray<{ sourceSku: string; variantName: string }>,
+): string[] {
+  const usage = new Map<string, number>();
+  for (const { sourceSku } of drafts) usage.set(sourceSku, (usage.get(sourceSku) ?? 0) + 1);
+
+  const taken = new Set(drafts.map(({ sourceSku }) => sourceSku).filter((sku) => usage.get(sku) === 1));
+  return drafts.map(({ sourceSku, variantName }, index) => {
+    if (usage.get(sourceSku) === 1) return sourceSku;
+    const suffix = slug(variantName) || String(index + 1);
+    let candidate = joinSku(sourceSku, suffix);
+    for (let counter = 2; taken.has(candidate); counter++) {
+      candidate = joinSku(sourceSku, `${suffix}-${counter}`);
+    }
+    taken.add(candidate);
+    return candidate;
+  });
+}
+
+function joinSku(base: string, suffix: string): string {
+  const room = POD_PRODUCT_CLONE_SELLER_SKU_MAX_LENGTH - suffix.length - 1;
+  return `${base.slice(0, Math.max(0, room)).replace(/[-_\s]+$/, '')}-${suffix}`;
 }
 
 /**

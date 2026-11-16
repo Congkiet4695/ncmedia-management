@@ -1,5 +1,8 @@
 import { PodBrandMode, PodListingMarket, Prisma } from '@prisma/client';
-import { POD_DRAFT_ISSUE_CODES } from '../constants/pod-listing.constants';
+import {
+  POD_DRAFT_ISSUE_CODES,
+  POD_PRODUCT_CLONE_SELLER_SKU_MAX_LENGTH,
+} from '../constants/pod-listing.constants';
 import {
   PodProductCloneResolverService,
   marketOfRegion,
@@ -181,17 +184,87 @@ describe('resolveCloneListing', () => {
     expect(payload.variants[1]).toMatchObject({ sellerSku: 'HAL-M', retailPrice: null, quantity: 0, imageUrl: null });
   });
 
-  it('Seller SKU trống ⇒ sinh từ tên biến thể; trùng ⇒ lỗi chặn', () => {
+  it('Seller SKU trống ⇒ sinh từ tên biến thể', () => {
     const base = buildProduct();
     const { payload } = resolve({
       variants: [{ ...base.variants[0], sellerSku: null }],
     });
     expect(payload.variants[0].sellerSku).toBe('BLACK-S');
+  });
 
-    const duplicated = resolve({
-      variants: [base.variants[0], { ...base.variants[1], sellerSku: 'HAL-S' }],
+  /**
+   * 🔴 Lỗi thật 2026-11-14: sản phẩm nguồn dùng MỘT Seller SKU cho cả 168 biến thể (TikTok nhận) ⇒ bản sao chép nguyên
+   * ⇒ `podListingPayloadItem.createMany()` vỡ `(payload_id, seller_sku)` ⇒ lượt nhân bản FAILED.
+   */
+  describe('Seller SKU dùng chung trong sản phẩm nguồn', () => {
+    const shared = (count: number, sku = 'HOANGTHITRAMY148_BRBF_11092026_283') => {
+      const base = buildProduct().variants[0];
+      const sizes = ['S', 'M', 'L', 'XL', '2XL', '3XL'];
+      const colors = ['Black', 'White', 'Sand', 'Navy', 'Red', 'Maroon', 'Light Pink'];
+      return Array.from({ length: count }, (_, index) => ({
+        ...base,
+        id: `v-${index}`,
+        sellerSku: sku,
+        variantName: `${1 + Math.floor(index / 42)} / ${sizes[index % 6]} / ${colors[Math.floor(index / 6) % 7]}`,
+      }));
+    };
+
+    it('mọi biến thể chung một mã (168 biến thể) ⇒ bản sao có 168 Seller SKU KHÁC NHAU, đọc được, kèm cảnh báo (không lỗi chặn)', () => {
+      const { payload, issues } = resolve({ variants: shared(168) });
+
+      const skus = payload.variants.map((variant) => variant.sellerSku);
+      expect(skus).toHaveLength(168);
+      expect(new Set(skus).size).toBe(168);
+      expect(skus[0]).toBe('HOANGTHITRAMY148_BRBF_11092026_283-1-S-BLACK');
+      expect(skus.every((sku) => sku.startsWith('HOANGTHITRAMY148_BRBF_11092026_283-'))).toBe(true);
+      expect(issues.filter((issue) => issue.field === 'variants.sellerSku')).toEqual([
+        expect.objectContaining({ level: 'WARNING', code: POD_DRAFT_ISSUE_CODES.SELLER_SKU_DERIVED }),
+      ]);
+      expect(issues.filter((issue) => issue.level === 'ERROR')).toEqual([]);
     });
-    expect(duplicated.issues.some((issue) => issue.code === POD_DRAFT_ISSUE_CODES.MISSING_VARIANT)).toBe(true);
+
+    it('chỉ biến thể dùng chung bị đổi; mã nguồn riêng giữ nguyên, mã sinh ra không bao giờ chiếm mã thật', () => {
+      const base = buildProduct().variants;
+      const { payload } = resolve({
+        variants: [
+          { ...base[0], sellerSku: 'TEE', variantName: 'Black / S' },
+          { ...base[1], sellerSku: 'TEE', variantName: 'Black / M' },
+          // Mã RIÊNG trùng đúng mã mà biến thể đầu sẽ được sinh ⇒ biến thể đầu phải lùi sang `-2`.
+          { ...base[1], id: 'v-3', sellerSku: 'TEE-BLACK-S', variantName: 'White / S' },
+        ],
+      });
+      expect(payload.variants.map((variant) => variant.sellerSku)).toEqual(['TEE-BLACK-S-2', 'TEE-BLACK-M', 'TEE-BLACK-S']);
+    });
+
+    it('hai biến thể trùng cả mã lẫn tên ⇒ thêm -2 theo thứ tự (không ngẫu nhiên)', () => {
+      const base = buildProduct().variants[0];
+      const { payload } = resolve({ variants: [base, { ...base, id: 'v-dup' }] });
+      expect(payload.variants.map((variant) => variant.sellerSku)).toEqual(['HAL-S-BLACK-S', 'HAL-S-BLACK-S-2']);
+    });
+
+    it('tất định: cùng nguồn ⇒ cùng bộ Seller SKU và cùng hash (chạy lại lượt nhân bản không đổi mã)', () => {
+      const first = resolve({ variants: shared(30) });
+      const second = resolve({ variants: shared(30) });
+      expect(second.payload.variants.map((variant) => variant.sellerSku)).toEqual(
+        first.payload.variants.map((variant) => variant.sellerSku),
+      );
+      expect(second.payloadHash).toBe(first.payloadHash);
+    });
+
+    it('mã nguồn rất dài ⇒ cắt phần mã nguồn, giữ đủ đuôi phân biệt; không vượt POD_PRODUCT_CLONE_SELLER_SKU_MAX_LENGTH', () => {
+      const long = 'X'.repeat(96);
+      const { payload } = resolve({ variants: shared(12, long) });
+      const skus = payload.variants.map((variant) => variant.sellerSku);
+      expect(new Set(skus).size).toBe(12);
+      expect(skus.every((sku) => sku.length <= POD_PRODUCT_CLONE_SELLER_SKU_MAX_LENGTH)).toBe(true);
+      expect(skus[0].endsWith('-1-S-BLACK')).toBe(true);
+    });
+
+    it('mã nguồn đã khác nhau ⇒ giữ NGUYÊN, không cảnh báo (hành vi cũ không đổi)', () => {
+      const { payload, issues } = resolve();
+      expect(payload.variants.map((variant) => variant.sellerSku)).toEqual(['HAL-S', 'HAL-M']);
+      expect(issues.some((issue) => issue.code === POD_DRAFT_ISSUE_CODES.SELLER_SKU_DERIVED)).toBe(false);
+    });
   });
 
   it('danh mục không có trong cây master (hoặc không phải lá) ⇒ lỗi chặn rõ ràng, không chép id mù', () => {
