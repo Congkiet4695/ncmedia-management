@@ -239,6 +239,12 @@ export default () => ({
       baseUrl: process.env.SELLERWIX_API_BASE_URL ?? 'https://api.sellerwix.com/public-api',
       timeoutMs: parseInt(process.env.SELLERWIX_HTTP_TIMEOUT_MS ?? '30000', 10),
       /**
+       * Khoảng tối thiểu (ms) giữa hai lời gọi ĐỒNG BỘ DANH MỤC Sellerwix — xem `SELLERWIX_MIN_INTERVAL_MS.catalog`.
+       * Đồng bộ danh mục chạy liền 5 tài khoản × ~1.335 lời gọi; không giãn thì nó ăn trọn trần 100 req/60s và
+       * lời gọi tạo đơn / tra đơn trong cửa sổ đó nhận 429 (2026-11-16: 24/24 lần 429 khi tạo đơn rơi vào cửa sổ này).
+       */
+      catalogMinIntervalMs: parseInt(process.env.SELLERWIX_CATALOG_MIN_INTERVAL_MS ?? '1200', 10),
+      /**
        * Đơn vị tiền của giá vốn Sellerwix (`variant.cost`, `line_items[].item_cost`).
        *
        * 🔴 API Sellerwix KHÔNG trả đơn vị tiền ở bất kỳ endpoint nào (docs/fulfillment/sellerwix.md

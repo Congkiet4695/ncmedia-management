@@ -221,6 +221,13 @@ export const MANGO_ERROR_CODES = {
   FORBIDDEN: 'FORBIDDEN',
   VALIDATION_ERROR: 'VALIDATION_ERROR',
   NOT_FOUND: 'NOT_FOUND',
+  /**
+   * `GET /orders/{order_id}` khi KHÔNG có đơn: HTTP **200** + `{ code: 'ORDER_NOT_FOUND', status: false }` (response
+   * thật, `fulfillment_error_logs` 2026-11-16) — KHÔNG phải `NOT_FOUND` ở Overview, cũng không phải HTTP 404. Thiếu mã
+   * này thì lỗi thành UNKNOWN ⇒ "Retry fulfill" dừng ở bước tra chống trùng thay vì gửi lại, và lần tạo bị timeout
+   * kẹt SUBMITTING mãi.
+   */
+  ORDER_NOT_FOUND: 'ORDER_NOT_FOUND',
   RATE_LIMIT_EXCEEDED: 'RATE_LIMIT_EXCEEDED',
   INTERNAL_ERROR: 'INTERNAL_ERROR',
 } as const;

@@ -1,5 +1,5 @@
 import { FulfillmentStatus } from '@prisma/client';
-import { MangoOrderMapper } from './mango-order.mapper';
+import { MangoOrderMapper, mangoRequiredMockupAreas } from './mango-order.mapper';
 import type { TiktokRecipientAddress } from '../../../pod-tiktok/types/tiktok-order.types';
 
 /** Địa chỉ US điển hình TikTok trả về (district_info theo cấp L0..L3). */
@@ -219,3 +219,39 @@ describe('MangoOrderMapper', () => {
 function mapper2(): MangoOrderMapper {
   return new MangoOrderMapper();
 }
+
+describe('mangoRequiredMockupAreas', () => {
+  // Bản ghi danh mục THẬT của SKU 12128 (Unisex T-shirt | Gildan 5000 - BLACK - 2XL, FASTUS), production 2026-11-16.
+  const SKU_12128 = {
+    sku: '12128',
+    production_line: 'FASTUS',
+    effective_config: {
+      version: 1,
+      configured: true,
+      max_mockups: null,
+      print_areas: ['front', 'back', 'right_sleeve', 'left_sleeve'],
+      required_print_areas: [],
+      required_mockup_areas: ['front', 'back', 'right_sleeve', 'left_sleeve'],
+      required_mockup_always: [],
+    },
+  };
+
+  it('SKU 12128 in front ⇒ bắt buộc mockup front (đúng thông điệp Mango "Missing required mockups: front")', () => {
+    expect(mangoRequiredMockupAreas(SKU_12128, ['front'])).toEqual(['front']);
+  });
+
+  it('chỉ tính vị trí ĐANG in; required_mockup_always luôn tính', () => {
+    expect(mangoRequiredMockupAreas(SKU_12128, ['front', 'back'])).toEqual(['front', 'back']);
+    expect(
+      mangoRequiredMockupAreas({ effective_config: { required_mockup_areas: ['back'], required_mockup_always: ['front'] } }, ['front']),
+    ).toEqual(['front']);
+    expect(mangoRequiredMockupAreas({ effective_config: { required_mockup_areas: ['back'] } }, ['front'])).toEqual([]);
+  });
+
+  it.each([[null], [undefined], [{}], [{ effective_config: null }], [{ effective_config: { required_mockup_areas: 'front' } }], [[]]])(
+    'không có / sai dạng cấu hình (%p) ⇒ [] (không đoán)',
+    (raw) => {
+      expect(mangoRequiredMockupAreas(raw, ['front'])).toEqual([]);
+    },
+  );
+});

@@ -621,6 +621,53 @@ describe('MangoFulfillmentService — retry sau timeout KHÔNG tạo đơn trùn
     expect(harness.createOrder.mock.calls[0][1].order_id).toBe('NC-TT-1');
   });
 
+  /**
+   * 🔴 Đơn 577683942045225361 (2026-11-16): Mango báo "không có đơn" bằng HTTP **200** + `code: "ORDER_NOT_FOUND"`.
+   * Lỗi được lấy từ `MangoApiClient` THẬT phân tích đúng body thật (không dựng tay lớp lỗi) — trước bản sửa nó là
+   * UNKNOWN ⇒ 7 lần bấm "Retry fulfill" đều dừng ở bước tra, không lần nào gửi lại.
+   */
+  async function realOrderNotFound(): Promise<unknown> {
+    (global as unknown as { fetch: unknown }).fetch = jest.fn(() =>
+      Promise.resolve({
+        ok: true,
+        status: 200,
+        headers: new Headers(),
+        text: () =>
+          Promise.resolve(
+            JSON.stringify({ code: 'ORDER_NOT_FOUND', data: null, status: false, message: 'Order not found' }),
+          ),
+      } as unknown as Response),
+    );
+    const client = new MangoApiClient({ get: (_key: string, fallback?: unknown) => fallback } as unknown as ConfigService);
+    return client.getOrder({ apiKey: 'KEY' }, 'NC-TT-1').catch((error: unknown) => error);
+  }
+
+  it('🔴 577683942045225361 — Retry fulfill, Mango trả HTTP 200 + ORDER_NOT_FOUND ⇒ gửi lại với ĐÚNG order_id cũ (một lần)', async () => {
+    const harness = buildService({
+      existing: { status: FulfillmentStatus.FAILED, attemptCount: 1 },
+      getError: (await realOrderNotFound()) as FulfillmentClientError,
+      createData: orderResponse([{ item_id: 'fi-1', sku: 'SKU-A', base_cost: 8 }]),
+    });
+
+    await harness.service.fulfill(ORG, USER, POD_ORDER, FulfillmentTrigger.RETRY);
+
+    expect(harness.getOrder).toHaveBeenCalledTimes(1);
+    expect(harness.createOrder).toHaveBeenCalledTimes(1);
+    expect(harness.createOrder.mock.calls[0][1].order_id).toBe('NC-TT-1');
+    expect(harness.histories.some((entry) => entry.eventType === 'CREATE_FAILED')).toBe(false);
+  });
+
+  it('🔴 577674520376873273 — tạo đơn 502, tra lại ra ORDER_NOT_FOUND ⇒ FAILED (gửi lại an toàn), KHÔNG kẹt SUBMITTING', async () => {
+    const harness = buildService({
+      createData: new FulfillmentClientError(FulfillmentErrorClass.SERVER, 'Nhà cung cấp trả về HTTP 502', 502),
+      getError: (await realOrderNotFound()) as FulfillmentClientError,
+    });
+
+    await expect(harness.service.fulfill(ORG, USER, POD_ORDER)).rejects.toBeTruthy();
+    expect(harness.updates.some((update) => update.status === FulfillmentStatus.FAILED)).toBe(true);
+    expect(harness.histories.some((entry) => entry.eventType === 'RECONCILIATION_REQUIRED')).toBe(false);
+  });
+
   it('🔴 tra lại bị lỗi mạng ⇒ KHÔNG gửi (có thể đã có đơn), báo lỗi thử lại được', async () => {
     const harness = buildService({
       existing: { status: FulfillmentStatus.FAILED, attemptCount: 1 },

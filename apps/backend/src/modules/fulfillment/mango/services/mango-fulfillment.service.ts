@@ -68,6 +68,7 @@ import { FulfillmentOptionsService } from '../../services/fulfillment-options.se
 import { SHIPPING_LABEL_SOURCE } from '../../services/fulfillment-shipping-label.service';
 import {
   MangoOrderMapper,
+  mangoRequiredMockupAreas,
   mangoVariantProductionLine,
   type ResolvedItem,
 } from '../mappers/mango-order.mapper';
@@ -307,6 +308,9 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
     const selectedLineId = check.productionLine ?? account.defaultProductionLine ?? null;
     const line = await this.resolveProductionLine(account, selectedLineId, check.items);
     const productionLine = line.id;
+    // SKU bắt buộc mockup ⇒ chặn TRƯỚC khi tạo bản ghi / gọi Mango (Mango sẽ từ chối, và một lần gửi hỏng để lại
+    // bản ghi FAILED phải "Retry" vô ích).
+    await this.assertMockupsNotRequired(account, check.items);
 
     const record =
       existing ??
@@ -1677,6 +1681,44 @@ export class MangoFulfillmentService implements FulfillmentProviderAdapter {
 
     const name = selectedName ?? (skuLines.size === 1 ? [...skuLines][0] : null);
     return { id: selectedLineId ?? idOf(name), name };
+  }
+
+  /**
+   * Chặn SKU mà Mango BẮT BUỘC có ảnh mockup cho vị trí đang in (xem `mangoRequiredMockupAreas`).
+   *
+   * Hệ thống chưa gửi mockup cho Mango ⇒ gửi đơn như vậy chắc chắn bị từ chối ("Missing required mockups"). Chặn ở
+   * đây, trước mọi lời gọi API, và chỉ rõ SKU + vị trí; không bỏ qua, không tự đổi SKU / nhà cung cấp.
+   */
+  private async assertMockupsNotRequired(
+    account: FulfillmentAccount,
+    items: Array<{ providerSku: string; printFiles: Array<{ key: string }> }>,
+  ): Promise<void> {
+    const skus = [...new Set(items.map((item) => item.providerSku).filter(Boolean))];
+    if (skus.length === 0) return;
+    const variants = await this.catalogRepo.findVariantsForAccount(account.id, skus);
+    const rawBySku = new Map(variants.map((variant) => [variant.sku, variant.rawData]));
+
+    const errors: Array<{ field: string; message: string }> = [];
+    items.forEach((item, index) => {
+      const required = mangoRequiredMockupAreas(
+        rawBySku.get(item.providerSku),
+        item.printFiles.map((file) => file.key),
+      );
+      if (required.length === 0) return;
+      errors.push({
+        field: `items[${index}].mockups`,
+        message:
+          `SKU ${item.providerSku} bắt buộc ảnh mockup cho vị trí ${required.join(', ')} (theo cấu hình của Mango), ` +
+          'nhưng hệ thống chưa hỗ trợ gửi mockup cho Mango — Mango sẽ từ chối đơn. Chọn biến thể ở xưởng khác ' +
+          '(Line sản xuất khác) trong Cấu hình sản phẩm, hoặc fulfill bằng nhà cung cấp khác.',
+      });
+    });
+    if (errors.length > 0) {
+      throw new FulfillmentValidationException(
+        `Biến thể Mango cần ảnh mockup: ${errors.map((error) => error.message).join(' · ')}`,
+        errors,
+      );
+    }
   }
 
   /** Danh sách xưởng (`value` = id, `label` = tên) — đã nhớ 10 phút ở FulfillmentOptionsService. */

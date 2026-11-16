@@ -381,6 +381,7 @@ export class MangoApiClient {
         errorClass = FulfillmentErrorClass.VALIDATION;
         break;
       case MANGO_ERROR_CODES.NOT_FOUND:
+      case MANGO_ERROR_CODES.ORDER_NOT_FOUND:
         errorClass = FulfillmentErrorClass.NOT_FOUND;
         break;
       case MANGO_ERROR_CODES.RATE_LIMIT_EXCEEDED:

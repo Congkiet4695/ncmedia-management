@@ -173,3 +173,85 @@ describe('SellerwixApiClient — thử lại & phân loại lỗi', () => {
     );
   });
 });
+
+/**
+ * **Điều tiết tần suất** — đồng hồ giả: `sleep` tiến đồng hồ đúng số ms, ghi lại thời điểm GỬI thật của từng request.
+ *
+ * 🔴 2026-11-16 (đơn 577683942045225361): đồng bộ danh mục chạy sát trần 100 req/60s ⇒ lời gọi tra đơn trước khi
+ * tạo nhận 429 (24/24 lần trong 7 ngày rơi vào cửa sổ đồng bộ danh mục). Danh mục giờ có nhóm giãn riêng.
+ */
+describe('SellerwixApiClient — điều tiết: đồng bộ danh mục chừa hạn mức cho tạo đơn / tra đơn', () => {
+  function timed(config: Record<string, unknown> = {}) {
+    let clock = 1_000_000;
+    const sentAt: Array<{ url: string; at: number }> = [];
+    jest.spyOn(Date, 'now').mockImplementation(() => clock);
+    (global as unknown as { fetch: unknown }).fetch = jest.fn((url: string) => {
+      sentAt.push({ url, at: clock });
+      return Promise.resolve(response(200, { data: [] }));
+    });
+    const client = new SellerwixApiClient({
+      get: (key: string, fallback?: unknown) => (key in config ? config[key] : fallback),
+    } as unknown as ConfigService);
+    jest.spyOn(client as unknown as { sleep: (ms: number) => Promise<void> }, 'sleep').mockImplementation((ms: number) => {
+      clock += ms;
+      return Promise.resolve();
+    });
+    const gaps = () => sentAt.slice(1).map((entry, index) => entry.at - sentAt[index].at);
+    return { client, sentAt, gaps };
+  }
+  afterEach(() => jest.restoreAllMocks());
+
+  it('lời gọi danh mục giãn ≥ 1200 ms (mặc định) — không còn chạy sát trần 600 ms', async () => {
+    const { client, gaps } = timed();
+    for (let index = 0; index < 5; index++) await client.listVariants(CTX, `SKU-${index}`);
+    await client.listCategories(CTX);
+    await client.listCategoryProducts(CTX, 7);
+    expect(gaps().every((gap) => gap >= 1200)).toBe(true);
+  });
+
+  it('khoảng giãn danh mục cấu hình được (SELLERWIX_CATALOG_MIN_INTERVAL_MS), nhưng không bao giờ dưới trần toàn API 600 ms', async () => {
+    const slow = timed({ 'fulfillment.sellerwix.catalogMinIntervalMs': 3000 });
+    for (let index = 0; index < 3; index++) await slow.client.listVariants(CTX, `SKU-${index}`);
+    expect(slow.gaps()).toEqual([3000, 3000]);
+    jest.restoreAllMocks();
+
+    const tooFast = timed({ 'fulfillment.sellerwix.catalogMinIntervalMs': 100 });
+    for (let index = 0; index < 3; index++) await tooFast.client.listVariants(CTX, `SKU-${index}`);
+    expect(tooFast.gaps()).toEqual([600, 600]);
+  });
+
+  it('tra đơn chống trùng (tạo đơn) chen giữa lúc đồng bộ danh mục ⇒ KHÔNG phải chờ hết hàng đợi danh mục', async () => {
+    // Hai luồng chạy SONG SONG ⇒ dùng fake timers thật của Jest (đồng hồ giả cộng dồn của `timed` sai khi ngủ song song).
+    jest.useFakeTimers({ now: 1_000_000 });
+    const sentAt: Array<{ url: string; at: number }> = [];
+    (global as unknown as { fetch: unknown }).fetch = jest.fn((url: string) => {
+      sentAt.push({ url, at: Date.now() });
+      return Promise.resolve(response(200, { data: [] }));
+    });
+    const client = new SellerwixApiClient({
+      get: (_key: string, fallback?: unknown) => fallback,
+    } as unknown as ConfigService);
+    const catalog = (async () => {
+      for (let index = 0; index < 10; index++) await client.listVariants(CTX, `SKU-${index}`);
+    })();
+    const lookup = client.getOrderByReference(CTX, 'store-1', '577683942045225361');
+    const done = Promise.all([catalog, lookup]);
+    await jest.runAllTimersAsync();
+    await done;
+    jest.useRealTimers();
+
+    const lookupAt = sentAt.find((entry) => entry.url.includes('/v1/order/577683942045225361'))!.at;
+    const catalogTimes = sentAt.filter((entry) => entry.url.includes('/v1/product/')).map((entry) => entry.at);
+    // Đi trong vòng một khe toàn API (600 ms), không xếp sau 10 lời gọi danh mục (~10.8 s).
+    expect(lookupAt - catalogTimes[0]).toBeLessThanOrEqual(600);
+    // Và mọi request vẫn tôn trọng trần toàn API: không hai request nào cách nhau < 600 ms.
+    const all = sentAt.map((entry) => entry.at).sort((a, b) => a - b);
+    expect(all.slice(1).every((at, index) => at - all[index] >= 600)).toBe(true);
+  });
+
+  it('tra đơn vẫn giữ trần riêng 15 req/phút (4000 ms) như cũ', async () => {
+    const { client, gaps } = timed();
+    for (let index = 0; index < 3; index++) await client.getOrderByReference(CTX, 'store-1', `REF-${index}`);
+    expect(gaps()).toEqual([4000, 4000]);
+  });
+});

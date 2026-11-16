@@ -258,6 +258,8 @@ export const envValidationSchema = Joi.object({
   MANGO_HTTP_TIMEOUT_MS: Joi.number().integer().min(1000).max(120000).default(30000),
   SELLERWIX_API_BASE_URL: Joi.string().uri().default('https://api.sellerwix.com/public-api'),
   SELLERWIX_HTTP_TIMEOUT_MS: Joi.number().integer().min(1000).max(120000).default(30000),
+  // Không nhỏ hơn 600 ms (= trần toàn API 100 req/60s): đồng bộ danh mục không bao giờ được chiếm trọn hạn mức.
+  SELLERWIX_CATALOG_MIN_INTERVAL_MS: Joi.number().integer().min(600).max(60000).default(1200),
   // Mã ISO 4217 của giá vốn Sellerwix — API không trả đơn vị tiền (docs/fulfillment/sellerwix.md).
   SELLERWIX_COST_CURRENCY: Joi.string()
     .pattern(/^[A-Za-z]{3}$/)

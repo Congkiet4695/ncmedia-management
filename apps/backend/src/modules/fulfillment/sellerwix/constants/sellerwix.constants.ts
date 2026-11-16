@@ -57,11 +57,22 @@ export const SELLERWIX_API_KEY_HEADER = 'X-Api-Key';
  * - Get order details: 15 request / phút                               ⇒ 4000 ms
  * - Add tracking: 15 request / phút (không dùng trong tích hợp này)
  * - Get list orders: 5 request / phút (không dùng trong tích hợp này)
+ * - Đồng bộ danh mục (danh mục / sản phẩm trong danh mục / biến thể): MẶC ĐỊNH 1200 ms = 50 req/phút — một nửa trần
+ *   toàn API, nửa còn lại dành cho tạo đơn / tra đơn / đồng bộ trạng thái. Ghi đè bằng
+ *   `SELLERWIX_CATALOG_MIN_INTERVAL_MS` (`fulfillment.sellerwix.catalogMinIntervalMs`).
+ *
+ *   🔴 Trước 2026-11-16 đồng bộ danh mục chỉ bị giới hạn bởi trần toàn API (600 ms) ⇒ chạy liền 5 tài khoản
+ *   × ~1.335 lời gọi (~80 phút mỗi 6 giờ) ở sát trần, không còn chỗ cho việc khác: 24/24 lần tạo đơn nhận 429
+ *   trong 7 ngày đều rơi vào cửa sổ đó (đơn 577683942045225361).
  */
 export const SELLERWIX_MIN_INTERVAL_MS = {
   global: 600,
   orderDetail: 4_000,
+  catalog: 1_200,
 } as const;
+
+/** Khoá cấu hình ghi đè khoảng giãn của nhóm `catalog`. */
+export const SELLERWIX_CATALOG_MIN_INTERVAL_CONFIG_KEY = 'fulfillment.sellerwix.catalogMinIntervalMs';
 
 /** Thử lại lời gọi ĐỌC khi lỗi tạm thời — cùng chính sách với Mango (chỉ GET). */
 export const SELLERWIX_RETRY = {

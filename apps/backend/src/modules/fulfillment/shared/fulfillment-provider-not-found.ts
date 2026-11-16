@@ -47,7 +47,8 @@ export const RESETTABLE_ON_PROVIDER_NOT_FOUND: readonly FulfillmentStatus[] = [
  *  - Sellerwix `GET /v1/order/:id`: tài liệu có ví dụ `404 {"code": 404, "message": "order not found"}`
  *    ⇒ client phân loại HTTP 404 thành `NOT_FOUND`.
  *  - Mango `GET /orders/{order_id}`: trang Get Order Detail KHÔNG ghi 404; mã chung `NOT_FOUND`
- *    ("Resource not found") ở Overview ⇒ client phân loại mã `NOT_FOUND` / HTTP 404 thành `NOT_FOUND`.
+ *    ("Resource not found") ở Overview ⇒ client phân loại mã `NOT_FOUND` / HTTP 404 thành `NOT_FOUND`. Thực tế
+ *    Mango trả HTTP 200 + mã `ORDER_NOT_FOUND` (production 2026-11-16) ⇒ cũng phân loại thành `NOT_FOUND`.
  * Mọi lớp lỗi khác (RATE_LIMIT / SERVER / NETWORK / AUTH / VALIDATION / UNKNOWN) ⇒ `false`.
  */
 export function isProviderOrderNotFoundError(error: unknown): boolean {

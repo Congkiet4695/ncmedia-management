@@ -83,6 +83,8 @@ interface Options {
   catalog?: Record<string, string | null>;
   /** Nhãn vận chuyển ĐÃ LƯU của đơn (lấy từ TikTok hoặc dán tay). */
   orderLabel?: { url: string; source: 'TIKTOK' | 'MANUAL'; trackingNumber: string | null };
+  /** SKU ⇒ `raw_data.effective_config` (yêu cầu mockup của Mango). */
+  effectiveConfig?: Record<string, Record<string, unknown>>;
 }
 
 /** Danh mục mặc định: mỗi xưởng một SKU cho CÙNG Black / 3XL (đúng như dữ liệu thật). */
@@ -200,7 +202,11 @@ function buildService(options: Options = {}) {
             .map((sku) => ({
               sku,
               status: 'ACTIVE',
-              rawData: { sku, production_line: (options.catalog ?? CATALOG)[sku] },
+              rawData: {
+                sku,
+                production_line: (options.catalog ?? CATALOG)[sku],
+                ...(options.effectiveConfig?.[sku] ? { effective_config: options.effectiveConfig[sku] } : {}),
+              },
             })),
         ),
     } as unknown as FulfillmentCatalogRepository,
@@ -211,7 +217,7 @@ function buildService(options: Options = {}) {
   const sentRequest = (): MangoCreateOrderRequest =>
     (createOrder.mock.calls[0] as unknown[])[1] as MangoCreateOrderRequest;
 
-  return { service, fulfill, createOrder, sentRequest, updates, repo };
+  return { service, fulfill, createOrder, sentRequest, updates, repo, createDraft: (repo as unknown as Record<string, jest.Mock>).createDraft };
 }
 
 describe('Line sản xuất ⇒ Mango (theo SKU, KHÔNG có production_line_id)', () => {
@@ -518,5 +524,54 @@ describe('Nhãn TikTok ⇒ Push to fulfillment (Mango)', () => {
     await fulfill();
 
     expect(sentRequest()).toMatchObject({ label_url: TIKTOK_LABEL.url, tracking_number: 'TRK-9' });
+  });
+});
+
+/**
+ * 🔴 Đơn 577683942045225361 (2026-11-16): SKU 12128 (Gildan 5000 Black 2XL, FASTUS) có `required_mockup_areas` =
+ * [front, back, right_sleeve, left_sleeve] ⇒ Mango từ chối "Missing required mockups: front". Hệ thống chưa gửi được
+ * mockup ⇒ phải chặn TRƯỚC khi gửi, không tạo bản ghi FAILED.
+ */
+describe('Biến thể Mango bắt buộc mockup', () => {
+  const FASTUS_CONFIG = {
+    required_print_areas: [],
+    required_mockup_areas: ['front', 'back', 'right_sleeve', 'left_sleeve'],
+    required_mockup_always: [],
+  };
+
+  it('in front trên SKU bắt buộc mockup front ⇒ CHẶN trước khi gửi, không tạo bản ghi, nêu SKU + vị trí', async () => {
+    const { fulfill, createOrder, createDraft } = buildService({ sku: 'SKU-FU', effectiveConfig: { 'SKU-FU': FASTUS_CONFIG } });
+
+    const error = (await fulfill().catch((caught: unknown) => caught)) as FulfillmentValidationException;
+
+    expect(error).toBeInstanceOf(FulfillmentValidationException);
+    const text = JSON.stringify(error.getResponse());
+    expect(text).toContain('SKU-FU');
+    expect(text).toContain('front');
+    expect(text).toContain('mockup');
+    expect(createOrder).not.toHaveBeenCalled();
+    expect(createDraft).not.toHaveBeenCalled();
+  });
+
+  it('SKU không yêu cầu mockup (cấu hình rỗng / không có cấu hình) ⇒ gửi bình thường', async () => {
+    const empty = buildService({
+      sku: 'SKU-FU',
+      effectiveConfig: { 'SKU-FU': { required_mockup_areas: [], required_mockup_always: [] } },
+    });
+    await empty.fulfill();
+    expect(empty.createOrder).toHaveBeenCalledTimes(1);
+
+    const none = buildService({ sku: 'SKU-TT' });
+    await none.fulfill();
+    expect(none.createOrder).toHaveBeenCalledTimes(1);
+  });
+
+  it('mockup chỉ bắt buộc cho vị trí KHÔNG in ⇒ không chặn', async () => {
+    const { fulfill, createOrder } = buildService({
+      sku: 'SKU-FU',
+      effectiveConfig: { 'SKU-FU': { required_mockup_areas: ['back'], required_mockup_always: [] } },
+    });
+    await fulfill();
+    expect(createOrder).toHaveBeenCalledTimes(1);
   });
 });

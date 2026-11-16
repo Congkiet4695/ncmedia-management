@@ -9,6 +9,7 @@ import {
   SELLERWIX_API_KEY_HEADER,
   SELLERWIX_DEFAULT_BASE_URL,
   SELLERWIX_ENDPOINTS,
+  SELLERWIX_CATALOG_MIN_INTERVAL_CONFIG_KEY,
   SELLERWIX_MIN_INTERVAL_MS,
   SELLERWIX_RETRY,
   SELLERWIX_VARIANT_PAGE_LIMIT,
@@ -49,7 +50,8 @@ type ThrottleBucket = keyof typeof SELLERWIX_MIN_INTERVAL_MS;
  * - **Xác thực**: CHỈ API Key, header `X-Api-Key` — đúng khai báo `auth` cấp collection của
  *   Postman "Sellerwix API" (`{"type":"apikey","key":"X-Api-Key"}`), kế thừa bởi mọi endpoint
  *   `/v1/*`: danh mục, sản phẩm, biến thể, vận chuyển, đơn hàng. Không OAuth2, không ký JWT.
- * - **Điều tiết**: 100 req/60s toàn API, riêng Get order details 15 req/phút (tài liệu).
+ * - **Điều tiết**: 100 req/60s toàn API, riêng Get order details 15 req/phút (tài liệu); đồng bộ danh mục giãn
+ *   riêng (`catalog`, mặc định 50 req/phút) để luôn còn hạn mức cho tạo đơn / tra đơn.
  * - **Thử lại**: chỉ GET, chỉ lỗi tạm thời (RATE_LIMIT/NETWORK/SERVER). POST tạo đơn KHÔNG BAO
  *   GIỜ tự thử lại — request timeout có thể đã tới nơi; tầng service kiểm tra tồn tại theo
  *   `reference_id` trước khi gửi lại.
@@ -70,14 +72,14 @@ export class SellerwixApiClient {
   // ---------------------------------------------------------------------------
 
   listCategories(ctx: SellerwixCallContext): Promise<SellerwixResult<SellerwixCategory[]>> {
-    return this.call(ctx, 'GET', SELLERWIX_ENDPOINTS.categories);
+    return this.call(ctx, 'GET', SELLERWIX_ENDPOINTS.categories, { bucket: 'catalog' });
   }
 
   listCategoryProducts(
     ctx: SellerwixCallContext,
     categoryId: string | number,
   ): Promise<SellerwixResult<SellerwixCategoryProduct[]>> {
-    return this.call(ctx, 'GET', SELLERWIX_ENDPOINTS.categoryProducts(categoryId));
+    return this.call(ctx, 'GET', SELLERWIX_ENDPOINTS.categoryProducts(categoryId), { bucket: 'catalog' });
   }
 
   listVariants(
@@ -86,6 +88,7 @@ export class SellerwixApiClient {
     nextPage?: string | null,
   ): Promise<SellerwixResult<SellerwixVariantPage>> {
     return this.call(ctx, 'GET', SELLERWIX_ENDPOINTS.productVariants(productSku), {
+      bucket: 'catalog',
       query: { limit: SELLERWIX_VARIANT_PAGE_LIMIT, next_page: nextPage ?? undefined },
     });
   }
@@ -94,6 +97,7 @@ export class SellerwixApiClient {
     ctx: SellerwixCallContext,
     variantSku: string,
   ): Promise<SellerwixResult<SellerwixShippingMethod[]>> {
+    // Dùng khi TẠO ĐƠN (kiểm phương thức vận chuyển), không phải đồng bộ danh mục ⇒ chỉ trần toàn API.
     return this.call(ctx, 'GET', SELLERWIX_ENDPOINTS.variantShippingMethods(variantSku));
   }
 
@@ -195,8 +199,10 @@ export class SellerwixApiClient {
       bucket?: ThrottleBucket;
     },
   ): Promise<SellerwixResult<T>> {
-    await this.throttle('global');
+    // Nhóm riêng TRƯỚC, khe toàn API SAU: khe toàn API phải được giữ đúng lúc gửi. Ngược lại (cũ) thì lời gọi giữ
+    // khe toàn API rồi còn chờ nhóm riêng tới 4 s ⇒ lúc gửi thật lệch khỏi khe đã giữ, các request dồn cục.
     if (options.bucket && options.bucket !== 'global') await this.throttle(options.bucket);
+    await this.throttle('global');
 
     const baseUrl =
       ctx.baseUrl ||
@@ -320,8 +326,19 @@ export class SellerwixApiClient {
    * Giãn cách theo nhóm. Cộng dồn mốc thay vì ngủ cố định để lời gọi song song mỗi cái nhận một
    * khe riêng. Bộ đếm là của TIẾN TRÌNH: trần tần suất nằm ở phía nhà cung cấp.
    */
+  /** Khoảng giãn của nhóm — riêng `catalog` cấu hình được (không bao giờ nhỏ hơn trần toàn API). */
+  private intervalOf(bucket: ThrottleBucket): number {
+    if (bucket !== 'catalog') return SELLERWIX_MIN_INTERVAL_MS[bucket];
+    const configured = Number(
+      this.config.get<number>(SELLERWIX_CATALOG_MIN_INTERVAL_CONFIG_KEY, SELLERWIX_MIN_INTERVAL_MS.catalog),
+    );
+    return Number.isFinite(configured)
+      ? Math.max(configured, SELLERWIX_MIN_INTERVAL_MS.global)
+      : SELLERWIX_MIN_INTERVAL_MS.catalog;
+  }
+
   private async throttle(bucket: ThrottleBucket): Promise<void> {
-    const interval = SELLERWIX_MIN_INTERVAL_MS[bucket];
+    const interval = this.intervalOf(bucket);
     const now = Date.now();
     const slot = Math.max(now, this.nextSlotAt.get(bucket) ?? 0);
     this.nextSlotAt.set(bucket, slot + interval);

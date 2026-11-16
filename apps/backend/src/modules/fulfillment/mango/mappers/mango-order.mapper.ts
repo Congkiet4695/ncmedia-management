@@ -489,3 +489,29 @@ export function mangoVariantProductionLine(rawData: unknown): string | null {
   const value = (rawData as Record<string, unknown>).production_line;
   return typeof value === 'string' && value.trim() ? value.trim().toUpperCase() : null;
 }
+
+/**
+ * Vị trí BẮT BUỘC có ảnh mockup khi in `printedAreas`, theo `raw_data.effective_config` của biến thể Mango đã đồng bộ:
+ * `(printedAreas ∩ required_mockup_areas) ∪ required_mockup_always`.
+ *
+ * 🔴 Đơn 577683942045225361 (2026-11-16): SKU 12128 (FASTUS) có `required_mockup_areas` = [front, back, …], đơn in
+ * `front` ⇒ Mango từ chối: "Order pricing failed: Missing required mockups: front". Hệ thống CHƯA gửi được mockup cho
+ * Mango ⇒ biến thể như vậy phải bị chặn TRƯỚC khi gửi, nói rõ lý do. Không có cấu hình ⇒ `[]` (không đoán).
+ */
+export function mangoRequiredMockupAreas(rawData: unknown, printedAreas: readonly string[]): string[] {
+  if (!rawData || typeof rawData !== 'object' || Array.isArray(rawData)) return [];
+  const config = (rawData as Record<string, unknown>).effective_config;
+  if (!config || typeof config !== 'object' || Array.isArray(config)) return [];
+  const list = (value: unknown): string[] =>
+    Array.isArray(value)
+      ? value.filter((entry): entry is string => typeof entry === 'string' && entry.trim() !== '').map((entry) => entry.trim().toLowerCase())
+      : [];
+  const perArea = new Set(list((config as Record<string, unknown>).required_mockup_areas));
+  const printed = printedAreas.map((area) => area.trim().toLowerCase());
+  return [
+    ...new Set([
+      ...printed.filter((area) => perArea.has(area)),
+      ...list((config as Record<string, unknown>).required_mockup_always),
+    ]),
+  ];
+}
