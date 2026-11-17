@@ -122,6 +122,43 @@ export function businessProductSku(
   return value;
 }
 
+/** Ảnh chụp danh mục đã chuẩn hoá (Sellerwix, Pressify) — đầu vào của bước GHI chung. */
+export interface CatalogSnapshot {
+  catalogues: CatalogueUpsertInput[];
+  products: ProductUpsertInput[];
+  variants: VariantUpsertInput[];
+  apiCalls: number;
+  warnings: string[];
+}
+
+/**
+ * Móc NỘI BỘ của lượt đồng bộ theo lịch Sellerwix (đọc một lần, ghi cho nhiều tài khoản cùng thông tin xác thực).
+ * Không lộ ra controller: đồng bộ thủ công luôn tự đọc.
+ */
+interface SnapshotHooks {
+  /** Có ⇒ dùng ảnh chụp này thay vì gọi API (tài khoản "theo sau" trong cùng nhóm thông tin xác thực). */
+  snapshot?: CatalogSnapshot;
+  /** Nhận ảnh chụp vừa đọc (tài khoản "dẫn đầu") để chia cho các tài khoản còn lại của nhóm. */
+  onSnapshot?: (snapshot: CatalogSnapshot) => void;
+}
+
+/** Kết quả lượt đồng bộ danh mục Sellerwix theo lịch (1 lần/ngày). */
+export interface SellerwixScheduledSyncResult {
+  accounts: number;
+  succeeded: number;
+  failed: number;
+  /** Đã đồng bộ theo lịch thành công trong NGÀY (UTC) ⇒ bỏ qua — chống chạy trùng trong ngày. */
+  skippedToday: number;
+  /** Số nhóm thông tin xác thực (mỗi nhóm đọc API đúng một lần nếu tài khoản dẫn đầu đọc được). */
+  credentialGroups: number;
+  /** Số lần THỰC SỰ đọc danh mục từ API. */
+  fetches: number;
+  /** Số tài khoản được ghi từ ảnh chụp dùng chung (0 lời gọi API). */
+  sharedProjections: number;
+  apiCalls: number;
+  durationMs: number;
+}
+
 /** Trạng thái của một lượt đồng bộ danh mục (`fulfillment_sync_logs.status`). */
 export const CATALOG_SYNC_STATUS = {
   RUNNING: 'RUNNING',
@@ -245,11 +282,21 @@ export class FulfillmentCatalogSyncService {
    *
    * @param trigger Ai kích hoạt — `MANUAL` (người dùng bấm) hay `CRON` (theo lịch).
    */
-  async syncAccount(
+  syncAccount(
     organizationId: string,
     accountId: string,
     trigger: FulfillmentTrigger,
     actorUserId?: string,
+  ): Promise<CatalogSyncResult> {
+    return this.syncAccountWith(organizationId, accountId, trigger, actorUserId);
+  }
+
+  private async syncAccountWith(
+    organizationId: string,
+    accountId: string,
+    trigger: FulfillmentTrigger,
+    actorUserId?: string,
+    hooks?: SnapshotHooks,
   ): Promise<CatalogSyncResult> {
     // 🔴 GHI vào danh mục ⇒ chỉ tài khoản của CHÍNH tổ chức. Tài khoản DÙNG CHUNG
     // (`is_global`) là dữ liệu của mọi tổ chức: một tổ chức bấm Sync là ghi đè danh mục của
@@ -264,7 +311,7 @@ export class FulfillmentCatalogSyncService {
     const scope: CatalogScope = { organizationId, accountId: account.id, provider: account.provider };
     const startedAt = new Date();
     const logId = await this.startSyncLog(scope, trigger, startedAt, actorUserId);
-    return this.runLocked(lock, scope, account, trigger, startedAt, logId);
+    return this.runLocked(lock, scope, account, trigger, startedAt, logId, hooks);
   }
 
   /**
@@ -340,6 +387,7 @@ export class FulfillmentCatalogSyncService {
     trigger: FulfillmentTrigger,
     startedAt: Date,
     logId: string | null,
+    hooks?: SnapshotHooks,
   ): Promise<CatalogSyncResult> {
     const watchdog = setInterval(() => {
       void this.locks.renew(lock, CATALOG_SYNC_LOCK_TTL_MS);
@@ -347,7 +395,7 @@ export class FulfillmentCatalogSyncService {
     if (typeof watchdog.unref === 'function') watchdog.unref();
 
     try {
-      const result = await this.runSync(scope, account, startedAt);
+      const result = await this.runSync(scope, account, startedAt, hooks);
       await this.finishSyncLog(logId, scope, trigger, startedAt, result, null);
       return result;
     } catch (error) {
@@ -365,9 +413,15 @@ export class FulfillmentCatalogSyncService {
    * Lỗi của một tài khoản KHÔNG được làm hỏng lượt chạy của tài khoản khác: một API key hết
    * hạn ở tổ chức A không có lý do gì chặn tổ chức B cập nhật danh mục.
    */
-  async syncAllAccounts(): Promise<{ accounts: number; succeeded: number; failed: number }> {
+  async syncAllAccounts(
+    options: { excludeProviders?: FulfillmentProvider[] } = {},
+  ): Promise<{ accounts: number; succeeded: number; failed: number }> {
     const accounts = await this.prisma.fulfillmentAccount.findMany({
-      where: { deletedAt: null, isActive: true },
+      where: {
+        deletedAt: null,
+        isActive: true,
+        ...(options.excludeProviders?.length ? { provider: { notIn: options.excludeProviders } } : {}),
+      },
       select: { id: true, organizationId: true, name: true },
     });
 
@@ -393,6 +447,150 @@ export class FulfillmentCatalogSyncService {
     return { accounts: accounts.length, succeeded, failed };
   }
 
+  /**
+   * Đồng bộ danh mục **Sellerwix theo lịch** (mặc định 1 lần/ngày, 00:00 UTC — `fulfillment.catalogSync.sellerwixCron`).
+   *
+   * Khác `syncAllAccounts` ở ba điểm, đều để giảm lưu lượng tranh hạn mức với Fulfillment:
+   *  1. **Không chạy trùng trong ngày**: tài khoản đã có lượt CRON SUCCESS/PARTIAL từ 00:00 UTC hôm nay ⇒ bỏ qua (dùng
+   *     lại `fulfillment_sync_logs`, không thêm khoá mới; khoá theo tài khoản vẫn chặn chạy song song).
+   *  2. **Đọc MỘT lần cho mỗi nhóm thông tin xác thực** (`SellerwixCatalogService.credentialFingerprint`): tài khoản
+   *     đầu nhóm đọc API, các tài khoản còn lại ghi từ CÙNG ảnh chụp — vẫn ghi vào bảng của CHÍNH mình
+   *     (`fulfillment_*` + chiếu `fulfillment_account_*`), giá / trạng thái / `synced_at` theo tài khoản, nhật ký riêng
+   *     (`api_calls = 0`). Khác API key ⇒ khác nhóm ⇒ tự đọc (không bao giờ mượn giá của người dùng Sellerwix khác).
+   *  3. Tài khoản dẫn đầu đọc lỗi (vd API key hỏng) ⇒ tài khoản kế tiếp trong nhóm tự đọc; lỗi của một tài khoản
+   *     không dừng lượt chạy.
+   */
+  async syncSellerwixAccounts(now: Date = new Date()): Promise<SellerwixScheduledSyncResult> {
+    const startedAt = Date.now();
+    const accounts = await this.prisma.fulfillmentAccount.findMany({
+      where: { deletedAt: null, isActive: true, provider: FulfillmentProvider.SELLERWIX },
+      orderBy: { createdAt: 'asc' },
+    });
+    const dayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const doneToday = new Set(
+      (
+        await this.prisma.fulfillmentSyncLog.findMany({
+          where: {
+            accountId: { in: accounts.map((account) => account.id) },
+            trigger: FulfillmentTrigger.CRON,
+            status: { in: [CATALOG_SYNC_STATUS.SUCCESS, CATALOG_SYNC_STATUS.PARTIAL] },
+            startedAt: { gte: dayStart },
+          },
+          select: { accountId: true },
+        })
+      ).map((row) => row.accountId),
+    );
+
+    const result: SellerwixScheduledSyncResult = {
+      accounts: accounts.length,
+      succeeded: 0,
+      failed: 0,
+      skippedToday: 0,
+      credentialGroups: 0,
+      fetches: 0,
+      sharedProjections: 0,
+      apiCalls: 0,
+      durationMs: 0,
+    };
+
+    // Gom nhóm theo thông tin xác thực. Không tính được (thiếu key / tài khoản tắt) ⇒ nhóm riêng: lượt đồng bộ của
+    // chính nó sẽ báo đúng lỗi.
+    const groups = new Map<string, FulfillmentAccount[]>();
+    for (const account of accounts) {
+      if (doneToday.has(account.id)) {
+        result.skippedToday += 1;
+        continue;
+      }
+      let key: string;
+      try {
+        key = this.sellerwixCatalog.credentialFingerprint(account);
+      } catch {
+        key = `solo:${account.id}`;
+      }
+      groups.set(key, [...(groups.get(key) ?? []), account]);
+    }
+    result.credentialGroups = groups.size;
+
+    this.logger.log({
+      module: 'fulfillment',
+      provider: FulfillmentProvider.SELLERWIX,
+      event: 'CATALOG_SYNC_STARTED',
+      operation: 'catalog.sync.sellerwix',
+      accounts: accounts.length,
+      skippedToday: result.skippedToday,
+      credentialGroups: groups.size,
+      msg: 'Bắt đầu đồng bộ danh mục Sellerwix theo lịch',
+    });
+
+    let groupIndex = 0;
+    for (const members of groups.values()) {
+      groupIndex += 1;
+      const shared: { current: { snapshot: CatalogSnapshot; fromAccountId: string } | null } = { current: null };
+      for (const account of members) {
+        const reuse = shared.current;
+        this.logger.log({
+          module: 'fulfillment',
+          provider: FulfillmentProvider.SELLERWIX,
+          event: reuse ? 'CATALOG_PROJECTION_STARTED' : 'CATALOG_FETCH_STARTED',
+          accountId: account.id,
+          credentialGroup: groupIndex,
+          sharedFromAccountId: reuse?.fromAccountId ?? null,
+          msg: reuse ? 'Ghi danh mục từ ảnh chụp dùng chung (0 lời gọi API)' : 'Đọc danh mục Sellerwix từ API',
+        });
+        try {
+          const synced = await this.syncAccountWith(
+            account.organizationId,
+            account.id,
+            FulfillmentTrigger.CRON,
+            undefined,
+            reuse
+              ? { snapshot: reuse.snapshot }
+              : { onSnapshot: (snapshot) => (shared.current = { snapshot, fromAccountId: account.id }) },
+          );
+          result.succeeded += 1;
+          result.apiCalls += synced.apiCalls;
+          if (reuse) result.sharedProjections += 1;
+          else result.fetches += 1;
+          this.logger.log({
+            module: 'fulfillment',
+            provider: FulfillmentProvider.SELLERWIX,
+            event: reuse ? 'CATALOG_PROJECTION_COMPLETED' : 'CATALOG_FETCH_COMPLETED',
+            accountId: account.id,
+            credentialGroup: groupIndex,
+            apiCalls: synced.apiCalls,
+            products: synced.products,
+            variants: synced.variants,
+            complete: synced.complete,
+            durationMs: synced.durationMs,
+            msg: reuse ? 'Đã ghi danh mục từ ảnh chụp dùng chung' : 'Đã đọc + ghi danh mục Sellerwix',
+          });
+        } catch (error) {
+          result.failed += 1;
+          this.logger.error({
+            module: 'fulfillment',
+            provider: FulfillmentProvider.SELLERWIX,
+            operation: 'catalog.sync',
+            accountId: account.id,
+            organizationId: account.organizationId,
+            credentialGroup: groupIndex,
+            msg: `Đồng bộ danh mục thất bại cho "${account.name}": ${(error as Error).message}`,
+          });
+        }
+      }
+    }
+
+    result.durationMs = Date.now() - startedAt;
+    this.logger.log({
+      module: 'fulfillment',
+      provider: FulfillmentProvider.SELLERWIX,
+      event: 'CATALOG_SYNC_COMPLETED',
+      operation: 'catalog.sync.sellerwix',
+      ...result,
+      msg: `Đồng bộ danh mục Sellerwix theo lịch: ${result.fetches} lần đọc API cho ${result.succeeded} tài khoản`,
+    });
+    return result;
+  }
+
   // ---------------------------------------------------------------------------
   // Private
   // ---------------------------------------------------------------------------
@@ -408,12 +606,13 @@ export class FulfillmentCatalogSyncService {
     scope: CatalogScope,
     account: FulfillmentAccount,
     startedAt: Date,
+    hooks?: SnapshotHooks,
   ): Promise<CatalogSyncResult> {
     switch (account.provider) {
       case FulfillmentProvider.MANGO:
         return this.runMangoSync(scope, account, startedAt);
       case FulfillmentProvider.SELLERWIX:
-        return this.runSellerwixSync(scope, account, startedAt);
+        return this.runSellerwixSync(scope, account, startedAt, hooks);
       case FulfillmentProvider.PRESSIFY: {
         const pressify = this.pressifyCatalog;
         if (!pressify) throw new FulfillmentProviderNotSupportedException(account.provider);
@@ -432,8 +631,22 @@ export class FulfillmentCatalogSyncService {
     scope: CatalogScope,
     account: FulfillmentAccount,
     startedAt: Date,
+    hooks?: SnapshotHooks,
   ): Promise<CatalogSyncResult> {
-    return this.runSnapshotSync(scope, () => this.sellerwixCatalog.fetchCatalog(account), startedAt);
+    const shared = hooks?.snapshot;
+    return this.runSnapshotSync(
+      scope,
+      shared
+        ? // Cùng thông tin xác thực với tài khoản vừa đọc ⇒ CÙNG dữ liệu; 0 lời gọi API. Cảnh báo (đọc thiếu) đi
+          // kèm ⇒ cùng luật "không archive khi đọc thiếu" như thể tài khoản này tự đọc.
+          () => Promise.resolve({ ...shared, apiCalls: 0 })
+        : async () => {
+            const snapshot = await this.sellerwixCatalog.fetchCatalog(account);
+            hooks?.onSnapshot?.(snapshot);
+            return snapshot;
+          },
+      startedAt,
+    );
   }
 
   /**
@@ -442,13 +655,7 @@ export class FulfillmentCatalogSyncService {
    */
   private async runSnapshotSync(
     scope: CatalogScope,
-    fetchSnapshot: () => Promise<{
-      catalogues: CatalogueUpsertInput[];
-      products: ProductUpsertInput[];
-      variants: VariantUpsertInput[];
-      apiCalls: number;
-      warnings: string[];
-    }>,
+    fetchSnapshot: () => Promise<CatalogSnapshot>,
     startedAt: Date,
   ): Promise<CatalogSyncResult> {
     const syncedAt = new Date();

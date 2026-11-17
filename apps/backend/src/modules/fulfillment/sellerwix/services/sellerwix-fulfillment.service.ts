@@ -144,10 +144,12 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     trigger: FulfillmentTrigger,
     options: FulfillOptionsInput,
   ): Promise<FulfillmentOrderWithRelations> {
-    const done = await this.lock.withLock(
-      fulfillmentOrderLockKey(podOrderId),
-      FULFILL_LOCK_MS,
-      () => this.fulfillLocked(organizationId, actorUserId, podOrderId, trigger, options),
+    // Ưu tiên hơn đồng bộ danh mục: suốt lượt gửi (tra chống trùng → tạo đơn → đọc chi phí) danh mục đứng chờ.
+    // Khoá theo đơn + luật idempotency (tra reference_id trước khi tạo) GIỮ NGUYÊN.
+    const done = await this.client.withPriority('fulfill', () =>
+      this.lock.withLock(fulfillmentOrderLockKey(podOrderId), FULFILL_LOCK_MS, () =>
+        this.fulfillLocked(organizationId, actorUserId, podOrderId, trigger, options),
+      ),
     );
     if (!done) throw new FulfillmentAlreadySubmittedException(FulfillmentStatus.SUBMITTING);
     return done;
@@ -581,7 +583,11 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
     const record = await this.repo.findByPodOrder(organizationId, podOrderId, PROVIDER);
     if (!record) throw new FulfillmentOrderNotFoundException();
     const account = await this.requireAccountById(organizationId, record.accountId);
-    await this.syncOne(record, account, FulfillmentTrigger.MANUAL, actorUserId);
+    // Người dùng bấm "Sync" cho MỘT đơn ⇒ ưu tiên. Đồng bộ theo lịch (cron 5 phút, `syncOne`) KHÔNG giữ ưu tiên: nó
+    // chạy gần như liên tục và sẽ chặn danh mục vô thời hạn — nó vẫn đi trước nhờ danh mục dừng khi có 429.
+    await this.client.withPriority('sync.manual', () =>
+      this.syncOne(record, account, FulfillmentTrigger.MANUAL, actorUserId),
+    );
     return this.requireRecord(organizationId, record.id);
   }
 
@@ -723,7 +729,20 @@ export class SellerwixFulfillmentService implements FulfillmentProviderAdapter {
   // Huỷ
   // ---------------------------------------------------------------------------
 
-  async cancel(
+  /** Huỷ là thao tác của người dùng ⇒ ưu tiên hơn đồng bộ danh mục (logic huỷ không đổi — `cancelPrioritized`). */
+  cancel(
+    organizationId: string,
+    actorUserId: string,
+    podOrderId: string,
+    reason?: string,
+    actorRole?: string,
+  ): Promise<FulfillmentOrderWithRelations> {
+    return this.client.withPriority('cancel', () =>
+      this.cancelPrioritized(organizationId, actorUserId, podOrderId, reason, actorRole),
+    );
+  }
+
+  private async cancelPrioritized(
     organizationId: string,
     actorUserId: string,
     podOrderId: string,

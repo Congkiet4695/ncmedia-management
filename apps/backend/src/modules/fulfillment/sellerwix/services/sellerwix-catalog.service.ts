@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { FulfillmentCatalogItemStatus, Prisma } from '@prisma/client';
+import { createHash } from 'node:crypto';
 import type {
   CatalogueUpsertInput,
   ProductUpsertInput,
@@ -9,6 +10,7 @@ import type {
 import { SellerwixApiClient } from '../clients/sellerwix-api.client';
 import {
   SELLERWIX_COST_CURRENCY_CONFIG_KEY,
+  SELLERWIX_DEFAULT_BASE_URL,
   SELLERWIX_MAX_PAGES_PER_PRODUCT,
 } from '../constants/sellerwix.constants';
 import type { SellerwixCategoryProduct, SellerwixVariant } from '../types/sellerwix-api.types';
@@ -56,6 +58,24 @@ export class SellerwixCatalogService {
     private readonly credentials: SellerwixCredentialService,
     private readonly config: ConfigService,
   ) {}
+
+  /**
+   * Dấu vân tay THÔNG TIN XÁC THỰC dùng để đọc danh mục: sha256(API key + base URL hiệu lực).
+   *
+   * Hai tài khoản cùng dấu vân tay gọi CÙNG endpoint với CÙNG API key ⇒ Sellerwix trả CÙNG danh mục (kể cả giá vốn của
+   * người dùng Sellerwix đó) ⇒ đọc MỘT lần, ghi cho từng tài khoản là đúng tuyệt đối. Khác API key ⇒ khác dấu vân tay
+   * ⇒ mỗi tài khoản tự đọc (giá có thể khác nhau theo người dùng Sellerwix — không bao giờ dùng chung).
+   * `store_id` không tham gia: không endpoint danh mục nào nhận nó.
+   *
+   * 🔴 Chỉ dùng trong bộ nhớ để gom nhóm — KHÔNG ghi log, KHÔNG lưu DB. Ném lỗi khi thiếu API key / tài khoản tắt.
+   */
+  credentialFingerprint(account: SellerwixAccountCredentialRef): string {
+    const ctx = this.credentials.buildContext(account);
+    const baseUrl = (ctx.baseUrl || this.config.get<string>('fulfillment.sellerwix.baseUrl', SELLERWIX_DEFAULT_BASE_URL))
+      .trim()
+      .replace(/\/+$/, '');
+    return createHash('sha256').update(`${ctx.apiKey}\u0000${baseUrl}`).digest('hex');
+  }
 
   async fetchCatalog(account: SellerwixAccountCredentialRef): Promise<SellerwixCatalogSnapshot> {
     const ctx = this.credentials.buildContext(account);

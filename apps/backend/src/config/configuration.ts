@@ -283,8 +283,15 @@ export default () => ({
      */
     catalogSync: {
       enabled: (process.env.FULFILLMENT_CATALOG_SYNC_ENABLED ?? 'false') === 'true',
-      /** Cron 5 trường — mặc định mỗi 6 giờ. */
+      /** Cron 5 trường (UTC) cho MỌI nhà cung cấp TRỪ Sellerwix — mặc định mỗi 6 giờ (Mango, Pressify). */
       cron: process.env.FULFILLMENT_CATALOG_SYNC_CRON ?? '0 */6 * * *',
+      /**
+       * Cron 5 trường (UTC) RIÊNG cho Sellerwix — mặc định MỘT lần/ngày lúc 00:00 UTC.
+       *
+       * Production 2026-11-10 → 11-17: mọi lần tạo đơn Sellerwix nhận 429 (37/37) đều rơi vào cửa sổ đồng bộ danh
+       * mục Sellerwix; ngoài cửa sổ, lần gửi đầu thành công 100%. Danh mục Sellerwix gần như tĩnh ⇒ 1 lần/ngày.
+       */
+      sellerwixCron: process.env.FULFILLMENT_CATALOG_SYNC_SELLERWIX_CRON ?? '0 0 * * *',
     },
 
     /**

@@ -9,6 +9,7 @@ import {
   SELLERWIX_API_KEY_HEADER,
   SELLERWIX_DEFAULT_BASE_URL,
   SELLERWIX_ENDPOINTS,
+  SELLERWIX_CATALOG_BACKOFF,
   SELLERWIX_CATALOG_MIN_INTERVAL_CONFIG_KEY,
   SELLERWIX_MIN_INTERVAL_MS,
   SELLERWIX_RETRY,
@@ -65,7 +66,42 @@ export class SellerwixApiClient {
 
   private readonly nextSlotAt = new Map<ThrottleBucket, number>();
 
+  // --- Ưu tiên Fulfillment > danh mục (xem SELLERWIX_CATALOG_BACKOFF) ---
+  /** Số thao tác của người dùng (gửi đơn / huỷ / bấm Sync) đang chạy. > 0 ⇒ danh mục nhường. */
+  private priorityLeases = 0;
+  /** Danh mục được chạy lại từ mốc này (thao tác ưu tiên cuối + `priorityGraceMs`). */
+  private backgroundResumeAt = 0;
+  /** Danh mục dừng tới mốc này vì vừa có 429. */
+  private backgroundPausedUntil = 0;
+  /** Số lần 429 liên tiếp chưa có lời gọi danh mục nào thành công — bậc lùi cấp số nhân. */
+  private consecutiveRateLimits = 0;
+
   constructor(private readonly config: ConfigService) {}
+
+  /**
+   * Chạy MỘT thao tác của người dùng với quyền ưu tiên: trong lúc chạy (và `priorityGraceMs` sau đó) mọi lời gọi
+   * danh mục đứng chờ. Thao tác ưu tiên KHÔNG chờ gì thêm — chỉ tôn trọng nhịp toàn API như trước.
+   * Không khoá toàn cục: nhiều thao tác ưu tiên chạy song song được (đếm số lượt).
+   */
+  async withPriority<T>(operation: string, task: () => Promise<T>): Promise<T> {
+    this.priorityLeases += 1;
+    this.logger.log({
+      module: 'fulfillment',
+      provider: 'SELLERWIX',
+      event: 'FULFILLMENT_PRIORITY_GRANTED',
+      operation,
+      activeLeases: this.priorityLeases,
+      msg: 'Thao tác Fulfillment được ưu tiên — đồng bộ danh mục nhường',
+    });
+    try {
+      return await task();
+    } finally {
+      this.priorityLeases -= 1;
+      if (this.priorityLeases === 0) {
+        this.backgroundResumeAt = Date.now() + SELLERWIX_CATALOG_BACKOFF.priorityGraceMs;
+      }
+    }
+  }
 
   // ---------------------------------------------------------------------------
   // Catalog
@@ -170,7 +206,11 @@ export class SellerwixApiClient {
         const clientError = error instanceof FulfillmentClientError ? error : undefined;
         if (!clientError?.retryable || attempt >= maxAttempts) throw error;
 
-        const delayMs = this.retryDelayMs(attempt);
+        // Danh mục gặp 429 ⇒ KHÔNG thử lại sau 1–2 s (sẽ lại tranh hạn mức với Fulfillment): lần thử kế tiếp tự chờ hết
+        // khoảng dừng ở `awaitBackgroundTurn`. Số lần thử không đổi.
+        const background = options.bucket === 'catalog';
+        const delayMs =
+          background && clientError.errorClass === FulfillmentErrorClass.RATE_LIMIT ? 0 : this.retryDelayMs(attempt);
         this.logger.warn({
           module: 'fulfillment',
           provider: 'SELLERWIX',
@@ -183,7 +223,7 @@ export class SellerwixApiClient {
           delayMs,
           msg: `Lỗi tạm thời, thử lại lần ${attempt + 1}/${maxAttempts} sau ${delayMs}ms`,
         });
-        await this.sleep(delayMs);
+        if (delayMs > 0) await this.sleep(delayMs);
       }
     }
   }
@@ -201,8 +241,20 @@ export class SellerwixApiClient {
   ): Promise<SellerwixResult<T>> {
     // Nhóm riêng TRƯỚC, khe toàn API SAU: khe toàn API phải được giữ đúng lúc gửi. Ngược lại (cũ) thì lời gọi giữ
     // khe toàn API rồi còn chờ nhóm riêng tới 4 s ⇒ lúc gửi thật lệch khỏi khe đã giữ, các request dồn cục.
-    if (options.bucket && options.bucket !== 'global') await this.throttle(options.bucket);
-    await this.throttle('global');
+    const background = options.bucket === 'catalog';
+    if (background) {
+      // Chờ lượt → giữ khe → KIỂM LẠI: trong lúc ngủ chờ khe (tới vài giây) có thể vừa bắt đầu một lượt gửi đơn hoặc
+      // một khoảng dừng 429 ⇒ nhường tiếp. Khe đã giữ mà không dùng chỉ là một khoảng trống, không vượt trần.
+      for (;;) {
+        await this.awaitBackgroundTurn(ctx.accountId, path);
+        await this.throttle('catalog');
+        await this.throttle('global');
+        if (!this.backgroundMustYield()) break;
+      }
+    } else {
+      if (options.bucket && options.bucket !== 'global') await this.throttle(options.bucket);
+      await this.throttle('global');
+    }
 
     const baseUrl =
       ctx.baseUrl ||
@@ -264,8 +316,15 @@ export class SellerwixApiClient {
     });
 
     if (!response.ok) {
-      throw this.toClientError(response.status, parsed, rawText, endpoint, requestId);
+      const retryAfterSeconds =
+        response.status === 429 ? parseRetryAfterSeconds(response.headers?.get?.('retry-after') ?? null) : undefined;
+      const error = this.toClientError(response.status, parsed, rawText, endpoint, requestId, retryAfterSeconds);
+      if (error.errorClass === FulfillmentErrorClass.RATE_LIMIT) {
+        this.onRateLimited(ctx.accountId, endpoint, background, retryAfterSeconds);
+      }
+      throw error;
     }
+    if (background) this.consecutiveRateLimits = 0;
     return { data: parsed as T, requestId, durationMs, httpStatus: response.status };
   }
 
@@ -279,6 +338,7 @@ export class SellerwixApiClient {
     rawText: string,
     endpoint: string,
     requestId: string,
+    retryAfterSeconds?: number,
   ): FulfillmentClientError {
     const body = (parsed && typeof parsed === 'object' ? parsed : {}) as SellerwixErrorBody;
     const providerCode =
@@ -310,7 +370,92 @@ export class SellerwixApiClient {
       // Body lỗi của Sellerwix chỉ có code/message — không mang dữ liệu người nhận.
       parsed ?? rawText.slice(0, 4000),
       endpoint,
+      retryAfterSeconds,
     );
+  }
+
+  /**
+   * Danh mục đứng chờ khi: đang có thao tác ưu tiên (hoặc vừa xong < `priorityGraceMs`), hoặc đang trong khoảng dừng
+   * sau 429. Chỉ lời gọi NỀN đi qua đây — Fulfillment không bao giờ.
+   */
+  private backgroundMustYield(now: number = Date.now()): boolean {
+    return this.priorityLeases > 0 || now < this.backgroundResumeAt || now < this.backgroundPausedUntil;
+  }
+
+  private async awaitBackgroundTurn(accountId: string, path: string): Promise<void> {
+    let pausedFor: 'FULFILLMENT' | 'RATE_LIMIT' | null = null;
+    for (;;) {
+      const now = Date.now();
+      const reason =
+        this.priorityLeases > 0 || now < this.backgroundResumeAt
+          ? 'FULFILLMENT'
+          : now < this.backgroundPausedUntil
+            ? 'RATE_LIMIT'
+            : null;
+      if (!reason) break;
+      if (reason !== pausedFor) {
+        pausedFor = reason;
+        this.logger.log({
+          module: 'fulfillment',
+          provider: 'SELLERWIX',
+          event: reason === 'FULFILLMENT' ? 'CATALOG_PAUSED_FOR_FULFILLMENT' : 'CATALOG_BACKOFF',
+          accountId,
+          operation: `GET ${path.split('?')[0]}`,
+          activeLeases: this.priorityLeases,
+          resumeInMs: reason === 'RATE_LIMIT' ? this.backgroundPausedUntil - now : undefined,
+          msg:
+            reason === 'FULFILLMENT'
+              ? 'Đồng bộ danh mục tạm dừng — nhường thao tác Fulfillment'
+              : 'Đồng bộ danh mục tạm dừng sau 429 (lùi có nhiễu)',
+        });
+      }
+      const waitMs =
+        reason === 'RATE_LIMIT'
+          ? this.backgroundPausedUntil - now
+          : this.priorityLeases > 0
+            ? SELLERWIX_CATALOG_BACKOFF.pollMs
+            : this.backgroundResumeAt - now;
+      await this.sleep(Math.max(1, waitMs));
+    }
+    if (pausedFor) {
+      this.logger.log({
+        module: 'fulfillment',
+        provider: 'SELLERWIX',
+        event: 'CATALOG_RESUMED',
+        accountId,
+        msg: 'Đồng bộ danh mục chạy tiếp',
+      });
+    }
+  }
+
+  /** 429 ở BẤT KỲ lời gọi nào ⇒ dừng luồng danh mục (Retry-After nếu có, không thì lùi cấp số nhân + nhiễu). */
+  private onRateLimited(
+    accountId: string,
+    endpoint: string,
+    background: boolean,
+    retryAfterSeconds: number | undefined,
+  ): void {
+    this.consecutiveRateLimits += 1;
+    const backoff = SELLERWIX_CATALOG_BACKOFF;
+    const pauseMs =
+      retryAfterSeconds !== undefined
+        ? Math.min(retryAfterSeconds * 1000, backoff.retryAfterMaxMs)
+        : Math.round(
+            Math.min(backoff.baseMs * 2 ** (this.consecutiveRateLimits - 1), backoff.maxMs) *
+              (1 + Math.random() * backoff.jitterRatio),
+          );
+    this.backgroundPausedUntil = Math.max(this.backgroundPausedUntil, Date.now() + pauseMs);
+    this.logger.warn({
+      module: 'fulfillment',
+      provider: 'SELLERWIX',
+      event: background ? 'CATALOG_RATE_LIMITED' : 'FULFILLMENT_RATE_LIMITED',
+      accountId,
+      operation: endpoint,
+      consecutiveRateLimits: this.consecutiveRateLimits,
+      retryAfterSeconds: retryAfterSeconds ?? null,
+      catalogPausedForMs: pauseMs,
+      msg: 'Sellerwix trả 429 — dừng đồng bộ danh mục để chừa hạn mức cho Fulfillment',
+    });
   }
 
   private withQuery(path: string, query: Record<string, string | number | undefined>): string {
@@ -322,10 +467,6 @@ export class SellerwixApiClient {
     return qs ? `${path}?${qs}` : path;
   }
 
-  /**
-   * Giãn cách theo nhóm. Cộng dồn mốc thay vì ngủ cố định để lời gọi song song mỗi cái nhận một
-   * khe riêng. Bộ đếm là của TIẾN TRÌNH: trần tần suất nằm ở phía nhà cung cấp.
-   */
   /** Khoảng giãn của nhóm — riêng `catalog` cấu hình được (không bao giờ nhỏ hơn trần toàn API). */
   private intervalOf(bucket: ThrottleBucket): number {
     if (bucket !== 'catalog') return SELLERWIX_MIN_INTERVAL_MS[bucket];
@@ -337,6 +478,10 @@ export class SellerwixApiClient {
       : SELLERWIX_MIN_INTERVAL_MS.catalog;
   }
 
+  /**
+   * Giãn cách theo nhóm. Cộng dồn mốc thay vì ngủ cố định để lời gọi song song mỗi cái nhận một
+   * khe riêng. Bộ đếm là của TIẾN TRÌNH: trần tần suất nằm ở phía nhà cung cấp.
+   */
   private async throttle(bucket: ThrottleBucket): Promise<void> {
     const interval = this.intervalOf(bucket);
     const now = Date.now();
@@ -363,4 +508,13 @@ export class SellerwixApiClient {
   private sleep(ms: number): Promise<void> {
     return new Promise((resolve) => setTimeout(resolve, ms));
   }
+}
+
+/** `Retry-After`: số giây hoặc HTTP-date (RFC 9110). Không có / sai dạng ⇒ `undefined`. */
+export function parseRetryAfterSeconds(value: string | null, now: number = Date.now()): number | undefined {
+  const text = value?.trim();
+  if (!text) return undefined;
+  if (/^\d+$/.test(text)) return Number(text);
+  const at = Date.parse(text);
+  return Number.isNaN(at) ? undefined : Math.max(0, Math.ceil((at - now) / 1000));
 }

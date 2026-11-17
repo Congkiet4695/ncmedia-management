@@ -273,6 +273,7 @@ export const envValidationSchema = Joi.object({
   FULFILLMENT_SYNC_DEADLINE_MS: Joi.number().integer().min(10000).max(3600000).default(240000),
   FULFILLMENT_CATALOG_SYNC_ENABLED: Joi.boolean().truthy('true').falsy('false').default(false),
   FULFILLMENT_CATALOG_SYNC_CRON: Joi.string().default('0 */6 * * *'),
+  FULFILLMENT_CATALOG_SYNC_SELLERWIX_CRON: Joi.string().default('0 0 * * *'),
   FULFILLMENT_WEBHOOK_MAX_ATTEMPTS: Joi.number().integer().min(1).max(20).default(5),
   FULFILLMENT_WEBHOOK_RETRY_BATCH: Joi.number().integer().min(1).max(500).default(50),
 

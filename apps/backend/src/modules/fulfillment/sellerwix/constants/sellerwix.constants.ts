@@ -74,6 +74,30 @@ export const SELLERWIX_MIN_INTERVAL_MS = {
 /** Khoá cấu hình ghi đè khoảng giãn của nhóm `catalog`. */
 export const SELLERWIX_CATALOG_MIN_INTERVAL_CONFIG_KEY = 'fulfillment.sellerwix.catalogMinIntervalMs';
 
+/**
+ * **Ưu tiên Fulfillment hơn đồng bộ danh mục** (`SellerwixApiClient`, bộ đếm của TIẾN TRÌNH).
+ *
+ * - Lời gọi danh mục (nhóm `catalog`) là NỀN: chờ khi đang có thao tác của người dùng (gửi đơn / huỷ / bấm Sync —
+ *   `withPriority`) và thêm `priorityGraceMs` sau thao tác cuối, để các bước liền nhau của một lượt gửi (tra chống
+ *   trùng → vận chuyển → tạo đơn → đọc chi phí) không bị danh mục chen vào. Fulfillment KHÔNG BAO GIỜ chờ danh mục.
+ * - BẤT KỲ lời gọi nào nhận 429 ⇒ dừng luồng danh mục: `Retry-After` nếu Sellerwix gửi (tối đa `retryAfterMaxMs`),
+ *   không có thì lùi cấp số nhân `baseMs · 2^(n-1)` (tối đa `maxMs`) + nhiễu `jitterRatio`. Lời gọi danh mục thành
+ *   công ⇒ đặt lại bậc lùi. Số lần thử của một lời gọi KHÔNG tăng (`SELLERWIX_RETRY.maxAttempts`).
+ *
+ * 🔴 Không giả định trần 100 req/60s là toàn bộ luật: production 2026-11 đo được lưu lượng THẤP hơn trần tài liệu mà vẫn
+ * nhận 429, và 429 của tài khoản A xảy ra khi tài khoản B đang đồng bộ danh mục (hạn mức có vẻ dùng chung giữa các tài
+ * khoản — chưa có xác nhận chính thức của Sellerwix). Vì vậy dừng danh mục khi có 429 thay vì chỉ giãn nhịp.
+ */
+export const SELLERWIX_CATALOG_BACKOFF = {
+  baseMs: 30_000,
+  maxMs: 5 * 60_000,
+  jitterRatio: 0.2,
+  retryAfterMaxMs: 15 * 60_000,
+  priorityGraceMs: 3_000,
+  /** Nhịp kiểm lại khi đang nhường Fulfillment. */
+  pollMs: 500,
+} as const;
+
 /** Thử lại lời gọi ĐỌC khi lỗi tạm thời — cùng chính sách với Mango (chỉ GET). */
 export const SELLERWIX_RETRY = {
   maxAttempts: 3,

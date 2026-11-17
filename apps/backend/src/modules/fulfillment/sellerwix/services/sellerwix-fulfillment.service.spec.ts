@@ -353,12 +353,15 @@ function build(options: Harness = {}) {
     durationMs: 6,
     httpStatus: 200,
   });
+  // Ưu tiên Fulfillment > danh mục: thao tác của người dùng chạy trong `withPriority` (chuyển tiếp nguyên kết quả).
+  const withPriority = jest.fn(<T>(_operation: string, task: () => Promise<T>) => task());
   const client = {
     getOrderByReference,
     createOrder,
     getOrder,
     cancelOrder,
     listShippingMethods,
+    withPriority,
   } as unknown as SellerwixApiClient;
 
   const lock = {
