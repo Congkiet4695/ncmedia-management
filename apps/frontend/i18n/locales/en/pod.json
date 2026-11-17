@@ -1676,6 +1676,8 @@
       "sellerShippingIncluded": "Seller shipping fee (deducted)",
       "labelCost": "Label cost",
       "labelCostHint": "Label cost is charged ONCE per order (not per product / SKU).",
+      "labelIncluded": "Included in base cost",
+      "labelIncludedHint": "Base cost is the provider's actual total (Provider Total), which already includes the per-order label fee ⇒ label is not deducted again.",
       "sellerShippingHint": {
         "included": "TikTok has ALREADY deducted this from the proceeds — profit does not deduct it again.",
         "pending": "Proceeds do NOT include this yet (shipping after discounts may be $0, but the seller still pays it) — profit deducts it.",

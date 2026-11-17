@@ -110,7 +110,7 @@ export class PodOrderFinanceService {
       const record = fulfillment.get(order.id);
       const shipping = shippingOf.get(order.id);
       const cost = record
-        ? withOrderBaseCost(productCostOf(record.submittedAt !== null, record.items), shipping?.baseCost)
+        ? withOrderBaseCost(productCostOf(record.submittedAt !== null, record.items, record.total), shipping?.baseCost)
         : null;
       const hasOrderBaseCost = shipping?.baseCost !== null && shipping?.baseCost !== undefined;
       result.set(
@@ -149,6 +149,7 @@ export class PodOrderFinanceService {
                   productCostConfirmed: cost.productCostConfirmed,
                   currency: hasOrderBaseCost ? shipping.baseCostCurrency : record.currency,
                   fulfilledBy: record.account?.name ?? null,
+                  labelIncluded: cost.labelIncludedInCost,
                 }
               : null,
           storedBaseCost:

@@ -81,8 +81,12 @@ export function OrderPriceCell({ price }: { price: OrderPriceBreakdown }) {
       />
       <Line
         label={t('orders.price.labelCost')}
-        value={money(financials.labelCost, financials.labelCostCurrency || proceedsCurrency)}
-        hint={t('orders.price.labelCostHint')}
+        value={
+          financials.labelIncludedInCost
+            ? t('orders.price.labelIncluded')
+            : money(financials.labelCost, financials.labelCostCurrency || proceedsCurrency)
+        }
+        hint={t(financials.labelIncludedInCost ? 'orders.price.labelIncludedHint' : 'orders.price.labelCostHint')}
       />
       {/* `key` theo đơn: ô đang sửa không bao giờ "đi theo" sang đơn khác khi đổi trang / sắp xếp lại. */}
       <DesignAmountLine

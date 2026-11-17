@@ -59,7 +59,7 @@ export class FulfillmentNotificationService {
       const context = await this.orderContext(record);
       if (!context) return;
       const { scope, ...order } = context;
-      const cost = productCostOf(true, record.items);
+      const cost = productCostOf(true, record.items, record.total);
       await this.outbox.publish({
         organizationId: record.organizationId,
         eventType: 'FULFILLMENT_SUBMITTED',

@@ -11,7 +11,8 @@
  *    Có giao dịch settled thì settled THẮNG (số thật thay số ước tính).
  *  - **Giá vốn** = product cost của lần fulfill ĐANG giữ đơn ở xưởng (không gồm phí ship nhà cung cấp).
  *  - **Phí ship Seller** — phần phí vận chuyển Seller THỰC SỰ chịu (xem `resolveSellerShipping`).
- *  - **Label** = chi phí label cấu hình (`ORDER_LABEL_COST`), MỘT lần cho MỖI ĐƠN.
+ *  - **Label** = chi phí label cấu hình (`ORDER_LABEL_COST`), MỘT lần cho MỖI ĐƠN — KHÔNG trừ khi giá vốn là Provider Total
+ *    (tổng của nhà cung cấp đã gồm phí label / đơn — `fulfillment/shared/product-cost.ts`).
  *  - **Design Amount** = chi phí design nhập tay của đơn (`pod_orders.design_amount`, USD, mặc định 0).
  *  - **Lợi nhuận** = tiền thu về − giá vốn − phí ship Seller CHƯA nằm trong tiền thu về − label − design amount.
  *    Design amount = 0 ⇒ kết quả y như công thức trước khi có Design Amount.
@@ -76,6 +77,11 @@ export interface OrderFinancialsInput {
     productCostConfirmed: boolean;
     currency: string | null;
     fulfilledBy: string | null;
+    /**
+     * Giá vốn là Provider Total ⇒ ĐÃ gồm phí label / đơn của nhà cung cấp ⇒ KHÔNG trừ `labelCost` lần nữa
+     * (`fulfillment/shared/product-cost.ts`). Thiếu ⇒ `false` (trừ label như trước).
+     */
+    labelIncluded?: boolean;
   } | null;
   /** Base Cost đã import cho đơn CHƯA có lần fulfill đang giữ đơn: chỉ để hiển thị, chưa vào lợi nhuận. */
   storedBaseCost?: { amount: number; currency: string | null } | null;
@@ -155,6 +161,8 @@ export interface OrderFinancials {
   sellerShipping: SellerShipping | null;
   labelCost: number;
   labelCostCurrency: string;
+  /** Label đã nằm trong giá vốn (Provider Total) ⇒ `labelCost` KHÔNG bị trừ vào lợi nhuận. */
+  labelIncludedInCost: boolean;
   /** Design Amount của đơn (luôn là số — thiếu ⇒ 0). */
   designAmount: number;
   designAmountCurrency: string;
@@ -183,6 +191,7 @@ export function calculateOrderFinancials(input: OrderFinancialsInput): OrderFina
     sellerShipping,
     labelCost: input.labelCost.amount,
     labelCostCurrency: input.labelCost.currency,
+    labelIncludedInCost: cost?.labelIncluded === true,
     designAmount: designAmountOf(input.designAmount),
     designAmountCurrency: DESIGN_AMOUNT_CURRENCY,
   };
@@ -203,7 +212,9 @@ export function calculateOrderFinancials(input: OrderFinancialsInput): OrderFina
     return fail('CURRENCY_MISMATCH');
   }
   if (!sellerShipping) return fail('SHIPPING_UNKNOWN');
-  if (input.labelCost.currency.toUpperCase() !== proceeds.currency.toUpperCase()) {
+  // Label đã nằm trong Provider Total ⇒ không trừ, nên cũng không ràng buộc đơn vị tiền của label.
+  const labelApplied = base.labelIncludedInCost ? 0 : input.labelCost.amount;
+  if (!base.labelIncludedInCost && input.labelCost.currency.toUpperCase() !== proceeds.currency.toUpperCase()) {
     return fail('LABEL_CURRENCY_MISMATCH');
   }
   if (base.designAmount !== 0 && DESIGN_AMOUNT_CURRENCY !== proceeds.currency.toUpperCase()) {
@@ -213,7 +224,7 @@ export function calculateOrderFinancials(input: OrderFinancialsInput): OrderFina
   const shippingNotInProceeds = sellerShipping.includedInProceeds ? 0 : sellerShipping.amount;
   // Design Amount trừ ĐÚNG MỘT lần, ở đây — không nơi nào khác trừ lại (bản SQL dùng cùng công thức).
   const profit = round(
-    proceeds.amount - cost.productCost - shippingNotInProceeds - input.labelCost.amount - base.designAmount,
+    proceeds.amount - cost.productCost - shippingNotInProceeds - labelApplied - base.designAmount,
   );
   return {
     ...base,

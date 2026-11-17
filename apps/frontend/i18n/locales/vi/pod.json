@@ -1676,6 +1676,8 @@
       "sellerShippingIncluded": "Phí ship Seller (đã trừ)",
       "labelCost": "Label cost",
       "labelCostHint": "Chi phí label tính MỘT lần cho mỗi đơn (không nhân theo sản phẩm / SKU).",
+      "labelIncluded": "Đã gồm trong Base cost",
+      "labelIncludedHint": "Base cost là tổng nhà cung cấp thực tính (Provider Total), đã gồm phí label / đơn ⇒ không trừ label lần nữa.",
       "sellerShippingHint": {
         "included": "TikTok ĐÃ trừ khoản này trong tiền thu về — lợi nhuận không trừ lại.",
         "pending": "Tiền thu về CHƯA trừ khoản này (phí ship sau giảm có thể là $0 nhưng Seller vẫn chịu) — lợi nhuận đã trừ.",

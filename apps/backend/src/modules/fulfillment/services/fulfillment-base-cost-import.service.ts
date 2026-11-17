@@ -364,7 +364,8 @@ export class FulfillmentBaseCostImportService {
     if (costError) return costError;
 
     const stored = this.storedCost(ref);
-    const before = stored ?? productCostOf(false, record?.items ?? []).productCost;
+    // Giá vốn hiệu lực TRƯỚC khi import (Provider Total nếu nhà cung cấp đã trả, không thì tổng dòng) — chỉ để ghi nhật ký.
+    const before = stored ?? productCostOf(false, record?.items ?? [], record?.total).productCost;
     const baseCostChanged = stored !== value;
     const trackingChanged =
       record !== null && row.trackingNumber !== null && row.trackingNumber !== record.trackingNumber;
@@ -491,7 +492,7 @@ export class FulfillmentBaseCostImportService {
 
     const stored = this.storedCost(ref);
     const before =
-      stored ?? (item ? ('itemId' in item ? this.singleItemCost(record) : null) : productCostOf(false, existingItems).productCost);
+      stored ?? (item ? ('itemId' in item ? this.singleItemCost(record) : null) : productCostOf(false, existingItems, record?.total).productCost);
     const histories = [
       this.markHistory(actorUserId, row, record),
       this.baseCostHistory(actorUserId, row, { before, currency: currency as string }, row.baseCost),

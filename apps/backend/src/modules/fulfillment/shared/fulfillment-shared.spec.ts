@@ -39,7 +39,13 @@ describe('productCostOf — base cost = Σ product cost của MỌI dòng', () =
       { baseCost: 10, baseCostConfirmedAt: confirmedAt, quantity: 2 },
     ]);
 
-    expect(result).toEqual({ productCost: 28.25, productCostConfirmed: true, baseCostPending: false });
+    expect(result).toEqual({
+      productCost: 28.25,
+      productCostConfirmed: true,
+      baseCostPending: false,
+      productCostSource: 'ITEMS',
+      labelIncludedInCost: false,
+    });
   });
 
   it('🔴 còn dòng mới là ảnh chụp giá catalog ⇒ chưa xác nhận, "chờ báo giá"', () => {
@@ -92,7 +98,13 @@ describe('assertPublicHttpsUrl — design nguồn URL', () => {
 });
 
 describe('withOrderBaseCost', () => {
-  const summary = { productCost: 5, productCostConfirmed: false, baseCostPending: true };
+  const summary = {
+    productCost: 5,
+    productCostConfirmed: false,
+    baseCostPending: true,
+    productCostSource: 'ITEMS' as const,
+    labelIncludedInCost: false,
+  };
 
   it('không có giá tổng ⇒ giữ nguyên tổng các dòng', () => {
     expect(withOrderBaseCost(summary, null)).toBe(summary);
@@ -100,7 +112,57 @@ describe('withOrderBaseCost', () => {
   });
 
   it('có giá tổng ⇒ thay tổng các dòng, coi là đã xác nhận; 0 cũng là giá', () => {
-    expect(withOrderBaseCost(summary, 15.5)).toEqual({ productCost: 15.5, productCostConfirmed: true, baseCostPending: false });
-    expect(withOrderBaseCost(summary, 0)).toEqual({ productCost: 0, productCostConfirmed: true, baseCostPending: false });
+    expect(withOrderBaseCost(summary, 15.5)).toEqual({ productCost: 15.5, productCostConfirmed: true, baseCostPending: false, productCostSource: 'IMPORT', labelIncludedInCost: false });
+    expect(withOrderBaseCost(summary, 0)).toEqual({ productCost: 0, productCostConfirmed: true, baseCostPending: false, productCostSource: 'IMPORT', labelIncludedInCost: false });
+  });
+});
+
+/**
+ * 🔴 Base Cost của đơn = Provider Total (`fulfillment_orders.total`) khi nhà cung cấp đã trả — đơn 577685712591753317
+ * (Mango): dòng 5.45 + 5.45 = 10.90, nhưng `subtotal` 18.90 (gồm phí in) + `shipping_fee` 0.50 = `total` 19.40.
+ */
+describe('productCostOf — Provider Total là nguồn chính', () => {
+  const confirmedAt = new Date();
+  const lines = [
+    { baseCost: 5.45, baseCostConfirmedAt: confirmedAt, quantity: 1 },
+    { baseCost: 5.45, baseCostConfirmedAt: confirmedAt, quantity: 1 },
+  ];
+
+  it('nhiều dòng: Provider Total 19.40 thắng Σ dòng 10.90 (không bỏ phí in / phí ship nhà cung cấp tính)', () => {
+    expect(productCostOf(true, lines, 19.4)).toEqual({
+      productCost: 19.4,
+      productCostConfirmed: true,
+      baseCostPending: false,
+      productCostSource: 'PROVIDER_TOTAL',
+      labelIncludedInCost: true,
+    });
+  });
+
+  it('dòng chưa được xác nhận nhưng nhà cung cấp đã trả tổng ⇒ tổng là giá đã xác nhận (không "chờ báo giá")', () => {
+    const pending = [{ baseCost: 10, baseCostConfirmedAt: null, quantity: 1 }];
+    expect(productCostOf(true, pending, 12.5)).toMatchObject({ productCost: 12.5, productCostConfirmed: true, baseCostPending: false });
+  });
+
+  it('Provider Total dạng Decimal / chuỗi và 0 là giá hợp lệ; KHÔNG cộng thêm phí ship (tổng đã gồm)', () => {
+    expect(productCostOf(true, lines, { toString: () => '19.4000' }).productCost).toBe(19.4);
+    expect(productCostOf(true, lines, 0)).toMatchObject({ productCost: 0, productCostSource: 'PROVIDER_TOTAL' });
+  });
+
+  it('chưa có Provider Total ⇒ như cũ: Σ dòng, chỉ xác nhận khi mọi dòng đã xác nhận, KHÔNG gồm label', () => {
+    expect(productCostOf(true, lines, null)).toMatchObject({ productCost: 10.9, productCostSource: 'ITEMS', labelIncludedInCost: false });
+    expect(productCostOf(true, [{ baseCost: 10, baseCostConfirmedAt: null, quantity: 1 }])).toMatchObject({
+      productCostConfirmed: false,
+      baseCostPending: true,
+    });
+  });
+
+  it('Base Cost nhập tay (Import) vẫn thắng Provider Total — label trừ như trước', () => {
+    expect(withOrderBaseCost(productCostOf(true, lines, 19.4), 21)).toEqual({
+      productCost: 21,
+      productCostConfirmed: true,
+      baseCostPending: false,
+      productCostSource: 'IMPORT',
+      labelIncludedInCost: false,
+    });
   });
 });

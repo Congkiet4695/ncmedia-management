@@ -336,3 +336,34 @@ describe('calculateOrderFinancials — Base Cost tổng đã import, đơn CHƯA
     expect(result.status).not.toBe('NOT_FULFILLED');
   });
 });
+
+/**
+ * 🔴 Base Cost = Provider Total (quyết định PO 2026-11-17): tổng của nhà cung cấp ĐÃ gồm phí label / đơn ⇒ lợi nhuận KHÔNG
+ * trừ `ORDER_LABEL_COST` lần nữa. Đơn 577685712591753317 (Mango): Σ dòng 10.90, Provider Total 19.40.
+ */
+describe('calculateOrderFinancials — giá vốn là Provider Total (đã gồm label)', () => {
+  const PROVIDER_TOTAL = { productCost: 19.4, productCostConfirmed: true, currency: 'USD', fulfilledBy: 'MangoTee', labelIncluded: true };
+
+  it('lợi nhuận = tiền thu về − Provider Total − phí ship chưa trong tiền thu về − design; KHÔNG trừ label', () => {
+    const result = calculateOrderFinancials(input({ settled: [tx(40)], cost: PROVIDER_TOTAL, designAmount: 1 }));
+    expect(result.status).toBe('OK');
+    expect(result.productCost).toBe(19.4);
+    expect(result.labelIncludedInCost).toBe(true);
+    // 40 − 19.40 − 0 (ship đã trong tiền thu về) − 0 (label đã trong Provider Total) − 1
+    expect(result.profit).toBe(19.6);
+  });
+
+  it('giá vốn KHÔNG phải Provider Total (nhập tay / tổng dòng) ⇒ trừ label như trước', () => {
+    const result = calculateOrderFinancials(input({ settled: [tx(40)], cost: { ...PROVIDER_TOTAL, labelIncluded: false } }));
+    expect(result.labelIncludedInCost).toBe(false);
+    expect(result.profit).toBe(20.1);
+  });
+
+  it('label đã trong giá vốn ⇒ label khác đơn vị tiền KHÔNG còn chặn lợi nhuận', () => {
+    const result = calculateOrderFinancials(
+      input({ settled: [tx(40)], cost: PROVIDER_TOTAL, labelCost: { amount: 0.5, currency: 'EUR' } }),
+    );
+    expect(result.status).toBe('OK');
+    expect(result.profit).toBe(20.6);
+  });
+});

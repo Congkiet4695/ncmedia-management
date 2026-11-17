@@ -70,6 +70,11 @@ export class PodOrderFinancialsDto {
   sellerShipping!: PodOrderSellerShippingDto | null;
   @ApiProperty({ description: 'Chi phí label MỖI ĐƠN (ORDER_LABEL_COST)' }) labelCost!: number;
   @ApiProperty() labelCostCurrency!: string;
+  @ApiProperty({
+    description:
+      'Base cost là Provider Total (tổng nhà cung cấp thực tính, đã gồm phí label / đơn) ⇒ labelCost KHÔNG bị trừ vào profit.',
+  })
+  labelIncludedInCost!: boolean;
   @ApiProperty({ example: 0, description: 'Design Amount nhập tay của đơn (mặc định 0)' }) designAmount!: number;
   @ApiProperty({ example: 'USD' }) designAmountCurrency!: string;
   @ApiProperty({

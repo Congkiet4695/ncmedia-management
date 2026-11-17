@@ -133,7 +133,7 @@ export interface SellerStatRow {
   shippingIncluded: string;
   /** Số đơn đã fulfill (có lần fulfill đang giữ đơn) — mỗi đơn MỘT label. */
   fulfilledOrders: number;
-  /** Σ label = số đơn đã fulfill × label/đơn; NULL khi label khác đơn vị tiền đang xem. */
+  /** Σ label = số đơn đã fulfill CHỊU label (giá vốn không phải Provider Total) × label/đơn; NULL khi label khác đơn vị tiền. */
   label: string | null;
   /**
    * Σ Design Amount của các đơn trong phạm vi (mỗi đơn MỘT giá trị — `order_profit.design_amount`, không nhân theo
@@ -193,7 +193,8 @@ const dec = (value: Prisma.Decimal | string | number | null | undefined): string
  *   Bảng seller — MỌI cột tiền theo đơn lấy từ `orderProfitCtes` (CÙNG nguồn với màn Order):
  *     Doanh thu      = Σ tiền thu về từng đơn (đã quyết toán ?? ước tính — mỗi đơn MỘT giá trị)
  *     Basecost       = Σ giá vốn đã xác nhận của lần fulfill đang giữ đơn (lần gửi lại thay lần cũ)
- *     Label          = số đơn đã fulfill × label/đơn (cấu hình ORDER_LABEL_COST — label không lưu theo đơn)
+ *     Label          = số đơn đã fulfill mà giá vốn KHÔNG phải Provider Total × label/đơn (cấu hình ORDER_LABEL_COST — label
+ *                      không lưu theo đơn; Provider Total đã gồm phí label / đơn của nhà cung cấp ⇒ không cộng lần hai)
  *     Design Amount  = Σ pod_orders.design_amount của các đơn trong phạm vi (mỗi đơn một giá trị, NULL ⇒ 0)
  *     Profit Dự kiến = Σ lợi nhuận TỪNG ĐƠN: tiền thu về − giá vốn − label − phí ship Seller CHƯA nằm trong
  *                      tiền thu về. Đơn thiếu dữ kiện không cộng (không coi là 0); không đơn nào ⇒ NULL ("—").
@@ -626,6 +627,8 @@ export class PodDashboardRepository {
                COALESCE(SUM(op.seller_shipping) FILTER (
                  WHERE op.proceeds_currency = ${cur} AND op.seller_shipping_included), 0)        AS shipping_included,
                COUNT(*) FILTER (WHERE op.fulfilled)::bigint                                 AS fulfilled_orders,
+               -- Đơn chịu label: đã fulfill VÀ giá vốn KHÔNG phải Provider Total (tổng nhà cung cấp đã gồm phí label / đơn).
+               COUNT(*) FILTER (WHERE op.fulfilled AND NOT COALESCE(op.label_included, FALSE))::bigint AS label_orders,
                -- fin / order_profit đều MỘT dòng mỗi đơn ⇒ không nhân Design Amount theo line item.
                COALESCE(SUM(op.design_amount), 0)                                           AS design_amount,
                COUNT(op.profit) FILTER (WHERE op.proceeds_currency = ${cur})::bigint        AS profit_orders
@@ -692,19 +695,20 @@ export class PodDashboardRepository {
                COALESCE(o.shipping_fee_orders, 0)::bigint AS shipping_fee_orders,
                COALESCE(o.shipping_included, 0)          AS shipping_included,
                COALESCE(o.fulfilled_orders, 0)::bigint   AS fulfilled_orders,
+               COALESCE(o.label_orders, 0)::bigint       AS label_orders,
                CASE WHEN ${labelSameCurrency}
-                    THEN COALESCE(o.fulfilled_orders, 0) * ${options.label.amount}::numeric END AS label,
+                    THEN COALESCE(o.label_orders, 0) * ${options.label.amount}::numeric END AS label,
                CASE WHEN ${designUsable} THEN COALESCE(o.design_amount, 0) END AS design_amount,
                -- = sellerEstProfit (chỉ để ORDER BY; giá trị hiển thị do service tính từ các thành phần).
                CASE WHEN ${labelSameCurrency} AND ${designUsable}
                     THEN COALESCE(o.revenue, 0) - COALESCE(o.base_cost, 0)
-                         - COALESCE(o.fulfilled_orders, 0) * ${options.label.amount}::numeric
+                         - COALESCE(o.label_orders, 0) * ${options.label.amount}::numeric
                          - (COALESCE(o.shipping_fee, 0) - COALESCE(o.shipping_included, 0))
                          - COALESCE(o.design_amount, 0) END AS profit,
                -- = sellerCurrentProfit (chỉ để ORDER BY; giá trị hiển thị do service tính từ các thành phần).
                CASE WHEN ${labelSameCurrency} AND ${designUsable}
                     THEN COALESCE(pa.amount, 0) - COALESCE(o.base_cost, 0)
-                         - COALESCE(o.fulfilled_orders, 0) * ${options.label.amount}::numeric
+                         - COALESCE(o.label_orders, 0) * ${options.label.amount}::numeric
                          - COALESCE(o.shipping_fee, 0)
                          - COALESCE(o.design_amount, 0) END AS current_profit,
                COALESCE(o.profit_orders, 0)::bigint      AS profit_orders,

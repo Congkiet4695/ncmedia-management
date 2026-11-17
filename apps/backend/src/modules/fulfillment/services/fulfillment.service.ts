@@ -1759,6 +1759,8 @@ export class FulfillmentService {
         productCostOf(
           record.submittedAt !== null && !NON_BLOCKING_FULFILLMENT_STATUSES.includes(record.status),
           record.items ?? [],
+          // Provider Total CHỈ khi lần gửi còn giữ đơn (nhà cung cấp đã nhận): bản ghi FAILED / huỷ không có giá vốn thật.
+          NON_BLOCKING_FULFILLMENT_STATUSES.includes(record.status) ? null : record.total,
         ),
         orderBaseCost?.baseCost,
       ),

@@ -211,6 +211,7 @@ export class PodOrderResponseMapper {
         sellerShipping: null,
         labelCost: 0,
         labelCostCurrency: '',
+        labelIncludedInCost: false,
         designAmount: this.toNumber(order.designAmount) ?? 0,
         designAmountCurrency: DESIGN_AMOUNT_CURRENCY,
         profit: null,

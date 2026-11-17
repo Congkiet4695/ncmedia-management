@@ -67,8 +67,12 @@ export function OrderFinancialCard({
         />
         <Row
           label={t('orders.price.labelCost')}
-          value={money(financials.labelCost, financials.labelCostCurrency || unit)}
-          note={t('orders.price.labelCostHint')}
+          value={
+            financials.labelIncludedInCost
+              ? t('orders.price.labelIncluded')
+              : money(financials.labelCost, financials.labelCostCurrency || unit)
+          }
+          note={t(financials.labelIncludedInCost ? 'orders.price.labelIncludedHint' : 'orders.price.labelCostHint')}
         />
         <Row
           label={t('orders.price.designAmount')}

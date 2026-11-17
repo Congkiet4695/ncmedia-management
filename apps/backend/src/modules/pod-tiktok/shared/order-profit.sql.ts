@@ -19,6 +19,7 @@ function jsonAmount(path: string): Prisma.Sql {
  *                 — không có ⇒ Σ est_settlement_amount giao dịch ORDER chưa quyết toán (MỘT đơn vị tiền)
  *   giá vốn     = lần fulfill ĐANG giữ đơn (mới nhất theo updated_at, bỏ DRAFT/FAILED/CANCELLED/REJECTED):
  *                 pod_orders.base_cost (Base Cost tổng nhập qua Import) nếu có, không thì
+ *                 fulfillment_orders.total (Provider Total — tổng nhà cung cấp tính) nếu có, không thì
  *                 Σ base_cost × quantity — chỉ khi CÓ dòng, MỌI dòng có giá và ĐÃ được xác nhận
  *   phí ship    = đã quyết toán ⇒ −Σ shipping_cost_amount (ĐÃ trong tiền thu về)
  *                 ước tính, TikTok đã tính (est_shipping_cost ≠ 0 / actual_shipping_fee ≠ 0) ⇒ −Σ est_shipping_cost (ĐÃ trong)
@@ -26,7 +27,8 @@ function jsonAmount(path: string): Prisma.Sql {
  *                   (breakdown thiếu ⇒ pod_orders.shipping_fee_seller_discount) — CHƯA trong tiền thu về
  *                 còn lại ⇒ NULL
  *   design      = pod_orders.design_amount (USD, mặc định 0 — NULL coi là 0)
- *   lợi nhuận   = tiền thu về − giá vốn − phí ship CHƯA trong tiền thu về − label (mỗi đơn một lần) − design,
+ *   label       = mỗi đơn một lần — KHÔNG trừ khi giá vốn là Provider Total (tổng đã gồm phí label / đơn)
+ *   lợi nhuận   = tiền thu về − giá vốn − phí ship CHƯA trong tiền thu về − label (nếu áp dụng) − design,
  *                 khi giá vốn & label CÙNG đơn vị tiền thu về, và design = 0 hoặc tiền thu về là USD — ngược lại NULL
  * ```
  *
@@ -35,7 +37,9 @@ function jsonAmount(path: string): Prisma.Sql {
  *
  * Trả về các CTE nối sau `WITH` (tên tiền tố `op_` để không đụng CTE của nơi gọi); CTE cuối
  * `order_profit(id, shop_id, profit, proceeds, proceeds_currency, base_cost, cost_currency, fulfilled, seller_shipping,
- * seller_shipping_included, design_amount)`:
+ * seller_shipping_included, design_amount, label_included)`:
+ *   - `label_included`: giá vốn là Provider Total ⇒ label đã nằm trong giá vốn — lợi nhuận KHÔNG trừ label; Dashboard
+ *     không cộng label của đơn này vào cột Label (không trừ lần hai);
  *   - `proceeds` / `proceeds_currency`: tiền thu về của đơn (đã quyết toán ?? ước tính — KHÔNG cộng cả hai);
  *   - `base_cost` / `cost_currency`: giá vốn của lần fulfill đang giữ đơn — NULL khi chưa đủ giá đã xác nhận;
  *   - `seller_shipping`: phí ship Seller của đơn (= `sellerShipping.amount` của bản TS, dương = chi phí), tính
@@ -82,7 +86,7 @@ export function orderProfitCtes(organizationId: string, label: LabelCostConfig):
        GROUP BY u.tiktok_order_id
     ),
     op_cost_record AS (
-      SELECT DISTINCT ON (f.pod_order_id) f.id, f.pod_order_id, UPPER(NULLIF(f.currency, '')) AS currency
+      SELECT DISTINCT ON (f.pod_order_id) f.id, f.pod_order_id, UPPER(NULLIF(f.currency, '')) AS currency, f.total
         FROM fulfillment_orders f
         JOIN o ON o.id = f.pod_order_id
        WHERE f.organization_id = ${organizationId}::uuid AND f.deleted_at IS NULL
@@ -90,14 +94,14 @@ export function orderProfitCtes(organizationId: string, label: LabelCostConfig):
        ORDER BY f.pod_order_id, f.updated_at DESC
     ),
     op_cost AS (
-      SELECT cr.pod_order_id, cr.currency,
+      SELECT cr.pod_order_id, cr.currency, cr.total,
              COUNT(i.id)                                                 AS items,
              COUNT(i.id) FILTER (WHERE i.base_cost IS NULL)              AS unpriced,
              COUNT(i.id) FILTER (WHERE i.base_cost_confirmed_at IS NULL) AS unconfirmed,
              ROUND(SUM(i.base_cost * COALESCE(NULLIF(i.quantity, 0), 1)), 4) AS amount
         FROM op_cost_record cr
         LEFT JOIN fulfillment_order_items i ON i.fulfillment_order_id = cr.id AND i.deleted_at IS NULL
-       GROUP BY cr.pod_order_id, cr.currency
+       GROUP BY cr.pod_order_id, cr.currency, cr.total
     ),
     order_profit AS (
       SELECT o.id, o.shop_id,
@@ -109,15 +113,17 @@ export function orderProfitCtes(organizationId: string, label: LabelCostConfig):
              sh.amount                     AS seller_shipping,
              sh.included                   AS seller_shipping_included,
              COALESCE(po.design_amount, 0) AS design_amount,
+             ec.label_included             AS label_included,
              CASE
                WHEN pr.amount IS NULL THEN NULL
                WHEN ec.amount IS NULL THEN NULL
                WHEN ec.currency IS NULL OR ec.currency <> pr.currency THEN NULL
                WHEN sh.amount IS NULL THEN NULL
-               WHEN UPPER(${label.currency}) <> pr.currency THEN NULL
+               WHEN NOT ec.label_included AND UPPER(${label.currency}) <> pr.currency THEN NULL
                WHEN COALESCE(po.design_amount, 0) <> 0 AND pr.currency <> ${DESIGN_AMOUNT_CURRENCY} THEN NULL
                ELSE ROUND(
-                 pr.amount - ec.amount - CASE WHEN sh.included THEN 0 ELSE sh.amount END - ${label.amount}::numeric
+                 pr.amount - ec.amount - CASE WHEN sh.included THEN 0 ELSE sh.amount END
+                   - CASE WHEN ec.label_included THEN 0 ELSE ${label.amount}::numeric END
                    - COALESCE(po.design_amount, 0),
                  4)
              END AS profit
@@ -146,8 +152,10 @@ export function orderProfitCtes(organizationId: string, label: LabelCostConfig):
         LEFT JOIN LATERAL (
           SELECT CASE
                    WHEN c.pod_order_id IS NOT NULL AND po.base_cost IS NOT NULL THEN po.base_cost
+                   WHEN c.total IS NOT NULL THEN ROUND(c.total, 4)
                    WHEN c.items > 0 AND c.unpriced = 0 AND c.unconfirmed = 0 THEN c.amount
                  END AS amount,
+                 (c.pod_order_id IS NOT NULL AND po.base_cost IS NULL AND c.total IS NOT NULL) AS label_included,
                  CASE
                    WHEN c.pod_order_id IS NOT NULL AND po.base_cost IS NOT NULL THEN UPPER(NULLIF(po.base_cost_currency, ''))
                    ELSE c.currency

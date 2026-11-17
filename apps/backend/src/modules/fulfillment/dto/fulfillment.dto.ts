@@ -1241,12 +1241,16 @@ export class FulfillmentOrderDto {
     nullable: true,
     type: Number,
     description:
-      'Base cost = Σ giá vốn SẢN PHẨM (baseCost × quantity) của mọi dòng. KHÔNG gồm phí ship / ' +
-      'thuế của nhà cung cấp (xem shippingFee / tax / total). NULL khi còn dòng không có giá.',
+      'Base cost của đơn, theo thứ tự ưu tiên: Base Cost nhập tay (Import) → Provider Total (`total` — tổng nhà cung ' +
+      'cấp thực tính, gồm phí ship / phí của họ) → Σ baseCost × quantity các dòng. NULL khi chưa có giá nào.',
   })
   productCost!: number | null;
-  @ApiProperty({ description: 'Mọi dòng đều đã được nhà cung cấp xác nhận giá vốn.' })
+  @ApiProperty({ description: 'Giá vốn đã được xác nhận (Provider Total, mọi dòng đã xác nhận, hoặc nhập tay).' })
   productCostConfirmed!: boolean;
+  @ApiProperty({ nullable: true, enum: ['IMPORT', 'PROVIDER_TOTAL', 'ITEMS'], description: 'Nguồn của productCost.' })
+  productCostSource!: 'IMPORT' | 'PROVIDER_TOTAL' | 'ITEMS' | null;
+  @ApiProperty({ description: 'productCost đã gồm phí label / đơn của nhà cung cấp (Provider Total).' })
+  labelIncludedInCost!: boolean;
   @ApiProperty() attemptCount!: number;
   @ApiProperty({ nullable: true, type: String }) lastErrorCode!: string | null;
   @ApiProperty({ nullable: true, type: String }) lastErrorMessage!: string | null;

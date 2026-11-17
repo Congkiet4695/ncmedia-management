@@ -91,6 +91,8 @@ export interface PodOrderFinancials {
   /** Chi phí label MỖI ĐƠN (cấu hình ORDER_LABEL_COST). */
   labelCost: number;
   labelCostCurrency: string;
+  /** Base cost là Provider Total (đã gồm phí label / đơn) ⇒ label KHÔNG bị trừ vào `profit`. */
+  labelIncludedInCost?: boolean;
   /** Design Amount nhập tay của đơn (mặc định 0) — đã trừ vào `profit` ở backend. */
   designAmount: number;
   designAmountCurrency: string;

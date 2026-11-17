@@ -63,14 +63,14 @@ describe('PodDashboardRepository.sellerStats — Shipping Fee / Current Profit',
   it('order_profit trả seller_shipping từ CÙNG nhánh phí ship mà Profit Dự kiến dùng', async () => {
     const { sql } = await run();
     expect(sql).toContain('sh.amount AS seller_shipping');
-    // Công thức Profit Dự kiến KHÔNG đổi: chỉ trừ phần phí ship CHƯA nằm trong tiền thu về.
-    expect(sql).toContain('pr.amount - ec.amount - CASE WHEN sh.included THEN 0 ELSE sh.amount END - ?');
+    // Chỉ trừ phần phí ship CHƯA nằm trong tiền thu về; label KHÔNG trừ khi giá vốn là Provider Total (đã gồm label).
+    expect(sql).toContain('pr.amount - ec.amount - CASE WHEN sh.included THEN 0 ELSE sh.amount END - CASE WHEN ec.label_included THEN 0 ELSE ?::numeric END');
   });
 
   it('current_profit (để sắp xếp) = Paid − Basecost − Label − Shipping Fee − Design Amount, NULL khi label / design khác đơn vị tiền', async () => {
     const { sql } = await run();
     expect(sql).toMatch(
-      /CASE WHEN UPPER\(\?\) = UPPER\(\?\) AND \(\? = UPPER\(\?\) OR COALESCE\(o\.design_amount, 0\) = 0\) THEN COALESCE\(pa\.amount, 0\) - COALESCE\(o\.base_cost, 0\) - COALESCE\(o\.fulfilled_orders, 0\) \* \?::numeric - COALESCE\(o\.shipping_fee, 0\) - COALESCE\(o\.design_amount, 0\) END AS current_profit/,
+      /CASE WHEN UPPER\(\?\) = UPPER\(\?\) AND \(\? = UPPER\(\?\) OR COALESCE\(o\.design_amount, 0\) = 0\) THEN COALESCE\(pa\.amount, 0\) - COALESCE\(o\.base_cost, 0\) - COALESCE\(o\.label_orders, 0\) \* \?::numeric - COALESCE\(o\.shipping_fee, 0\) - COALESCE\(o\.design_amount, 0\) END AS current_profit/,
     );
   });
 
@@ -87,7 +87,7 @@ describe('PodDashboardRepository.sellerStats — Shipping Fee / Current Profit',
 
   it('lợi nhuận từng đơn (order_profit) trừ Design Amount đúng MỘT lần', async () => {
     const { sql } = await run();
-    expect(sql).toContain('- ?::numeric - COALESCE(po.design_amount, 0), 4)');
+    expect(sql).toContain('ELSE ?::numeric END - COALESCE(po.design_amount, 0), 4)');
     expect(sql).toContain('WHEN COALESCE(po.design_amount, 0) <> 0 AND pr.currency <> ? THEN NULL');
   });
 
@@ -105,7 +105,7 @@ describe('PodDashboardRepository.sellerStats — Shipping Fee / Current Profit',
     expect(sql).toContain('sh.included AS seller_shipping_included');
     expect(sql).toContain('SUM(op.seller_shipping) FILTER ( WHERE op.proceeds_currency = UPPER(?) AND op.seller_shipping_included), 0) AS shipping_included');
     expect(sql).toMatch(
-      /CASE WHEN UPPER\(\?\) = UPPER\(\?\) AND \(\? = UPPER\(\?\) OR COALESCE\(o\.design_amount, 0\) = 0\) THEN COALESCE\(o\.revenue, 0\) - COALESCE\(o\.base_cost, 0\) - COALESCE\(o\.fulfilled_orders, 0\) \* \?::numeric - \(COALESCE\(o\.shipping_fee, 0\) - COALESCE\(o\.shipping_included, 0\)\) - COALESCE\(o\.design_amount, 0\) END AS profit/,
+      /CASE WHEN UPPER\(\?\) = UPPER\(\?\) AND \(\? = UPPER\(\?\) OR COALESCE\(o\.design_amount, 0\) = 0\) THEN COALESCE\(o\.revenue, 0\) - COALESCE\(o\.base_cost, 0\) - COALESCE\(o\.label_orders, 0\) \* \?::numeric - \(COALESCE\(o\.shipping_fee, 0\) - COALESCE\(o\.shipping_included, 0\)\) - COALESCE\(o\.design_amount, 0\) END AS profit/,
     );
     // Không còn cộng lợi nhuận từng đơn (chỉ đơn đủ dữ kiện) làm Est. profit.
     expect(sql).not.toContain('SUM(op.profit)');
