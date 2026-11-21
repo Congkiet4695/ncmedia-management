@@ -154,7 +154,14 @@ export class MangoApiClient {
   }
 
   listProductionLines(ctx: MangoCallContext): Promise<MangoResult<MangoProductionLinesData>> {
-    return this.call<MangoProductionLinesData>(ctx, 'GET', MANGO_ENDPOINTS.productionLines);
+    return this.call<MangoProductionLinesData>(
+      ctx,
+      'GET',
+      this.withQuery(MANGO_ENDPOINTS.productionLines, {
+        page: 1,
+        limit: 50,
+      }),
+    );
   }
 
   // ---------------------------------------------------------------------------
