@@ -7,10 +7,13 @@ import {
   PaginatedPodOrderResponseDto,
   PodOrderResponseDto,
   PodOrderStatsDto,
+  PodSelectedOrderSyncItemDto,
+  PodSelectedOrdersSyncResultDto,
   PodSyncTriggerResultDto,
 } from '../dto/pod-order-response.dto';
 import {
   PodOrderQueryDto,
+  SyncSelectedPodOrdersDto,
   TriggerSyncDto,
   UpdatePodOrderDesignAmountDto,
 } from '../dto/pod-order-query.dto';
@@ -32,7 +35,9 @@ import { PodOrderFinanceService } from './pod-order-finance.service';
 import { PodShopSyncStatusRepository } from '../repositories/pod-shop-sync-status.repository';
 import { PodShopSyncStatusService } from './pod-shop-sync-status.service';
 import { PodTiktokAccountRepository } from '../repositories/pod-tiktok-account.repository';
-import { PodOrderSyncService } from './pod-order-sync.service';
+import { PodOrderSyncService, type SelectedOrderRef } from './pod-order-sync.service';
+import { OrderSyncHookRegistry } from '../../../common/hooks/order-sync-hook.registry';
+import { runWithBoundedConcurrency } from '../shared/bounded-concurrency';
 import { PodSyncOrchestratorService } from './pod-sync-orchestrator.service';
 
 /**
@@ -57,7 +62,15 @@ export class PodOrderService {
     private readonly productImageResolver: PodOrderProductImageResolver,
     private readonly accessScope: PodAccessScopeService,
     private readonly finance: PodOrderFinanceService,
+    /** Hook sau đồng bộ (ánh xạ tự động của Fulfillment) — dùng cho "Sync Orders theo lựa chọn". */
+    private readonly syncHooks: OrderSyncHookRegistry,
   ) {}
+
+  /**
+   * Hạn chót bắt đầu shop mới của "Sync Orders theo lựa chọn" (ms). Shop đã bắt đầu thì chạy nốt
+   * (≤ 2 lời gọi Get Order Detail), nên tổng thời gian vẫn nằm dưới timeout 290s của trình duyệt.
+   */
+  private static readonly SYNC_SELECTED_DEADLINE_MS = 150_000;
 
   async findAll(
     organizationId: string,
@@ -281,6 +294,125 @@ export class PodOrderService {
       durationMs: Date.now() - started,
       skippedByLock: outcome.status === 'SKIPPED',
     };
+  }
+
+  /**
+   * **Sync Orders** cho các đơn đang chọn — kéo lại từng đơn từ TikTok (Get Order Detail).
+   *
+   * 🔴 Không tin danh sách ID từ client:
+   *  1. Gộp ID trùng.
+   *  2. Đọc lại đơn từ DB lọc theo `organizationId` của JWT — ID tổ chức khác không tồn tại với
+   *     người gọi (trả `ORDER_NOT_FOUND`, không lộ là có tồn tại).
+   *  3. Áp phạm vi shop (`assertShopAllowed`) — Seller chỉ đồng bộ được đơn của shop mình; đơn
+   *     ngoài phạm vi trả CÙNG mã `ORDER_NOT_FOUND` như danh sách/chi tiết vốn ẩn chúng.
+   *
+   * 🔴 Chống bão request: chia theo shop, shop chạy song song có trần (`tiktok.sync.maxConcurrency`
+   * — đúng trần của đồng bộ shop), trong một shop gọi tuần tự theo lô 50. Mỗi shop giữ khoá
+   * đồng bộ của nó nên bấm hai lần / chạy cùng cron không bao giờ chạy chồng.
+   *
+   * Thành công một phần: một đơn / một shop hỏng không làm hỏng phần còn lại.
+   */
+  async syncSelected(
+    organizationId: string,
+    dto: SyncSelectedPodOrdersDto,
+    scope: PodAccessScope,
+  ): Promise<PodSelectedOrdersSyncResultDto> {
+    const started = Date.now();
+    const orderIds = [...new Set(dto.orderIds)];
+    const rows = await this.repo.findSyncRefsByIds(organizationId, orderIds);
+
+    const results = new Map<string, PodSelectedOrderSyncItemDto>();
+    const byShop = new Map<string, SelectedOrderRef[]>();
+    for (const row of rows) {
+      if (!this.isShopInScope(scope, row.shopId)) continue;
+      const refs = byShop.get(row.shopId) ?? [];
+      refs.push({ id: row.id, tiktokOrderId: row.tiktokOrderId });
+      byShop.set(row.shopId, refs);
+    }
+
+    let created = 0;
+    let updated = 0;
+    const shopIds = [...byShop.keys()];
+    const outcomes = await runWithBoundedConcurrency(
+      shopIds,
+      {
+        limit: this.config.get<number>('tiktok.sync.maxConcurrency', 4),
+        // Hạn chót của request: shop CHƯA bắt đầu khi hết giờ không chạy nữa (trả DEADLINE_EXCEEDED)
+        // ⇒ backend luôn trả lời trước timeout của trình duyệt (290s) và Nginx (300s).
+        deadlineAt: started + PodOrderService.SYNC_SELECTED_DEADLINE_MS,
+        onDeadline: (shopId) =>
+          (byShop.get(shopId) ?? []).map((ref) => ({
+            ...ref,
+            status: 'FAILED' as const,
+            errorCode: 'DEADLINE_EXCEEDED',
+            errorMessage: 'Hết thời gian xử lý của lượt này — chọn lại đơn và đồng bộ tiếp.',
+          })),
+      },
+      async (shopId) => {
+        const refs = byShop.get(shopId) ?? [];
+        const shop = await this.accountRepo.findShopForSync(organizationId, shopId);
+        if (!shop) {
+          return refs.map((ref) => ({
+            ...ref,
+            status: 'FAILED' as const,
+            errorCode: 'SHOP_UNAVAILABLE',
+            errorMessage: 'Shop của đơn này đã bị gỡ kết nối.',
+          }));
+        }
+        const outcome = await this.syncService.syncSelectedOrders(shop, refs);
+        created += outcome.created;
+        updated += outcome.updated;
+        return outcome.results;
+      },
+    );
+    for (const result of outcomes.flat()) {
+      results.set(result.id, {
+        orderId: result.id,
+        tiktokOrderId: result.tiktokOrderId,
+        status: result.status,
+        ...(result.errorCode ? { errorCode: result.errorCode } : {}),
+        ...(result.errorMessage ? { errorMessage: result.errorMessage } : {}),
+      });
+    }
+
+    // Đơn có ghi thay đổi ⇒ báo MỘT lần cho cả tổ chức (ánh xạ tự động của Fulfillment) — cùng
+    // hook mà đồng bộ shop dùng; registry tự nuốt lỗi của hook.
+    if (created + updated > 0) {
+      await this.syncHooks.notifyOrdersSynced({ organizationId });
+    }
+
+    // Giữ ĐÚNG thứ tự người dùng gửi; ID không đọc được (tổ chức khác / ngoài phạm vi / đã xoá).
+    const ordered = orderIds.map(
+      (orderId) =>
+        results.get(orderId) ?? {
+          orderId,
+          tiktokOrderId: null,
+          status: 'FAILED' as const,
+          errorCode: 'ORDER_NOT_FOUND',
+          errorMessage: 'Không tìm thấy đơn hoặc bạn không có quyền với đơn này.',
+        },
+    );
+    const succeeded = ordered.filter((result) => result.status === 'SYNCED').length;
+    const changed = Math.min(created + updated, succeeded);
+    return {
+      total: ordered.length,
+      succeeded,
+      failed: ordered.length - succeeded,
+      updated: changed,
+      unchanged: succeeded - changed,
+      durationMs: Date.now() - started,
+      results: ordered,
+    };
+  }
+
+  /** Cùng luật với `assertShopAllowed` nhưng KHÔNG ném — để một đơn ngoài phạm vi không làm hỏng cả lô. */
+  private isShopInScope(scope: PodAccessScope, shopId: string): boolean {
+    try {
+      this.accessScope.assertShopAllowed(scope, shopId);
+      return true;
+    } catch {
+      return false;
+    }
   }
 
   /** Múi giờ nghiệp vụ IANA của bộ lọc thời gian (`APP_BUSINESS_TIMEZONE`). */

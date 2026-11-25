@@ -901,6 +901,12 @@
       "imageHint": "Up to {{max}} original image URLs, in the order they will appear on the listing.",
       "imageLimit": "A product takes at most {{max}} images.",
       "images": "Images ({{count}})",
+      "imagesAreaLabel": "Product images — paste an image (Ctrl+V) here, drag to reorder",
+      "dragImage": "Drag to move image {{index}} (Space to pick up, arrow keys to move)",
+      "pasteHint": "Paste an image (Ctrl+V) while in the image area or the URL field — it is uploaded to Storage. Drag to reorder; the first image is the thumbnail.",
+      "pasteBusy": "Still uploading the pasted image — wait for it to finish, then paste again.",
+      "pasteNoPublicUrl": "Storage has no public URL configured, so the image cannot be displayed — contact an administrator.",
+      "oneUrlAtATime": "Add one image URL at a time.",
       "missingTitle": "Title is required.",
       "preview": "Preview",
       "previewFailed": "Could not build the preview",
@@ -1739,7 +1745,16 @@
     "actions": {
       "syncFulfillment": "Sync fulfillment",
       "syncFulfillmentHint": "Pull the latest status from the print facility. This does NOT re-sync the order from TikTok.",
-      "syncDone": "Fulfillment status updated"
+      "syncDone": "Fulfillment status updated",
+      "syncOrder": "Sync order",
+      "syncOrdersMany": "Sync {{count}} orders",
+      "syncOrdersHint": "Re-pull the selected orders from TikTok (status, shipping, items). Does NOT sync the print facility status.",
+      "syncOrderDone": "Order synced from TikTok",
+      "syncOrdersDoneMany": "{{count}} orders synced from TikTok",
+      "syncOrdersSummary": "{{updated}} updated · {{unchanged}} unchanged",
+      "syncOrdersPartial": "{{succeeded}} of {{total}} orders synced, {{failed}} failed",
+      "syncOrdersFailed": "Could not sync the selected orders",
+      "syncOrdersMore": "…and {{count}} more"
     },
     "bulk": {
       "selected": "{{count}} selected",

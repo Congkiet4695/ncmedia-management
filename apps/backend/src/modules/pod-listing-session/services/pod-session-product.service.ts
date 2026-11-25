@@ -24,6 +24,16 @@ import type {
 } from '../dto/pod-listing-session.dto';
 import { PodListingSessionService } from './pod-listing-session.service';
 
+/**
+ * URL ảnh lưu được lâu dài: tuyệt đối http(s), hoặc đường dẫn tuyệt đối cùng origin (`/uploads/…`).
+ * `//host/…` (protocol-relative) bị coi là KHÔNG hợp lệ — nó trỏ ra host khác mà không ghi scheme.
+ */
+export function isPersistentImageUrl(url: string): boolean {
+  const value = url.trim();
+  if (/^https?:\/\/[^\s/]+/i.test(value)) return true;
+  return value.startsWith('/') && !value.startsWith('//');
+}
+
 export class PodSessionProductNotFoundException extends NotFoundException {
   constructor() {
     super({ code: 'POD_SESSION_PRODUCT_NOT_FOUND', message: 'Không tìm thấy Draft Product' });
@@ -311,6 +321,7 @@ export class PodSessionProductService {
     const session = await this.sessions.get(organizationId, sessionId, scope);
     const product = await this.get(organizationId, sessionId, id, scope);
     this.assertEditable(session.status, product.status);
+    await this.assertImagesValid(organizationId, dto.images);
 
     await this.prisma.$transaction(async (tx) => {
       await tx.podListingSessionProduct.update({
@@ -477,6 +488,44 @@ export class PodSessionProductService {
    * Sản phẩm đang trong hàng đợi thì không cho đụng vào: sửa một bản ghi mà engine đang đọc
    * dở là cách chắc chắn để thứ lên sàn khác thứ trên màn hình.
    */
+  /**
+   * Ảnh gốc của Draft Product phải tham chiếu được lâu dài và thuộc ĐÚNG tổ chức.
+   *
+   * 🔴 `imageUrl`: chỉ http(s) hoặc đường dẫn cùng origin (`/uploads/…` — URL công khai của Storage
+   *    LOCAL_DISK khi không cấu hình `UPLOAD_PUBLIC_BASE_URL`). Chặn `blob:` / `data:` / scheme lạ:
+   *    chúng chỉ sống trong một tab trình duyệt (hoặc phình DB) — lưu vào là ảnh hỏng lúc đăng.
+   * 🔴 `fileId`: file Storage phải thuộc tổ chức này. Không kiểm là mở đường cho một tenant gắn
+   *    file của tenant khác vào sản phẩm của mình chỉ bằng ID.
+   */
+  private async assertImagesValid(
+    organizationId: string,
+    images: ReadonlyArray<{ imageUrl: string; fileId?: string }> | undefined,
+  ): Promise<void> {
+    if (!images?.length) return;
+
+    const invalidUrl = images.find((image) => !isPersistentImageUrl(image.imageUrl));
+    if (invalidUrl) {
+      throw new BadRequestException({
+        code: 'POD_SESSION_IMAGE_URL_INVALID',
+        message: 'URL ảnh phải là http(s) hoặc ảnh đã tải lên Storage (không nhận blob:/data:).',
+      });
+    }
+
+    const fileIds = [
+      ...new Set(images.map((image) => image.fileId).filter((id): id is string => !!id)),
+    ];
+    if (fileIds.length === 0) return;
+    const owned = await this.prisma.storageFile.count({
+      where: { id: { in: fileIds }, organizationId, deletedAt: null },
+    });
+    if (owned !== fileIds.length) {
+      throw new BadRequestException({
+        code: 'POD_SESSION_IMAGE_FILE_INVALID',
+        message: 'Có ảnh không tồn tại trong Storage hoặc không thuộc tổ chức này.',
+      });
+    }
+  }
+
   private assertEditable(
     sessionStatus: PodListingSessionStatus,
     productStatus: PodListingSessionProductStatus,

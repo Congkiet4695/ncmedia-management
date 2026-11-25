@@ -47,6 +47,16 @@ export const TIKTOK_GET_ACTIVE_SHOPS_PATH = '/seller/202309/shops';
  */
 export const TIKTOK_SEARCH_ORDERS_PATH = '/order/202309/orders/search';
 
+/**
+ * Get Order Detail — entity tag `Shop`, **BẮT BUỘC** `shop_cipher`. Method GET, `ids` là danh sách
+ * order ID (tối đa {@link TIKTOK_ORDER_DETAIL_MAX_IDS}). Trả `orders[]` cùng schema Order 202309
+ * với Get Order List ⇒ đi chung đường ingest. Dùng cho "Sync Orders" theo các đơn đã chọn.
+ */
+export const TIKTOK_GET_ORDER_DETAIL_PATH = '/order/202309/orders';
+
+/** Trần `ids` của một lời gọi Get Order Detail theo tài liệu ("Max count: 50"). */
+export const TIKTOK_ORDER_DETAIL_MAX_IDS = 50;
+
 /** Giới hạn `page_size` của Get Order List theo tài liệu. */
 export const TIKTOK_ORDER_PAGE_SIZE_MIN = 1;
 export const TIKTOK_ORDER_PAGE_SIZE_MAX = 100;

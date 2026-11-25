@@ -233,3 +233,8 @@ export interface TiktokSearchOrdersData {
   total_count?: number;
   orders?: TiktokOrder[];
 }
+
+/** `data` của Get Order Detail (`GET /order/202309/orders`) — cùng schema Order với Get Order List. */
+export interface TiktokOrderDetailData {
+  orders?: TiktokOrder[];
+}

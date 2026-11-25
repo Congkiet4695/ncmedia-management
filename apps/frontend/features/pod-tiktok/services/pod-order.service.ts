@@ -1,6 +1,8 @@
+import { env } from '@/lib/env';
 import { apiClient } from '@/services/api-client';
 import type { ApiResponse } from '@/types/api';
 import type {
+  SelectedOrdersSyncResult,
   PodOrder,
   PodOrderListResult,
   PodOrderQuery,
@@ -71,6 +73,22 @@ export const podOrderService = {
     const res = await apiClient.post<ApiResponse<SyncTriggerResult>>(
       `${BASE_PATH}/orders/sync`,
       clean(payload as Record<string, unknown>),
+    );
+    return res.data.data;
+  },
+
+  /**
+   * **Sync Orders** cho các đơn đang chọn — backend kéo lại từng đơn từ TikTok (Get Order Detail),
+   * kiểm tổ chức + phạm vi shop, chạy có trần song song, trả kết quả TỪNG đơn (thành công một phần).
+   *
+   * Timeout riêng (`env.syncTimeoutMs`) thay vì 15s mặc định: một lượt có thể chạm nhiều shop, mỗi
+   * shop là lời gọi TikTok có retry/backoff; backend tự dừng nhận shop mới trước mốc này.
+   */
+  async syncSelected(orderIds: string[]): Promise<SelectedOrdersSyncResult> {
+    const res = await apiClient.post<ApiResponse<SelectedOrdersSyncResult>>(
+      `${BASE_PATH}/orders/sync-selected`,
+      { orderIds },
+      { timeout: env.syncTimeoutMs },
     );
     return res.data.data;
   },

@@ -1,7 +1,13 @@
 import { Injectable } from '@nestjs/common';
-import { TIKTOK_SEARCH_ORDERS_PATH } from '../constants/tiktok.constants';
+import {
+  TIKTOK_GET_ORDER_DETAIL_PATH,
+  TIKTOK_ORDER_DETAIL_MAX_IDS,
+  TIKTOK_SEARCH_ORDERS_PATH,
+} from '../constants/tiktok.constants';
 import { TiktokApiClient } from './tiktok-api.client';
 import {
+  TiktokOrder,
+  TiktokOrderDetailData,
   TiktokSearchOrdersBody,
   TiktokSearchOrdersData,
   TiktokSearchOrdersQuery,
@@ -68,4 +74,44 @@ export class TiktokOrderClient {
       requestId: result.requestId,
     };
   }
+
+  /**
+   * Get Order Detail — lấy lại ĐÚNG các đơn được chỉ định (`GET /order/202309/orders?ids=…`).
+   *
+   * 🔴 Tối đa {@link TIKTOK_ORDER_DETAIL_MAX_IDS} ID mỗi lời gọi — người gọi tự chia lô; vượt trần
+   * thì ném lỗi ngay thay vì để TikTok trả lỗi tham số sau khi đã tốn quota.
+   * Đơn không còn tồn tại / không thuộc shop này thì đơn giản là VẮNG trong `orders[]`.
+   */
+  async getOrderDetails(params: GetOrderDetailsParams): Promise<GetOrderDetailsResult> {
+    if (params.ids.length === 0) return { orders: [] };
+    if (params.ids.length > TIKTOK_ORDER_DETAIL_MAX_IDS) {
+      throw new Error(
+        `Get Order Detail nhận tối đa ${TIKTOK_ORDER_DETAIL_MAX_IDS} ID mỗi lần (nhận ${params.ids.length}).`,
+      );
+    }
+
+    const result = await this.api.callSigned<TiktokOrderDetailData>({
+      path: TIKTOK_GET_ORDER_DETAIL_PATH,
+      method: 'GET',
+      query: { shop_cipher: params.shopCipher, ids: params.ids.join(',') },
+      accessToken: params.accessToken,
+      endpointLabel: 'GET_ORDER_DETAIL',
+    });
+
+    return { orders: result.data?.orders ?? [], requestId: result.requestId };
+  }
+}
+
+/** Tham số một lần gọi Get Order Detail. */
+export interface GetOrderDetailsParams {
+  /** shop_cipher (plaintext). */
+  shopCipher: string;
+  accessToken: string;
+  /** TikTok order ID — tối đa {@link TIKTOK_ORDER_DETAIL_MAX_IDS}. */
+  ids: string[];
+}
+
+export interface GetOrderDetailsResult {
+  orders: TiktokOrder[];
+  requestId?: string;
 }

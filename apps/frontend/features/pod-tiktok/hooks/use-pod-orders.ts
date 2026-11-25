@@ -76,6 +76,20 @@ export function useLatestSyncStatus(syncType: PodShopSyncType, enabled = true) {
   });
 }
 
+/**
+ * Sync Orders cho các đơn đang chọn. Làm mới danh sách (cùng query key ⇒ giữ nguyên bộ lọc / trang /
+ * tìm kiếm đang xem, không tải lại trang) và thẻ thống kê — trạng thái đơn có thể vừa đổi.
+ */
+export function useSyncSelectedPodOrders() {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (orderIds: string[]) => podOrderService.syncSelected(orderIds),
+    onSettled: () => {
+      void queryClient.invalidateQueries({ queryKey: [POD_ORDERS_KEY] });
+    },
+  });
+}
+
 /** Sau khi đồng bộ xong phải làm mới cả danh sách đơn lẫn trạng thái đồng bộ. */
 export function useTriggerPodSync() {
   const queryClient = useQueryClient();

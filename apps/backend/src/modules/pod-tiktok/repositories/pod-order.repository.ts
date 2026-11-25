@@ -94,6 +94,19 @@ export class PodOrderRepository {
    * Đọc snapshot của nhiều đơn trong MỘT query (chống N+1).
    * Trả Map để service tra cứu O(1) khi so sánh.
    */
+  /**
+   * Đơn (theo ID nội bộ) của ĐÚNG tổ chức — nguồn sự thật cho "Sync Orders theo lựa chọn".
+   * 🔴 Lọc `organizationId` tại DB: ID của tổ chức khác đơn giản là không có trong kết quả (không lộ
+   * việc nó tồn tại). Không lọc phạm vi shop ở đây — tầng service áp `PodAccessScope`.
+   */
+  findSyncRefsByIds(organizationId: string, ids: string[]) {
+    if (ids.length === 0) return Promise.resolve([]);
+    return this.prisma.podOrder.findMany({
+      where: { organizationId, id: { in: ids }, deletedAt: null },
+      select: { id: true, tiktokOrderId: true, shopId: true },
+    });
+  }
+
   async findSnapshotsByTiktokOrderIds(
     organizationId: string,
     tiktokOrderIds: string[],

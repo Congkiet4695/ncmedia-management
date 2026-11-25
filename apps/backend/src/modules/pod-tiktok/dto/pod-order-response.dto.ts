@@ -432,6 +432,34 @@ export class PodSyncTriggerResultDto {
   skippedByLock!: boolean;
 }
 
+/** Kết quả đồng bộ lại MỘT đơn đã chọn. */
+export class PodSelectedOrderSyncItemDto {
+  @ApiProperty({ format: 'uuid' }) orderId!: string;
+  @ApiProperty({ nullable: true, description: 'null khi ID không thuộc tổ chức / ngoài phạm vi' })
+  tiktokOrderId!: string | null;
+  @ApiProperty({ enum: ['SYNCED', 'FAILED'] }) status!: 'SYNCED' | 'FAILED';
+  @ApiProperty({
+    required: false,
+    description:
+      'ORDER_NOT_FOUND · SHOP_UNAVAILABLE · SYNC_IN_PROGRESS · NOT_FOUND_ON_TIKTOK · INGEST_FAILED · ' +
+      'mã lỗi TikTok / token (vd REAUTH_REQUIRED)',
+  })
+  errorCode?: string;
+  @ApiProperty({ required: false }) errorMessage?: string;
+}
+
+/** Kết quả "Sync Orders" cho các đơn đang chọn — hỗ trợ thành công một phần. */
+export class PodSelectedOrdersSyncResultDto {
+  @ApiProperty({ description: 'Số đơn (sau khi gộp ID trùng)' }) total!: number;
+  @ApiProperty() succeeded!: number;
+  @ApiProperty() failed!: number;
+  @ApiProperty({ description: 'Đơn đã ghi thay đổi mới từ TikTok' }) updated!: number;
+  @ApiProperty({ description: 'Đơn đã đồng bộ nhưng TikTok không có gì mới' }) unchanged!: number;
+  @ApiProperty() durationMs!: number;
+  @ApiProperty({ type: PodSelectedOrderSyncItemDto, isArray: true })
+  results!: PodSelectedOrderSyncItemDto[];
+}
+
 /** Thống kê nhanh theo trạng thái. */
 export class PodOrderStatsDto {
   @ApiProperty() total!: number;

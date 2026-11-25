@@ -901,6 +901,12 @@
       "imageHint": "Tối đa {{max}} URL ảnh gốc, theo đúng thứ tự sẽ hiện trên listing.",
       "imageLimit": "Một sản phẩm nhận tối đa {{max}} ảnh.",
       "images": "Ảnh ({{count}})",
+      "imagesAreaLabel": "Ảnh sản phẩm — dán ảnh (Ctrl+V) tại đây, kéo thả để đổi thứ tự",
+      "dragImage": "Kéo để đổi vị trí ảnh {{index}} (Space để nhấc, phím mũi tên để di chuyển)",
+      "pasteHint": "Dán ảnh (Ctrl+V) khi đang ở vùng ảnh hoặc ô URL — ảnh được tải lên Storage. Kéo thả để đổi thứ tự; ảnh đầu tiên là ảnh đại diện.",
+      "pasteBusy": "Đang tải ảnh vừa dán — đợi xong rồi dán tiếp.",
+      "pasteNoPublicUrl": "Storage chưa cấu hình URL công khai nên ảnh không hiển thị được — liên hệ quản trị.",
+      "oneUrlAtATime": "Mỗi lần chỉ thêm một URL ảnh.",
       "missingTitle": "Chưa có tiêu đề.",
       "preview": "Xem trước",
       "previewFailed": "Không dựng được bản xem trước",
@@ -1739,7 +1745,16 @@
     "actions": {
       "syncFulfillment": "Đồng bộ xưởng in",
       "syncFulfillmentHint": "Lấy trạng thái mới nhất từ xưởng in. KHÔNG phải kéo lại đơn từ TikTok.",
-      "syncDone": "Đã cập nhật trạng thái xưởng in"
+      "syncDone": "Đã cập nhật trạng thái xưởng in",
+      "syncOrder": "Đồng bộ đơn",
+      "syncOrdersMany": "Đồng bộ {{count}} đơn",
+      "syncOrdersHint": "Kéo lại các đơn đang chọn từ TikTok (trạng thái, vận chuyển, sản phẩm). KHÔNG đồng bộ trạng thái xưởng in.",
+      "syncOrderDone": "Đã đồng bộ đơn từ TikTok",
+      "syncOrdersDoneMany": "Đã đồng bộ {{count}} đơn từ TikTok",
+      "syncOrdersSummary": "{{updated}} có thay đổi · {{unchanged}} không đổi",
+      "syncOrdersPartial": "Đồng bộ được {{succeeded}}/{{total}} đơn, {{failed}} đơn lỗi",
+      "syncOrdersFailed": "Không đồng bộ được các đơn đã chọn",
+      "syncOrdersMore": "…và {{count}} đơn khác"
     },
     "bulk": {
       "selected": "Đã chọn {{count}}",

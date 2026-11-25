@@ -79,6 +79,13 @@ export function readdImage<T extends OrderedImage>(images: readonly T[], image: 
 /** Tối đa ký tự một URL — khớp `POD_LISTING_IMAGE_URL_MAX_LENGTH` của backend. */
 export const IMAGE_URL_MAX_LENGTH = 2048;
 
+/**
+ * Ảnh sản phẩm tải lên (chọn file / dán clipboard) — giới hạn của TikTok (Create Product / UploadProductFile).
+ * MỘT nguồn cho mọi ô ảnh sản phẩm, chặn ngay tại trình duyệt trước khi tốn băng thông.
+ */
+export const PRODUCT_IMAGE_UPLOAD_TYPES: readonly string[] = ['image/jpeg', 'image/png', 'image/webp'];
+export const PRODUCT_IMAGE_UPLOAD_MAX_BYTES = 5 * 1024 * 1024;
+
 export type ImageUrlProblem = 'INVALID' | 'NOT_HTTP' | 'TOO_LONG';
 
 /**

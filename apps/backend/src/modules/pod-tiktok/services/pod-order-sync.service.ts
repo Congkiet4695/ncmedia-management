@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PodShopSyncType, PodSyncPhase, PodSyncStatus, PodSyncTrigger, Prisma } from '@prisma/client';
 import { TiktokOrderClient } from '../clients/tiktok-order.client';
+import { TIKTOK_ORDER_DETAIL_MAX_IDS } from '../constants/tiktok.constants';
+import type { TiktokOrder } from '../types/tiktok-order.types';
 import { TiktokClientError } from '../exceptions/pod-tiktok.exceptions';
 import { OrderSyncHookRegistry } from '../../../common/hooks/order-sync-hook.registry';
 import { DistributedLockService } from '../infra/distributed-lock.service';
@@ -32,6 +34,29 @@ export interface SyncShopTarget {
     refreshTokenEnc: string;
     refreshTokenExpiresAt: Date;
   };
+}
+
+/** Một đơn được chọn để đồng bộ lại (đã kiểm tổ chức + phạm vi shop ở tầng trên). */
+export interface SelectedOrderRef {
+  /** ID nội bộ (`pod_orders.id`). */
+  id: string;
+  tiktokOrderId: string;
+}
+
+/** Kết quả đồng bộ lại MỘT đơn đã chọn. */
+export interface SelectedOrderSyncResult extends SelectedOrderRef {
+  status: 'SYNCED' | 'FAILED';
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+/** Kết quả đồng bộ các đơn đã chọn của MỘT shop. */
+export interface SelectedOrdersSyncOutcome {
+  results: SelectedOrderSyncResult[];
+  created: number;
+  updated: number;
+  /** Đơn TikTok trả về nhưng không đổi gì (vẫn tính là đồng bộ thành công). */
+  skipped: number;
 }
 
 /** Kết quả đồng bộ một shop. */
@@ -115,6 +140,11 @@ export class PodOrderSyncService {
   private readonly logger = new Logger(PodOrderSyncService.name);
 
   private static readonly SHOP_LOCK_PREFIX = 'pod:tiktok:sync:shop:';
+  /**
+   * TTL khoá shop cho "Sync Orders theo lựa chọn". Đủ rộng cho trường hợp xấu nhất của một yêu cầu
+   * (100 đơn ⇒ 2 lời gọi Get Order Detail, mỗi lời gọi có retry/backoff) cộng phần ghi DB.
+   */
+  private static readonly SELECTED_SYNC_LOCK_TTL_MS = 180_000;
 
   constructor(
     private readonly config: ConfigService,
@@ -219,9 +249,145 @@ export class PodOrderSyncService {
     return outcome;
   }
 
+  /**
+   * **Sync Orders theo lựa chọn** — kéo lại ĐÚNG các đơn được chỉ định của MỘT shop bằng Get Order
+   * Detail rồi ghi qua cửa ingest duy nhất (idempotent, không tạo đơn trùng).
+   *
+   * 🔴 Cố ý KHÁC `syncShop`:
+   *  - Không chạm watermark / backfill cursor / circuit breaker / dòng Latest Sync Status của shop:
+   *    vài đơn lẻ không nói gì về độ đầy đủ của cả shop, ghi vào đó là làm sai lệch lịch đồng bộ.
+   *  - Không gọi hook sau đồng bộ — người gọi gom lại và báo MỘT lần cho cả tổ chức.
+   *
+   * 🔴 Dùng CHUNG khoá shop với cron / sync thủ công: đang có lượt khác trên shop này thì trả lỗi
+   * `SYNC_IN_PROGRESS` cho các đơn của shop (lượt kia vốn đang kéo đơn của shop), không chạy chồng.
+   *
+   * Không bao giờ ném lỗi — mọi sự cố được gói thành kết quả THẤT BẠI của từng đơn (fail-soft).
+   * Lời gọi TikTok đi qua `TiktokHttpService` (timeout + retry/backoff cho 429/5xx sẵn có).
+   */
+  async syncSelectedOrders(
+    target: SyncShopTarget,
+    orders: SelectedOrderRef[],
+  ): Promise<SelectedOrdersSyncOutcome> {
+    const outcome: SelectedOrdersSyncOutcome = { results: [], created: 0, updated: 0, skipped: 0 };
+    if (orders.length === 0) return outcome;
+
+    const failAll = (refs: SelectedOrderRef[], error: { errorCode: string; errorMessage: string }) => {
+      for (const ref of refs) outcome.results.push({ ...ref, status: 'FAILED', ...error });
+    };
+
+    const lockKey = `${PodOrderSyncService.SHOP_LOCK_PREFIX}${target.id}`;
+    const acquired = await this.lock.acquire(lockKey, PodOrderSyncService.SELECTED_SYNC_LOCK_TTL_MS);
+    if (!acquired) {
+      failAll(orders, {
+        errorCode: 'SYNC_IN_PROGRESS',
+        errorMessage: 'Shop đang có lượt đồng bộ khác — thử lại sau ít phút.',
+      });
+      return outcome;
+    }
+
+    try {
+      const token = await this.tokenService.ensureValidAccessToken(target.account);
+      if (!token.ok) {
+        failAll(orders, { errorCode: token.reason, errorMessage: token.message });
+        return outcome;
+      }
+      const shopCipher = this.encryption.decrypt(target.shopCipherEnc);
+
+      // Lô TUẦN TỰ trong một shop: tối đa ⌈n/50⌉ lời gọi, không dội song song vào cùng shop.
+      for (let start = 0; start < orders.length; start += TIKTOK_ORDER_DETAIL_MAX_IDS) {
+        const chunk = orders.slice(start, start + TIKTOK_ORDER_DETAIL_MAX_IDS);
+        await this.syncSelectedChunk(target, chunk, shopCipher, token.accessToken, outcome);
+      }
+    } catch (error) {
+      // Lỗi ngoài dự kiến (giải mã / token…) ⇒ đơn nào chưa có kết quả coi như thất bại.
+      const done = new Set(outcome.results.map((result) => result.id));
+      failAll(
+        orders.filter((ref) => !done.has(ref.id)),
+        this.describeError(error),
+      );
+      this.logger.error({
+        module: 'pod-tiktok',
+        operation: 'order.sync-selected',
+        organizationId: target.organizationId,
+        shopId: target.id,
+        msg: `Đồng bộ đơn đã chọn thất bại: ${(error as Error).message}`,
+      });
+    } finally {
+      await this.lock.release(acquired);
+    }
+
+    return outcome;
+  }
+
   // ---------------------------------------------------------------------------
   // Private
   // ---------------------------------------------------------------------------
+
+  /** Một lô ≤ 50 đơn: Get Order Detail → ingest → kết quả từng đơn. */
+  private async syncSelectedChunk(
+    target: SyncShopTarget,
+    chunk: SelectedOrderRef[],
+    shopCipher: string,
+    accessToken: string,
+    outcome: SelectedOrdersSyncOutcome,
+  ): Promise<void> {
+    let fetched: TiktokOrder[];
+    try {
+      const page = await this.orderClient.getOrderDetails({
+        shopCipher,
+        accessToken,
+        ids: chunk.map((ref) => ref.tiktokOrderId),
+      });
+      fetched = page.orders;
+    } catch (error) {
+      const described = this.describeError(error);
+      for (const ref of chunk) outcome.results.push({ ...ref, status: 'FAILED', ...described });
+      this.logger.warn({
+        module: 'pod-tiktok',
+        operation: 'order.sync-selected',
+        organizationId: target.organizationId,
+        shopId: target.id,
+        msg: `Get Order Detail thất bại: ${described.errorMessage}`,
+      });
+      return;
+    }
+
+    // 🔴 Chỉ ghi đúng các đơn ĐƯỢC YÊU CẦU — phòng thủ trước phản hồi lạ, không ghi đơn ngoài lựa chọn.
+    const requested = new Set(chunk.map((ref) => ref.tiktokOrderId));
+    const orders = fetched.filter((order) => requested.has(order.id));
+
+    const batch = await this.ingestion.ingestBatch(orders, {
+      organizationId: target.organizationId,
+      accountId: target.accountId,
+      shopId: target.id,
+      source: 'MANUAL',
+    });
+    outcome.created += batch.created;
+    outcome.updated += batch.updated;
+    outcome.skipped += batch.skipped;
+
+    const returned = new Set(orders.map((order) => order.id));
+    const failed = new Set(batch.failedTiktokOrderIds ?? []);
+    for (const ref of chunk) {
+      if (!returned.has(ref.tiktokOrderId)) {
+        outcome.results.push({
+          ...ref,
+          status: 'FAILED',
+          errorCode: 'NOT_FOUND_ON_TIKTOK',
+          errorMessage: 'TikTok không trả về đơn này (đã bị xoá hoặc không còn thuộc shop đang kết nối).',
+        });
+      } else if (failed.has(ref.tiktokOrderId)) {
+        outcome.results.push({
+          ...ref,
+          status: 'FAILED',
+          errorCode: 'INGEST_FAILED',
+          errorMessage: 'Không ghi được dữ liệu đơn — thử lại sau.',
+        });
+      } else {
+        outcome.results.push({ ...ref, status: 'SYNCED' });
+      }
+    }
+  }
 
   private async runSync(
     target: SyncShopTarget,

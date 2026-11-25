@@ -29,6 +29,7 @@ import { PermissionsGuard } from '../auth/guards/permissions.guard';
 import { AuthenticatedUser } from '../auth/types/authenticated-user.interface';
 import {
   PodOrderQueryDto,
+  SyncSelectedPodOrdersDto,
   TriggerSyncDto,
   UpdatePodOrderDesignAmountDto,
 } from './dto/pod-order-query.dto';
@@ -37,6 +38,7 @@ import {
   PaginatedPodOrderResponseDto,
   PodOrderResponseDto,
   PodOrderStatsDto,
+  PodSelectedOrdersSyncResultDto,
   PodSyncTriggerResultDto,
 } from './dto/pod-order-response.dto';
 import { PodScope } from './decorators/pod-scope.decorator';
@@ -115,6 +117,28 @@ export class PodOrderController {
     @Body() dto: TriggerSyncDto,
   ): Promise<PodSyncTriggerResultDto> {
     return this.service.triggerSync(user.organizationId, user.userId, dto);
+  }
+
+  @Post('orders/sync-selected')
+  @HttpCode(HttpStatus.OK)
+  @RequirePermissions('pod.tiktok.order.sync')
+  @ApiOperation({
+    summary: 'Sync Orders — kéo lại các đơn ĐANG CHỌN từ TikTok',
+    description:
+      'Get Order Detail theo lô ≤ 50 đơn mỗi shop, ghi qua cùng luồng ingest với đồng bộ định kỳ (idempotent). ' +
+      'Tối đa 100 đơn mỗi lần; ID trùng được gộp. Đơn của tổ chức khác / ngoài phạm vi shop của người gọi ' +
+      'KHÔNG được đồng bộ (FAILED · ORDER_NOT_FOUND). Thành công một phần: kết quả trả theo từng đơn. ' +
+      'Shop đang có lượt đồng bộ khác ⇒ đơn của shop đó FAILED · SYNC_IN_PROGRESS. Không đồng bộ trạng thái ' +
+      'xưởng in (dùng `POST /fulfillment/orders/:id/sync`).',
+  })
+  @ApiOkResponse({ type: PodSelectedOrdersSyncResultDto })
+  @ApiBadRequestResponse({ description: 'orderIds rỗng / quá 100 / không phải UUID (VALIDATION_ERROR)' })
+  syncSelected(
+    @CurrentUser() user: AuthenticatedUser,
+    @PodScope() scope: PodAccessScope,
+    @Body() dto: SyncSelectedPodOrdersDto,
+  ): Promise<PodSelectedOrdersSyncResultDto> {
+    return this.service.syncSelected(user.organizationId, dto, scope);
   }
 
   @Get('sync-status')

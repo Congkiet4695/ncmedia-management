@@ -27,6 +27,11 @@ export interface IngestionResult {
   failed: number;
   /** `update_time` lớn nhất đã xử lý thành công — dùng cho watermark. */
   maxUpdateTime: bigint;
+  /**
+   * TikTok order ID của các đơn ghi LỖI trong lô (`failed` đếm đúng các đơn này). Tuỳ chọn để các
+   * chỗ chỉ cần tổng không phải khai báo; `ingestBatch` luôn điền.
+   */
+  failedTiktokOrderIds?: string[];
 }
 
 /** Ngữ cảnh thông báo NEW ORDER của một lô — `null` ⇒ lô này không phát thông báo. */
@@ -73,6 +78,7 @@ export class PodOrderIngestionService {
       skipped: 0,
       failed: 0,
       maxUpdateTime: 0n,
+      failedTiktokOrderIds: [],
     };
     if (orders.length === 0) return result;
 
@@ -128,6 +134,7 @@ export class PodOrderIngestionService {
             }
           }
           result.failed += 1;
+          result.failedTiktokOrderIds?.push(item.tiktokOrderId);
           this.logFailure(item.tiktokOrderId, ctx, error);
         }
       }
@@ -147,6 +154,7 @@ export class PodOrderIngestionService {
           result.maxUpdateTime = this.max(result.maxUpdateTime, entry.mapped.tiktokUpdateTime);
         } catch (error) {
           result.failed += 1;
+          result.failedTiktokOrderIds?.push(entry.mapped.tiktokOrderId);
           this.logFailure(entry.mapped.tiktokOrderId, ctx, error);
         }
       }

@@ -47,6 +47,8 @@ import {
   moveImage,
   normalizeImageUrl,
   parseImageUrls,
+  PRODUCT_IMAGE_UPLOAD_MAX_BYTES,
+  PRODUCT_IMAGE_UPLOAD_TYPES,
   readdImage,
 } from '../media-image-order';
 import type { ManualVideo, SessionImageInput } from '../types';
@@ -57,8 +59,8 @@ import type { ManualVideo, SessionImageInput } from '../types';
  */
 const IMAGE_MAX = 9;
 const IMAGE_MIN_RECOMMENDED = 5;
-const IMAGE_MAX_BYTES = 5 * 1024 * 1024;
-const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
+const IMAGE_MAX_BYTES = PRODUCT_IMAGE_UPLOAD_MAX_BYTES;
+const IMAGE_TYPES = [...PRODUCT_IMAGE_UPLOAD_TYPES];
 /** Video: tối đa 100 MB, các định dạng TikTok liệt kê trong UploadProductFile. */
 const VIDEO_MAX_BYTES = 100 * 1024 * 1024;
 const VIDEO_TYPES = [

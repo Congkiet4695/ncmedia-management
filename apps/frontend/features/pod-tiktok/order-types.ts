@@ -411,6 +411,27 @@ export interface TriggerSyncPayload {
   backfill?: boolean;
 }
 
+/** Kết quả "Sync Orders" của MỘT đơn đã chọn. */
+export interface SelectedOrderSyncItem {
+  orderId: string;
+  /** null khi đơn không thuộc tổ chức / ngoài phạm vi shop của người dùng. */
+  tiktokOrderId: string | null;
+  status: 'SYNCED' | 'FAILED';
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+/** `POST /pod/tiktok/orders/sync-selected` — thành công một phần, kết quả theo từng đơn. */
+export interface SelectedOrdersSyncResult {
+  total: number;
+  succeeded: number;
+  failed: number;
+  updated: number;
+  unchanged: number;
+  durationMs: number;
+  results: SelectedOrderSyncItem[];
+}
+
 export interface SyncTriggerResult {
   shopsTotal: number;
   shopsSucceeded: number;

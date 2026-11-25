@@ -1,20 +1,26 @@
 'use client';
 
 import { useState } from 'react';
-import { Download, ImageUp, Loader2, RefreshCw, Send, X } from 'lucide-react';
+import { CloudDownload, Download, ImageUp, Loader2, RefreshCw, Send, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Tooltip } from '@/components/ui/tooltip';
 import { useApiError } from '@/hooks/use-api-error';
 import { fulfillmentService } from '@/features/fulfillment/services/fulfillment.service';
+import { useSyncSelectedPodOrders } from '../../hooks/use-pod-orders';
 import { buildOrdersCsv, downloadCsv, pendingDesignTargets } from '../../order-view-model';
-import type { PodOrderItem, PodOrderListItem } from '../../order-types';
+import type { PodOrderItem, PodOrderListItem, SelectedOrdersSyncResult } from '../../order-types';
+
+/** Số đơn lỗi liệt kê trong toast — phần còn lại gộp thành "…và N đơn khác". */
+const FAILURE_PREVIEW = 3;
 
 interface BulkToolbarProps {
   selected: PodOrderListItem[];
   canFulfill: boolean;
   canViewFulfillment: boolean;
+  /** `pod.tiktok.order.sync` — kéo lại đơn đang chọn từ TikTok. Backend kiểm lại đúng quyền này. */
+  canSyncOrders: boolean;
   onClear: () => void;
   /** Mở dialog upload design cho một sản phẩm cụ thể (hàng đợi do thanh này điều khiển). */
   onUploadDesign: (item: PodOrderItem) => void;
@@ -47,15 +53,76 @@ export function BulkToolbar({
   selected,
   canFulfill,
   canViewFulfillment,
+  canSyncOrders,
   onClear,
   onUploadDesign,
   onRefresh,
 }: BulkToolbarProps) {
   const { t } = useTranslation(['pod', 'common']);
   const translateApiError = useApiError();
-  const [running, setRunning] = useState<'fulfill' | 'sync' | null>(null);
+  const [running, setRunning] = useState<'fulfill' | 'sync' | 'orders' | null>(null);
+  const syncOrders = useSyncSelectedPodOrders();
 
   if (selected.length === 0) return null;
+
+  /**
+   * **Sync Orders** — MỘT request cho cả lựa chọn; backend kiểm tổ chức / phạm vi shop, gom theo shop,
+   * chạy có trần song song và trả kết quả từng đơn. Không lặp request ở trình duyệt.
+   *
+   * 🔴 Chống bấm trùng: `running` khoá MỌI nút của thanh (cùng cơ chế với Fulfill / Sync xưởng in) ngay
+   * từ lần bấm đầu; thêm `isPending` phòng trường hợp re-render trước khi state kịp cập nhật.
+   */
+  const runSyncOrders = async (): Promise<void> => {
+    if (running !== null || syncOrders.isPending) return;
+    setRunning('orders');
+    try {
+      const result = await syncOrders.mutateAsync(selected.map((order) => order.id));
+      reportSyncOrders(result);
+    } catch (error) {
+      toast.error(t('pod:orders.actions.syncOrdersFailed'), {
+        description: translateApiError(error),
+      });
+    } finally {
+      setRunning(null);
+    }
+  };
+
+  const reportSyncOrders = (result: SelectedOrdersSyncResult): void => {
+    const summary = t('pod:orders.actions.syncOrdersSummary', {
+      updated: result.updated,
+      unchanged: result.unchanged,
+    });
+    if (result.failed === 0) {
+      toast.success(
+        result.succeeded === 1
+          ? t('pod:orders.actions.syncOrderDone')
+          : t('pod:orders.actions.syncOrdersDoneMany', { count: result.succeeded }),
+        {
+          description: summary,
+        },
+      );
+      return;
+    }
+    const failures = result.results.filter((item) => item.status === 'FAILED');
+    const lines = failures
+      .slice(0, FAILURE_PREVIEW)
+      .map(
+        (item) =>
+          `${item.tiktokOrderId ?? item.orderId}: ${item.errorMessage ?? item.errorCode ?? ''}`,
+      );
+    if (failures.length > FAILURE_PREVIEW) {
+      lines.push(
+        t('pod:orders.actions.syncOrdersMore', { count: failures.length - FAILURE_PREVIEW }),
+      );
+    }
+    const title = t('pod:orders.actions.syncOrdersPartial', {
+      succeeded: result.succeeded,
+      total: result.total,
+      failed: result.failed,
+    });
+    const notify = result.succeeded === 0 ? toast.error : toast.warning;
+    notify(title, { description: lines.join('\n') });
+  };
 
   /**
    * Hàng đợi Upload Design của nhóm đã chọn — mỗi Product Mapping đúng MỘT lần.
@@ -169,6 +236,27 @@ export function BulkToolbar({
           )}
           {t('pod:orders.fulfillment.fulfill')}
         </Button>
+      )}
+
+      {canSyncOrders && (
+        <Tooltip content={t('pod:orders.actions.syncOrdersHint')}>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={busy || syncOrders.isPending}
+            aria-busy={running === 'orders'}
+            onClick={() => void runSyncOrders()}
+          >
+            {running === 'orders' ? (
+              <Loader2 className="size-4 animate-spin" />
+            ) : (
+              <CloudDownload className="size-4" />
+            )}
+            {selected.length === 1
+              ? t('pod:orders.actions.syncOrder')
+              : t('pod:orders.actions.syncOrdersMany', { count: selected.length })}
+          </Button>
+        </Tooltip>
       )}
 
       {canViewFulfillment && (

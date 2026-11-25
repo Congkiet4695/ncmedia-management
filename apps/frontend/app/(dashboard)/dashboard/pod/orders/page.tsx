@@ -437,6 +437,7 @@ function PodOrdersView() {
                 selected={selectedOrders}
                 canFulfill={canFulfill}
                 canViewFulfillment={canViewFulfillment}
+                canSyncOrders={canSync}
                 onClear={() => setSelectedIds(new Set())}
                 onUploadDesign={setDesignItem}
                 onRefresh={() => {

@@ -1,6 +1,9 @@
 import { ApiProperty, ApiPropertyOptional } from '@nestjs/swagger';
 import { Transform, Type } from 'class-transformer';
 import {
+  ArrayMaxSize,
+  ArrayMinSize,
+  IsArray,
   IsBoolean,
   IsIn,
   IsInt,
@@ -175,6 +178,32 @@ export class UpdatePodOrderDesignAmountDto {
   @Min(0)
   @Max(POD_ORDER_DESIGN_AMOUNT_MAX)
   designAmount!: number;
+}
+
+/**
+ * Trần số đơn của MỘT lần "Sync Orders theo lựa chọn" — bằng cỡ trang lớn nhất của danh sách
+ * (`limit` ≤ 100), vì lựa chọn chỉ sống trong trang đang xem. Chặn ở cổng API để một request
+ * không thể kéo hàng nghìn lời gọi TikTok.
+ */
+export const POD_ORDER_SYNC_SELECTED_MAX = 100;
+
+/** Body của "Sync Orders" cho các đơn đang chọn. */
+export class SyncSelectedPodOrdersDto {
+  @ApiProperty({
+    type: String,
+    format: 'uuid',
+    isArray: true,
+    minItems: 1,
+    maxItems: POD_ORDER_SYNC_SELECTED_MAX,
+    description:
+      'ID nội bộ (`pod_orders.id`) của các đơn cần kéo lại từ TikTok. ID trùng được gộp; ID không ' +
+      'thuộc tổ chức / ngoài phạm vi shop của người gọi trả về FAILED (`ORDER_NOT_FOUND`), không đồng bộ.',
+  })
+  @IsArray()
+  @ArrayMinSize(1)
+  @ArrayMaxSize(POD_ORDER_SYNC_SELECTED_MAX)
+  @IsUUID(undefined, { each: true })
+  orderIds!: string[];
 }
 
 /** Body của trigger đồng bộ thủ công. */
