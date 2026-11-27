@@ -1,6 +1,6 @@
 import type { Metadata } from 'next';
 import Link from 'next/link';
-import { ArrowRight, BookOpen, Check, Mail, MapPin } from 'lucide-react';
+import { ArrowRight, BookOpen, Check, Mail, MapPin, Phone, Send } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { ScreenshotFrame } from '@/features/public-site/components/screenshot-frame';
 import {
@@ -13,6 +13,7 @@ import {
 import { formatUsd, PRICING_PLANS } from '@/features/public-site/pricing';
 import {
   APP_ROUTES,
+  CONTACT_LINKS,
   PUBLIC_ROUTES,
   SITE,
   SITE_OPEN_GRAPH,
@@ -227,8 +228,25 @@ export default function HomePage() {
             <h3 className="font-semibold text-white">Liên hệ</h3>
             <p className="flex items-start gap-2 text-sm">
               <Mail className="mt-0.5 size-4 shrink-0 text-sidebar-active" aria-hidden />
-              <a href={`mailto:${SITE.contact.email}`} className="break-all hover:text-white">
+              <a href={CONTACT_LINKS.email} className="break-all hover:text-white">
                 {SITE.contact.email}
+              </a>
+            </p>
+            <p className="flex items-start gap-2 text-sm">
+              <Send className="mt-0.5 size-4 shrink-0 text-sidebar-active" aria-hidden />
+              <a
+                href={CONTACT_LINKS.telegram}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="break-all hover:text-white"
+              >
+                Telegram: {CONTACT_LINKS.telegramLabel}
+              </a>
+            </p>
+            <p className="flex items-start gap-2 text-sm">
+              <Phone className="mt-0.5 size-4 shrink-0 text-sidebar-active" aria-hidden />
+              <a href={CONTACT_LINKS.phone} className="hover:text-white">
+                {SITE.contact.phone}
               </a>
             </p>
             <p className="flex items-start gap-2 text-sm">

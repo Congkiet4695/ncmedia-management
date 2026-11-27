@@ -37,9 +37,20 @@ export const SITE = {
     'Quản lý tập trung nhiều TikTok Shop: sản phẩm, đăng sản phẩm hàng loạt, Flash Sale, đơn hàng và fulfillment — cho cả đội ngũ, trên một nền tảng.',
   logo: '/logo.jpg',
   contact: {
-    email: 'nguyenminhchinh000@gmail.com',
+    email: 'vophungcongkietiuh@gmail.com',
+    /** Username Telegram (không kèm `@`) — link và nhãn hiển thị đều dựng từ đây. */
+    telegram: 'KenvinCam',
+    phone: '0869667246',
     location: 'Liên Chiểu, Đà Nẵng',
   },
+} as const;
+
+/** Link liên hệ dựng từ `SITE.contact` — header/footer/CTA dùng chung, không tự ghép chuỗi. */
+export const CONTACT_LINKS = {
+  email: `mailto:${SITE.contact.email}`,
+  telegram: `https://t.me/${SITE.contact.telegram}`,
+  telegramLabel: `@${SITE.contact.telegram}`,
+  phone: `tel:${SITE.contact.phone}`,
 } as const;
 
 /**

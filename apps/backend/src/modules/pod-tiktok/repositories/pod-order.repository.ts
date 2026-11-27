@@ -10,6 +10,8 @@ import { POD_ORDER_INCLUDE, PodOrderWithRelations } from '../types/pod-order-wit
 export interface ExistingOrderSnapshot {
   id: string;
   tiktokOrderId: string;
+  /** Trạng thái TikTok đang lưu — để ghi log chuyển trạng thái (vd → CANCELLED). */
+  status: string;
   tiktokUpdateTime: bigint;
   payloadHash: string;
   recipientMasked: boolean;
@@ -117,6 +119,7 @@ export class PodOrderRepository {
       select: {
         id: true,
         tiktokOrderId: true,
+        status: true,
         tiktokUpdateTime: true,
         payloadHash: true,
         recipientMasked: true,

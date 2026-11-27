@@ -120,6 +120,7 @@ export class PodOrderResponseMapper {
       // Ưu tiên nickname; email của TikTok là địa chỉ ẩn danh nên chỉ dùng khi thiếu nickname.
       buyer: order.buyerNickname ?? order.buyerEmail,
       status: order.status,
+      cancellationInitiator: order.cancellationInitiator,
       totalAmount: this.toNumber(order.totalAmount),
       currency: order.currency,
       subTotal: this.toNumber(order.subTotal),

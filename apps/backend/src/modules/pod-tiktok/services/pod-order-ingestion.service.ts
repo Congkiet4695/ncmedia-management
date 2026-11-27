@@ -335,6 +335,25 @@ export class PodOrderIngestionService {
     }
     // KHÔNG xoá item cũ khi TikTok không còn trả về (yêu cầu nghiệp vụ Sprint 2).
     await this.repo.upsertPackages(tx, ctx.organizationId, existing.id, mapped.packageIds);
+
+    // Dấu vết chuyển trạng thái (vd AWAITING_COLLECTION → CANCELLED) — để truy được "đơn đổi trạng thái
+    // lúc nào, qua nguồn nào". Chỉ mã trạng thái / người huỷ, KHÔNG có dữ liệu người mua hay token.
+    if (existing.status !== mapped.data.status) {
+      this.logger.log({
+        module: 'pod-tiktok',
+        operation: 'ORDER_SYNC',
+        organizationId: ctx.organizationId,
+        accountId: ctx.accountId,
+        shopId: ctx.shopId,
+        tiktokOrderId: mapped.tiktokOrderId,
+        statusBefore: existing.status,
+        statusAfter: mapped.data.status,
+        cancellationInitiator: mapped.data.cancellationInitiator,
+        source: ctx.source,
+        result: 'STATUS_CHANGED',
+        msg: `Đơn đổi trạng thái ${existing.status} → ${mapped.data.status}`,
+      });
+    }
   }
 
   /** Xử lý race: đơn vừa được tiến trình khác tạo giữa lúc ta đang INSERT. */

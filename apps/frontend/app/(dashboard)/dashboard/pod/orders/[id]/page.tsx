@@ -10,10 +10,12 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { useTranslation } from 'react-i18next';
 import { RequirePermission } from '@/components/require-permission';
 import { useApiError } from '@/hooks/use-api-error';
+import { useAuth } from '@/hooks/use-auth';
 import { useBusinessLocaleFormat } from '@/hooks/use-locale-format';
 import { ImageLightbox } from '@/features/pod-tiktok/components/image-lightbox';
 import { OrderProductList } from '@/features/pod-tiktok/components/order-product-list';
 import { OrderFinancialCard } from '@/features/pod-tiktok/components/orders/order-financial-card';
+import { OrderDetailSyncButton } from '@/features/pod-tiktok/components/orders/order-detail-sync-button';
 import { PodOrderStatusBadge } from '@/features/pod-tiktok/components/pod-order-status-badge';
 import { UploadDesignDialog } from '@/features/pod-tiktok/components/upload-design-dialog';
 import type { PodOrderItem } from '@/features/pod-tiktok/order-types';
@@ -57,6 +59,8 @@ function DetailView({ id }: { id: string }) {
   // Giờ Los Angeles (múi giờ nghiệp vụ US) — cùng múi giờ với bộ lọc ngày, không theo giờ máy người xem.
   const { formatDateTime } = useBusinessLocaleFormat();
   const { data: order, isLoading, isError, error } = usePodOrder(id);
+  const { hasPermission } = useAuth();
+  const canSync = hasPermission('pod.tiktok.order.sync');
   const [designItem, setDesignItem] = useState<PodOrderItem | null>(null);
   const [lightbox, setLightbox] = useState<string | null>(null);
 
@@ -108,7 +112,8 @@ function DetailView({ id }: { id: string }) {
               POD
             </Badge>
           )}
-          <PodOrderStatusBadge status={order.status} />
+          <PodOrderStatusBadge status={order.status} cancellationInitiator={order.cancellationInitiator} />
+          {canSync && <OrderDetailSyncButton orderId={order.id} />}
         </div>
       </div>
 

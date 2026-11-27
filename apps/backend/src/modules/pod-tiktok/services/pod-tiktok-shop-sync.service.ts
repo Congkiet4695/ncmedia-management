@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { PodTiktokAccountStatus, PodTiktokShopStatus } from '@prisma/client';
+import { PodTiktokShopStatus } from '@prisma/client';
 import { TiktokApiClient } from '../clients/tiktok-api.client';
 import type { SyncTiktokShopsDto } from '../dto/pod-tiktok-query.dto';
 import type {
@@ -14,22 +14,12 @@ import {
 } from '../repositories/pod-tiktok-shop-sync.repository';
 import { runWithBoundedConcurrency } from '../shared/bounded-concurrency';
 import { normalizeSellerType } from '../shared/seller-type';
+// Trạng thái kết nối được phép gọi TikTok — dùng CHUNG với đồng bộ đơn (`listShopsForSync`).
+import { SYNCABLE_ACCOUNT_STATUSES } from '../shared/syncable-account';
 import type { TiktokShopItem } from '../types/tiktok-api.types';
 import { PodAccessScopeService, type PodAccessScope } from './pod-access-scope.service';
 import { PodTiktokTokenService } from './pod-tiktok-token.service';
 import { TiktokEncryptionService } from './tiktok-encryption.service';
-
-/**
- * Trạng thái KẾT NỐI cho phép gọi TikTok trong Shop Sync.
- *
- * `ERROR` vẫn thử: đó là lỗi refresh tạm thời, token có thể đã dùng lại được. Còn
- * `REAUTH_REQUIRED` / `DEAUTHORIZED` / `DISCONNECTED` / `PENDING` thì gọi chắc chắn hỏng —
- * chỉ đốt quota chung của app — nên BỎ QUA và nói rõ lý do.
- */
-const SYNCABLE_ACCOUNT_STATUSES: readonly PodTiktokAccountStatus[] = [
-  PodTiktokAccountStatus.ACTIVE,
-  PodTiktokAccountStatus.ERROR,
-];
 
 /** Mã lý do cho shop KHÔNG được xử lý vì request đã hết ngân sách thời gian. */
 const DEADLINE_EXCEEDED_CODE = 'DEADLINE_EXCEEDED';

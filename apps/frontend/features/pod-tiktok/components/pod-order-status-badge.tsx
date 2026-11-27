@@ -31,12 +31,34 @@ export function usePodOrderStatusLabel(): (status: PodOrderStatus) => string {
   return (status) => (i18n.exists(`pod:status.${status}`) ? t(`status.${status}`) : status);
 }
 
-export function PodOrderStatusBadge({ status, className }: { status: PodOrderStatus; className?: string }) {
+export function PodOrderStatusBadge({
+  status,
+  cancellationInitiator,
+  className,
+}: {
+  status: PodOrderStatus;
+  /** `cancellation_initiator` của TikTok — chỉ hiển thị khi đơn `CANCELLED` (như "Canceled by Seller"). */
+  cancellationInitiator?: string | null;
+  className?: string;
+}) {
   const label = usePodOrderStatusLabel();
-  return (
+  const { t, i18n } = useTranslation('pod');
+  const badge = (
     <Badge variant={ORDER_VARIANT[status] ?? 'muted'} className={className}>
       {label(status)}
     </Badge>
+  );
+  if (status !== 'CANCELLED' || !cancellationInitiator) return badge;
+
+  const key = cancellationInitiator.toUpperCase();
+  const initiator = i18n.exists(`pod:orderCancelledBy.${key}`)
+    ? t(`orderCancelledBy.${key}`)
+    : t('orderCancelledBy.other', { who: cancellationInitiator });
+  return (
+    <span className="inline-flex flex-col items-start gap-0.5">
+      {badge}
+      <span className="text-[11px] leading-tight text-destructive">{initiator}</span>
+    </span>
   );
 }
 

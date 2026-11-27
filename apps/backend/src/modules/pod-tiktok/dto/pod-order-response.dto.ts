@@ -380,6 +380,14 @@ export class PodOrderListItemDto {
   @ApiProperty({ nullable: true, type: String, description: 'Nickname hoặc email người mua' })
   buyer!: string | null;
   @ApiProperty() status!: string;
+  @ApiProperty({
+    nullable: true,
+    type: String,
+    description:
+      'Bên huỷ đơn theo TikTok (`cancellation_initiator`: SELLER | BUYER | SYSTEM) — hiển thị ' +
+      '"Canceled by Seller" như Seller Center. NULL khi đơn không bị huỷ.',
+  })
+  cancellationInitiator!: string | null;
   @ApiProperty({ nullable: true, type: Number }) totalAmount!: number | null;
   @ApiProperty({ nullable: true, type: String }) currency!: string | null;
   // Các khoản của đơn (TikTok `payment`) — cột Giá hiển thị trực tiếp, không phải mở chi tiết.

@@ -158,7 +158,7 @@ export const PodOrderRow = memo(function PodOrderRow({
         {/* 4. Order Status — badge dòng riêng, chữ dài xuống dòng TRONG cột. */}
         <TableCell className={ORDER_COLUMNS.status}>
           {/* Cột hẹp: chữ xuống dòng trong badge, không tràn sang cột Tracking. */}
-          <PodOrderStatusBadge status={order.status} className="whitespace-normal rounded-md px-1.5 text-[11px] leading-tight" />
+          <PodOrderStatusBadge status={order.status} cancellationInitiator={order.cancellationInitiator} className="whitespace-normal rounded-md px-1.5 text-[11px] leading-tight" />
         </TableCell>
 
         {/* 5. Tracking Number */}

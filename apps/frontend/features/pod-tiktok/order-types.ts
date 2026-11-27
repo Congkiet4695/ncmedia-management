@@ -302,6 +302,8 @@ export interface PodOrderListItem {
   sellerEmail: string | null;
   buyer: string | null;
   status: PodOrderStatus;
+  /** Bên huỷ đơn theo TikTok (SELLER | BUYER | SYSTEM) — NULL khi đơn không bị huỷ. */
+  cancellationInitiator: string | null;
   totalAmount: number | null;
   currency: string | null;
   subTotal: number | null;

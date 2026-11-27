@@ -12,6 +12,7 @@ import { normalizeSearchText } from '../features/public-site/docs/search-text.ts
 import { formatUsd, PRICING_PLANS } from '../features/public-site/pricing.ts';
 import {
   APP_ROUTES,
+  CONTACT_LINKS,
   isPublicSitePath,
   PUBLIC_NAV,
   PUBLIC_ROUTES,
@@ -96,14 +97,26 @@ check(
   [true, true, true, true, false, false, false, false, false],
 );
 check(
-  'Liên hệ: email & địa điểm',
-  [SITE.contact.email, SITE.contact.location],
-  ['nguyenminhchinh000@gmail.com', 'Liên Chiểu, Đà Nẵng'],
+  'Liên hệ: email, Telegram, điện thoại & địa điểm',
+  [SITE.contact.email, SITE.contact.telegram, SITE.contact.phone, SITE.contact.location],
+  ['vophungcongkietiuh@gmail.com', 'KenvinCam', '0869667246', 'Liên Chiểu, Đà Nẵng'],
 );
-check('Liên hệ: không có số điện thoại / mạng xã hội', Object.keys(SITE.contact).sort(), [
+check('Liên hệ: đúng các kênh đã công bố', Object.keys(SITE.contact).sort(), [
   'email',
   'location',
+  'phone',
+  'telegram',
 ]);
+check(
+  'Liên hệ: link mailto / Telegram / tel',
+  [CONTACT_LINKS.email, CONTACT_LINKS.telegram, CONTACT_LINKS.telegramLabel, CONTACT_LINKS.phone],
+  [
+    'mailto:vophungcongkietiuh@gmail.com',
+    'https://t.me/KenvinCam',
+    '@KenvinCam',
+    'tel:0869667246',
+  ],
+);
 check(
   'Domain canonical mặc định',
   SITE.url,

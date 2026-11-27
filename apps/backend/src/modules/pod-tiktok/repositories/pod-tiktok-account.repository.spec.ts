@@ -1,4 +1,4 @@
-import { PodTiktokShopStatus } from '@prisma/client';
+import { PodTiktokAccountStatus, PodTiktokShopStatus } from '@prisma/client';
 import { PodTiktokAccountRepository, type PodTiktokFindManyParams } from './pod-tiktok-account.repository';
 
 /**
@@ -99,5 +99,49 @@ describe('PodTiktokAccountRepository.findAssignedSellers', () => {
     });
     expect(argOf(prisma.podTiktokAccount.count).where).toEqual({ ...scope, sellerId: null });
     expect(result).toEqual({ sellers: [{ id: 'e-1', user: { id: 'u', fullName: 'A', email: 'a@x' } }], unassignedAccounts: 2 });
+  });
+});
+
+/**
+ * Cron đồng bộ đơn chọn shop theo trạng thái KẾT NỐI. Đơn huỷ trên TikTok chỉ về được hệ thống nếu
+ * shop còn nằm trong danh sách này.
+ */
+describe('PodTiktokAccountRepository.listShopsForSync — kết nối nào còn được đồng bộ đơn', () => {
+  const run = async (organizationId?: string) => {
+    const prisma = { podTiktokShop: { findMany: jest.fn().mockResolvedValue([]) } };
+    await new PodTiktokAccountRepository(prisma as never).listShopsForSync(
+      new Date('2026-11-28T00:00:00Z'),
+      organizationId,
+    );
+    return argOf(prisma.podTiktokShop.findMany).where as Record<string, unknown>;
+  };
+
+  it('🔴 Case 3 + ERROR — kết nối ACTIVE và ERROR (refresh lỗi tạm thời) VẪN được cron đồng bộ', async () => {
+    const where = await run();
+    expect(where.account).toEqual({
+      deletedAt: null,
+      status: { in: [PodTiktokAccountStatus.ACTIVE, PodTiktokAccountStatus.ERROR] },
+    });
+  });
+
+  it.each([
+    PodTiktokAccountStatus.REAUTH_REQUIRED,
+    PodTiktokAccountStatus.DEAUTHORIZED,
+    PodTiktokAccountStatus.DISCONNECTED,
+    PodTiktokAccountStatus.PENDING,
+  ])('Case 4 — kết nối %s (mất uỷ quyền) KHÔNG được cron gọi TikTok', async (status) => {
+    const where = await run();
+    const allowed = (where.account as { status: { in: PodTiktokAccountStatus[] } }).status.in;
+    expect(allowed).not.toContain(status);
+  });
+
+  it('không lọc theo trạng thái SHOP — shop bị TikTok tạm ngưng (INACTIVE) vẫn cập nhật đơn', async () => {
+    const where = await run();
+    expect(where).not.toHaveProperty('status');
+    expect(where).toEqual(expect.objectContaining({ deletedAt: null, syncEnabled: true }));
+  });
+
+  it('đồng bộ thủ công giữ ràng buộc tổ chức', async () => {
+    expect(await run('org-1')).toEqual(expect.objectContaining({ organizationId: 'org-1' }));
   });
 });

@@ -8,6 +8,7 @@ import {
 } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { accountScopeFilter } from '../shared/shop-scope';
+import { SYNCABLE_ACCOUNT_STATUSES } from '../shared/syncable-account';
 import { PodTiktokSortField } from '../constants/tiktok.constants';
 import {
   POD_TIKTOK_ACCOUNT_INCLUDE,
@@ -476,7 +477,15 @@ export class PodTiktokAccountRepository {
    * - Đồng bộ thủ công từ API **BẮT BUỘC** truyền `organizationId`: người dùng của một
    *   tổ chức không được phép kích hoạt đồng bộ (và tiêu thụ quota TikTok) cho tổ chức khác.
    *
-   * Chỉ lấy account `ACTIVE`, shop bật sync và không bị circuit breaker tạm ngưng.
+   * Chỉ lấy kết nối còn gọi được TikTok (`SYNCABLE_ACCOUNT_STATUSES` = ACTIVE | ERROR), shop bật
+   * sync và không bị circuit breaker tạm ngưng.
+   *
+   * 🔴 Trước đây chỉ lấy `ACTIVE`: kết nối rơi vào `ERROR` (refresh lỗi tạm thời ≥ ngưỡng) bị loại
+   * khỏi cron VĨNH VIỄN — không lượt nào refresh lại nên nó không bao giờ về `ACTIVE`, và mọi thay đổi
+   * trạng thái đơn trên TikTok (vd huỷ đơn) không còn được kéo về.
+   *
+   * Không lọc theo trạng thái SHOP (`INACTIVE`): shop bị TikTok tạm ngưng vẫn có đơn đang chạy / bị
+   * huỷ cần cập nhật.
    */
   listShopsForSync(now: Date, organizationId?: string) {
     return this.prisma.podTiktokShop.findMany({
@@ -485,7 +494,7 @@ export class PodTiktokAccountRepository {
         syncEnabled: true,
         ...(organizationId ? { organizationId } : {}),
         OR: [{ syncPausedUntil: null }, { syncPausedUntil: { lte: now } }],
-        account: { deletedAt: null, status: PodTiktokAccountStatus.ACTIVE },
+        account: { deletedAt: null, status: { in: [...SYNCABLE_ACCOUNT_STATUSES] } },
       },
       select: {
         id: true,

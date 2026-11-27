@@ -79,7 +79,7 @@ export function PodOrderCard({
           <OrderInfoCell order={order} accountId={accountId} />
         </div>
         <div className="flex shrink-0 flex-col items-end gap-1">
-          <PodOrderStatusBadge status={order.status} />
+          <PodOrderStatusBadge status={order.status} cancellationInitiator={order.cancellationInitiator} />
           <OrderActionMenu
             orderId={order.id}
             items={order.items}

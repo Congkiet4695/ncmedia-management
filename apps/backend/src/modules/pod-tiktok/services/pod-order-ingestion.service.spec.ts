@@ -1,3 +1,4 @@
+import { Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../database/prisma.service';
 import { PodOrderMapper } from '../mappers/pod-order.mapper';
@@ -104,6 +105,7 @@ describe('PodOrderIngestionService — Compare Logic', () => {
         {
           id: 'existing-uuid',
           tiktokOrderId: order.id,
+          status: order.status,
           tiktokUpdateTime: BigInt(order.update_time),
           payloadHash: mapper.hashOrder(order),
           recipientMasked: false,
@@ -481,6 +483,106 @@ describe('PodOrderIngestionService — Compare Logic', () => {
       await service.ingestBatch([order], CTX);
 
       expect(outbox.enqueueInTransaction).not.toHaveBeenCalled();
+    });
+  });
+  /**
+   * Đơn bị HUỶ trên TikTok (vd 577707186642260561 — "Canceled · Canceled by Seller") phải được kéo
+   * về đúng trạng thái. TikTok trả `status = CANCELLED` + `cancellation_initiator = SELLER|BUYER|SYSTEM`;
+   * hệ thống lưu NGUYÊN mã trạng thái (không có bảng ánh xạ riêng) và người huỷ vào
+   * `cancellation_initiator`.
+   */
+  describe('Huỷ đơn trên TikTok', () => {
+    const before = () =>
+      buildOrder('577707186642260561', 1000, { status: 'AWAITING_COLLECTION' });
+    const cancelled = (initiator: string, updateTime = 2000) =>
+      buildOrder('577707186642260561', updateTime, {
+        status: 'CANCELLED',
+        cancellation_initiator: initiator,
+        cancel_reason: 'Seller cancelled',
+        cancel_time: updateTime,
+      });
+
+    let logSpy: jest.SpyInstance;
+    beforeEach(() => {
+      logSpy = jest.spyOn(Logger.prototype, 'log').mockImplementation(() => undefined);
+    });
+    afterEach(() => logSpy.mockRestore());
+
+    it('🔴 Case 1/2 — Awaiting Collection → TikTok "Canceled by Seller" ⇒ UPDATE status = CANCELLED, người huỷ = SELLER', async () => {
+      repo.findSnapshotsByTiktokOrderIds.mockResolvedValue(snapshotOf(before()));
+
+      const result = await service.ingestBatch([cancelled('SELLER')], CTX);
+
+      expect(result).toEqual(expect.objectContaining({ created: 0, updated: 1, failed: 0 }));
+      const patch = callArg<Record<string, unknown>>(repo.updateOrder, 0, 2);
+      expect(patch).toEqual(
+        expect.objectContaining({
+          status: 'CANCELLED',
+          cancellationInitiator: 'SELLER',
+          cancelReason: 'Seller cancelled',
+        }),
+      );
+      expect(repo.createOrder).not.toHaveBeenCalled();
+    });
+
+    it('huỷ bởi người mua ⇒ cùng status CANCELLED, người huỷ = BUYER', async () => {
+      repo.findSnapshotsByTiktokOrderIds.mockResolvedValue(snapshotOf(before()));
+
+      await service.ingestBatch([cancelled('BUYER')], CTX);
+
+      expect(callArg<Record<string, unknown>>(repo.updateOrder, 0, 2)).toEqual(
+        expect.objectContaining({ status: 'CANCELLED', cancellationInitiator: 'BUYER' }),
+      );
+    });
+
+    it('ghi log ORDER_SYNC trước → sau (không có dữ liệu người mua)', async () => {
+      repo.findSnapshotsByTiktokOrderIds.mockResolvedValue(snapshotOf(before()));
+
+      await service.ingestBatch([cancelled('SELLER')], { ...CTX, source: 'MANUAL' });
+
+      const entry = logSpy.mock.calls
+        .map((call: unknown[]) => call[0] as Record<string, unknown>)
+        .find((payload) => payload?.operation === 'ORDER_SYNC');
+      expect(entry).toEqual(
+        expect.objectContaining({
+          tiktokOrderId: '577707186642260561',
+          statusBefore: 'AWAITING_COLLECTION',
+          statusAfter: 'CANCELLED',
+          cancellationInitiator: 'SELLER',
+          source: 'MANUAL',
+        }),
+      );
+      expect(JSON.stringify(entry)).not.toMatch(/recipient|buyer_email|access/i);
+    });
+
+    it('🔴 Case 5 — đồng bộ lại 3 lần ⇒ 1 UPDATE rồi SKIP, không tạo đơn / item trùng', async () => {
+      repo.findSnapshotsByTiktokOrderIds.mockResolvedValueOnce(snapshotOf(before()));
+      const first = await service.ingestBatch([cancelled('SELLER')], CTX);
+
+      // Sau lần 1 DB đã giữ bản CANCELLED (cùng update_time + hash).
+      repo.findSnapshotsByTiktokOrderIds.mockResolvedValue(snapshotOf(cancelled('SELLER')));
+      repo.findItemHashesByOrderIds.mockResolvedValue(new Map());
+      const second = await service.ingestBatch([cancelled('SELLER')], CTX);
+      const third = await service.ingestBatch([cancelled('SELLER')], CTX);
+
+      expect(first.updated).toBe(1);
+      expect(second).toEqual(expect.objectContaining({ updated: 0, skipped: 1, created: 0 }));
+      expect(third).toEqual(expect.objectContaining({ updated: 0, skipped: 1, created: 0 }));
+      expect(repo.createOrder).not.toHaveBeenCalled();
+      expect(repo.updateOrder).toHaveBeenCalledTimes(1);
+      expect(outbox.enqueueInTransaction).not.toHaveBeenCalled();
+    });
+
+    it('🔴 Case 6 — chỉ ghi dữ liệu ĐƠN TikTok: không có trường fulfillment / nhà cung cấp / base cost trong bản ghi', async () => {
+      repo.findSnapshotsByTiktokOrderIds.mockResolvedValue(snapshotOf(before()));
+
+      await service.ingestBatch([cancelled('SELLER')], CTX);
+
+      const keys = Object.keys(callArg<Record<string, unknown>>(repo.updateOrder, 0, 2));
+      // (`fulfillmentType` / `shippingProvider` là trường logistics CỦA TikTok, không phải fulfillment nội bộ.)
+      expect(
+        keys.filter((key) => /providerOrder|baseCost|fulfillmentStatus|fulfillmentId|fulfillmentAccount/i.test(key)),
+      ).toEqual([]);
     });
   });
 });

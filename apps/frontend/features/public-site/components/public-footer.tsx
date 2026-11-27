@@ -1,7 +1,7 @@
 import Link from 'next/link';
-import { Mail, MapPin } from 'lucide-react';
+import { Mail, MapPin, Phone, Send } from 'lucide-react';
 import { BrandLogo } from '@/components/brand-logo';
-import { APP_ROUTES, PUBLIC_NAV, SITE } from '../site-config';
+import { APP_ROUTES, CONTACT_LINKS, PUBLIC_NAV, SITE } from '../site-config';
 
 /** Footer website public — mọi thông tin đọc từ `SITE` (không lặp lại email / địa chỉ ở nơi khác). */
 export function PublicFooter() {
@@ -60,10 +60,30 @@ export function PublicFooter() {
             <li className="flex items-start gap-2">
               <Mail className="mt-0.5 size-4 shrink-0 text-sidebar-active" aria-hidden />
               <a
-                href={`mailto:${SITE.contact.email}`}
+                href={CONTACT_LINKS.email}
                 className="break-all text-sidebar-muted transition-colors hover:text-white"
               >
                 {SITE.contact.email}
+              </a>
+            </li>
+            <li className="flex items-start gap-2">
+              <Send className="mt-0.5 size-4 shrink-0 text-sidebar-active" aria-hidden />
+              <a
+                href={CONTACT_LINKS.telegram}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="break-all text-sidebar-muted transition-colors hover:text-white"
+              >
+                Telegram: {CONTACT_LINKS.telegramLabel}
+              </a>
+            </li>
+            <li className="flex items-start gap-2">
+              <Phone className="mt-0.5 size-4 shrink-0 text-sidebar-active" aria-hidden />
+              <a
+                href={CONTACT_LINKS.phone}
+                className="text-sidebar-muted transition-colors hover:text-white"
+              >
+                {SITE.contact.phone}
               </a>
             </li>
             <li className="flex items-start gap-2">
